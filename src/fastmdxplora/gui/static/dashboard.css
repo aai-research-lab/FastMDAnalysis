@@ -4814,24 +4814,33 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .agent-badge { font-size: var(--text-2xs); padding: 2px 8px; border-radius: 999px;
     background: var(--background-elevated); color: var(--text-muted); }
 .agent-badge.is-ok { color: var(--status-completed); }
-.agent-study-change { padding: 10px 14px 0; font-size: var(--text-md); }
+.agent-study-change { padding: 10px 14px 0; font-size: var(--text-md); min-width: 0; overflow-wrap: anywhere; }
 .agent-study-change[hidden] { display: none; }
 .agent-change-row .was { color: var(--text-muted); text-decoration: line-through; }
 .agent-change-row .arrow { color: var(--text-muted); margin: 0 6px; }
 .agent-change-row .now { font-weight: 600; }
 .agent-change-rest { color: var(--text-muted); font-size: var(--text-sm); margin-top: 4px; }
-.agent-config-review { padding: 10px 14px; min-width: 0; }
+/* Each change of a proposed version with Accept and Reject, beside Use this
+   version (agent-panel.js `drawReview`). A long value (a path) wraps inside
+   the card at any width. */
+.agent-config-review { padding: 0 14px 10px; min-width: 0; overflow-wrap: anywhere; }
 .agent-config-review[hidden] { display: none; }
-.agent-review-row { margin: 0 0 10px; padding: 10px; min-width: 0;
-    border: 1px solid var(--border-primary); border-radius: 8px; }
-.agent-review-row legend { font-weight: 600; max-width: 100%; overflow-wrap: anywhere; }
-.agent-review-values, .agent-review-reasons { margin: 0 0 8px; overflow-wrap: anywhere;
-    white-space: pre-wrap; font-size: var(--text-sm); }
-.agent-review-reasons, .agent-review-note { color: var(--text-secondary); font-size: var(--text-sm); }
-.agent-review-row button { margin-right: 8px; }
-.agent-review-row button[aria-pressed="true"] { border-color: var(--accent);
+.agent-review-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 12px;
+    padding: 6px 0; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
+.agent-review-row.is-refused { margin-left: -11px; padding-left: 8px;
+    border-left: 3px solid var(--status-waiting); }
+.agent-review-what { flex: 1 1 14em; min-width: 0; }
+.agent-review-label { font-weight: 600; }
+.agent-review-reasons { margin-top: 2px; color: var(--text-secondary); font-size: var(--text-sm); }
+.agent-review-choice { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 0 auto; }
+.agent-review-choice button[aria-pressed="true"] { border-color: var(--accent);
     background: var(--background-soft); color: var(--accent-text); }
-.agent-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.agent-review-refusal { margin-top: 8px; padding: 6px 10px; font-size: var(--text-sm);
+    border-left: 3px solid var(--status-waiting); }
+.agent-review-refusal[hidden] { display: none; }
+.agent-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.agent-review-uses { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.agent-review-note { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--text-sm); }
 /* Where each value came from, at the end of its line, and the Agent's
    reason under it. */
 .agent-study .agent-plan dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }

@@ -1931,11 +1931,7 @@
     var area = el("agent-request");
     var typed = area.value.trim();
     if (!typed || writing) return;
-    if (reviewPending()) {
-      newest().review.note.textContent = "Use the reviewed version or cancel the review before sending another message.";
-      newest().review.note.scrollIntoView({ block: "nearest" });
-      return;
-    }
+    if (heldByReview("sending another message")) return;
     /* Not before the thread has been read: sent first, it went into a
      * second conversation (seventeenth review, 10-08). Sent once it has. */
     if (!threadRead) { firstRead.then(draft); return; }
@@ -3000,6 +2996,7 @@
     r.part("count").hidden = true;
     r.part("change").hidden = true;
     r.part("review").hidden = true;
+    v.review = null;
     r.part("whole").hidden = true;
     r.part("actions").hidden = true;
     var unfold = r.part("unfold");
@@ -3020,10 +3017,8 @@
     r.part("whole").hidden = false;
     r.part("actions").hidden = false;
     if (v.changes) showChanges(r, v.changes, v.number - 1);
-    if (v.previous) {
-      r.part("review").hidden = false;
-      if (v.review && v.review.active) r.part("actions").hidden = true;
-    }
+    if (v.review && v.review.rows) drawReview(v, v.review);
+    else offerReview(v);
   }
 
   function newVersion(r, data, number) {
@@ -3031,6 +3026,9 @@
               changes: data.changes || null };
     var previous = versions[versions.length - 1];
     v.previous = previous || null;
+    /* Proposed by the Agent: not a version the person made from choices
+     * or from an earlier version. */
+    v.proposed = !!previous && !data.review && data.again == null;
     if (previous) fold(previous, v.number);
     versions.push(v);
     r.part("version").textContent = "Study, version " + v.number;
@@ -3044,197 +3042,346 @@
       r.part("unfold").textContent = opening ? "Hide" : "Show";
     };
     r.part("use").onclick = function () { useVersion(v); };
-    if (previous) reviewButton(v);
+    /* After the thread in hand is drawn: on a restore only the newest is
+     * read. */
+    Promise.resolve().then(function () { offerReview(v); });
     return v;
   }
 
-  /* Review is a draft of choices. Only a validated response creates a new
-   * version. The two Configs being compared are never edited in place. */
+  /* Each change of a version the Agent proposed, old value to new, with
+   * Accept and Reject beside Use this version. Use this version takes the
+   * proposal as it is; once a change is rejected, Use reviewed version
+   * makes a new version from the choices, and only through the validator.
+   * The two Configs compared are never edited in place. Choices not yet
+   * applied are kept in this browser by conversation and version, so a
+   * reload keeps them; a draft is never written as a Config. */
+  var REVIEW_KEY = "fmx.reviewChoices.";
+
+  function reviewKey(review, v) {
+    var c = review.conv;
+    return c.id ? REVIEW_KEY + JSON.stringify([c.study || null, c.id, v.number]) : null;
+  }
+
+  function keptChoices(review, v) {
+    var key = reviewKey(review, v);
+    if (!key) return null;
+    try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; }
+  }
+
+  function keepChoices(review, v, kept) {
+    var key = reviewKey(review, v);
+    if (!key) return;
+    try {
+      if (kept) localStorage.setItem(key, JSON.stringify(kept));
+      else localStorage.removeItem(key);
+    } catch (e) { /* not kept: the review still works */ }
+  }
+
+  function rejectedIn(review) {
+    return (review.rows || []).filter(function (c) { return review.choices[c.setting] === "reject"; });
+  }
+
+  /* A rejected change not yet applied holds Run and the next message: either
+   * would act on the proposal, not on what was chosen. */
   function reviewPending() {
     var v = newest();
-    return !!(v && v.review && v.review.active);
+    return !!(v && v.review && v.review.rows && rejectedIn(v.review).length);
   }
 
-  function reviewButton(v) {
-    var host = v.r.part("review");
-    host.replaceChildren();
-    host.hidden = false;
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "ctl-btn";
-    button.textContent = "Review each change";
-    button.onclick = function () { beginReview(v); };
-    host.appendChild(button);
+  function heldByReview(doing) {
+    if (!reviewPending()) return false;
+    var v = newest();
+    v.review.note.textContent = "Use reviewed version, or Use this version to keep version "
+      + v.number + " as proposed, before " + doing + ".";
+    v.review.note.scrollIntoView({ block: "nearest" });
+    return true;
   }
 
-  function beginReview(v) {
-    if (writing || v !== newest()) return;
-    var host = v.r.part("review");
+  function counted(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
+  function eitherOf(names) {
+    return names.length < 2 ? names.join("")
+      : names.slice(0, -1).join(", ") + " or " + names[names.length - 1];
+  }
+
+  /* Read the changes one by one from the server, for the newest proposal. */
+  function offerReview(v) {
+    if (!v.proposed || v.review || v !== newest()) return;
     var mine = conv;
-    var status = document.createElement("p");
-    status.className = "agent-review-note";
-    status.setAttribute("role", "status");
-    status.textContent = "Reading the changes...";
-    var cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "ctl-btn";
-    cancel.textContent = "Cancel review";
-    var review = v.review = { active: true, note: status };
-    function stands() {
-      return !leaving && conv === mine && v === newest() && review.active
+    var review = v.review = { conv: mine, rows: null, choices: Object.create(null),
+                              refusal: null, busy: false };
+    review.stands = function () {
+      return !leaving && conv === mine && v === newest() && v.review === review
         && v.r.node.isConnected;
-    }
-    cancel.onclick = function () {
-      review.active = false;
-      if (v !== newest()) return;
-      v.r.part("actions").hidden = false;
-      reviewButton(v);
-      host.querySelector("button").focus();
     };
-    host.replaceChildren(status, cancel);
-    v.r.part("actions").hidden = true;
-    var compared = { before: v.previous.data.config, after: v.data.config };
+    var compared = review.compared = { before: v.previous.data.config, after: v.data.config };
+    function unavailable(why) {
+      if (!review.stands()) return;
+      var said = document.createElement("div");
+      said.className = "agent-change-rest";
+      said.textContent = "Accept and Reject are not available here: "
+        + (why || "the changes could not be read one by one.");
+      v.r.part("change").appendChild(said);
+    }
     post("/api/agent/review-config", compared).then(function (answer) {
-      if (!stands()) return;
-      if (!answer.ok) { status.textContent = answer.error || "Could not read the changes."; return; }
-      var changes = answer.changes || [];
-      if (!changes.length) { status.textContent = "No setting changes to review."; return; }
-      var choices = Object.create(null);
-      var rows = document.createElement("div");
-      var controls = [];
-      var apply = document.createElement("button");
-      apply.type = "button";
-      apply.className = "primary-btn";
-      apply.textContent = "Use reviewed version";
-      apply.disabled = true;
-      function update() {
-        var left = changes.filter(function (c) { return !choices[c.id]; }).length;
-        status.textContent = left ? "Choose Accept or Reject for " + left + " more change(s)."
-          : "Ready to check your choices. Use reviewed version creates a new Config.";
-        apply.disabled = left > 0;
-        controls.forEach(function (b) {
-          if (b.dataset.choice) {
-            b.setAttribute("aria-pressed", String(choices[b.dataset.changeId] === b.dataset.choice));
-          }
-        });
+      if (!review.stands()) return;
+      if (!answer || !answer.ok || !Array.isArray(answer.changes)) {
+        unavailable(answer && answer.error);
+        return;
       }
-      changes.forEach(function (change) {
-        var row = document.createElement("fieldset");
-        row.className = "agent-review-row";
-        row.dataset.reviewSetting = change.setting;
-        var title = document.createElement("legend");
-        title.textContent = change.label + " (" + change.setting + ")";
-        var values = document.createElement("p");
-        values.className = "agent-review-values";
-        values.textContent = change.before + " \u2192 " + change.after;
-        row.append(title, values);
-        if (change.aliases) {
-          var aliases = document.createElement("p");
-          aliases.className = "agent-review-reasons";
-          aliases.textContent = "Equivalent setting names, reviewed together: " + change.aliases.join(", ") + ".";
-          row.appendChild(aliases);
+      /* Nothing to choose: the version's summary says so on its own. */
+      if (!answer.changes.length) return;
+      review.rows = answer.changes;
+      drawReview(v, review);
+    }).catch(function () { unavailable(""); });
+  }
+
+  /* The version's change list, each row with Accept and Reject, in place of
+   * its summary; below it Accept all, Reject all, Use this version and Use
+   * reviewed version. */
+  function drawReview(v, review) {
+    var r = v.r;
+    var compared = review.compared;
+    var host = r.part("review");
+    var kept = keptChoices(review, v);
+    if (kept && kept.choices) {
+      var all = true;
+      Object.keys(kept.choices).forEach(function (setting) {
+        var k = kept.choices[setting];
+        var row = review.rows.filter(function (c) { return c.setting === setting; })[0];
+        /* Only a choice about the very change shown: a version number used
+         * again after an edit is another proposal. */
+        if (row && k && k.before === row.before && k.after === row.after
+            && (k.choice === "accept" || k.choice === "reject")) {
+          review.choices[setting] = k.choice;
+        } else {
+          all = false;
         }
-        if (Object.prototype.hasOwnProperty.call(change, "after_decision")) {
-          var reasons = document.createElement("p");
-          reasons.className = "agent-review-reasons";
-          function reason(d) {
-            if (!d) return "No reason recorded";
-            return (d.why || "No reason recorded") + (d.source ? " (" + d.source + ")" : "")
-              + (Object.prototype.hasOwnProperty.call(d, "alternatives")
-                ? "; alternatives: " + JSON.stringify(d.alternatives) : "");
-          }
-          function reasonsOf(all, fallback) {
-            if (!change.aliases) return reason(fallback);
-            var names = Object.keys(all || {});
-            return names.length ? names.map(function (name) { return name + ": " + reason(all[name]); }).join("; ")
-              : "No reason recorded";
-          }
-          reasons.textContent = "Reason: " + reasonsOf(change.before_decisions, change.before_decision)
-            + " \u2192 " + reasonsOf(change.after_decisions, change.after_decision);
-          row.appendChild(reasons);
-        }
-        ["accept", "reject"].forEach(function (choice) {
-          var button = document.createElement("button");
-          button.type = "button";
-          button.className = "ctl-btn";
-          button.textContent = choice === "accept" ? "Accept" : "Reject";
-          button.setAttribute("aria-label", button.textContent + " " + change.label);
-          button.setAttribute("aria-pressed", "false");
-          button.dataset.changeId = change.id;
-          button.dataset.choice = choice;
-          button.onclick = function () { choices[change.id] = choice; update(); };
-          controls.push(button);
-          row.appendChild(button);
-        });
-        rows.appendChild(row);
       });
-      var bulk = document.createElement("div");
-      bulk.className = "agent-review-actions";
+      if (all && kept.refusal) review.refusal = kept.refusal;
+    }
+    var controls = [];
+    var list = document.createElement("div");
+    list.className = "agent-review-list";
+    var rowsBy = Object.create(null);
+    function line(into, label, before, after) {
+      var part = document.createElement("div");
+      part.className = "agent-change-row";
+      part.appendChild(document.createTextNode(label + " "));
+      var was = document.createElement("span");
+      was.className = "was";
+      was.textContent = before;
+      var arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "→";
+      var now = document.createElement("span");
+      now.className = "now";
+      now.textContent = after;
+      part.append(was, arrow, now);
+      into.appendChild(part);
+    }
+    review.rows.forEach(function (change) {
+      var row = document.createElement("div");
+      row.className = "agent-review-row";
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", change.label);
+      row.dataset.reviewSetting = change.setting;
+      var what = document.createElement("div");
+      what.className = "agent-review-what";
+      if (change.same_value) {
+        var same = document.createElement("div");
+        same.className = "agent-change-row";
+        same.textContent = change.label + " " + change.after + ", the same; its reason changed.";
+        what.appendChild(same);
+      } else if (Array.isArray(change.parts)) {
+        var whole = document.createElement("div");
+        whole.className = "agent-review-label";
+        whole.textContent = change.label;
+        what.appendChild(whole);
+        change.parts.forEach(function (p) { line(what, p.label, p.before, p.after); });
+      } else {
+        line(what, change.label, change.before, change.after);
+      }
+      if (Array.isArray(change.alias_labels)) {
+        var aliases = document.createElement("div");
+        aliases.className = "agent-review-reasons";
+        aliases.textContent = change.alias_labels.join(" and ")
+          + " are two names for one setting, reviewed together.";
+        what.appendChild(aliases);
+      }
+      if (Object.prototype.hasOwnProperty.call(change, "after_reason")) {
+        var reasons = document.createElement("div");
+        reasons.className = "agent-review-reasons";
+        reasons.textContent = "Reason: " + change.before_reason + " → " + change.after_reason;
+        what.appendChild(reasons);
+      }
+      var choose = document.createElement("div");
+      choose.className = "agent-review-choice";
       ["accept", "reject"].forEach(function (choice) {
         var button = document.createElement("button");
         button.type = "button";
         button.className = "ctl-btn";
-        button.textContent = choice === "accept" ? "Accept all" : "Reject all";
-        button.onclick = function () {
-          changes.forEach(function (c) { choices[c.id] = choice; });
-          update();
-        };
+        button.textContent = choice === "accept" ? "Accept" : "Reject";
+        button.setAttribute("aria-label", button.textContent + " " + change.label);
+        button.dataset.changeId = change.id;
+        button.dataset.choice = choice;
+        button.onclick = function () { chose(function () { review.choices[change.setting] = choice; }); };
         controls.push(button);
-        bulk.appendChild(button);
+        choose.appendChild(button);
       });
-      var actions = document.createElement("div");
-      actions.className = "agent-review-actions";
-      actions.append(apply, cancel);
-      host.replaceChildren(rows, bulk, status, actions);
-      update();
-      controls[0].focus();
-      apply.onclick = function () {
-        if (!stands() || writing || apply.disabled) return;
-        apply.disabled = true;
-        controls.forEach(function (b) { b.disabled = true; });
-        status.textContent = "Checking the selected Config...";
-        var accepted = changes.filter(function (c) { return choices[c.id] === "accept"; })
-          .map(function (c) { return c.id; });
-        post("/api/agent/review-config", Object.assign({}, compared, { accepted: accepted })).then(function (checked) {
-          if (!stands()) return;
-          if (!checked.ok) {
-            controls.forEach(function (b) { b.disabled = false; });
-            apply.disabled = false;
-            status.textContent = checked.error || "These choices cannot be used together.";
-            return;
-          }
-          review.active = false;
-          stopPending = null; runPending = null; fixPending = null;
-          spendChoices();
-          var receipt = checked.review;
-          var asked = "Review version " + v.number + ": accept " + (receipt.accepted.join(", ") || "none")
-            + "; reject " + (receipt.rejected.join(", ") || "none") + ".";
-          say(asked, []);
-          history.push({ role: "user", text: asked });
-          transcript.push({ role: "user", text: asked });
-          checked.note = "Your choices from version " + v.number + ", checked as a new Config.";
-          var r = reply();
-          whoIs(r, "done");
-          saidBeside(r.part("attempts"), checked.note);
-          currentConfig = checked.yaml;
-          history.push({ role: "agent", text: checked.note + "\n\nWrote a config:\n" + checked.yaml });
-          var made = wireActions(r, checked, r.part("attempts"));
-          transcript.push({ role: "agent", kind: "config", yaml: checked.yaml, config: checked.config,
-            plan: checked.plan, changes: checked.changes, note: checked.note, version: made.number,
-            review: { base: v.previous.number, proposal: v.number, accepted: receipt.accepted,
-                      rejected: receipt.rejected }, cycles: 1, attempts: [] });
-          persist();
-          scrollToEnd();
-        }).catch(function () {
-          if (!stands()) return;
-          controls.forEach(function (b) { b.disabled = false; });
-          apply.disabled = false;
-          status.textContent = "Could not check the choices. Try again.";
-        });
-      };
-    }).catch(function () {
-      if (stands()) status.textContent = "Could not read the changes. Cancel and try again.";
+      row.append(what, choose);
+      rowsBy[change.setting] = row;
+      list.appendChild(row);
     });
+    var rest = document.createElement("div");
+    rest.className = "agent-change-rest";
+    rest.textContent = "Everything else as version " + v.previous.number + ".";
+    var refusal = document.createElement("div");
+    refusal.className = "agent-review-refusal";
+    refusal.setAttribute("role", "alert");
+    var note = review.note = document.createElement("p");
+    note.className = "agent-review-note";
+    note.setAttribute("role", "status");
+    var bar = document.createElement("div");
+    bar.className = "agent-review-actions";
+    ["accept", "reject"].forEach(function (choice) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ctl-btn";
+      button.textContent = choice === "accept" ? "Accept all" : "Reject all";
+      button.onclick = function () {
+        chose(function () { review.rows.forEach(function (c) { review.choices[c.setting] = choice; }); });
+      };
+      controls.push(button);
+      bar.appendChild(button);
+    });
+    var keep = document.createElement("button");
+    keep.type = "button";
+    keep.className = "ctl-btn";
+    keep.textContent = "Use this version";
+    keep.title = "Keep version " + v.number + " as proposed, every change accepted";
+    var apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "primary-btn";
+    apply.textContent = "Use reviewed version";
+    apply.title = "Make a new version from your choices, checked first";
+    var uses = document.createElement("div");
+    uses.className = "agent-review-uses";
+    uses.append(keep, apply);
+    bar.appendChild(uses);
+    var change = r.part("change");
+    change.replaceChildren(list, rest);
+    change.hidden = false;
+    host.replaceChildren(refusal, bar, note);
+    host.hidden = false;
+
+    function save() {
+      var settings = Object.keys(review.choices);
+      if (!settings.length) { keepChoices(review, v, null); return; }
+      var choices = {};
+      settings.forEach(function (setting) {
+        var row = review.rows.filter(function (c) { return c.setting === setting; })[0];
+        choices[setting] = { choice: review.choices[setting], before: row.before, after: row.after };
+      });
+      keepChoices(review, v, { choices: choices, refusal: review.refusal });
+    }
+    function update() {
+      var rejected = rejectedIn(review).length;
+      apply.disabled = review.busy || !rejected;
+      keep.disabled = review.busy;
+      controls.forEach(function (b) {
+        b.disabled = review.busy;
+        if (b.dataset.choice) {
+          var setting = review.rows[Number(b.dataset.changeId)].setting;
+          b.setAttribute("aria-pressed", String(review.choices[setting] === b.dataset.choice));
+        }
+      });
+      var involved = (review.refusal && review.refusal.involved) || [];
+      Object.keys(rowsBy).forEach(function (setting) {
+        rowsBy[setting].classList.toggle("is-refused", involved.indexOf(setting) >= 0);
+      });
+      refusal.hidden = !review.refusal;
+      if (review.refusal) {
+        var labels = involved.map(function (s) {
+          return review.rows.filter(function (c) { return c.setting === s; })[0].label;
+        });
+        refusal.textContent = "These choices cannot be used together. " + review.refusal.error
+          + (labels.length ? " Change your choice for " + eitherOf(labels) + "." : "");
+      }
+      if (review.busy) return;
+      note.textContent = rejected
+        ? counted(rejected, "change") + " rejected. Use reviewed version makes a new version without "
+          + (rejected === 1 ? "it" : "them") + "; the other changes stay as proposed."
+        : "Version " + v.number + " as proposed is the one in use. Reject a change to make a version without it.";
+    }
+    function chose(how) {
+      if (!review.stands() || review.busy) return;
+      how();
+      review.refusal = null;
+      save();
+      update();
+    }
+    keep.onclick = function () {
+      if (!review.stands() || review.busy) return;
+      review.choices = Object.create(null);
+      review.refusal = null;
+      save();
+      update();
+      note.textContent = "Version " + v.number + " as proposed is the one in use, every change accepted.";
+    };
+    apply.onclick = function () {
+      if (!review.stands() || writing || apply.disabled) return;
+      review.busy = true;
+      update();
+      note.textContent = "Checking the selected Config...";
+      var accepted = review.rows.filter(function (c) { return review.choices[c.setting] !== "reject"; })
+        .map(function (c) { return c.id; });
+      function free(words) {
+        review.busy = false;
+        update();
+        if (words) note.textContent = words;
+      }
+      post("/api/agent/review-config", Object.assign({}, compared, { accepted: accepted })).then(function (checked) {
+        if (!review.stands()) return;
+        if (!checked.ok) {
+          var ids = checked.involved || [];
+          review.refusal = { error: checked.error || "These choices cannot be used together.",
+                             involved: review.rows.filter(function (c) { return ids.indexOf(c.id) >= 0; })
+                               .map(function (c) { return c.setting; }) };
+          save();
+          free("No new version was made. Your choices are kept.");
+          refusal.scrollIntoView({ block: "nearest" });
+          return;
+        }
+        review.choices = Object.create(null);
+        review.refusal = null;
+        keepChoices(review, v, null);
+        stopPending = null; runPending = null; fixPending = null;
+        spendChoices();
+        var receipt = checked.review;
+        var asked = "Reviewed version " + v.number + ". " + receipt.said;
+        say(asked, []);
+        history.push({ role: "user", text: asked });
+        transcript.push({ role: "user", text: asked });
+        checked.note = "Your choices from version " + v.number + ", checked as a new Config.";
+        var r2 = reply();
+        whoIs(r2, "done");
+        saidBeside(r2.part("attempts"), checked.note);
+        currentConfig = checked.yaml;
+        history.push({ role: "agent", text: checked.note + "\n\nWrote a config:\n" + checked.yaml });
+        var made = wireActions(r2, checked, r2.part("attempts"));
+        transcript.push({ role: "agent", kind: "config", yaml: checked.yaml, config: checked.config,
+          plan: checked.plan, changes: checked.changes, note: checked.note, version: made.number,
+          review: { base: v.previous.number, proposal: v.number, accepted: receipt.accepted,
+                    rejected: receipt.rejected }, cycles: 1, attempts: [] });
+        persist();
+        scrollToEnd();
+      }).catch(function () {
+        if (review.stands()) free("Could not check the choices. Try again.");
+      });
+    };
+    update();
+    if (review.refusal) note.textContent = "No new version was made. Your choices are kept.";
   }
 
   /* An older version made the newest again: written into the conversation
@@ -3253,7 +3400,7 @@
     var r = reply();
     whoIs(r, "done");
     var again = { yaml: v.data.yaml, config: v.data.config, plan: v.data.plan,
-                  note: "Version " + v.number + ", again.", changes: null };
+                  note: "Version " + v.number + ", again.", changes: null, again: v.number };
     saidBeside(r.part("attempts"), again.note);
     history.push({ role: "agent", text: again.note + "\n\nWrote a config:\n" + again.yaml });
     currentConfig = again.yaml;
@@ -3389,7 +3536,7 @@
      * said in `here`, the reply to that message, or the card's own. The
      * conversation records it with the version and when it started. */
     made.launch = function (here, entry) {
-      if (made !== newest() || reviewPending()) return;
+      if (made !== newest() || heldByReview("running it")) return;
       here = here || box;
       runBtn.disabled = true;
       /* The thread is saved before the launch, and the launch is told
@@ -3659,7 +3806,8 @@
                          + "Wrote a config:\n" + e.yaml });
           currentConfig = e.yaml;
           wireActions(r, { yaml: e.yaml, config: e.config, cycles: e.cycles,
-                           plan: e.plan || [], changes: e.changes || null }, box, e.version);
+                           plan: e.plan || [], changes: e.changes || null,
+                           review: e.review || null, again: e.again }, box, e.version);
           if (e.again == null) meta(r, e);
         } else if (e.kind === "answer") {
           var p = document.createElement("div");

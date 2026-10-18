@@ -36,7 +36,8 @@ def test_review_derives_changes_and_keeps_both_originals():
     assert result["ok"]
     assert result["config"]["simulation"] == {"temperature_K": 300, "duration_ns": 10}
     assert result["config"]["decisions"] == BASE["decisions"]
-    assert result["review"] == {"accepted": ["simulation.duration_ns"], "rejected": ["simulation.temperature_K"]}
+    assert result["review"] == {"accepted": ["simulation.duration_ns"], "rejected": ["simulation.temperature_K"],
+                                "said": "Accepted: Production 2 ns \u2192 10 ns. Rejected: Temperature 300 K \u2192 330 K."}
     assert BASE == old and after == new
 
 
@@ -217,6 +218,7 @@ def test_mirrored_names_are_one_choice_that_survives_validation(phase, establish
     assert rows["ok"] and len(rows["changes"]) == 1
     row = rows["changes"][0]
     assert row["aliases"] == [f"{phase}.{established}", f"{phase}.{general}"]
+    assert len(row["alias_labels"]) == 2
     accepted = _review(before, after, [row["id"]])
     rejected = _review(before, after, [])
     assert accepted["config"][phase][established] == accepted["config"][phase][general] == new
@@ -269,3 +271,77 @@ def test_export_keeps_chosen_values_and_decisions_from_an_inactive_phase(full):
     assert config == original
     if full:
         assert "timestep_fs" in exported["simulation"]
+
+
+@pytest.mark.parametrize("spelling", ["prepared_from", "setup_from"])
+def test_a_reviewed_version_holds_only_the_spelling_each_version_used(spelling):
+    before = deepcopy(BASE)
+    before["simulation"][spelling] = "runs/old"
+    after = deepcopy(before)
+    after["simulation"].update({spelling: "runs/new", "temperature_K": 330})
+    rows = _review(before, after)["changes"]
+    shown = {r["label"] for r in rows}
+    assert shown == {"Temperature", "Prepared from"}
+    assert all("alias_labels" not in r for r in rows)
+    rejected = _review(before, after, [])
+    assert rejected["config"] == before
+    assert {c["label"] for c in rejected["changes"]} == shown
+    accepted = _review(before, after, [r["id"] for r in rows])
+    assert accepted["config"] == after and accepted["changes"] == []
+    mixed = _choose(before, after, {"simulation.prepared_from"})
+    assert mixed["config"]["simulation"] == {"temperature_K": 300, "duration_ns": 2, spelling: "runs/new"}
+    assert [c["label"] for c in mixed["changes"]] == ["Temperature"]
+
+
+def test_values_and_reasons_are_said_as_the_builder_says_them():
+    after = deepcopy(BASE)
+    after["simulation"]["temperature_K"] = 330
+    after["sweep"] = {"simulation.random_seed": [1, 2, 3]}
+    after["decisions"]["simulation.temperature_K"] = {
+        "why": "Warmer.", "source": "agent", "alternatives": [310, 350]}
+    rows = {r["setting"]: r for r in _review(BASE, after)["changes"]}
+    sweep = rows["sweep"]
+    assert (sweep["label"], sweep["before"], sweep["after"]) == ("Varied random seed", "not set", "1, 2, 3")
+    temperature = rows["simulation.temperature_K"]
+    assert temperature["before_reason"] == "Original temperature. (you asked)"
+    assert temperature["after_reason"] == "Warmer. (Agent’s choice; alternatives: 310 K, 350 K)"
+
+
+def test_a_compound_change_is_said_part_by_part():
+    after = deepcopy(BASE)
+    after["sweep"] = {"simulation.random_seed": [1, 2], "simulation.temperature_K": [300, 310]}
+    row = _review(BASE, after)["changes"][0]
+    assert row["label"] == "Sweep"
+    assert row["parts"] == [
+        {"label": "Varied random seed", "before": "not set", "after": "1, 2"},
+        {"label": "Varied temperature", "before": "not set", "after": "300, 310"}]
+    assert "{" not in row["before"] + row["after"]
+
+
+def test_a_reason_only_change_says_the_value_is_the_same():
+    after = deepcopy(BASE)
+    after["decisions"]["simulation.temperature_K"]["why"] = "A corrected explanation."
+    row = _review(BASE, after)["changes"][0]
+    assert row["same_value"] is True and row["before"] == row["after"] == "300 K"
+
+
+def test_the_review_record_says_the_choices_as_they_were_shown():
+    after = deepcopy(BASE)
+    after["simulation"].update(temperature_K=330, duration_ns=10)
+    result = _choose(BASE, after, {"simulation.duration_ns"})
+    assert result["review"]["said"] == "Accepted: Production 2 ns → 10 ns. Rejected: Temperature 300 K → 330 K."
+    assert "simulation." not in result["review"]["said"]
+    assert _choose(BASE, after, set())["review"]["said"] == (
+        "Rejected: Temperature 300 K → 330 K; Production 2 ns → 10 ns.")
+
+
+def test_a_refused_combination_names_the_rows_to_change():
+    before = deepcopy(BASE)
+    before["analysis"] = {"include": ["rmsd"]}
+    after = deepcopy(BASE)
+    after["analysis"] = {"exclude": ["rg"]}
+    after["simulation"]["temperature_K"] = 330
+    result = _choose(before, after, {"analysis.exclude", "simulation.temperature_K"})
+    assert not result["ok"]
+    involved = [r["label"] for r in result["changes"] if r["id"] in result["involved"]]
+    assert involved == ["Analyses left out", "Analyses"]
