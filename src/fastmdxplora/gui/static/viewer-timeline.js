@@ -17,7 +17,7 @@
 
   var NS = "http://www.w3.org/2000/svg";
   var HEIGHT = 30;
-  var state = { playback: null, index: null, marks: [], asked: null, map: null };
+  var state = { playback: null, index: null, marks: [], unread: [], asked: null, map: null };
 
   function byId(id) { return document.getElementById(id); }
   function el(name, attrs, parent) {
@@ -169,6 +169,14 @@
     svg.addEventListener("pointermove", function (event) { if (dragging) at(event); });
     svg.addEventListener("pointerup", function () { dragging = false; });
     svg.addEventListener("pointercancel", function () { dragging = false; });
+    // A record a held read refused is not read: its marks are not missing.
+    if (state.unread.length) {
+      var note = document.createElement("p");
+      note.className = "timeline-note";
+      note.textContent = "Not marked: " + state.unread.join(", ")
+        + (state.unread.length === 1 ? " was" : " were") + " not read.";
+      host.appendChild(note);
+    }
     mark();
   }
 
@@ -189,8 +197,12 @@
     if (state.asked) return state.asked;
     state.asked = fetch("/api/timeline", { cache: "no-store" })
       .then(function (r) { return r.json(); })
-      .then(function (said) { state.marks = said && said.ok ? said.marks || [] : []; draw(); })
-      .catch(function () { state.marks = []; });
+      .then(function (said) {
+        state.marks = said && said.ok ? said.marks || [] : [];
+        state.unread = said && Array.isArray(said.unavailable) ? said.unavailable : [];
+        draw();
+      })
+      .catch(function () { state.marks = []; state.unread = []; });
     return state.asked;
   }
 
@@ -209,6 +221,7 @@
     window.addEventListener("dashboard:run-changed", function () {
       state.playback = null;
       state.marks = [];
+      state.unread = [];
       state.asked = null;
       draw();
     });

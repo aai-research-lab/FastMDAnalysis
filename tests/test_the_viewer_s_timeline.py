@@ -35,17 +35,89 @@ def test_the_marks_are_read_from_the_records(tmp_path):
     _medoids(tmp_path, [(0, 2, 0.5), (1, 4, 0.5)])
     (tmp_path / "stopping.json").write_text(json.dumps({
         "targets": [{"analysis": "rmsd", "standard_error": 0.01}],
-        "rounds": [{"production_ns": 0.004, "decision": "extend"},
-                   {"production_ns": 0.008, "decision": "determined"}],
-        "outcome": "determined"}), encoding="utf-8")
+        "rounds": [{"production_ns": 0.004, "decision": "extend", "more_ns": 0.004},
+                   {"production_ns": 0.008, "decision": "met"}],
+        "outcome": "met"}), encoding="utf-8")
     marks = timeline_payload(tmp_path)["marks"]
     medoids = [m for m in marks if m["kind"] == "medoid"]
     checks = [m for m in marks if m["kind"] == "check"]
     assert [m["frame"] for m in medoids] == [2, 4]
     assert medoids[0]["label"] == "The medoid of kmeans cluster 0, 50% of the frames"
     assert [m["time_ns"] for m in checks] == [0.004, 0.008]
-    assert checks[1]["label"] == "Judged after round 2: determined"
+    # In the words the report says them in (`stopping._DECIDED`).
+    assert checks[0]["label"] == "Judged after round 1: extended by 0.004 ns"
+    assert checks[1]["label"] == "Judged after round 2: stopped: determined as asked"
     assert timeline_payload(tmp_path / "nothing") == {"ok": True, "marks": []}
+
+
+def _loaded(root: Path, frame_times_ps: list[float] | None = None, **load_kwargs) -> None:
+    (root / "analysis").mkdir(parents=True, exist_ok=True)
+    manifest = {"load_kwargs": load_kwargs}
+    if frame_times_ps is not None:
+        manifest["frame_times_ps"] = frame_times_ps
+    (root / "analysis" / "analysis_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8")
+
+
+def test_a_medoid_is_marked_at_its_trajectory_frame_of_a_strided_analysis(tmp_path):
+    """The populations table numbers a medoid among the frames analysed; the
+    ruler numbers the trajectory's. An analysis that read every fifth frame
+    from the tenth has its medoid 3 at trajectory frame (10 + 3) * 5."""
+    from fastmdxplora.gui.figure_data import _clock
+    from fastmdxplora.gui.timeline_view import timeline_payload
+
+    _loaded(tmp_path, stride=5, first=10, saving_interval_ps=2.0)
+    _medoids(tmp_path, [(0, 3, 0.5), (1, 7, 0.5)])
+    medoids = timeline_payload(tmp_path)["marks"]
+    assert [m["frame"] for m in medoids] == [65, 85] == _clock(tmp_path, [3, 7])[0]
+    # Its time on production's clock, as the ruler's: frame 65 is the 66th, at 132 ps.
+    assert [m["time_ns"] for m in medoids] == [0.132, 0.172]
+
+
+def test_a_medoid_is_marked_by_its_recorded_time_where_frames_were_dropped(tmp_path):
+    from fastmdxplora.gui.timeline_view import timeline_payload
+
+    _loaded(tmp_path, saving_interval_ps=2.0, frame_times_ps=[2.0, 4.0, 10.0, 12.0])
+    _medoids(tmp_path, [(0, 2, 1.0)])
+    (mark,) = timeline_payload(tmp_path)["marks"]
+    assert (mark["frame"], mark["time_ns"]) == (4, 0.01)
+
+
+def test_a_one_frame_cluster_is_not_said_none_of_the_frames(tmp_path):
+    from fastmdxplora.gui.timeline_view import timeline_payload
+
+    _medoids(tmp_path, [(4, 9, 0.005)])
+    (mark,) = timeline_payload(tmp_path)["marks"]
+    assert mark["label"] == "The medoid of kmeans cluster 4, 0.5% of the frames"
+
+
+def test_the_timeline_reads_only_the_study(tmp_path):
+    """`/api/timeline` holds its reads to the study (`_confined`): a record
+    linked out of it is said not read, not marked from."""
+    from fastmdxplora.gui.server import _confined
+    from fastmdxplora.gui.timeline_view import timeline_payload
+
+    study = tmp_path / "study"
+    study.mkdir()
+    outside = tmp_path / "elsewhere.json"
+    outside.write_text(json.dumps({"targets": [], "rounds": [
+        {"production_ns": 0.004, "decision": "met"}]}), encoding="utf-8")
+    (study / "stopping.json").symlink_to(outside)
+    answer = _confined(study, timeline_payload)
+    assert answer["marks"] == []
+    assert answer["unavailable"] == ["stopping.json"]
+    # And so the route answers.
+    import urllib.request
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with urllib.request.urlopen(session.url.rstrip("/") + "/api/timeline", timeout=30) as reply:
+            routed = json.loads(reply.read())
+    finally:
+        session.server.shutdown()
+    assert routed["marks"] == [] and routed["unavailable"] == ["stopping.json"]
 
 
 @pytest.fixture(scope="module")

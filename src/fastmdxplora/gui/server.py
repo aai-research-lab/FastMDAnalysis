@@ -1137,9 +1137,10 @@ def make_handler(
                 return
             if path == "/api/timeline":
                 # What the Viewer's timeline marks on the frames it plays.
+                # Read from the study's own records only (`_confined`).
                 from fastmdxplora.gui.timeline_view import timeline_payload
 
-                self._send_json(timeline_payload(root))
+                self._send_json(_confined(root, timeline_payload))
                 return
             if path == "/api/status-bar":
                 # This computer and its GPUs, and the Agent's AI model, for
