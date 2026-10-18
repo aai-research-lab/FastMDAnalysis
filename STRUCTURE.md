@@ -178,6 +178,7 @@ FastMDXplora/
 │       │   ├── figure_data.py     # The numbers behind an analysis's other figures, to plot in the page's colours
 │       │   ├── stopping_view.py   # A study run until it is determined, for the Overview
 │       │   ├── status_bar.py      # The status bar's computer, its GPUs and the Agent's AI model
+│       │   ├── timeline_view.py   # What the Viewer's timeline marks on the frames it plays
 │       │   ├── fixes_view.py      # What would fix the study on screen
 │       │   ├── problems_view.py   # The study's recorded problems, read and never acted on
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
@@ -227,7 +228,8 @@ FastMDXplora/
 │       │   │                      #   (every key, and its sheet), place.js and place.css (where you
 │       │   │                      #   are, at the head of every page), statusbar.js and statusbar.css
 │       │   │                      #   (the strip under every page), overview-runs.js (the Overview of
-│       │   │                      #   a study of several runs), stop-run.js (Stop the
+│       │   │                      #   a study of several runs), viewer-timeline.js (the timeline's
+│       │   │                      #   ruler; frame-series.js its tracks), stop-run.js (Stop the
 │       │   │                      #   run, asked first, wherever it is offered), run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,

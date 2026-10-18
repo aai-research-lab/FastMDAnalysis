@@ -182,6 +182,12 @@
     markWhatIsPicked();
     rail.hidden = false;
     side.classList.add("has-rail");
+    // Each tool a panel of its own: its head names it and folds nothing,
+    // so it is no stop of the keyboard's (the rail's button is).
+    sections().forEach(function (section) {
+      var head = section.querySelector(":scope > summary");
+      if (head) head.tabIndex = -1;
+    });
     mirror();
     orient();
     window.addEventListener("resize", orient);

@@ -176,6 +176,7 @@ _READ_FROM_THE_RUN_SHOWN = frozenset({
     "/api/beside", "/structure/beside.pdb", "/structure/beside.dcd",
     "/api/frames-pieces", "/structure/frames-piece.xtc", "/api/backbone-angles",
     "/api/contact-map", "/api/contact-pair", "/api/pocket-volume", "/structure/pocket.dx",
+    "/api/timeline",
 })
 
 
@@ -1133,6 +1134,12 @@ def make_handler(
                 from fastmdxplora.gui.report_page import report_payload
 
                 self._send_json(report_payload(root))
+                return
+            if path == "/api/timeline":
+                # What the Viewer's timeline marks on the frames it plays.
+                from fastmdxplora.gui.timeline_view import timeline_payload
+
+                self._send_json(timeline_payload(root))
                 return
             if path == "/api/status-bar":
                 # This computer and its GPUs, and the Agent's AI model, for

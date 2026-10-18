@@ -1148,18 +1148,9 @@ button {
    screen reader; the transport under the canvas, its scrubber taking the
    width. */
 .control-row.transport, .control-row.view-tools, .control-row.display-tools { align-items: center; }
-/* The series under the transport: its chart takes the width, the frame
-   shown marked on it, its value beside it. */
-.control-row.frame-series { align-items: center; gap: 8px; }
-.frame-series-pick {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: var(--text-2xs); color: var(--text-muted);
-}
-.frame-series-pick select { max-width: 12rem; }
-.frame-series-chart { flex: 1 1 100%; min-width: 200px; height: 76px; }
-.frame-series-svg { display: block; cursor: col-resize; touch-action: none; }
-.frame-series-value { font-size: var(--text-2xs); color: var(--text-secondary); }
-.frame-series-note { flex-basis: 100%; margin: 0; }
+/* The series under the transport, as tracks taking the width
+   (frame-series.js; the rest of them with the timeline's). */
+.frame-series-chart { min-width: 200px; }
 .control-row.frame-interactions { align-items: center; gap: 8px; }
 .frame-interactions-title { font-size: var(--text-2xs); color: var(--text-muted); }
 .frame-interactions-now { font-size: var(--text-2xs); color: var(--text-secondary); }
@@ -4241,14 +4232,40 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
    (--viewer-canvas-width) where the settings are beside it. */
 .viewer-canvas-frame { width: 100%; height: auto; aspect-ratio: 4 / 3; }
 
-/* The playback folds as the settings' sections do: its rows sit in the
-   section's box, not in a box of their own, and it is not shown at all
-   while there is nothing to play. */
-.viewer-under-fold { min-width: 0; }
-.viewer-under-fold > .viewer-controls {
-    border: none; background: none; padding: 0 0 12px; border-radius: 0;
+/* The timeline under the molecule (viewer-timeline.js, frame-series.js):
+   always there while there are frames to play, its rows in the section's
+   box, not in boxes of their own; not shown at all while there is nothing
+   to play. */
+.viewer-timeline { min-width: 0; padding-top: 8px; }
+.viewer-timeline > .viewer-controls {
+    border: none; background: none; padding: 0 0 10px; border-radius: 0;
 }
-.viewer-under-fold:not(:has(.control-row:not([hidden]))) { display: none; }
+.viewer-timeline:not(:has(.control-row:not([hidden]))) { display: none; }
+.timeline-ruler { margin-top: 6px; }
+.timeline-ruler svg { display: block; width: 100%; cursor: pointer; touch-action: none; }
+.timeline-mark { cursor: pointer; }
+.frame-series { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.frame-series[hidden] { display: none; }
+/* A track: its name and its value at the frame shown over its top edge,
+   so each takes 40px. */
+.frame-track { position: relative; }
+.frame-track-head {
+    position: absolute; top: 0; left: 52px; right: 4px; z-index: 1;
+    display: flex; align-items: baseline; gap: 8px; pointer-events: none;
+    font-size: var(--text-2xs); line-height: 1.2; color: var(--text-muted);
+}
+.frame-track-drop { pointer-events: auto; }
+.frame-track-label { color: var(--text-secondary); }
+.frame-track-value { color: var(--text-primary); }
+.frame-track-drop {
+    margin-left: auto; appearance: none; border: 0; background: transparent; color: var(--text-muted);
+    cursor: pointer; font-size: var(--text-xs); line-height: 1; padding: 0 4px;
+}
+.frame-track-drop:hover { color: var(--text-primary); }
+.frame-track-note:empty { display: none; }
+.frame-track-note { margin: 0 0 0 48px; }
+.frame-series-svg { display: block; width: 100%; cursor: pointer; touch-action: none; }
+.frame-series-pick { align-self: flex-start; margin-left: 48px; font-size: var(--text-2xs); }
 /* The sequence's head keeps the marker every section's summary has, the
    browser's own at the sections' size: its row sits inside the summary,
    which stays a list item. A marker drawn as a character of the text
@@ -5897,7 +5914,10 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     border-radius: 12px;
     background: var(--panel-glass);
 }
-.viewer-side.has-rail > .side-section { grid-column: 2; }
+/* The tool shown, a panel of its own as tall as the rail's column: it
+   floated in empty space, as short as what it held. */
+.viewer-side.has-rail > .side-section { grid-column: 2; grid-row: 1 / span 40; align-self: stretch; }
+.viewer-side.has-rail > .side-section.is-chosen { min-height: 100%; overflow-y: auto; }
 .viewer-side.has-rail > .side-section:not(.is-chosen) { display: none; }
 .viewer-side.has-rail > .side-section.is-chosen > summary { cursor: default; pointer-events: none; list-style: none; }
 .viewer-side.has-rail > .side-section.is-chosen > summary::-webkit-details-marker { display: none; }
@@ -5923,7 +5943,8 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
         grid-row: auto; position: static; flex-direction: row; overflow-x: auto;
         margin-bottom: 10px;
     }
-    .viewer-side.has-rail > .side-section { grid-column: 1; }
+    .viewer-side.has-rail > .side-section { grid-column: 1; grid-row: auto; }
+    .viewer-side.has-rail > .side-section.is-chosen { min-height: 0; }
 }
 
 /* Every key (viewer-help, keys.js): the GUI's, then the Viewer's. */
