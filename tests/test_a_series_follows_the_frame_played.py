@@ -127,9 +127,10 @@ def test_the_series_are_tracks_under_the_frames_and_follow_them(study) -> None:
     assert [s["analysis"] for s in listed["series"]] == ["rmsd", "rg"]
     assert labels == ["RMSD (nm)", "Radius of gyration (nm)"]
     assert rmsd["linked"] and rmsd["frames"] == list(range(6))
+    # The unit once, in the track's name ("RMSD (nm)"), not again after its value.
     for frame, shown in seen.items():
-        assert shown["said"] == f"{_as_said(rmsd['y'][frame])} nm"
+        assert shown["said"] == _as_said(rmsd['y'][frame])
     # The line moves along with the frames.
     assert seen[0]["x"] < seen[3]["x"] < seen[5]["x"]
-    assert rg_said == f"{_as_said(rg['y'][0])} nm"
+    assert rg_said == _as_said(rg['y'][0])
     assert errors == []
