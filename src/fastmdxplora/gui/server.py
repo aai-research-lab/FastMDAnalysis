@@ -680,7 +680,10 @@ def make_handler(
             if path == "/api/agent/conversation":
                 from fastmdxplora.gui.agent_panel import read_conversation
 
-                self._send_json(read_conversation(app_runtime))
+                # The study the page is for, by its key: another study's
+                # conversation is not given to it.
+                self._send_json(read_conversation(
+                    app_runtime, page_study=(parse_qs(parsed.query).get("study") or [""])[0]))
                 return
             if path == "/api/agent/receipt":
                 # What the AI model was sent for one reply, kept beside the
@@ -1743,7 +1746,7 @@ def make_handler(
                     dashboard_url=self.headers.get("Origin")))
                 return
             if path == "/api/agent/conversation":
-                from fastmdxplora.gui.agent_panel import write_conversation
+                from fastmdxplora.gui.agent_panel import page_study_refused, write_conversation
 
                 asked = payload or {}
                 # Named, the conversation is written where it lives, a chat
@@ -1758,6 +1761,10 @@ def make_handler(
                         study = self._optional_path_for(asked.get("study"))
                         if study is False:
                             return
+                    refused = page_study_refused(app_runtime, study, asked.get("page_study"))
+                    if refused:
+                        self._send_json(refused, status=409)
+                        return
                     self._send_json(merge_conversation(
                         app_runtime, asked.get("entries"), asked.get("seen"),
                         asked.get("id") or None, study, key=asked.get("key"),
@@ -1771,8 +1778,19 @@ def make_handler(
                     study = self._optional_path_for(asked.get("study"))
                     if study is False:
                         return
+                    refused = page_study_refused(app_runtime, study, asked.get("page_study"))
+                    if refused:
+                        self._send_json(refused, status=409)
+                        return
                     self._send_json(write_conversation(
                         app_runtime, asked.get("entries"), asked.get("id"), study))
+                    return
+                from fastmdxplora.gui.agent_panel import _HERE
+
+                refused = page_study_refused(app_runtime, _HERE,
+                                             asked.get("page_study"))
+                if refused:
+                    self._send_json(refused, status=409)
                     return
                 self._send_json(write_conversation(app_runtime, asked.get("entries")))
                 return
