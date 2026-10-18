@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "run_id": "95a30a320b684d31a8200440537fbacf",
+  "status": "complete",
+  "events": [
+    {
+      "id": "event-0001",
+      "order": 0,
+      "operation": "pdbfixer_input",
+      "before": null,
+      "after": "source-0001",
+      "details": {},
+      "reason": null,
+      "evidence": "Recorded at the existing preparation operation."
+    },
+    {
+      "id": "event-0002",
+      "order": 1,
+      "operation": "add_missing_hydrogens",
+      "before": "source-0001",
+      "after": "source-0002",
+      "details": {
+        "ph": 7.4,
+        "explicit_choices": [],
+        "notice": "Observed additions do not independently verify chemical protonation states."
+      },
+      "reason": null,
+      "evidence": "Recorded at the existing preparation operation."
+    },
+    {
+      "id": "event-0003",
+      "order": 2,
+      "operation": "prepared_system",
+      "before": "source-0002",
+      "after": "source-0003",
+      "details": {
+        "n_atoms_solvated": 5
+      },
+      "reason": null,
+      "evidence": "Recorded at the existing preparation operation."
+    },
+    {
+      "id": "event-0004",
+      "order": 3,
+      "operation": "recorded_setup_choices",
+      "before": "source-0003",
+      "after": null,
+      "details": {
+        "input": null,
+        "resolved_forcefield": "test fixture",
+        "heterogen_decisions": null,
+        "random_seed": null,
+        "box": null,
+        "resolved": null,
+        "notes": null,
+        "requested_settings": {
+          "ph": 7.4,
+          "residue_states": {},
+          "mutations": [],
+          "mutation_chain": null,
+          "replace_nonstandard_residues": null,
+          "build_missing_termini": null,
+          "heterogens": null,
+          "keep_heterogens": null,
+          "keep_water": null,
+          "ligand_forcefield": null,
+          "ligand_net_charge": null
+        }
+      },
+      "reason": "Existing setup_parameters.json values. Recording a choice does not prove it completed.",
+      "evidence": "Recorded at the existing preparation operation."
+    }
+  ],
+  "sources": {
+    "source-0001": {
+      "label": "pdbfixer_input",
+      "format": "pdb",
+      "sha256": "48c1760bcb75939f96c7b9032f9f8005737f86300cda95daff624bbcbc17fedd",
+      "bytes": 476,
+      "counts": {
+        "atoms": 4,
+        "residues": 1,
+        "bonds": 3,
+        "hydrogens": 0,
+        "heavy_atoms": 4
+      },
+      "snapshot": "setup/audit/source-0001.pdb"
+    },
+    "source-0002": {
+      "label": "add_missing_hydrogens",
+      "format": "pdb",
+      "sha256": "3804f6493186df7eea20078f524563f8e68085a9437cb07754f58250c22a1af2",
+      "bytes": 557,
+      "counts": {
+        "atoms": 5,
+        "residues": 1,
+        "bonds": 4,
+        "hydrogens": 1,
+        "heavy_atoms": 4
+      },
+      "snapshot": "setup/audit/source-0002.pdb"
+    },
+    "source-0003": {
+      "label": "prepared_system",
+      "format": "pdb",
+      "sha256": "3804f6493186df7eea20078f524563f8e68085a9437cb07754f58250c22a1af2",
+      "bytes": 557,
+      "counts": null,
+      "snapshot": "setup/audit/source-0003.pdb"
+    }
+  },
+  "warnings": [],
+  "created_at": "2026-10-18T09:34:20.584220+00:00",
+  "notice": "Observed operations and saved choices. This record does not certify preparation quality. Hydrogen counts do not independently establish chemical protonation states.",
+  "backends": {
+    "openmm": "8.6.1",
+    "pdbfixer": "Version unavailable"
+  }
+}

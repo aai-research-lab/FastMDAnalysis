@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/problems.css">
   <link rel="stylesheet" href="/static/study-tabs.css">
   <link rel="stylesheet" href="/static/stage-timeline.css">
+  <link rel="stylesheet" href="/static/preparation-review.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -617,6 +618,7 @@
         <div class="stage-timeline-row">
           <ol id="stage-timeline-list"></ol>
           <button type="button" class="ghost-btn" id="stage-timeline-refresh">Refresh</button>
+          <button type="button" class="ghost-btn" id="preparation-review-open" hidden>Review setup</button>
         </div>
         <p class="stage-timeline-note" id="stage-timeline-note" role="status"></p>
       </nav>
@@ -859,6 +861,8 @@
               </section>
 
               <div class="builder-actions" id="run-actions-card">
+                <label class="builder-help" id="run-setup-review-option"><input type="checkbox" id="run-setup-review"> Review setup before simulation</label>
+                <p class="builder-help">On this machine, for one new system without a sweep. Runs audited setup first; simulation waits for acceptance. Downloads keep the complete study plan.</p>
                 <button type="button" class="primary-btn builder-run" id="run-start-button" disabled>Run on this machine</button>
                 <button type="button" class="danger-btn builder-run" id="run-stop" data-stop-run="run-stop-ask" hidden>Stop the run</button>
                 <div class="stop-run-ask" id="run-stop-ask" data-stop-ask role="status" hidden></div>
@@ -2063,6 +2067,7 @@
   <script src="/static/remote.js"></script>
   <script src="/static/molecule-viewer.js"></script>
   <script src="/static/stage-timeline.js"></script>
+  <script src="/static/preparation-review.js"></script>
   <script src="/static/viewer-rail.js"></script>
   <script src="/static/palette.js"></script>
   <script src="/static/run-notice.js"></script>
@@ -2092,6 +2097,40 @@
         <label><input type="checkbox" id="stage-structure-solvent"> Include water and ions</label>
         <p id="stage-structure-note" role="status"></p>
         <div id="stage-structure-canvas" role="img" aria-label="Retained stage molecule"></div>
+      </div>
+    </div>
+  </div>
+  <div class="agent-dialog" id="preparation-review-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="preparation-review-title" hidden>
+    <div class="agent-dialog-panel preparation-review-box">
+      <div class="agent-dialog-head">
+        <h2 id="preparation-review-title">Review preparation</h2>
+        <button type="button" class="ghost-btn" data-dialog-close>Return to study</button>
+      </div>
+      <div class="agent-dialog-body">
+        <p id="preparation-review-notice"></p>
+        <p id="preparation-review-status" role="status"></p>
+        <details><summary>Retained simulation settings</summary><pre id="preparation-review-plan"></pre></details>
+        <p>Acceptance runs Simulation on this prepared study. Any later analyses and report remain in the saved plan and can be run afterwards.</p>
+        <div class="preparation-review-grid">
+          <section aria-label="Recorded preparation operations">
+            <ol id="preparation-review-events"></ol>
+            <div id="preparation-review-choices"></div>
+          </section>
+          <section aria-label="Retained preparation structures">
+            <h3 id="preparation-change-title">Choose a recorded operation</h3>
+            <p id="preparation-change-details"></p>
+            <div class="preparation-review-tools">
+              <button type="button" class="ghost-btn" id="preparation-before" disabled>Before</button>
+              <button type="button" class="ghost-btn" id="preparation-after" disabled>After</button>
+            </div>
+            <div id="preparation-change-canvas" role="img" aria-label="Retained preparation molecule" hidden></div>
+            <p id="preparation-change-note" role="status"></p>
+            <div id="preparation-change-atoms" aria-label="Observed atom changes"></div>
+          </section>
+        </div>
+        <button type="button" class="primary-btn" id="preparation-accept" disabled hidden>Accept setup and simulate</button>
+        <button type="button" class="ghost-btn" id="preparation-review-refresh">Refresh preparation record</button>
       </div>
     </div>
   </div>

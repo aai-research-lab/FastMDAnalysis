@@ -2,3 +2,5 @@
 src/fastmdxplora/gui/static/molstar/molstar.js -whitespace
 # The producer's fixed-width PDB fixture retains its trailing field padding.
 tests/data/stage_states/topology.pdb whitespace=-blank-at-eol
+# Preparation snapshots retain the producer bytes named by audit SHA-256.
+tests/data/preparation_changes/**/*.pdb -text whitespace=-blank-at-eol

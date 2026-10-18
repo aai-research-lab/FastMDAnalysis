@@ -453,6 +453,14 @@ CODES: tuple[Code, ...] = (
          "be checked.",
          Kind.SEMANTIC, Disclosure.ACTION,
          detail_keys=("path",)),
+    Code("setup.review.changed",
+         "Prepared files or the retained simulation plan changed after a "
+         "GUI preparation review was bound to them.",
+         Kind.SEMANTIC, Disclosure.ACTION),
+    Code("setup.review.unavailable",
+         "The evidence required for explicit GUI preparation acceptance is "
+         "missing, incomplete, unsupported or already used by a simulation.",
+         Kind.SEMANTIC, Disclosure.ACTION),
     Code("setup.structure.assembly_ambiguous",
          "The structure's biological assemblies hold different things, so "
          "which is simulated has to be named.",

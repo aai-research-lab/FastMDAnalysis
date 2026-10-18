@@ -86,6 +86,7 @@
    * is offered on the same terms. */
   function builderReady() {
     var run = window.FastMDXRun;
+    if (run?.state?.reviewAfterSetup) return false;
     if (run && run.state && run.state.start === "config") {
       var asIs = byId("run-as-is");
       return Boolean(asIs && !asIs.disabled && byId("run-config-path").value.trim());

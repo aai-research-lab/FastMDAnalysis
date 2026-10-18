@@ -157,6 +157,7 @@ GETS_ANSWERED_BEYOND_LOOPBACK = frozenset({
     "/api/contact-map", "/api/contact-pair", "/api/pocket-volume", "/structure/pocket.dx",
     "/api/views", "/api/viewer-atoms", "/api/viewer-selections", "/api/scenes",
     "/api/stopping", "/api/stream", "/api/problems", "/api/stage-timeline", "/structure/stage.pdb",
+    "/api/preparation-review", "/api/preparation-change",
     "/analysis-figures-svg.zip",
     "/structure/topology.pdb", "/structure/live-frame.pdb", "/structure/live-frame.dcd",
     "/structure/frames.dcd", "/structure/frames-topology.pdb", "/structure/occupancy.dx",
@@ -1150,6 +1151,32 @@ def make_handler(
                 self.end_headers()
                 self.wfile.write(data)
                 return
+            if path in {"/api/preparation-review", "/api/preparation-change"}:
+                from fastmdxplora.gui.preparation_review import preparation_change, preparation_payload
+                from fastmdxplora.gui.preparation_gate import review_state
+                from fastmdxplora.gui.workspace import study_key
+
+                query = parse_qs(parsed.query)
+                key = study_key(root)
+                if query.get("study", [key])[0] != key:
+                    self._send_json({"ok": False, "reason": "The open study changed. Read its preparation again."}, status=409)
+                    return
+                if not is_study(root):
+                    self._send_json({"available": False, "study": "", "reason": "Open a prepared study first."})
+                    return
+                if path == "/api/preparation-change":
+                    answer = preparation_change(root, query.get("event", [""])[0], query.get("version", [""])[0])
+                else:
+                    control = allow_control and hosting is None
+                    gate = {"requested": False, "can_accept": False}
+                    if control:
+                        with app_runtime.lock:
+                            app_runtime._refresh_process()
+                            running = app_runtime.process is not None and app_runtime.process.poll() is None
+                            gate = app_runtime._while_starting(lambda: review_state(root, running=running))
+                    answer = {**preparation_payload(root), "control": control, "gate": gate}
+                self._send_json({**answer, "study": key})
+                return
             if path == "/api/ligands":
                 self._send_json(_ligands_payload(root, cfg))
                 return
@@ -1572,6 +1599,10 @@ def make_handler(
                         dashboard_url=self.headers.get("Origin"),
                     )
                 )
+                return
+            if path == "/api/accept-preparation":
+                self._send_json(app_runtime.accept_preparation(payload or {},
+                    dashboard_url=self.headers.get("Origin")))
                 return
             if path == "/api/agent/model":
                 # Reading and setting which AI model to ask. The key is

@@ -1,0 +1,20 @@
+.preparation-review-box { width: min(1120px, calc(100vw - 24px)); max-height: calc(100dvh - 24px);
+    display: flex; flex-direction: column; min-width: 0; }
+.preparation-review-box .agent-dialog-head { align-items: center; flex-wrap: wrap; gap: 12px; }
+.preparation-review-box h2 { flex: 1 1 180px; margin: 0; font-size: var(--text-lg); }
+.preparation-review-box .agent-dialog-head button { white-space: nowrap; flex: none; }
+.preparation-review-box .agent-dialog-body { overflow-y: auto; min-height: 0; }
+.preparation-review-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); gap: 16px; }
+.preparation-review-grid > section { min-width: 0; }
+.preparation-review-box p, .preparation-review-box pre { font-size: var(--text-xs); overflow-wrap: anywhere; white-space: pre-wrap; }
+#preparation-review-events { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+#preparation-review-events button { width: 100%; text-align: left; }
+.preparation-review-tools { display: flex; gap: 8px; margin-bottom: 8px; }
+#preparation-change-canvas { position: relative; height: min(40dvh, 460px); min-height: 200px; }
+#preparation-change-atoms { display: flex; flex-wrap: wrap; gap: 4px; max-height: 140px; overflow-y: auto; }
+#preparation-change-note, #preparation-review-status { color: var(--text-secondary); }
+#preparation-accept { margin: 12px 6px 0 0; }
+#preparation-review-open { flex: none; white-space: nowrap; }
+@media (max-width: 700px) { .preparation-review-grid { grid-template-columns: minmax(0, 1fr); }
+    #preparation-review-events { max-height: 140px; overflow-y: auto; } }
+@media print { #preparation-review-dialog, #preparation-review-open { display: none !important; } }

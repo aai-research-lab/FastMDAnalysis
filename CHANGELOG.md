@@ -20,6 +20,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Audited setup can wait for explicit acceptance in the local GUI. The
+  preparation review separates observed changes from requested choices,
+  displays checked before/after snapshots and maps changed atoms by identity.
+  A retained simulation plan, bound evidence and launch guards prevent a
+  reload, stale review or duplicate acceptance from starting another run.
+
 - A study stage timeline distinguishes recorded progress from retained
   coordinates. Input, prepared and solvated structures and supported
   minimized/final OpenMM States open in a separate frozen molecule view.

@@ -76,6 +76,7 @@
     onlyChanged: false,
     built: null,           // the server's last answer for the config
     estimate: null,        // the server's last answer for the system
+    reviewAfterSetup: false,
   };
 
   const el = (id) => document.getElementById(id);
@@ -274,6 +275,7 @@
   }
 
   function chooseStart(key) {
+    if (state.start !== key) state.reviewAfterSetup = false;
     state.start = key || null;
     const choice = STARTING_POINTS[state.start] || { phases: [] };
     state.phases = new Set(choice.phases);
@@ -2472,7 +2474,9 @@
   }
 
   function currentState() {
-    return bodyOf(snapshotOfForm());
+    const config = bodyOf(snapshotOfForm());
+    if (state.reviewAfterSetup) config.review_after_setup = true;
+    return config;
   }
 
   /* Whether a reason's setting is part of the study: one of a phase not
@@ -2515,6 +2519,11 @@
    * guessing at a rule the software already knows. */
   function whyNotReady() {
     if (!state.start) return "Choose what this study starts from.";
+    if (state.reviewAfterSetup && (state.start !== "structure" || state.systems.filter((row) => row.system).length !== 1
+        || state.sweep.some((row) => row.axis && String(row.values).trim())
+        || !state.phases.has("setup") || !state.phases.has("simulation"))) {
+      return "Review after setup needs one new structure, Setup and Simulation, without a sweep.";
+    }
     if (state.start === "config") {
       if (!state.configVerdict) return "No config checked yet.";
       return state.configVerdict.ok ? "" : state.configVerdict.error;
@@ -2568,6 +2577,13 @@
   }
 
   function updateSummary() {
+    if (el("run-setup-review")) {
+      el("run-setup-review").checked = state.reviewAfterSetup;
+      el("run-setup-review").disabled = state.start !== "structure";
+    }
+    ["run-start-button", "run-phone-start"].forEach((id) => {
+      if (el(id)) el(id).textContent = state.reviewAfterSetup ? "Run setup for review" : "Run on this machine";
+    });
     const chain = el("run-summary");
     if (state.start === "config") {
       const verdict = state.configVerdict;
@@ -3193,6 +3209,7 @@
     }
     const draft = {
       start: state.start, phases: Array.from(state.phases), values: state.values,
+      reviewAfterSetup: state.reviewAfterSetup,
       analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
       sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
       analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
@@ -3268,6 +3285,7 @@
     state.sweep = draft.sweep || [];
     state.decisions = draft.decisions || {};
     state.full = Boolean(draft.full);
+    state.reviewAfterSetup = draft.reviewAfterSetup === true;
     state.analysisMode = draft.analysisMode || "all";
     state.lengthMode = draft.lengthMode || null;
     state.systems = (draft.systems || []).map((row) => ({ id: row.id || "", system: row.system || "", own: row.own || {}, facts: null }));
@@ -3429,6 +3447,7 @@
     beforeActing();
     const snap = snapshotOfLoaded(from);
     state.start = snap.start;
+    state.reviewAfterSetup = false;
     state.phases = new Set(snap.phases);
     state.values = snap.values;
     state.decisions = snap.decisions;
@@ -3530,6 +3549,7 @@
 
   let launchesPending = 0;
   async function runAsItStands() {
+    if (state.reviewAfterSetup) { text(el("run-note"), "Review after setup needs a new structure in the local Config Builder."); return; }
     const path = el("run-config-path").value.trim();
     if (!path) return;
     const button = el("run-as-is");
@@ -3638,7 +3658,7 @@
     try {
       const response = await fetch("/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(currentState()),
+        body: JSON.stringify(Object.assign({}, currentState(), {review_after_setup: state.reviewAfterSetup})),
       });
       started = await response.json();
     } catch (error) {
@@ -3663,7 +3683,8 @@
     // The study is now its config file, saved beside its results; the
     // draft has done its work.
     discardDraft();
-    text(el("run-note"), `Running. Config saved to ${started.config_path}`
+    text(el("run-note"), (started.review_after_setup ? "Running audited setup. Simulation will wait for acceptance. " : "Running. ")
+      + `Config saved to ${started.config_path}`
       + sharedSaid(started));
     if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
       window.FastMDXDashboard.navigate("overview");
@@ -3680,6 +3701,7 @@
   }
 
   async function runElsewhere() {
+    if (state.reviewAfterSetup) { text(el("run-note"), "Review after setup runs locally on this machine; it cannot be sent elsewhere."); return; }
     const button = el("run-elsewhere");
     button.disabled = true;
     text(el("run-note"), "Saving the config…");
@@ -3706,12 +3728,14 @@
   }
 
   function runAsItStandsElsewhere() {
+    if (state.reviewAfterSetup) { text(el("run-note"), "Review after setup runs locally on this machine; it cannot be sent elsewhere."); return; }
     const path = el("run-config-path").value.trim();
     if (!path) return;
     openRunsPage(el("run-as-is-elsewhere").dataset.runsUrl, path, el("run-output").value.trim());
   }
 
   function resetEverything() {
+    state.reviewAfterSetup = false;
     state.phases = state.start ? new Set(STARTING_POINTS[state.start].phases) : new Set();
     state.values = {};
     stoppingDraft = null;
@@ -3753,6 +3777,7 @@
   function formNow() {
     return JSON.stringify({
       start: state.start, phases: Array.from(state.phases || []), values: state.values,
+      reviewAfterSetup: state.reviewAfterSetup,
       analyses: Array.from(state.analyses || []), analysisOptions: state.analysisOptions,
       sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
       analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
@@ -3813,6 +3838,7 @@
     state.sweep = form.sweep || [];
     state.decisions = form.decisions || {};
     state.full = Boolean(form.full);
+    state.reviewAfterSetup = form.reviewAfterSetup === true;
     state.analysisMode = form.analysisMode || "all";
     state.lengthMode = form.lengthMode || null;
     state.systems = (form.systems || []).map((row) => ({ id: row.id || "", system: row.system || "", own: row.own || {}, facts: null }));
@@ -3952,6 +3978,10 @@
   }
 
   function attach() {
+    el("run-setup-review")?.addEventListener("change", (event) => {
+      state.reviewAfterSetup = event.target.checked;
+      afterChange();
+    });
     if (!el("run-start")) return;
 
     ["run-trajectory", "run-topology", "run-output"].forEach((id) => {

@@ -901,7 +901,8 @@
   async function openStudyTab(key, page, beforeOpen) {
     if (state.addressAsking) return {ok: false, error: "A study is already opening."};
     const held = window.FastMDXAgent?.beforeStudySwitch?.()
-      || window.FastMDXRun?.beforeStudySwitch?.() || "";
+      || window.FastMDXRun?.beforeStudySwitch?.()
+      || window.FastMDXPreparationReview?.beforeStudySwitch?.() || "";
     if (held) return {ok: false, error: held};
     state.addressAsking = true;
     document.body.classList.add("study-switching");

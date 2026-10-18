@@ -1207,6 +1207,9 @@ class DashboardRuntime:
         # Users_someone_work sitting inside the launch directory -- which
         # is neither where they pointed nor anywhere they would look.
         source: Mapping[str, Any] = config if config is not None else (state or {})
+        review = (state or {}).get("review_after_setup") is True
+        if review and self.hosting is not None:
+            return {"ok": False, "error": "Review after setup is available for local runs on this machine."}
         continued = self._study_being_continued(source)
         if continued is not None:
             return self._continue_in_place(continued, state, config, dashboard_url)
@@ -1270,6 +1273,12 @@ class DashboardRuntime:
         written = _json_mapping_or_yaml(Path(prepared["config_path"]))
         environment_error = exploration_environment_error(written)
         if environment_error:
+            if review:
+                from fastmdxplora.gui.preparation_gate import PLAN, RECORD
+
+                for name in (PLAN, RECORD):
+                    (output_dir / name).unlink(missing_ok=True)
+                _taken_back(Path(prepared["config_path"]), output_dir, made)
             return {"ok": False, "error": environment_error,
                     "config_path": prepared["config_path"], "command": None,
                     **_backend_refusal(written)}
@@ -1281,14 +1290,64 @@ class DashboardRuntime:
         started = self._spawn(prepared["command"], output_dir, dashboard_url,
                               config_path=prepared["config_path"])
         if started.get("ok") is False:
+            if review:
+                from fastmdxplora.gui.preparation_gate import PLAN, RECORD
+
+                for name in (PLAN, RECORD):
+                    (output_dir / name).unlink(missing_ok=True)
             _taken_back(Path(prepared["config_path"]), output_dir, made)
             return started
         return {
             "ok": True,
             "error": None,
             "config_path": prepared["config_path"],
+            "review_after_setup": review,
             **started,
         }
+
+    def accept_preparation(self, request: Mapping[str, Any], *,
+                           dashboard_url: str | None = None) -> dict[str, Any]:
+        """An explicit acceptance starts simulation on the open prepared study."""
+        from fastmdxplora.gui.preparation_gate import accept
+        from fastmdxplora.gui.workspace import study_key
+
+        with self.lock:
+            if self.hosting is not None:
+                return {"ok": False, "error": "Accepting setup is available in the local GUI on this machine."}
+            self._refresh_process()
+            root = self.data_root()
+            if request.get("study") != study_key(root):
+                return {"ok": False, "error": "The open study changed. Review its preparation again."}
+            if self.process is not None and self.process.poll() is None:
+                return {"ok": False, "error": "A FastMDXplora workflow is already running."}
+            refused = self._others_running()
+            if refused is not None:
+                return refused
+
+            def launch() -> dict[str, Any]:
+                import yaml
+                from fastmdxplora.record_access import confined_records
+                from fastmdxplora.gui.preparation_gate import PLAN
+                from fastmdxplora.gui.preparation_review import _public, _read
+
+                def preflight() -> dict[str, Any] | None:
+                    with confined_records(root, lambda path: _public(root, path)):
+                        config = yaml.safe_load(_read(root / PLAN, 2_000_000))
+                    config["include_phase"] = ["simulation"]
+                    config.pop("exclude_phase", None)
+                    environment_error = exploration_environment_error(config)
+                    if environment_error:
+                        return {"ok": False, "error": environment_error, **_backend_refusal(config)}
+                    return None
+
+                def spawn(command: list[str], plan: Path) -> dict[str, Any]:
+                    return self._spawn(command, root, dashboard_url, config_path=str(plan))
+
+                # Backend discovery may be slow. Bind and copy the accepted
+                # evidence only after it finishes, then launch from that copy.
+                return accept(root, str(request.get("revision") or ""), spawn, preflight=preflight)
+
+            return self._while_starting(launch)
 
     def _study_being_continued(self, source: Mapping[str, Any]) -> Path | None:
         """The study a config extends in place, where it does.
@@ -1356,6 +1415,8 @@ class DashboardRuntime:
 
         if self.hosting is None:
             return {"ok": False, "error": "Only a hosted GUI saves a config for elsewhere."}
+        if state.get("review_after_setup") is True:
+            return {"ok": False, "error": "Review after setup runs locally on this machine; it cannot be sent elsewhere."}
         source = dict(state or {})
         requested = str(source.get("output") or "").strip()
         if not requested:

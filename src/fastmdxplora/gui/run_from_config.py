@@ -57,8 +57,21 @@ def prepare_run(state: dict[str, Any] | None, output_dir: str | Path, *,
             "command": None,
         }
 
+    review = (state or {}).get("review_after_setup") is True
+    if review:
+        import yaml
+        from fastmdxplora.gui.preparation_gate import scope_reason
+
+        reason = scope_reason(yaml.safe_load(built["yaml"]))
+        if reason:
+            return {"ok": False, "error": reason, "config_path": None, "command": None}
     root = Path(output_dir).expanduser()
     root.mkdir(parents=True, exist_ok=True)
+    if review:
+        from fastmdxplora.gui.preparation_gate import arm
+
+        setup = arm(root, yaml.safe_load(built["yaml"]))
+        built["yaml"] = yaml.safe_dump(setup, sort_keys=False)
     config_path = root / CONFIG_FILENAME
     config_path.write_text(built["yaml"], encoding="utf-8")
 
@@ -72,6 +85,8 @@ def prepare_run(state: dict[str, Any] | None, output_dir: str | Path, *,
         "--output",
         str(root),
     ]
+    if review:
+        command.append("--no-defaults")
     return {
         "ok": True,
         "error": None,
@@ -79,4 +94,5 @@ def prepare_run(state: dict[str, Any] | None, output_dir: str | Path, *,
         "config_yaml": built["yaml"],
         "command": command,
         "settings_changed": built["settings_changed"],
+        "review_after_setup": review,
     }

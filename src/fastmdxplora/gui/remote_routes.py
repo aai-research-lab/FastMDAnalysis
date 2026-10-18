@@ -805,6 +805,9 @@ class RemoteDesk:
     def _plan_of(self, config: Any, machine: Any, *, state: Any = None) -> dict[str, Any]:
         from fastmdxplora.remote.inputs import home_folders
 
+        if isinstance(state, dict) and state.get("review_after_setup") is True:
+            return _refused("Review after setup runs locally on this machine; it cannot be sent elsewhere.",
+                            "config.option.inapplicable")
         if not home_folders():
             # Nothing is sent from any folder, so nothing more is looked at
             # (a machine's record is found through the home folder too).

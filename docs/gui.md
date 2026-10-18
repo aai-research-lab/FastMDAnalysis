@@ -388,6 +388,42 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 ---
 
+## Reviewing setup before simulation
+
+For a local study of one new structure, select **Review setup before
+simulation** on the Config page. **Run setup for review** saves the complete
+study plan as `simulation_plan.yml` and starts setup alone with its preparation
+audit enabled. Nothing starts simulation automatically after setup or reload.
+This option is a GUI workflow choice, kept with the browser's Config draft;
+downloaded Configs keep the complete study plan. Sweeps, multiple systems,
+continuations, reused setups, compute budgets and hosted launches are refused
+for this workflow rather than silently bypassing the requested pause.
+
+Select **Review setup** beside the stage timeline to inspect recorded
+operations separately from requested settings and decisions. Before and after
+structures are frozen audit snapshots whose hashes are checked. Added and
+removed atom controls identify atoms by author chain, residue number, insertion
+code, residue name and atom name, checked against their coordinates in the
+rendered structure. Ambiguous or unavailable correspondences are explained;
+atom serials and line order are never used as correspondence. These observations
+do not certify preparation quality or independently establish protonation states.
+
+**Accept setup and simulate** explicitly starts the existing `simulate` command
+on the prepared study with its retained simulation settings. Later analyses and
+the report remain in the plan and can be run afterwards. The first ready review
+binds the prepared files and plan; changing them afterwards refuses acceptance,
+including after refresh. A running job, an already accepted setup or existing
+simulation output also refuses a new start. After backend preflight, acceptance
+retains checked, read-only copies of the setup inputs and a separate launch plan
+with the same simulation settings. The child reads those copies, so editing the
+original files during launch cannot change the accepted system. A refusal before
+launch remains pending. An exception after a launch may have begun leaves an
+unresolved launch state that prevents retry; inspect the job before taking any
+further action. Launch errors remain visible through polling until refresh, retry
+or a relevant change to the reviewed records.
+Read-only public views can inspect admitted audit evidence and cannot accept
+or launch anything. Original stage structures and audit snapshots remain saved.
+
 ## Watching it happen
 
 The study's stage timeline shows which progress was recorded and which

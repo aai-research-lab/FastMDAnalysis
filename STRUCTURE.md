@@ -180,6 +180,8 @@ FastMDXplora/
 │       │   ├── fixes_view.py      # What would fix the study on screen
 │       │   ├── problems_view.py   # Recorded refusals, health and undetermined means
 │       │   ├── stage_structures.py # Retained stage coordinates and read-only State conversion
+│       │   ├── preparation_review.py # Checked snapshots and atom identities from preparation observations
+│       │   ├── preparation_gate.py # Audited setup held for explicit simulation acceptance
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
 │       │   ├── report_page.py     # The report as a document, in the page
 │       │   ├── browse.py          # Walking the filesystem from the page; what is a study
@@ -204,6 +206,7 @@ FastMDXplora/
 │       │   │                      #   problems.js and problems.css (the read-only Problems tab)
 │       │   │                      #   study-tabs.js and study-tabs.css (open study documents and their last pages)
 │       │   │                      #   stage-timeline.js and stage-timeline.css (retained stage coordinates in an isolated viewer)
+│       │   │                      #   preparation-review.js and preparation-review.css (audited setup inspection and acceptance)
 │       │   │                      #   (the scheme before the first paint), fonts/ (Inter and
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences kept),
