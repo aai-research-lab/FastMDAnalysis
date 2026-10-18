@@ -732,15 +732,19 @@
     var by = byPointer(box);
     offeredAt = chosen.length === 2 ? (by || cornerOf(box)) : null;
     saidAside = false;
-    // Only this drawing keeps the point it was chosen at: any later one
-    // (search, a tag edited, the view switched) has moved the cards.
+    // Only the boxes are said again, not the cards drawn again: drawn
+    // again, their figures were fetched again, the column was as short as
+    // the cards without them for a moment, and a study chosen far down the
+    // page threw it back to the top. Only this saying keeps the point it
+    // was chosen at: any later drawing (search, a tag edited, the view
+    // switched) has moved the cards.
+    Array.prototype.forEach.call(document.querySelectorAll(
+      ".study-card .study-pick input, #studies-table tbody input[type=checkbox]"), function (b) {
+      if (b.dataset.path) b.checked = chosen.indexOf(b.dataset.path) >= 0;
+    });
     fresh = true;
-    draw();
+    sayChosen();
     fresh = false;
-    // The cards or rows are drawn again: the box chosen keeps the focus
-    // (Tab from it reaches Compare; a choice does not move it).
-    var again = boxOf(path);
-    if (again) again.focus({ preventScroll: true });
   }
 
   /* The pointer that chose it: pressed on this box or its label, just now.
