@@ -192,6 +192,27 @@ def _can_run_script(content_type: str) -> bool:
     return "html" in kind or "xml" in kind
 
 
+def _page_study_refused(root: Path, payload: Any) -> dict[str, Any] | None:
+    """A write to the open study's views, scenes or selections from a page
+    for another study (``page_study``, the key its address names: a window
+    that has not yet seen another one open a study): refused, as a
+    conversation's write is (`agent_panel.page_study_refused`). None when
+    the write may go on, and when the page names no study (an AI app, a
+    script)."""
+    import re
+
+    from fastmdxplora.gui.agent_panel import STUDY_CHANGED
+    from fastmdxplora.gui.workspace import study_key
+
+    asked = (payload or {}).get("page_study") if isinstance(payload, dict) else None
+    if not isinstance(asked, str) or not re.fullmatch(r"[0-9a-f]{16}", asked):
+        return None
+    if asked == study_key(root):
+        return None
+    return {"ok": False, "study_changed": True, "study_key": study_key(root),
+            "reason": STUDY_CHANGED, "error": STUDY_CHANGED}
+
+
 def _get_answered_beyond_loopback(path: str) -> bool:
     return (path in GETS_ANSWERED_BEYOND_LOOPBACK
             or path.startswith(GET_PREFIXES_ANSWERED_BEYOND_LOOPBACK))
@@ -1799,6 +1820,10 @@ def make_handler(
                 from fastmdxplora.scenes import write_scene
 
                 study = app_runtime.data_root()
+                refused = _page_study_refused(study, payload)
+                if refused:
+                    self._send_json(refused, status=409)
+                    return
                 if not is_study(study):
                     self._send_json({"ok": False, "reason": "No study is open to save it in."})
                     return
@@ -1832,6 +1857,10 @@ def make_handler(
                 from fastmdxplora.gui.viewer_selections import delete_selection, save_selection
 
                 study = app_runtime.data_root()
+                refused = _page_study_refused(study, payload)
+                if refused:
+                    self._send_json(refused, status=409)
+                    return
                 if not is_study(study):
                     self._send_json({"ok": False, "reason": "No study is open to save it in."})
                     return
@@ -1846,6 +1875,10 @@ def make_handler(
                 from fastmdxplora.gui.saved_views import delete_view, save_view
 
                 study = app_runtime.data_root()
+                refused = _page_study_refused(study, payload)
+                if refused:
+                    self._send_json(refused, status=409)
+                    return
                 if not is_study(study):
                     self._send_json({"ok": False, "reason": "No study is open to save it in."})
                     return

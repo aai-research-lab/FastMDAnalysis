@@ -221,7 +221,8 @@
       fetch("/api/scenes", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: named, view: view, highlight: scene.highlight || "",
-                               labels: !!scene.labels, ligands: sceneLigands() }),
+                               labels: !!scene.labels, ligands: sceneLigands(),
+                               page_study: pageStudy() || undefined }),
       }).then(function (r) {
         return r.json().catch(function () { return { ok: false, reason: "HTTP " + r.status }; });
       }).catch(function () { return { ok: false, reason: "The server did not answer." }; })
