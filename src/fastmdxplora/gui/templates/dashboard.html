@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/static/compare.css">
   <link rel="stylesheet" href="/static/study-timeline.css">
   <link rel="stylesheet" href="/static/report-outline.css">
+  <link rel="stylesheet" href="/static/builder-cost.css">
   <link rel="stylesheet" href="/static/analysis-cells.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
@@ -796,6 +797,15 @@
                 <span class="builder-status" id="run-status" data-state="none" role="status"></span>
               </div>
               <div class="builder-plan-chain" id="run-summary"></div>
+
+              <!-- What the study costs here, as a compiler's diagnostics
+                   (run-builder.js renderCost; gui/preview.py study_cost). -->
+              <section class="builder-summary-card builder-cost" id="run-cost" hidden
+                       aria-live="polite" aria-labelledby="run-cost-title">
+                <div class="builder-summary-k"><span id="run-cost-title">What it costs here</span>
+                  <span class="builder-cost-count" id="run-cost-count"></span></div>
+                <ul class="builder-cost-lines" id="run-cost-lines"></ul>
+              </section>
 
               <section class="builder-summary-card system-preview" id="run-system-preview"
                        hidden aria-live="polite" aria-labelledby="run-system-preview-title">
