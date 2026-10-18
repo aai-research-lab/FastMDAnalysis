@@ -67,6 +67,15 @@
     return value.toPrecision(3);
   }
 
+  /* A time (ns) to as many decimals as tell a frame of the trajectory from
+   * the next, by the Viewer's own rule (dashboard.js `timeDigitsOf`). */
+  function timeText(value, times, frames) {
+    var board = window.FastMDXDashboard;
+    var digits = board && board.timeDigitsOf ? board.timeDigitsOf(times, frames) : null;
+    return digits == null || value == null || !isFinite(value) ? format(value)
+      : Number(value).toFixed(digits);
+  }
+
   function remembered() {
     try { return window.localStorage.getItem(CHOSEN); } catch (e) { return null; }
   }
@@ -181,10 +190,12 @@
     // and unit, and its value is given beside it.
     var byFrame = d.x_label === "Frame";
     var from = el("text", { x: plot.left, y: HEIGHT - 3, fill: c.axis, "font-size": 10 }, svg);
-    from.textContent = byFrame ? "frame " + Math.round(xLow) : format(xLow) + " ns";
+    from.textContent = byFrame ? "frame " + Math.round(xLow)
+      : timeText(xLow, xs, d.frames) + " ns";
     var to = el("text", { x: plot.right, y: HEIGHT - 3, fill: c.axis, "font-size": 10,
       "text-anchor": "end" }, svg);
-    to.textContent = byFrame ? "frame " + Math.round(xHigh) : format(xHigh) + " ns";
+    to.textContent = byFrame ? "frame " + Math.round(xHigh)
+      : timeText(xHigh, xs, d.frames) + " ns";
     el("path", {
       d: xs.map(function (x, i) {
         return (i ? "L" : "M") + px(x).toFixed(1) + " " + py(ys[i]).toFixed(1);

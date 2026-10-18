@@ -85,6 +85,15 @@
     return value.toPrecision(3);
   }
 
+  /* A time (ns) to as many decimals as tell a frame of the trajectory from
+   * the next, by the Viewer's own rule (dashboard.js `timeDigitsOf`). */
+  function timeText(value, times, frames) {
+    var board = window.FastMDXDashboard;
+    var digits = board && board.timeDigitsOf ? board.timeDigitsOf(times, frames) : null;
+    return digits == null || value == null || !isFinite(value) ? format(value)
+      : Number(value).toFixed(digits);
+  }
+
   function withUnit(value, unit) {
     return format(value) + (unit ? " " + unit : "");
   }
@@ -280,7 +289,7 @@
       var where = data.kind === "residue" || data.kind === "atom"
         ? data.labels[index]
         : (data.x_label === "Frame" ? "frame " + data.frames[index]
-          : format(xs[index]) + " ns · frame " + data.frames[index]);
+          : timeText(xs[index], xs, data.frames) + " ns · frame " + data.frames[index]);
       var action = (data.kind === "residue" || data.kind === "atom") && entity
         ? "select it in the structure"
         : (data.linked ? "open this frame" : "");

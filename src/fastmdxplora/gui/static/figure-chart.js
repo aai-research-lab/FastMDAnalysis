@@ -86,6 +86,15 @@
     return value.toPrecision(3);
   }
 
+  /* A time (ns) to as many decimals as tell a frame of the trajectory from
+   * the next, by the Viewer's own rule (dashboard.js `timeDigitsOf`). */
+  function timeText(value, times, frames) {
+    var board = window.FastMDXDashboard;
+    var digits = board && board.timeDigitsOf ? board.timeDigitsOf(times, frames) : null;
+    return digits == null || value == null || !isFinite(value) ? format(value)
+      : Number(value).toFixed(digits);
+  }
+
   function category(k) {
     return k < 0 ? "#BBBBBB" : CATEGORY[k % CATEGORY.length];
   }
@@ -283,7 +292,7 @@
     var t = data.x ? data.x[i] : data.t[i];
     var label = data.x_label || data.t_label;
     return label === "Frame" ? "frame " + data.frames[i]
-      : format(t) + " ns · frame " + data.frames[i];
+      : timeText(t, data.x || data.t, data.frames) + " ns · frame " + data.frames[i];
   }
 
   function openFrame(data, frameNumber) {
@@ -659,6 +668,13 @@
     var grouped = Array.isArray(data.frame_groups) && data.frame_groups.length === n;
     var hint = exact ? "Click opens the row frame; Shift-click opens the column frame. Use arrows, then Enter or Shift+Enter."
       : (grouped ? "Each cell averages frame groups; no single frame is selected." : "");
+    // Each row's time and frame, for the times said to tell one from the next.
+    var middles = [];
+    for (var m = 0; m < n; m += 1) middles.push((e[m] + e[m + 1]) / 2);
+    var rowFrames = Array.isArray(data.frames) && data.frames.length === n ? data.frames
+      : (grouped ? data.frame_groups.map(function (g) {
+      return g.first;
+    }) : null);
     function rowSaid(index) {
       if (exact) return "frame " + data.frames[index];
       var group = grouped ? data.frame_groups[index] : null;
@@ -670,9 +686,12 @@
       emptySaid: "—",
       hint: hint,
       where: function (a, b, column, row) {
-        var axis = timed ? format(a) + " ns and " + format(b) + " ns"
-          : "axis frames " + Math.round(a) + " and " + Math.round(b);
-        return axis + "; row " + rowSaid(row) + "; column " + rowSaid(column);
+        // The row first and then the column, each with its time or frame.
+        function at(v) {
+          return timed ? timeText(v, middles, rowFrames) + " ns" : "axis frame " + Math.round(v);
+        }
+        return "row " + rowSaid(row) + " (" + at(b) + "); column " + rowSaid(column)
+          + " (" + at(a) + ")";
       },
       activate: exact ? function (column, row, event) {
         openFrame(data, data.frames[event.shiftKey ? column : row]);
