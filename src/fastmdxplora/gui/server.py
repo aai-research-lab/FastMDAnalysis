@@ -366,17 +366,18 @@ def _fixes_held(root: Path) -> dict[str, Any]:
     return answer if inside == opened else _as_opened(answer, inside, opened)
 
 
-def _the_fix_shown(root: Path, index: Any) -> bool:
+def _the_fix_shown(root: Path, index: Any, run_in: Path | None = None) -> bool:
     """Whether the fix at ``index`` that `run_a_fix` would run (read
-    without a held read) is the one the page showed (`_fixes_held`): the
-    same refusal, place and command. A fix read through a link may not be."""
+    without a held read, in the study open there, ``run_in``) is the one the
+    page showed of the study ``root`` (`_fixes_held`): the same refusal,
+    place and command. A fix read through a link may not be."""
     from fastmdxplora.gui.fixes_view import fixes_payload
 
     try:
         index = int(index)
     except (TypeError, ValueError):
         return True
-    shown, run = _fixes_held(root), fixes_payload(root)
+    shown, run = _fixes_held(root), fixes_payload(root if run_in is None else run_in)
     keys = ("code", "where", "command", "argv")
     try:
         return ([shown["fixes"][index].get(key) for key in keys]
@@ -2011,7 +2012,10 @@ def make_handler(
                         duration_ns=asked.get("duration_ns"),
                         dashboard_url=self.headers.get("Origin")))
                     return
-                if not _the_fix_shown(root, asked.get("index")):
+                # What the page was given (`/api/fixes`, of the data shown)
+                # against what `run_a_fix` reads (the study open).
+                if not _the_fix_shown(app_runtime.data_root(), asked.get("index"),
+                                      getattr(app_runtime, "active_root", None)):
                     # The page's fixes were read from the study's own records
                     # (`_fixes_held`); one read through a link is not run in
                     # its place.
