@@ -197,3 +197,22 @@ def test_every_step_is_shown_from_the_start_and_the_cost_beside_the_summary(tmp_
     assert all(level == "note" for level, _kind, _said in costed["cost"])
     assert "ns/day on CPU" in costed["cost"][0][2]
     assert costed["run"][0] is False and costed["run"][1] != "rgba(0, 0, 0, 0)"
+
+
+def test_a_fast_run_s_speed_is_said_in_figures_not_an_exponent(tmp_path):
+    """Three figures were asked of a format that writes 1.23e+03 for a run
+    making a thousand ns a day or more: a small system on a GPU."""
+    from fastmdxplora.cost import calibrate
+
+    calibrate(particles=30_000, steps=5_000, seconds=0.01, platform_name="CPU", precision="mixed")
+    answer = system_preview(_study(tmp_path, platform="CPU"))
+    said = _lines(answer)["speed"]["said"]
+    particles = answer["estimate"]["particles"]
+    per_day = 2e-6 * 86400 / (0.01 / (30_000 * 5_000) * particles)
+    assert per_day >= 1000
+    import math
+
+    places = 2 - math.floor(math.log10(per_day))
+    assert "e+" not in said
+    assert said.startswith(f"about {round(per_day, places):,.0f} ns/day on CPU")
+    assert preview._three_figures(56.78) == "56.8" and preview._three_figures(0.01234) == "0.0123"

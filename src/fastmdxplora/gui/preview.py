@@ -391,6 +391,17 @@ def _gpus_now() -> Any:
         return _room["room"]
 
 
+def _three_figures(value: float) -> str:
+    """A rate to three significant figures as a person reads it: 1,230 and
+    56.8, not 1.23e+03."""
+    import math
+
+    if not math.isfinite(value) or value <= 0:
+        return f"{value:g}"
+    places = 2 - math.floor(math.log10(value))
+    return f"{round(value, places):,.{max(0, places)}f}"
+
+
 def _size(n_bytes: float) -> str:
     """Bytes as a person reads them: 820 MB, 3.4 GB."""
     for unit, size in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
@@ -473,7 +484,7 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
         precision = (f" {time.get('precision')}" if time.get("precision")
                      and platform not in ("CPU", "Reference", "this machine") else "")
         lines.append({"kind": "speed", "level": "note", "said": (
-            f"about {per_day:,.3g} ns/day on {platform}{precision}, for about {particles:,} "
+            f"about {_three_figures(per_day)} ns/day on {platform}{precision}, for about {particles:,} "
             f"particles, from this machine's timing of {str(calibration.measured_at)[:10]}")})
     else:
         why = str(time.get("reason") or "this machine has not been timed").rstrip(".")
