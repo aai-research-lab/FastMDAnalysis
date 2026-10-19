@@ -135,6 +135,21 @@
     return box;
   }
 
+  /* A study of several runs takes no steps of its own: its runs' steps
+   * are listed, each named by its run, and a run that recorded none is
+   * said, never the study as one that recorded nothing. */
+  function ofItsRuns(runs, events) {
+    var n = runs.length;
+    var of = n === 1 ? "its run" : "its " + n + " runs";
+    if (!events.length) {
+      return "A study of " + n + " run" + (n === 1 ? "" : "s") + ": " +
+        (n === 1 ? "it has" : "none has") + " recorded a step yet. Choose a run to see its own.";
+    }
+    var none = runs.filter(function (run) { return !run.steps; }).map(function (run) { return run.label; });
+    return "The steps of " + of + ", each named by the run that took it; choose a run to see " +
+      "its own." + (none.length ? " Not yet recorded a step: " + none.join(", ") + "." : "");
+  }
+
   function render(data) {
     var list = byId("study-timeline-list");
     var said = byId("study-timeline-said");
@@ -145,7 +160,8 @@
     // never as a step it did not take.
     var notRead = data && data.not_read ? data.not_read : "";
     said.textContent = data && data.ok
-      ? (notRead || (events.length ? "" : "Nothing recorded yet: a study's steps are listed as it takes them."))
+      ? (notRead || (data.runs ? ofItsRuns(data.runs, events)
+                     : events.length ? "" : "Nothing recorded yet: a study's steps are listed as it takes them."))
       : (data && (data.reason || data.error)) || "The Timeline could not be read.";
     events.forEach(function (event) {
       var item = make("li", "tl-event");
@@ -154,7 +170,9 @@
       if (event.replaced) item.dataset.replaced = "true";
       var head = make("div", "tl-head");
       head.appendChild(make("span", "tl-dot"));
-      head.appendChild(make("span", "tl-said", event.said + (event.again ? " again" : "")));
+      // A step of one of a study's runs, named by the run that took it.
+      head.appendChild(make("span", "tl-said", (event.run ? event.run + ": " : "") +
+                                               event.said + (event.again ? " again" : "")));
       var when = make("time", "tl-when", whenSaid(event.at));
       when.setAttribute("datetime", event.at || "");
       head.appendChild(when);

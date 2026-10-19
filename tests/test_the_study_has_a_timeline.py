@@ -330,3 +330,58 @@ def test_the_side_panel_reads_again_after_a_switch_and_says_times_as_the_overvie
     assert not any("AM" in w or "PM" in w for w in said["when"]), said["when"]
     assert said["facts"].startswith("20m 0s"), said["facts"]
     assert said["heads"] == ["Setting", "The study", "This piece"]
+
+
+# ---------------------------------------------------------------------------
+# A study of several runs takes no steps of its own: its runs' steps are
+# listed, each named by its run, never "nothing recorded" when they ran.
+
+def test_a_study_of_runs_lists_its_runs_steps_each_named_by_its_run(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    runs = sorted((root / "runs").iterdir())
+    for i, run in enumerate(runs[:2]):
+        (run / "manifest.json").write_text(json.dumps({"phases": [
+            _phase("setup", f"0{7 + i}:00:00", f"0{7 + i}:00:04"),
+            _phase("simulation", f"0{7 + i}:00:04", f"0{7 + i}:30:04")]}), encoding="utf-8")
+    (runs[2] / "manifest.json").unlink()
+
+    said = timeline_of(root)
+    assert said["ok"] is True
+    assert [(e["run"], e["said"]) for e in said["events"]] == [
+        ("seed 2", "Simulated"), ("seed 2", "Set up"), ("seed 1", "Simulated"), ("seed 1", "Set up")]
+    assert [(r["label"], r["steps"]) for r in said["runs"]] == [
+        ("seed 1", 2), ("seed 2", 2), ("seed 3", 0)]
+
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1600, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate("() => window.FastMDXFrame.setCollapsed(false)")
+            page.click("#timeline-tab")
+            page.wait_for_selector("#study-timeline-list .tl-event")
+            shown = page.evaluate("""() => ({
+                said: document.getElementById('study-timeline-said').textContent,
+                steps: [...document.querySelectorAll('.tl-event .tl-said')].map((n) => n.textContent),
+            })""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert "Nothing recorded" not in shown["said"]
+    assert shown["said"] == ("The steps of its 3 runs, each named by the run that took it; "
+                             "choose a run to see its own. Not yet recorded a step: seed 3.")
+    assert shown["steps"] == ["seed 2: Simulated", "seed 2: Set up",
+                              "seed 1: Simulated", "seed 1: Set up"]

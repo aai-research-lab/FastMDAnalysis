@@ -45,6 +45,9 @@ def timeline_of(root: str | Path) -> dict[str, Any]:
     base = Path(root)
     if not record_access.is_dir(base):
         return {"ok": False, "reason": "No study is open."}
+    runs = _runs_of(base)
+    if runs is not None:
+        return _of_its_runs(base, runs)
     events: list[dict[str, Any]] = []
     manifest = _json(base / "manifest.json")
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
@@ -67,6 +70,48 @@ def timeline_of(root: str | Path) -> dict[str, Any]:
     events += _pieces(base)
     events.sort(key=lambda e: e.get("at") or "", reverse=True)
     return {"ok": True, "events": events}
+
+
+def _runs_of(base: Path) -> list[dict[str, Any]] | None:
+    """A study of several runs: each run its batch manifest plans, by its
+    folder and by what sets it apart among them ("seed 1"), as every page
+    names a run (`exploration.run_label`). None for a study of one run."""
+    from fastmdxplora.gui.exploration import axes_that_differ, run_label
+
+    manifest = _json(base / "batch_manifest.json")
+    if not isinstance(manifest, dict):
+        return None
+    planned = manifest.get("planned") or manifest.get("runs")
+    if not isinstance(planned, list):
+        return None
+    runs = [{"run_id": str(entry["run_id"]),
+             "values": entry.get("sweep_values") if isinstance(entry.get("sweep_values"), dict)
+             else {}}
+            for entry in planned if isinstance(entry, dict) and entry.get("run_id")]
+    axes = axes_that_differ(runs)
+    for run in runs:
+        run["label"] = run_label(run["values"], axes) or run["run_id"]
+    return runs
+
+
+def _of_its_runs(base: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """A study of several runs has no steps of its own: each run's steps,
+    newest first, each named by the run that took it. Its runs are listed
+    too, with how many steps each recorded, so the page can say a run that
+    recorded none."""
+    events: list[dict[str, Any]] = []
+    listed = []
+    for run in runs:
+        folder = base / "runs" / run["run_id"]
+        mine = timeline_of(folder) if record_access.is_dir(folder) else {"ok": False}
+        steps = (mine.get("events") or []) if mine.get("ok") else []
+        for event in steps:
+            event["run"] = run["label"]
+            event["run_path"] = str(folder)
+        events += steps
+        listed.append({"label": run["label"], "path": str(folder), "steps": len(steps)})
+    events.sort(key=lambda e: e.get("at") or "", reverse=True)
+    return {"ok": True, "events": events, "runs": listed}
 
 
 def _phase(base: Path, record: dict[str, Any], *, replaced: bool,

@@ -82,7 +82,10 @@ moved (before and after, those the same, those not run again), the
 settings a piece was carried on with. Who asked for a step is not
 recorded, so it is not said. A record of the study not read (a link out of
 it) is said not read at the top, and a mean whose record was not read is
-said so, never as one added or not run again. And two **seams** between
+said so, never as one added or not run again. A study of several runs
+takes no steps of its own: its runs' steps are listed, each named by what
+sets its run apart ("seed 1: Simulated"), with the runs that recorded none
+said. And two **seams** between
 the columns that drag, with a
 double-click to reset; the sidebar folds to a strip of its icons under
 FastMDXplora's mark, the side panel to a tab at its edge, and the centre stays
