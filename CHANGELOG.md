@@ -114,7 +114,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   numbered as the PDF now numbers them. Each number the report states
   opens the record it was traced to (file, place, value, converted to the
   report's units), or says no record holds it, with the nearest and the
-  records written again since the report.
+  records written again since the report. Records are read from the study
+  only: one linked out of it is named as not read, and a number it may
+  hold is said as not traced, never as one no record holds.
 - New study shows all five steps from the start, steps 2 to 5 to read
   until a starting point is chosen, with Run on this machine quiet until
   there is a study to run. Beside the summary, What it costs here: the

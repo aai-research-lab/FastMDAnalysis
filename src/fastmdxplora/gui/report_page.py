@@ -231,9 +231,17 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
             "runs": len(runs), "pending": pending}
 
 
-#: The last report traced, by study: tracing reads every record, and the
-#: page asks again on every change of the run's state.
-_TRACED: dict[str, tuple[Any, dict[str, Any]]] = {}
+#: The last report traced, by study and by whether its read was held to
+#: it: tracing reads every record, and the page asks again on every change
+#: of the run's state. A trace read without the hold may hold a record's
+#: values the hold refuses, so it is never given to a held read.
+_TRACED: dict[tuple[str, bool], tuple[Any, dict[str, Any]]] = {}
+
+
+def _held(base: Path) -> bool:
+    """Whether this read is held to a study (`record_access`): the root of
+    the study's filesystem is then outside what it may read."""
+    return not _records.can_read(Path(base.absolute().anchor))
 
 
 def _traced(html: str, rendered: str, base: Path, source: Path) -> dict[str, Any]:
@@ -241,27 +249,41 @@ def _traced(html: str, rendered: str, base: Path, source: Path) -> dict[str, Any
     each number it states marked and traced to its record
     (`report_numbers.py`); and the records changed since the report was
     written, since a number a record no longer holds is most often one of
-    those. The standalone page and the Files tab's preview take the first."""
+    those. The standalone page and the Files tab's preview take the first.
+
+    Every record is read through `record_access`: in a read held to the
+    study, one linked out of it is not read, its numbers not traced to it,
+    and it is named in ``unavailable`` (again when the trace is kept from
+    an earlier read, which reads nothing)."""
     if rendered != "html":
         return {"html": html, "marked": "", "numbers": [], "records_changed": []}
     from fastmdxplora.gui.report_numbers import record_files, traced_html
 
-    def mtime(path: Path) -> int:
+    def mtime(path: Path) -> int | None:
         try:
-            return path.stat().st_mtime_ns
+            return _records.stat(path).st_mtime_ns
         except OSError:
-            return 0
+            return None
 
-    files = record_files(base)
-    written = mtime(source)
-    signature = (html, written, tuple((str(p), mtime(p)) for p in files))
-    kept = _TRACED.get(str(base))
+    listed_unread: list[str] = []
+    files = record_files(base, listed_unread)
+    written = mtime(source) or 0
+    stamps = tuple((str(p), mtime(p)) for p in files)
+    signature = (html, written, stamps, tuple(sorted(set(listed_unread))))
+    place = (str(base), _held(base))
+    kept = _TRACED.get(place)
     if kept is not None and kept[0] == signature:
         return kept[1]
-    marked, numbers = traced_html(html, base)
-    changed = sorted(p.relative_to(base).as_posix() for p in files if mtime(p) > written)
-    said = {"html": html, "marked": marked, "numbers": numbers, "records_changed": changed}
-    _TRACED[str(base)] = (signature, said)
+    not_read: list[str] = []
+    marked, numbers = traced_html(html, base, not_read)
+    changed = sorted(Path(name).relative_to(base).as_posix() for name, stamp in stamps
+                     if stamp is not None and stamp > written)
+    said: dict[str, Any] = {"html": html, "marked": marked, "numbers": numbers,
+                            "records_changed": changed}
+    unread = sorted(set(not_read) | set(listed_unread))
+    if unread:
+        said["unavailable"] = unread
+    _TRACED[place] = (signature, said)
     return said
 
 

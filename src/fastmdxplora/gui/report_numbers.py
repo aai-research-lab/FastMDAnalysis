@@ -16,16 +16,26 @@ its kind where there is one: a method's own threshold, a citation, a
 number the report works out from more than one record, or a report
 written before its records last changed. Code alone, no reading of the
 prose beyond the words next to the number.
+
+Records are read through `record_access`, so in a read held to the study
+a record linked out of it is not read. A number no record that was read
+holds is then said as not traced, with the records not read named, never
+as one no record holds.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import math
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+from fastmdxplora import record_access as _records
+from fastmdxplora.refusals import OutsideWorkspace
 
 __all__ = ["record_files", "records_of", "traced_html", "trace_number"]
 
@@ -141,30 +151,37 @@ def _leaves(value: Any, path: str, unit: str) -> Iterator[tuple[str, float, str]
             yield from _leaves(item, f"{path}[{i}]", unit)
 
 
-def _read(path: Path) -> Any:
+def _read(path: Path, base: Path, not_read: list[str] | None) -> Any:
     try:
-        if path.stat().st_size > _LARGEST_FILE:
+        if _records.stat(path).st_size > _LARGEST_FILE:
             return None
-        text = path.read_text(encoding="utf-8")
+        text = _records.read_text(path, encoding="utf-8")
         if path.suffix in (".yml", ".yaml"):
             import yaml
 
             return yaml.safe_load(text)
         return json.loads(text)
+    except OutsideWorkspace:
+        # Refused in a read held to the study: not read, which is not a
+        # record that holds nothing.
+        if not_read is not None:
+            not_read.append(path.relative_to(base).as_posix())
+        return None
     except (OSError, ValueError, ImportError):
         return None
     except Exception:  # noqa: BLE001 - a YAML error is not an OSError; the record is skipped
         return None
 
 
-def records_of(root: Path | str) -> list[dict[str, Any]]:
+def records_of(root: Path | str, not_read: list[str] | None = None) -> list[dict[str, Any]]:
     """Every number the study's records hold: its file (from the study's
     folder), its place in the file, its value and its unit where the record
-    says it. A study of several runs gives its own and each run's."""
+    says it. A study of several runs gives its own and each run's. Each
+    record refused (`record_access`) is named in ``not_read``."""
     base = Path(root)
     found: list[dict[str, Any]] = []
-    for path in record_files(base):
-        data = _read(path)
+    for path in record_files(base, not_read):
+        data = _read(path, base, not_read)
         if data is None:
             continue
         file = path.relative_to(base).as_posix()
@@ -469,11 +486,18 @@ def _numbers_in(text: str, every: bool) -> Iterator[tuple[int, int, str, str, st
         yield start, end, said, unit, counts, error
 
 
-def traced_html(html: str, root: Path | str) -> tuple[str, list[dict[str, Any]]]:
+def traced_html(html: str, root: Path | str,
+                not_read: list[str] | None = None) -> tuple[str, list[dict[str, Any]]]:
     """The report's HTML with each number it states marked, and what each
     traced to. A mark is `<span class="report-number" data-number="i">`
-    around the number alone."""
-    study = _Study(records_of(root))
+    around the number alone. A number not traced where a record was not
+    read names those records (``not_read``, filled here too): it may be
+    one of theirs."""
+    refused: list[str] = []
+    study = _Study(records_of(root, refused))
+    unread = sorted(set(refused))
+    if not_read is not None:
+        not_read.extend(unread)
     parts = re.split(r"(<[^>]+>)", html)
     out: list[str] = []
     numbers: list[dict[str, Any]] = []
@@ -557,6 +581,8 @@ def traced_html(html: str, root: Path | str) -> tuple[str, list[dict[str, Any]]]
                                  context=part[max(0, start - 48):start], head=head,
                                  error=error)
             index = len(numbers)
+            if unread and not trace["traced"]:
+                trace = {**trace, "not_read": unread}
             numbers.append({"said": said + (" " + unit if unit else ""), "counts": counts,
                             "subjects": list(subjects), **trace})
             pieces.append(part[cursor:start])
@@ -569,10 +595,51 @@ def traced_html(html: str, root: Path | str) -> tuple[str, list[dict[str, Any]]]
     return "".join(out), numbers
 
 
-def record_files(root: Path | str) -> list[Path]:
+def record_files(root: Path | str, not_read: list[str] | None = None) -> list[Path]:
     """The record files a report is traced against, for knowing when they
-    changed."""
+    changed. Listed through `record_access`: in a read held to the study,
+    one there that is linked out of it (or a folder of them) is not listed
+    but named in ``not_read``."""
     base = Path(root)
-    folders = [base] + sorted(p for p in (base / "runs").glob("*") if p.is_dir())
-    return [path for folder in folders for pattern in _RECORDS
-            for path in sorted(folder.glob(pattern))]
+    runs = [p for p in _matching(base, "runs/*", base, not_read, folders=True)]
+    found: list[Path] = []
+    for folder in [base] + runs:
+        for pattern in _RECORDS:
+            found.extend(_matching(folder, pattern, base, not_read))
+    return found
+
+
+def _matching(folder: Path, pattern: str, base: Path, not_read: list[str] | None, *,
+              folders: bool = False) -> list[Path]:
+    """The files (or ``folders``) under ``folder`` a pattern of names
+    matches, each part a name or a wildcard; one that is there but may not
+    be read named in ``not_read``."""
+    def refused(path: Path) -> bool:
+        if os.path.lexists(path) and not _records.can_read(path):
+            if not_read is not None:
+                not_read.append(path.relative_to(base).as_posix())
+            return True
+        return False
+
+    places = [folder]
+    parts = pattern.split("/")
+    for index, part in enumerate(parts):
+        last = index == len(parts) - 1
+        found: list[Path] = []
+        for place in places:
+            if any(char in part for char in "*?["):
+                try:
+                    children = sorted(child for child in _records.iterdir(place)
+                                      if fnmatch.fnmatchcase(child.name, part))
+                except OSError:
+                    children = []
+            else:
+                children = [place / part]
+            for child in children:
+                wanted = _records.is_file if last and not folders else _records.is_dir
+                if wanted(child):
+                    found.append(child)
+                else:
+                    refused(child)
+        places = found
+    return places

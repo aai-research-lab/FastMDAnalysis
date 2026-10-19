@@ -4,7 +4,9 @@
  * click, the record it was traced to (report_numbers.py): the file, the
  * place in it and the value as recorded; or that no record holds it, with
  * the nearest of its kind, and the records changed after the report was
- * written.
+ * written. A record not read (linked out of the study) is named: a number
+ * not traced may be one of its, so it is said as not traced, never as one
+ * no record holds.
  */
 (function () {
   "use strict";
@@ -89,6 +91,21 @@
     return { traced: traced, missing: numbers.length - traced };
   }
 
+  /* The records not read, which a number not traced may come from. */
+  function unread() {
+    var names = [];
+    numbers.forEach(function (n) {
+      (n.not_read || []).forEach(function (name) {
+        if (names.indexOf(name) < 0) names.push(name);
+      });
+    });
+    return names;
+  }
+
+  function wereNotRead(names) {
+    return names.join(", ") + (names.length === 1 ? " was" : " were") + " not read";
+  }
+
   function render(doc, data) {
     var outline = byId("report-outline");
     numbers = (data && data.numbers) || [];
@@ -159,6 +176,11 @@
     var n = counts();
     box.appendChild(make("p", "", n.traced + " of " + numbers.length + " numbers traced to a record; " +
       "click one for it."));
+    var notRead = unread();
+    if (notRead.length) {
+      box.appendChild(make("p", "outline-changed", wereNotRead(notRead) + ", so a number not " +
+        "traced may be one " + (notRead.length === 1 ? "it holds" : "they hold") + "."));
+    }
     if (n.missing) {
       var show = make("button", "plot-tool outline-mark",
         "Mark the " + n.missing + " not found");
@@ -242,9 +264,13 @@
       }
     } else {
       card.dataset.traced = "false";
-      card.appendChild(make("p", "", "No record of this study holds it."));
+      var unreadHere = found.not_read || [];
+      card.appendChild(make("p", "", unreadHere.length
+        ? "Not traced: " + wereNotRead(unreadHere) + ", so whether it holds it is not known."
+        : "No record of this study holds it."));
       if (record) {
-        card.appendChild(make("p", "", "The nearest of its kind:"));
+        card.appendChild(make("p", "", unreadHere.length ? "The nearest of its kind in the records read:"
+          : "The nearest of its kind:"));
         card.appendChild(where(record));
       }
       // The records of what it is about, changed since the report said it.

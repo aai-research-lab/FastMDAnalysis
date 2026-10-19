@@ -149,6 +149,44 @@ def test_a_number_no_record_holds_is_said_so_with_the_nearest(study):
         == said["html"]
 
 
+def test_a_record_linked_out_of_the_study_is_not_read_to_trace_a_number(study, tmp_path):
+    """`/api/report` is read held to the study, but the numbers were traced
+    with plain reads: a setup record linked out of the study gave its value
+    to the report's atom count, and the outside file's time put it among
+    the records changed. It is not read now, its number said as not traced
+    because it was not read, and it is named as not read; also when an
+    earlier trace, read without the hold, is kept."""
+    from fastmdxplora.gui.report_page import report_payload
+    from fastmdxplora.gui.server import _confined, _said_not_read
+    from tests.test_the_study_pages_read_only_the_study import _link
+
+    _payload(study)
+    record = study / "setup" / "setup_parameters.json"
+    outside = tmp_path / "outside" / "setup_parameters.json"
+    outside.parent.mkdir()
+    outside.write_text(json.dumps({"n_atoms_solvated": 7439}), encoding="utf-8")
+    later = (study / "report" / "report.md").stat().st_mtime + 120
+    os.utime(outside, (later, later))
+    record.unlink()
+    _link(record, outside)
+
+    # Read without the hold first (the standalone page): it follows the link.
+    plain = _by_said(report_payload(study)["numbers"])["7,439"][0]
+    assert plain["traced"] and plain["record"]["file"] == "setup/setup_parameters.json"
+    for _ in range(2):
+        said = _said_not_read(_confined(study, report_payload))
+        atoms = _by_said(said["numbers"])["7,439"][0]
+        assert atoms["traced"] is False
+        assert atoms["not_read"] == ["setup/setup_parameters.json"]
+        assert all((n.get("record") or n.get("nearest") or {}).get("file")
+                   != "setup/setup_parameters.json" for n in said["numbers"])
+        assert "setup/setup_parameters.json" not in said["records_changed"]
+        assert said["unavailable"] == ["setup/setup_parameters.json"]
+        assert said["not_read"].startswith("setup/setup_parameters.json was not read")
+        # What was read is still traced.
+        assert _by_said(said["numbers"])["0.799 \u00c5"][0]["traced"]
+
+
 def test_the_pdf_numbers_its_sections_as_the_outline_does():
     from fastmdxplora.report.pdf import STYLESHEET
 
@@ -232,3 +270,41 @@ def test_the_outline_is_beside_the_report_and_a_number_opens_its_record(study):
     assert marked["marked"] == "true"
     assert (narrow["beside"], narrow["folded"]) == ("block", "none")
     assert opened["folded"] == "block"
+
+
+def test_the_page_says_a_number_of_a_record_not_read_is_not_traced(study, tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    _payload(study)
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_study_pages_read_only_the_study import _link
+
+    record = study / "setup" / "setup_parameters.json"
+    outside = tmp_path / "outside" / "setup_parameters.json"
+    outside.parent.mkdir()
+    outside.write_text(json.dumps({"n_atoms_solvated": 7439}), encoding="utf-8")
+    record.unlink()
+    _link(record, outside)
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#report", wait_until="domcontentloaded")
+            page.wait_for_selector("#report-outline .outline-item", state="attached")
+            page.click('#report-document .report-number:text-is("7,439")')
+            page.wait_for_selector('.report-number-card[data-traced="false"]')
+            said = page.evaluate(LOOK)
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert said["card"].startswith("7,439×Not traced: setup/setup_parameters.json was not read, "
+                                   "so whether it holds it is not known.")
+    assert "No record of this study holds it." not in said["card"]
+    assert "setup/setup_parameters.json was not read, so a number not traced may be one it holds." \
+        in said["said"]
