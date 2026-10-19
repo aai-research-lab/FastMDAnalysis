@@ -1306,7 +1306,8 @@
       // study was opened, under their pointer.
       if (list.contains(document.activeElement)) return;
       if (!evenUnderThePointer && list.matches(":hover")) return;
-      var open = ((el("sidebar-output-folder") || {}).textContent || "").trim();
+      // App state names the study before its status/results paint the folder.
+      var open = recentFor || "";
       var recent = (data && data.studies || []).slice(0, SHOWN_RECENT);
       if (!recent.length) {
         list.replaceChildren(make("div", "sidebar-recent-empty",
@@ -1471,8 +1472,8 @@
   // Again once the open study is known, or another is opened.
   var recentFor = null;
   var RECENT_AGAIN_MS = 30000;
-  window.addEventListener("dashboard:app-state", function () {
-    var open = ((el("sidebar-output-folder") || {}).textContent || "").trim();
+  window.addEventListener("dashboard:app-state", function (event) {
+    var open = String((event.detail && event.detail.active_run) || "");
     var stale = Date.now() - askedAt > RECENT_AGAIN_MS;
     if (open === recentFor && !stale) return;
     var moved = open !== recentFor;
