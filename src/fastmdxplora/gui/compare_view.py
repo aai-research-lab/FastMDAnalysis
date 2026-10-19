@@ -277,6 +277,7 @@ def _series_of_both(a: Path, b: Path, sides: list[dict[str, Any]]
     the two that drew them; and the series both recorded that were not
     drawn because a record of one was not read."""
     from fastmdxplora.gui.series import series_payload
+    from fastmdxplora.gui.workspace import _label_of
 
     theirs = {entry["analysis"] for entry in sides[1]["series"]}
     common = [entry for entry in sides[0]["series"] if entry["analysis"] in theirs]
@@ -292,13 +293,16 @@ def _series_of_both(a: Path, b: Path, sides: list[dict[str, Any]]
     for entry in common:
         name = entry["analysis"]
         one, other = (side.get("payloads", {}).get(name) or {} for side in drawn)
+        # Named as the table above names it (`workspace._label_of`): the
+        # chart's axis said "end_to_end" beside "End-to-end distance".
+        label = _label_of(name)
         if one.get("unavailable") or other.get("unavailable"):
-            unread.append(entry["label"])
+            unread.append(label)
             continue
         if not (one.get("ok") and other.get("ok")
                 and one.get("kind") == "time" and other.get("kind") == "time"):
             continue
-        both.append({"analysis": name, "label": entry["label"], "unit": entry["unit"],
+        both.append({"analysis": name, "label": label, "unit": entry["unit"],
                      "first": _drawn(one), "second": _drawn(other)})
     from fastmdxplora.gui.overview_view import THERMODYNAMICS
 

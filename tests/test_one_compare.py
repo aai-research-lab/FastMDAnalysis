@@ -424,6 +424,25 @@ def test_a_replicas_spread_is_said_from_the_runs_that_recorded_it(tmp_path):
     assert "replicas' spread)" not in shown["rg"][3].replace("larger than the replicas' spread)", "")
 
 
+def test_a_series_is_named_on_its_chart_as_in_the_table(variants):
+    """The Over time chart's axis said "end_to_end (nm)" where the table
+    said "End-to-end distance"."""
+    from fastmdxplora.gui.compare_view import compared
+
+    for run in _runs(variants):
+        made = run / "analysis" / "end_to_end"
+        made.mkdir()
+        shutil.copy(run / "analysis" / "rg" / "rg.dat", made / "end_to_end.dat")
+        (made / "options.json").write_text(
+            (run / "analysis" / "rg" / "options.json").read_text(encoding="utf-8")
+            .replace('"rg"', '"end_to_end"'), encoding="utf-8")
+    said = compared(*_runs(variants))
+    table = {m["analysis"]: m["label"] for m in said["measures"]}
+    drawn = {s["analysis"]: s["label"] for s in said["series"]}
+    assert drawn["end_to_end"] == table["end_to_end"] == "End-to-end distance"
+    assert all(drawn[name] == table[name] for name in drawn if name in table)
+
+
 def test_two_replicas_one_of_which_did_not_finish_say_which_error_is_used(tmp_path):
     from fastmdxplora.gui.compare_view import compared
     from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
