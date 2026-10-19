@@ -784,6 +784,8 @@ def test_beyond_loopback_neither_compare_nor_the_timeline_is_offered(variants, p
             .filter((t) => t.offsetParent !== null).map((t) => t.textContent.trim())""")
         pane = page.evaluate("""() => [...document.querySelectorAll('.side-pane')]
             .filter((p) => !p.hidden).map((p) => p.dataset.sidePane)""")
+        # All studies' way to the Compare page.
+        compare_link = page.evaluate("() => !!document.getElementById('studies-compare-page')")
         page.keyboard.press("Control+k")
         page.wait_for_selector("#palette:not([hidden])")
         page.fill("#palette-input", "compare")
@@ -795,6 +797,8 @@ def test_beyond_loopback_neither_compare_nor_the_timeline_is_offered(variants, p
     if public:
         assert "Timeline" not in tabs and pane == ["log"]
         assert "Compare with…" not in listed
+        assert compare_link is False
     else:
         assert "Timeline" in tabs and pane == ["timeline"]
         assert "Compare with…" in listed
+        assert compare_link is True

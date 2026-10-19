@@ -1444,12 +1444,23 @@
       function () { return window.FastMDXChats ? window.FastMDXChats.show() : null; });
   }
 
+  /* Beyond loopback /api/compared is refused (the page's bind flag, as the
+   * palette leaves out Compare with...): the way to the Compare page is
+   * not offered. */
+  function compareOnLoopbackOnly() {
+    if (document.body.dataset.beyondLoopback !== "true") return;
+    var link = el("studies-compare-page");
+    if (link) link.remove();
+  }
+
   if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", compareOnLoopbackOnly);
     document.addEventListener("DOMContentLoaded", attach);
     document.addEventListener("DOMContentLoaded", recentBesideTheStrip);
     document.addEventListener("DOMContentLoaded", keepRecentFolded);
     document.addEventListener("DOMContentLoaded", fitRecentAsTheSidebarChanges);
   } else {
+    compareOnLoopbackOnly();
     attach();
     recentBesideTheStrip();
     keepRecentFolded();
