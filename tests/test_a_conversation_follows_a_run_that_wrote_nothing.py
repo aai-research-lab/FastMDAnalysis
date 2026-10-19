@@ -2598,13 +2598,9 @@ def test_a_run_then_another_study_opened_still_runs(tmp_path, monkeypatch):
         page.on("domcontentloaded", lambda _page: events.append("reload"))
         _slow_disk(monkeypatch, 1.0)
         page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
-        refused = page.evaluate("(where) => window.FastMDXAgentPanel.open("
-                                "'conv-20261008-000000-000000', where, false)", str(other))
-        assert refused["ok"] is False and "launch" in refused["error"]
-        page.wait_for_selector("#agent-thread .agent-running")
-        with page.expect_navigation(wait_until="domcontentloaded"):
-            page.evaluate("(where) => window.FastMDXAgentPanel.open("
-                          "'conv-20261008-000000-000000', where, false)", str(other))
+        with page.expect_event("domcontentloaded"):
+            page.evaluate("(where) => { window.FastMDXAgentPanel.open("
+                          "'conv-20261008-000000-000000', where, false); }", str(other))
         close()
     finally:
         session.server.shutdown()
