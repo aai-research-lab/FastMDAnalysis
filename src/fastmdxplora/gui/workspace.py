@@ -413,6 +413,11 @@ def means_of(base: Path) -> dict[str, dict[str, Any]]:
         elif key in shown and found.get("not_read"):
             means[key] = {"label": label, "mean": None, "error": None, "unit": unit,
                           "withheld": None, "not_read": True}
+        elif key in (found.get("no_mean") or {}):
+            # Its analysis ran and said why it gave no mean: not determined,
+            # never "not recorded".
+            means[key] = {"label": label, "mean": None, "error": None, "unit": unit,
+                          "withheld": found["no_mean"][key]}
     return means
 
 

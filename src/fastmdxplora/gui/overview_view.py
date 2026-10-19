@@ -403,6 +403,12 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     start = _production_start_ns(rows, times)
     production = [row for row in rows if _is_production(row)]
     recorded = _recorded_thermodynamics(root)
+    # The thermodynamics analysis's record refused: its means were not
+    # read, and are not taken from the energy file in its place (refused
+    # is not missing).
+    not_read: list[str] = []
+    if isinstance(recorded, NotRead):
+        not_read, recorded = list(recorded.names), {}
     # Production's own energy file, where it wrote one: the series the
     # thermodynamics analysis and the report's convergence table average,
     # so a mean the analysis did not record is the report's, not one taken
@@ -410,9 +416,8 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     energies = _production_energies(root)
     # Records of the study's pieces this read refused: the means over its
     # production were not read, which is not the means of the piece read.
-    not_read: list[str] = []
     if isinstance(energies, NotRead):
-        not_read, energies = energies.names, None
+        not_read, energies = not_read + energies.names, None
     # A study carried on in pieces with a piece's record missing has no
     # means of its energy (the thermodynamics analysis refuses it), not the
     # live record's.
@@ -421,10 +426,18 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     held = len(volumes) > 1 and max(volumes) - min(volumes) <= 1e-9 * max(abs(max(volumes)), 1e-30)
     means: dict[str, Any] = {}
     interval = _spacing_ns(averaged)
+    # A quantity the analysis ran on and gave no mean for, with why ("2
+    # usable frame(s): there is nothing to average"): not one unrecorded.
+    no_mean: dict[str, str] = {}
     for key, _label, unit in THERMODYNAMICS:
         entry = recorded.get(key)
         if isinstance(entry, dict) and ("mean" in entry or "not_a_measurement" in entry):
             means[key] = _said(entry, unit, _count(recorded.get("samples")))
+            if means[key] is None and entry.get("not_a_measurement"):
+                why = entry["not_a_measurement"]
+                if isinstance(why, dict):
+                    why = why.get("message") or why.get("reason") or ""
+                no_mean[key] = str(why or "not determined")
             continue
         if not_read:
             means[key] = None
@@ -439,6 +452,8 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     said = {"production_start_ns": start, "target_temperature_K": target,
             "npt_from_ns": _npt_from_ns(times, start),
             "means": means, "samples": len(production)}
+    if no_mean:
+        said["no_mean"] = no_mean
     if not_read and any(value is None for value in means.values()):
         # Named for the card to say its means were not read, and why.
         said["not_read"] = not_read
@@ -536,12 +551,18 @@ HELD_DENSITY = ("The box volume did not change over this run, so the density is 
                 "constant the setup fixed rather than something the simulation sampled.")
 
 
-def _recorded_thermodynamics(root: Path) -> dict[str, Any]:
-    """What the thermodynamics analysis recorded of the run, if it has."""
+def _recorded_thermodynamics(root: Path) -> dict[str, Any] | NotRead:
+    """What the thermodynamics analysis recorded of the run, if it has;
+    `NotRead` where its record is there and a held read refused it (a link
+    out of the study), which is not a run without it."""
+    from fastmdxplora.refusals import OutsideWorkspace
+
+    path = root / "analysis" / "thermodynamics" / "options.json"
     try:
-        found = json.loads(_records.read_text(
-            root / "analysis" / "thermodynamics" / "options.json",
-            encoding="utf-8")).get("findings") or {}
+        found = json.loads(_records.read_text(path, encoding="utf-8")).get("findings") or {}
+    except OutsideWorkspace as refusal:
+        return NotRead(_refused_names(root, refusal) if getattr(refusal, "filename", None)
+                       else ["analysis/thermodynamics/options.json"])
     except (OSError, ValueError, AttributeError):
         return {}
     record = found.get("thermodynamics") if isinstance(found, dict) else None
