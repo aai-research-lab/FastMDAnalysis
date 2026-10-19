@@ -388,6 +388,34 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 ---
 
+## Editing Config YAML
+
+Select **Edit Config YAML** on the Config page. The text is a separate draft;
+changing it leaves the Builder's launch Config alone. **Validate YAML** checks
+it with the Config validator and checks the effective per-system overrides.
+Syntax and schema refusals show their codes and numbered source lines. Select
+a line link to focus and select it in the editor. Refusals without an unambiguous
+source key stay at document level. Explicit duplicate keys, recursive aliases,
+unsafe tags and excessive document size or nesting are refused; ordinary YAML
+anchors and merge defaults are supported. Numeric values must be finite. The
+interactive editor checks at most 1000 umbrella windows; larger plans use the
+CLI so validation cannot allocate an unbounded window set in the GUI.
+
+**Apply to Builder** is enabled only after the exact text and its conversion
+through the Builder's actual mapper have been checked. Applying starts no run.
+If the form cannot preserve a setting, Apply stays disabled and the missing or
+changed settings are named. **Download checked YAML** keeps the validated text
+exactly as written, including comments; it remains available for valid Configs
+that cannot be represented by the current form. Original files and study records
+are never rewritten by this editor.
+
+The YAML draft survives closing and reloading in this browser. Automatic form
+previews do not replace it. **Replace draft with current Builder** asks explicitly
+before replacing the text. If browser storage fails or another window has saved
+a newer draft, the editor says so and holds a study switch rather than overwrite
+that work. A validation response for older text or a former study cannot enable
+Apply. Closing the dialog requires validation again when it is reopened.
+
 ## Reviewing setup before simulation
 
 For a local study of one new structure, select **Review setup before

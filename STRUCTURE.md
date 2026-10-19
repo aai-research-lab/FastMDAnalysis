@@ -189,6 +189,7 @@ FastMDXplora/
 │       │   ├── directory_inspect.py  # What is in a folder, and what can be done with it
 │       │   ├── config_builder.py  # What the page holds as a config file, checked
 │       │   ├── config_review.py   # Individually selected Config changes, validated as a new version
+│       │   ├── config_yaml_edit.py  # Edited YAML validation and source locations
 │       │   ├── run_from_config.py # Run what the page describes, from the file it would give
 │       │   ├── schema_payload.py  # The settings, described for the browser to lay out
 │       │   ├── starters.py        # Studies to start from, in the builder
@@ -211,6 +212,7 @@ FastMDXplora/
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences kept),
 │       │   │                      #   run-builder.js, file-picker.js, report-page.js, analyze-again.js,
+│       │   │                      #   config-yaml-editor.js (YAML draft and source-line diagnostics),
 │       │   │                      #   series-chart.js, figure-chart.js, analysis-page.js, files-page.js, files-actions.js, runs-compared.js, stopping.js,
 │       │   │                      #   fixes.js, agent-panel.js, agent-beside.js (the Agent
 │       │   │                      #   beside any page), icons.js (the line icons for the

@@ -1661,6 +1661,11 @@ def make_handler(
                 # the page stops reading.
                 self._stream_proposal(payload or {})
                 return
+            if path == "/api/config-yaml":
+                from fastmdxplora.gui.config_yaml_edit import validate_yaml
+
+                self._send_json(validate_yaml(payload or {}))
+                return
             if path == "/api/load-config":
                 # Bringing a config into the form so it can be changed. The
                 # file is read and never written: anything altered is saved as

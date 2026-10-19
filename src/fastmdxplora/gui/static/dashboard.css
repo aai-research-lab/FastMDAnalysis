@@ -6727,3 +6727,18 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 }
 .skip-link:focus, .skip-link:focus-visible { transform: none; outline: 2px solid var(--accent-text); }
 #page-shell:focus { outline: none; }
+
+/* The YAML draft scrolls within its dialog; only visible line numbers render. */
+.config-yaml-box { width: min(1000px, calc(100vw - 24px)); max-width: none; }
+.config-yaml-box .agent-dialog-head .ghost-btn { width: auto; white-space: nowrap; }
+.config-yaml-source { display: grid; grid-template-columns: 4em minmax(0, 1fr); border: 1px solid var(--border-primary); border-radius: 8px; overflow: hidden; margin: 8px 0; }
+#config-yaml-text { width: 100%; min-width: 0; height: min(50vh, 480px); min-height: 200px; resize: vertical; border: 0; padding: 12px; margin: 0; border-radius: 0; font: 13px/22px var(--font-mono, monospace); white-space: pre; overflow: auto; color: var(--text-primary); background: var(--background-primary); tab-size: 2; }
+#config-yaml-gutter { position: relative; overflow: hidden; text-align: right; user-select: none; font: 13px/22px var(--font-mono, monospace); background: var(--background-secondary); }
+#config-yaml-lines { position: absolute; left: 0; right: 0; }
+#config-yaml-lines span { display: block; height: 22px; padding-right: 10px; }
+#config-yaml-lines .yaml-line-refused { color: var(--danger, #d95757); font-weight: 700; background: color-mix(in srgb, var(--danger, #d95757) 12%, transparent); }
+#config-yaml-diagnostics { padding-left: 20px; overflow-wrap: anywhere; }
+#config-yaml-diagnostics button { margin: 0 6px 4px 0; }
+.config-yaml-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.config-yaml-box .ghost-btn, .config-yaml-box .primary-btn { width: auto; min-width: 0; white-space: normal; }
+@media (max-width: 600px) { .config-yaml-box .agent-dialog-head { flex-wrap: wrap; } }

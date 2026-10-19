@@ -9,6 +9,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- The changed-setup acceptance browser check retains a stale browser record
+  deliberately, so live polling cannot disable its server-refusal exercise.
+
 - The phone-to-desktop browser check waits for the side panel to return
   after its dialog closes, avoiding a timing-sensitive assertion.
 
@@ -19,6 +22,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   failures retain a public note and a private debug traceback.
 
 ### Added
+
+- The Config page offers a separate YAML draft with source-line refusals,
+  explicit validation and checked conversion to the Builder. Drafts survive
+  reload, late replies cannot apply older text, and unsupported settings are
+  disclosed before any conversion. Checked text can be downloaded unchanged.
 
 - Audited setup can wait for explicit acceptance in the local GUI. The
   preparation review separates observed changes from requested choices,

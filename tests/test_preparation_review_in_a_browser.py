@@ -100,11 +100,21 @@ def test_changed_preparation_is_refused_even_after_refresh(browser, site):
     page = _open(browser, site)
     try:
         expect(page.locator("#preparation-accept")).to_be_enabled()
+        # Keep the browser's checked record stale deliberately. A live poll
+        # may otherwise detect the change and correctly disable the button
+        # before this test can exercise the server's acceptance refusal.
+        observed = page.request.get(site["session"].url + "/api/preparation-review").json()
+        page.route("**/api/preparation-review?*", lambda route:
+            route.fulfill(content_type="application/json", body=json.dumps(observed)))
         target = site["root"] / "setup" / "system.xml"
         target.write_text("<System changed='true'/>")
+        page.reload(wait_until="domcontentloaded")
+        page.locator("#preparation-review-open").click()
+        expect(page.locator("#preparation-accept")).to_be_enabled()
         page.locator("#preparation-accept").click()
         expect(page.locator("#preparation-review-status")).to_contain_text("changed")
         assert not site["calls"]
+        page.unroute("**/api/preparation-review?*")
         page.locator("#preparation-review-refresh").click()
         expect(page.locator("#preparation-review-status")).to_contain_text("changed")
         expect(page.locator("#preparation-accept")).to_be_disabled()

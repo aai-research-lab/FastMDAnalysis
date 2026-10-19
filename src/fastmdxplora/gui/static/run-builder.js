@@ -4040,6 +4040,7 @@
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
       if (document.documentElement.getAttribute("data-page") !== "run") return;
+      if (document.querySelector(".agent-dialog:not([hidden]), dialog[open]")) return;
       if (event.target && event.target.closest && event.target.closest(".builder-decision-edit")) return;
       const button = el("run-start-button");
       if (button && !button.disabled) { event.preventDefault(); start(); }
@@ -4090,6 +4091,8 @@
     renderPreview, describeCost, previewCost, boxVectors, periodicCell, pickResidue,
     sayRefusal, renderSettings, showSetting, forLoaded, bodyOf, snapshotOfLoaded,
     beforeStudySwitch: () => {
+      const yamlHold = window.FastMDXYamlEditor?.beforeStudySwitch?.();
+      if (yamlHold) return yamlHold;
       if (launchesPending) return "Wait for the Config launch to finish before switching studies.";
       if (!draftReady || !state.start) return "";
       commitTyping();

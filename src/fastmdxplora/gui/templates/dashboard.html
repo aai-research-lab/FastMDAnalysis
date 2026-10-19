@@ -855,6 +855,7 @@
                   <button type="button" role="tab" aria-selected="false" data-code="command">Command</button>
                   <button type="button" role="tab" aria-selected="false" data-code="script">Python</button>
                 </div>
+                <button type="button" class="ghost-btn" id="config-yaml-open">Edit Config YAML</button>
                 <pre class="mono small builder-code-pane" id="run-config-preview" data-code-pane="yaml"></pre>
                 <pre class="mono small builder-code-pane" id="run-command-preview" data-code-pane="command" hidden></pre>
                 <pre class="mono small builder-code-pane" id="run-script-preview" data-code-pane="script" hidden></pre>
@@ -2053,6 +2054,7 @@
     <script src="/static/files-actions.js"></script>
     <script src="/static/file-picker.js"></script>
     <script src="/static/run-builder.js"></script>
+    <script src="/static/config-yaml-editor.js"></script>
     <script src="/static/study-tabs.js"></script>
   <script src="/static/charts.js"></script>
   <script src="/static/overview.js"></script>
@@ -2131,6 +2133,34 @@
         </div>
         <button type="button" class="primary-btn" id="preparation-accept" disabled hidden>Accept setup and simulate</button>
         <button type="button" class="ghost-btn" id="preparation-review-refresh">Refresh preparation record</button>
+      </div>
+    </div>
+  </div>
+  <div class="agent-dialog" id="config-yaml-dialog" role="dialog" aria-modal="true" aria-labelledby="config-yaml-title" hidden>
+    <div class="agent-dialog-panel config-yaml-box">
+      <div class="agent-dialog-head">
+        <h2 id="config-yaml-title">Edit Config YAML</h2>
+        <button type="button" class="ghost-btn" data-dialog-close>Return to Builder</button>
+      </div>
+      <div class="agent-dialog-body">
+        <p>Validate your text, then apply it to the Builder. Applying never starts a run. Existing study files stay as recorded.</p>
+        <p id="config-yaml-status" role="status">A separate draft is saved in this browser.</p>
+        <label for="config-yaml-text">Config YAML</label>
+        <div class="config-yaml-source">
+          <div id="config-yaml-gutter" aria-hidden="true"><div id="config-yaml-lines"></div></div>
+          <textarea id="config-yaml-text" spellcheck="false" wrap="off" autocomplete="off" aria-describedby="config-yaml-status"></textarea>
+        </div>
+        <ul id="config-yaml-diagnostics" aria-label="YAML validation results"></ul>
+        <div class="config-yaml-actions">
+          <button type="button" class="primary-btn" id="config-yaml-validate">Validate YAML</button>
+          <button type="button" class="ghost-btn" id="config-yaml-apply" disabled>Apply to Builder</button>
+          <button type="button" class="ghost-btn" id="config-yaml-download" disabled>Download checked YAML</button>
+        </div>
+        <button type="button" class="ghost-btn" id="config-yaml-replace">Replace draft with current Builder</button>
+        <p id="config-yaml-replace-ask" hidden>Replace this YAML draft with the current Builder Config?
+          <button type="button" class="ghost-btn" id="config-yaml-replace-yes">Replace draft</button>
+          <button type="button" class="ghost-btn" id="config-yaml-replace-no">Keep draft</button>
+        </p>
       </div>
     </div>
   </div>
