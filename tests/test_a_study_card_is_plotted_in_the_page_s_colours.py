@@ -120,8 +120,10 @@ def test_the_card_plots_it_and_follows_the_scheme(tmp_path):
                 document.dispatchEvent(new CustomEvent('fmx:theme'));
             }""")
             page.wait_for_function(
-                f"(was) => document.querySelector('{plotted} svg.study-series path')"
-                ".getAttribute('stroke') !== was", arg=line)
+                f"""(was) => {{
+                    const path = document.querySelector('{plotted} svg.study-series path');
+                    return path && path.getAttribute('stroke') !== was;
+                }}""", arg=line)
             again = page.get_attribute(bare_img, "src")
             browser.close()
     finally:
