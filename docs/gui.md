@@ -260,7 +260,7 @@ residues it fits, and `:120` shows frame 120 of the trajectory there. ?
 | ⌘K | Go to anything |
 | ⌘P | A file of the open study |
 | ⌘J | The Agent beside the page |
-| ⌘1 to ⌘5 | The study's Overview, Viewer, Analysis, Report and Files. In a browser tab ⌘1 to ⌘9 are the browser's own: there, ⌥1 to ⌥5 (Alt elsewhere) |
+| ⌘1 to ⌘5 | The study's Overview, Viewer, Analysis, Report and Files. In a browser tab ⌘1 to ⌘9 are reserved for switching tabs: there, ⌥1 to ⌥5 (Alt elsewhere) |
 | ⌘B | Fold or show the sidebar |
 | ⌘⌥B | Fold or show the side panel |
 | ? | Every key |
@@ -308,7 +308,7 @@ every way to another study does, asked first whether the switch would lose
 work here. Each of the two is read from its own records only: a record of
 one linked out of it is not read and the page says so, naming it, and a
 mean whose record was not read is said not read, never as one not recorded;
-a series both recorded that was not read is named as not drawn, and a
+a series both recorded that was not read is named as not plotted, and a
 run whose Manifest was not read is said in a state not known.
 
 **A study's folder** is named for what it holds:
@@ -527,7 +527,7 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 ## Watching it happen
 
-The strip across the main page keeps the studies opened in this browser
+The strip across the main page keeps the studies opened in this GUI
 window, named as Recent names them: the system, and the folder too where
 another study of the workspace, or another open one, has the same system.
 The open study's tab is filled with a bar beneath it and kept in view; a
