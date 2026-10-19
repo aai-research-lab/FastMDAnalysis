@@ -68,8 +68,24 @@ def timeline_of(root: str | Path) -> dict[str, Any]:
                     again["changes"] = _means_moved(previous / "analysis", base / "analysis")
                     again["again"] = True
     events += _pieces(base)
-    events.sort(key=lambda e: e.get("at") or "", reverse=True)
+    # In the order the records give them: those without a time are said
+    # newest first by it, the Manifest's last phase first.
+    for order, event in enumerate(events):
+        event["_order"] = order
+    events.sort(key=_newest_first, reverse=True)
+    for event in events:
+        del event["_order"]
     return {"ok": True, "events": events}
+
+
+def _newest_first(event: dict[str, Any]) -> tuple:
+    """Newest first by what is known: those with a time by it, then those
+    without (a Manifest may record a phase's name and status only), by the
+    order their records give them. Never a time the records do not hold."""
+    at = event.get("at")
+    if at:
+        return (1, str(at), 0)
+    return (0, "", event.get("_order", 0))
 
 
 def _runs_of(base: Path) -> list[dict[str, Any]] | None:
@@ -110,8 +126,11 @@ def _of_its_runs(base: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
             event["run_path"] = str(folder)
         events += steps
         listed.append({"label": run["label"], "path": str(folder), "steps": len(steps)})
-    events.sort(key=lambda e: e.get("at") or "", reverse=True)
-    return {"ok": True, "events": events, "runs": listed}
+    # Those with a time newest first; those without after them, run by run
+    # in the study's order, each run's as its own Timeline orders them.
+    timed = sorted((e for e in events if e.get("at")), key=lambda e: str(e["at"]), reverse=True)
+    timeless = [e for e in events if not e.get("at")]
+    return {"ok": True, "events": timed + timeless, "runs": listed}
 
 
 def _phase(base: Path, record: dict[str, Any], *, replaced: bool,

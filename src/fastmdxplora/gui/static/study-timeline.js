@@ -36,8 +36,10 @@
   }
 
   /* When, as a day and a time on this computer's clock, as the Overview
-   * says it ("17 Oct, 21:10"). */
+   * says it ("17 Oct, 21:10"). A step whose record gives no time says
+   * none: `new Date(null)` is 1970's first instant. */
   function whenSaid(iso) {
+    if (!iso) return "";
     var date = new Date(iso);
     if (isNaN(date.getTime())) return "";
     return date.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit",
@@ -173,9 +175,12 @@
       // A step of one of a study's runs, named by the run that took it.
       head.appendChild(make("span", "tl-said", (event.run ? event.run + ": " : "") +
                                                event.said + (event.again ? " again" : "")));
-      var when = make("time", "tl-when", whenSaid(event.at));
-      when.setAttribute("datetime", event.at || "");
-      head.appendChild(when);
+      var at = whenSaid(event.at);
+      if (at) {
+        var when = make("time", "tl-when", at);
+        when.setAttribute("datetime", event.at);
+        head.appendChild(when);
+      }
       item.appendChild(head);
       var facts = [tookSaid(event.seconds),
                    event.version ? event.version + (event.host ? " on " + event.host : "") : "",

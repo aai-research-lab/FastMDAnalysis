@@ -385,3 +385,67 @@ def test_a_study_of_runs_lists_its_runs_steps_each_named_by_its_run(tmp_path):
                              "choose a run to see its own. Not yet recorded a step: seed 3.")
     assert shown["steps"] == ["seed 2: Simulated", "seed 2: Set up",
                               "seed 1: Simulated", "seed 1: Set up"]
+
+
+# ---------------------------------------------------------------------------
+# A step whose record gives no time says none, and the steps stay newest
+# first by what is known.
+
+def _timeless(run: Path, *names: str) -> None:
+    """A run's Manifest whose phases record their name and status only, as
+    a study of runs' runs may (no started_at, no finished_at)."""
+    (run / "manifest.json").write_text(json.dumps({"phases": [
+        {"name": name, "status": "ok"} for name in names]}), encoding="utf-8")
+
+
+def test_a_step_with_no_time_says_none_and_comes_after_those_with_one(tmp_path):
+    """Every step of a run whose Manifest gave no times read "Dec 31, 16:00"
+    (the epoch on this computer's clock), and they came oldest first."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    first, second = sorted((root / "runs").iterdir())
+    _timeless(first, "setup", "simulation", "analysis", "report")
+    (second / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04"), {"name": "simulation", "status": "ok"}]}),
+        encoding="utf-8")
+
+    said = timeline_of(root)
+    # The one step with a time first; then those without, run by run in the
+    # study's order, each run's newest first by its Manifest's order.
+    assert [(e["run"], e["said"]) for e in said["events"]] == [
+        ("seed 2", "Set up"),
+        ("seed 1", "Report written"), ("seed 1", "Analysed"), ("seed 1", "Simulated"),
+        ("seed 1", "Set up"), ("seed 2", "Simulated")]
+
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1600, "height": 900}, locale="en-US",
+                                    timezone_id="America/Los_Angeles")
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate("() => window.FastMDXFrame.setCollapsed(false)")
+            page.click("#timeline-tab")
+            page.wait_for_selector("#study-timeline-list .tl-event")
+            shown = page.evaluate("""() => [...document.querySelectorAll('.tl-event')].map((n) => [
+                n.querySelector('.tl-said').textContent,
+                (n.querySelector('.tl-when') || {textContent: ''}).textContent])""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert [step for step, _ in shown] == [
+        "seed 2: Set up", "seed 1: Report written", "seed 1: Analysed", "seed 1: Simulated",
+        "seed 1: Set up", "seed 2: Simulated"]
+    # The one time recorded is said; no step is given a time it has not.
+    assert shown[0][1] != "" and all(when == "" for _, when in shown[1:]), shown
