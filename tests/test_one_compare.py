@@ -628,6 +628,27 @@ def test_a_run_s_state_is_not_known_when_its_manifest_was_not_read(variants, tmp
     assert answer["second"]["state"] == "completed"
 
 
+def test_a_run_stopped_part_way_is_stopped_on_compare_and_in_its_study_s_runs_table(variants):
+    """The study recorded "ok" for a run whose own records say production
+    was stopped at 12.8 ps of 80 ps: Compare said "stopped" and the runs
+    table "completed, 13 ps of 80 ps"."""
+    from fastmdxplora.gui.compare_view import compared
+    from fastmdxplora.gui.exploration import runs_of_a_study
+
+    first, second = _runs(variants)
+    (second / "simulation" / "live_status.json").write_text(json.dumps({
+        "status": "stopped", "stage": "production", "current_step": 6400,
+        "total_planned_steps": 40000}), encoding="utf-8")
+    manifest = json.loads((second / "manifest.json").read_text(encoding="utf-8"))
+    manifest["phases"] = [{"name": "setup", "status": "ok"},
+                          {"name": "simulation", "status": "error"}]
+    (second / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    table = {run["run_id"]: run["state"] for run in runs_of_a_study(variants)}
+    said = compared(first, second)
+    assert said["second"]["state"] == table[second.name] == "stopped"
+    assert said["first"]["state"] == table[first.name] == "completed"
+
+
 # ---------------------------------------------------------------------------
 # On a phone, and the page's own figures.
 
