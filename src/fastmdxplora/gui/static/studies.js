@@ -20,6 +20,7 @@
   // the tags the studies here carry (offered as one is typed).
   var tagged = null;
   var editing = null;
+  var tagForm = null;
   var tagsUsed = [];
   var TAG_LENGTH = 40;
   var NOTE_LENGTH = 200;
@@ -73,6 +74,7 @@
                            "study-tag-edit" + (some ? " has-tags" : ""));
     tag.title = (some ? "Tags" : "Tag") + ": words and a note of your own, kept in the study's folder";
     tag.addEventListener("click", function () {
+      if (editing !== study.path) tagForm = null;
       editing = study.path;
       draw();
       var input = document.querySelector(".study-tag-editor .study-tag-input");
@@ -128,7 +130,11 @@
 
   /* The card's tags and note, changed on it and kept in the study's folder. */
   function tagEditor(study) {
+    // A list read or a name changed redraws the cards, not the words being
+    // edited. Keep the same form in cards and table, including its caret.
+    if (tagForm && tagForm.dataset.path === study.path) return tagForm;
     var form = make("form", "study-tag-editor");
+    form.dataset.path = study.path;
     form.setAttribute("aria-label", "Tags of " + study.name);
     var tags = (study.tags || []).slice();
     var list = make("div", "study-tags");
@@ -184,13 +190,15 @@
     cancel.type = "button";
     cancel.addEventListener("click", function () {
       editing = null;
+      tagForm = null;
       draw();
     });
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       if (adding.value.trim()) add();
       save.disabled = true;
-      var before = { tags: (study.tags || []).slice(), note: study.note || "" };
+      var current = studies.find(function (one) { return one.path === study.path; }) || study;
+      var before = { tags: (current.tags || []).slice(), note: current.note || "" };
       fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -201,9 +209,13 @@
           said.textContent = (d && (d.reason || d.error)) || "The tags could not be kept.";
           return;
         }
-        study.tags = d.tags;
-        study.note = d.note;
-        editing = null;
+        // A list read while editing may have replaced the original object.
+        studies.filter(function (one) { return one.path === study.path; })
+          .concat([study]).forEach(function (one) {
+            one.tags = d.tags;
+            one.note = d.note;
+          });
+        if (tagForm === form) { editing = null; tagForm = null; }
         tagsUsed = countTags();
         offerTags();
         draw();
@@ -219,6 +231,7 @@
     var buttons = make("div", "study-tag-row");
     buttons.append(save, cancel);
     form.append(list, row, note, buttons, said);
+    tagForm = form;
     return form;
   }
 
@@ -678,6 +691,13 @@
     var grid = el("studies-grid");
     var empty = el("studies-empty");
     if (!grid) return;
+    var focused = tagForm && tagForm.contains(document.activeElement) ? document.activeElement : null;
+    var selection = focused && typeof focused.selectionStart === "number"
+      ? [focused.selectionStart, focused.selectionEnd] : null;
+    if (editing && !studies.some(function (study) { return study.path === editing; })) {
+      editing = null;
+      tagForm = null;
+    }
     var wanted = (el("studies-search").value || "").trim().toLowerCase().split(/\s+/)
       .filter(Boolean);
     var shown = studies.filter(function (study) {
@@ -706,6 +726,10 @@
       ? "No study matches that."
       : "No studies here. Look in another folder, or start one from the Agent or the Config page.";
     sayChosen();
+    if (focused && document.contains(focused) && focused.getClientRects().length) {
+      focused.focus({ preventScroll: true });
+      if (selection) focused.setSelectionRange(selection[0], selection[1]);
+    }
   }
 
   /* Compare and Clear come beside the pointer the moment a second study is
