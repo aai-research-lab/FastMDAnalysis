@@ -157,7 +157,7 @@ GETS_ANSWERED_BEYOND_LOOPBACK = frozenset({
     "/api/contact-map", "/api/contact-pair", "/api/pocket-volume", "/structure/pocket.dx",
     "/api/views", "/api/viewer-atoms", "/api/viewer-selections", "/api/scenes",
     "/api/stopping", "/api/stream", "/api/problems", "/api/stage-timeline", "/structure/stage.pdb",
-    "/api/preparation-review", "/api/preparation-change",
+    "/api/preparation-review", "/api/preparation-change", "/api/instability",
     "/analysis-figures-svg.zip",
     "/structure/topology.pdb", "/structure/live-frame.pdb", "/structure/live-frame.dcd",
     "/structure/frames.dcd", "/structure/frames-topology.pdb", "/structure/occupancy.dx",
@@ -1108,6 +1108,45 @@ def make_handler(
                 return
             if path == "/api/structure-info":
                 self._send_json(_structure_info_payload(root, cfg))
+                return
+            if path in {"/api/instability", "/api/instability-proposal"}:
+                from fastmdxplora.gui.instability_view import evidence_runs, instability_payload, timestep_proposal
+                from fastmdxplora.gui.workspace import study_key
+                from fastmdxplora.record_access import confined_records
+                from fastmdxplora.refusals import OutsideWorkspace
+
+                query = parse_qs(parsed.query)
+                named = study_key(root)
+                if query.get("study", [""])[0] != named:
+                    self._send_json({"ok": False, "reason": "The open study changed. Read its evidence again."}, status=409)
+                    return
+                boundary = root.resolve()
+                try:
+                    with confined_records(boundary, lambda candidate:
+                            not _private(candidate.relative_to(boundary).parts)) as scope:
+                        candidates = evidence_runs(root)
+                    if scope.denied:
+                        raise OutsideWorkspace("The run list is outside the study's public files.")
+                    admitted = []
+                    for candidate, label in candidates:
+                        before = candidate.absolute().relative_to(root.absolute()).parts
+                        after = candidate.resolve().relative_to(boundary).parts
+                        if not _private(before) and not _private(after):
+                            admitted.append((candidate, label))
+                    choices = [{"key": study_key(candidate), "label": label} for candidate, label in admitted]
+                    wanted = query.get("run", [choices[0]["key"] if choices else ""])[0]
+                    chosen = next(((candidate, label) for candidate, label in admitted if study_key(candidate) == wanted), None)
+                    if chosen is None or not is_study(root):
+                        self._send_json({"available": False, "study": named, "runs": choices,
+                                         "reason": "No admitted run was selected."})
+                        return
+                    candidate, label = chosen
+                    answer = (timestep_proposal(candidate, query.get("version", [""])[0], boundary=boundary)
+                              if path.endswith("-proposal") else instability_payload(candidate, boundary=boundary))
+                    self._send_json({**answer, "study": named, "run": wanted,
+                                     "run_name": label, "runs": choices, "can_propose": allow_control})
+                except (OSError, ValueError, TypeError, KeyError, OutsideWorkspace):
+                    self._send_json({"available": False, "study": named, "reason": "The force evidence run could not be confined to this study."})
                 return
             if path in {"/api/stage-timeline", "/structure/stage.pdb"}:
                 from fastmdxplora.gui.stage_structures import stage_snapshot, timeline_payload

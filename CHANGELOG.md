@@ -23,6 +23,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Numerical failures retain a bounded ranking of finite potential forces and
+  its full-system snapshot from the running Context. The GUI checks atom
+  identities and coordinates in a frozen view, names missing legacy evidence,
+  and offers a separately reviewed, validated timestep-test Config for
+  supported ordinary runs. Reading evidence never recomputes forces or starts
+  simulation; the ranking is not presented as proof of cause.
+
 - The Config page offers a separate YAML draft with source-line refusals,
   explicit validation and checked conversion to the Builder. Drafts survive
   reload, late replies cannot apply older text, and unsupported settings are

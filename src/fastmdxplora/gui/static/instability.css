@@ -1,0 +1,16 @@
+.instability-box { width: min(1120px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; min-width: 0; }
+.instability-box .agent-dialog-head { flex-wrap: wrap; align-items: center; gap: 12px; }
+.instability-box .agent-dialog-head button, #instability-open { white-space: nowrap; flex: none; }
+.instability-box h2 { flex: 1 1 180px; font-size: var(--text-lg); margin: 0; }
+.instability-box .agent-dialog-body { min-height: 0; overflow-y: auto; }
+.instability-box p, .instability-box pre { font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.instability-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
+.instability-grid > section { min-width: 0; }
+#instability-canvas { height: min(45dvh, 480px); min-height: 200px; position: relative; }
+#instability-ranking { max-height: 350px; overflow-y: auto; padding-left: 24px; }
+#instability-ranking button { text-align: left; width: 100%; white-space: normal; margin: 2px 0; overflow-wrap: anywhere; }
+#instability-source { max-height: 100px; overflow: auto; }
+#instability-yaml { max-height: 240px; overflow: auto; }
+#instability-dialog select { max-width: 100%; }
+@media (max-width: 700px) { .instability-grid { grid-template-columns: minmax(0, 1fr); } #instability-ranking { max-height: 140px; } }
+@media print { #instability-dialog, #instability-open { display: none !important; } }

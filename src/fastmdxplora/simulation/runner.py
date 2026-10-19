@@ -2608,6 +2608,13 @@ def run_simulation(
         plumed["script"] = production
         _attach_the_bias(resolved_name="plumed.dat")
 
+    from fastmdxplora.simulation.instability import FiniteForceObserver
+
+    force_observer = FiniteForceObserver(simulation, output_dir, state_interval_steps,
+        supported=not bool(plumed or metadynamics or steered or umbrella))
+    if force_observer.enabled:
+        # First in the list, before another reporter can reject a State.
+        simulation.reporters.insert(0, force_observer)
     try:
         # The window is held before anything moves. Minimisation alone will
         # not carry a ligand across a barrier, but it is the first stage that
@@ -2616,6 +2623,7 @@ def run_simulation(
             _attach_the_bias(resolved_name="plumed_equilibration.dat")
 
         # ---- Stage 1: Minimize ----------------------------------------
+        force_observer.begin(simulation, "minimization")
         if minimize:
             if telemetry is not None:
                 telemetry.mark_stage("minimization", "current", status="running", current_step=0)
@@ -2714,6 +2722,7 @@ def run_simulation(
             total_steps=plan["nvt_steps"] + plan["npt_steps"],
         )
         current_step = 0
+        force_observer.begin(simulation, "nvt")
         # The clock for what this run cost. Started after the system is
         # built and before the first step, so it times integration rather
         # than setup -- setup does not scale with step count and charging
@@ -2828,6 +2837,7 @@ def run_simulation(
                 if on_explain:
                     on_explain("membrane_barostat")
         if plan["npt_steps"] > 0:
+            force_observer.begin(simulation, "npt")
             if telemetry is not None:
                 telemetry.mark_stage("npt", "current", status="running", current_step=current_step)
                 telemetry.event("NPT started")
@@ -3056,6 +3066,7 @@ def run_simulation(
                 telemetry.event("Production skipped (0 steps)")
         # A stop asked for now ends production on a frame, with a
         # checkpoint there (see `_StopRequests`).
+        force_observer.begin(simulation, "production")
         with _StopRequests() as stop:
             if telemetry is not None:
                 current_step = _run_md_stage_with_live_metrics(
@@ -3191,6 +3202,7 @@ def run_simulation(
             )
 
     except Exception as exc:
+        force_observer.failed(simulation, exc)
         if telemetry is not None and getattr(exc, "code", None) == STOPPED_CODE:
             # Asked to stop, and stopped where it can be carried on: the
             # stage it was in stays the one it was in, not a failed one.

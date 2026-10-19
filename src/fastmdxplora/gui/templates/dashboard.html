@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/study-tabs.css">
   <link rel="stylesheet" href="/static/stage-timeline.css">
   <link rel="stylesheet" href="/static/preparation-review.css">
+  <link rel="stylesheet" href="/static/instability.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -619,6 +620,7 @@
           <ol id="stage-timeline-list"></ol>
           <button type="button" class="ghost-btn" id="stage-timeline-refresh">Refresh</button>
           <button type="button" class="ghost-btn" id="preparation-review-open" hidden>Review setup</button>
+          <button type="button" class="ghost-btn" id="instability-open">Inspect instability</button>
         </div>
         <p class="stage-timeline-note" id="stage-timeline-note" role="status"></p>
       </nav>
@@ -2070,6 +2072,7 @@
   <script src="/static/molecule-viewer.js"></script>
   <script src="/static/stage-timeline.js"></script>
   <script src="/static/preparation-review.js"></script>
+  <script src="/static/instability.js"></script>
   <script src="/static/viewer-rail.js"></script>
   <script src="/static/palette.js"></script>
   <script src="/static/run-notice.js"></script>
@@ -2133,6 +2136,27 @@
         </div>
         <button type="button" class="primary-btn" id="preparation-accept" disabled hidden>Accept setup and simulate</button>
         <button type="button" class="ghost-btn" id="preparation-review-refresh">Refresh preparation record</button>
+      </div>
+    </div>
+  </div>
+  <div class="agent-dialog" id="instability-dialog" role="dialog" aria-modal="true" aria-labelledby="instability-title" hidden>
+    <div class="agent-dialog-panel instability-box">
+      <div class="agent-dialog-head"><h2 id="instability-title">Retained instability evidence</h2>
+        <button type="button" class="ghost-btn" data-dialog-close>Return to study</button></div>
+      <div class="agent-dialog-body">
+        <label for="instability-run">Run</label><select id="instability-run"></select>
+        <p id="instability-status" role="status"></p><pre id="instability-source"></pre>
+        <div class="instability-grid">
+          <section aria-label="Largest recorded forces"><ol id="instability-ranking"></ol></section>
+          <section aria-label="Frozen full-system coordinates"><div id="instability-canvas" hidden></div><p id="instability-atom-note" role="status"></p></section>
+        </div>
+        <button type="button" class="ghost-btn" id="instability-refresh">Refresh evidence</button>
+        <button type="button" class="ghost-btn" id="instability-propose" disabled>Review shorter timestep proposal</button>
+        <section id="instability-proposal" aria-label="Proposed new Config" hidden>
+          <p id="instability-proposal-note" role="status"></p><pre id="instability-diff"></pre>
+          <details><summary>New Config YAML</summary><pre id="instability-yaml"></pre></details>
+          <button type="button" class="ghost-btn" id="instability-download" disabled>Download reviewed Config</button>
+        </section>
       </div>
     </div>
   </div>

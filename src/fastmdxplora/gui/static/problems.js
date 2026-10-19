@@ -48,6 +48,12 @@
       card.dataset.problemId = item.id;
       card.appendChild(element("h3", "", item.title));
       card.appendChild(element("p", "", item.reason));
+      if (/\b(nan|inf|infinite|non-finite)\b/i.test(item.reason || "")) {
+        var inspect = element("button", "ghost-btn", "Inspect retained force evidence");
+        inspect.type = "button";
+        inspect.onclick = function () { window.FastMDXInstability?.open(inspect); };
+        card.appendChild(inspect);
+      }
       if (item.code) card.appendChild(element("code", "problem-code", item.code));
       card.appendChild(element("h4", "", "What would fix it"));
       card.appendChild(element("p", "", item.fix || "Review the recorded reason before choosing a change."));

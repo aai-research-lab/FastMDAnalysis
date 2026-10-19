@@ -97,6 +97,7 @@ FastMDXplora/
 │       │   ├── steered.py         # A pull along a coordinate, and the work done
 │       │   ├── restraints.py      # Positional restraints and the release ladder
 │       │   ├── diagnose.py        # What a failed simulation can be told from its state
+│       │   ├── instability.py     # Finite force observations retained on numerical failure
 │       │   ├── stopping.py        # Run until what was asked is determined, and no longer
 │       │   ├── sampling_ask.py    # How much longer a study has to run for the means it withheld
 │       │   ├── lengths.py         # How long each stage runs when a config does not say
@@ -181,6 +182,7 @@ FastMDXplora/
 │       │   ├── problems_view.py   # Recorded refusals, health and undetermined means
 │       │   ├── stage_structures.py # Retained stage coordinates and read-only State conversion
 │       │   ├── preparation_review.py # Checked snapshots and atom identities from preparation observations
+│       │   ├── instability_view.py # Confined force snapshots and validated Config proposals
 │       │   ├── preparation_gate.py # Audited setup held for explicit simulation acceptance
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
 │       │   ├── report_page.py     # The report as a document, in the page
@@ -208,6 +210,7 @@ FastMDXplora/
 │       │   │                      #   study-tabs.js and study-tabs.css (open study documents and their last pages)
 │       │   │                      #   stage-timeline.js and stage-timeline.css (retained stage coordinates in an isolated viewer)
 │       │   │                      #   preparation-review.js and preparation-review.css (audited setup inspection and acceptance)
+│       │   │                      #   instability.js and instability.css (frozen finite force evidence and reviewed proposals)
 │       │   │                      #   (the scheme before the first paint), fonts/ (Inter and
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences kept),

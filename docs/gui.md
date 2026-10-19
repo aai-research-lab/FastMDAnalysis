@@ -388,6 +388,49 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 ---
 
+## Inspecting a numerical failure
+
+Select **Inspect instability** beside the stage timeline, or **Inspect
+retained force evidence** in Problems. Choose the affected run where a study
+contains several runs. The separate frozen molecule contains the full system,
+including solvent, even when the trajectory saved only a subset. Selecting a
+ranked atom checks its identity and coordinates before highlighting it.
+
+New simulations observe finite potential forces and matching positions at
+`simulation.state_interval_steps`, retaining only the latest observation in
+memory. Capture currently supports ordinary OpenMM dynamics; configured
+enhanced-sampling methods disclose unavailable evidence because extra force
+observations have not been verified to preserve those methods' dynamics.
+On a numerical failure supported runs write `simulation/instability.json` and
+a snapshot whose name includes its digest. The initial minimization state is
+observed once; intermediate minimization iterations are not sampled. Captures
+cover at most 200,000 atoms and snapshots at most 32 MiB. Failed or unsupported
+captures say why evidence is unavailable. A deliberately repeated simulation
+archives the preceding evidence record rather than presenting it as new.
+
+The page names the observation's stage, step, time, cadence, source and digest,
+and the step counter reported at failure. The exact failed integrator step
+can be unknown. This is the last **recorded finite observation**, not
+necessarily the immediately preceding step; a large force does not establish
+the cause. Forces come from the active integration force groups, including
+their restraints or bias, rather than constraint impulses or thermostat forces.
+Opening evidence never creates a simulation Context or recomputes forces.
+Missing evidence in an older study is explicitly unavailable. Ambiguous
+identities, changed snapshots and sources outside the study are refused.
+
+For one ordinary unbiased fixed-step run, **Review shorter timestep proposal**
+can produce a new Config checked by the shared validator. It proposes half the
+timestep and adjusts step-based stage lengths, output intervals and barostat
+cadence to keep their physical times; it preserves other settings and earlier
+decision records. Its output names a new study. This is a controlled test,
+not a claim that a smaller timestep fixes the problem. Review the displayed
+changes and preparation before selecting **Download reviewed Config**. The
+saved Config must still match the failed run's recorded digest. Continuations,
+adaptive stopping, enhanced sampling, per-system simulation overrides and
+minimization failures require their own plan and receive no generic proposal.
+Inspection, review and download start no run and change no failed-run file.
+Public dashboards can inspect evidence; proposals are local controls.
+
 ## Editing Config YAML
 
 Select **Edit Config YAML** on the Config page. The text is a separate draft;

@@ -1876,7 +1876,7 @@
      * over whatever else shows them, and nothing else rendered again. Mol*'s
      * own selection mark is shown only in its selection mode, whose clicks
      * select by themselves. */
-    async showSelected(indices) {
+    async showSelected(indices, options) {
       const cell = this.structureCell();
       if (!cell) return;
       this.scene = Object.assign({}, this.scene, {selected: (indices || []).slice()});
@@ -1891,7 +1891,13 @@
         label: "selected"}, "fastmdx-selected");
       if (!component) return;
       for (const props of SELECTED) {
-        await this.plugin.builders.structure.representation.addRepresentation(component, props);
+        const overrides = {};
+        if (options?.hydrogens) overrides.ignoreHydrogens = false;
+        // A single ranked atom needs a shell outside the base sticks' sphere.
+        if (options?.emphasize) overrides.sizeFactor = 0.5;
+        const shown = Object.assign({}, props, {
+          typeParams: Object.assign({}, props.typeParams, overrides)});
+        await this.plugin.builders.structure.representation.addRepresentation(component, shown);
       }
       components.selected = component;
     }
