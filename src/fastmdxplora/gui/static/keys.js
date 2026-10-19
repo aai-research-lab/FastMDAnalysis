@@ -47,6 +47,9 @@
     { keys: ["mod", "B"], does: "Fold or show the sidebar", name: "sidebar", run: toggleSidebar },
     { keys: ["mod", "alt", "B"], does: "Fold or show the side panel", name: "panel", run: togglePanel },
     { keys: ["?"], does: "Every key (this sheet)", name: "keys", run: openSheet, bare: true },
+    // Answered by the plot with the keyboard's focus (plot-tools.js).
+    { keys: ["+"], does: "On a plot with focus: zoom in; - zooms out, [ and ] move along, 0 shows all",
+      name: "plot-zoom", here: false },
   ]);
 
   var WORD = { mod: MAC ? "⌘" : "Ctrl", alt: MAC ? "⌥" : "Alt", shift: MAC ? "⇧" : "Shift" };

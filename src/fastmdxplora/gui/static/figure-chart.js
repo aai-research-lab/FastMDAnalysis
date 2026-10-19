@@ -284,7 +284,7 @@
   /* Past this many cells, a map is drawn as an image of its cells; under
    * it, as the cells themselves, each run of one colour along a row one
    * rectangle, so it is sharp at any size and saved as such. */
-  var MOST_CELLS = 40000;
+  var MOST_CELLS = 8000;
 
   /* A grid of values over the extent `where` covers: row 0 at the bottom. */
   function raster(f, grid, colourOf, where) {
@@ -385,9 +385,15 @@
       : format(t * clock.factor) + " " + clock.unit + " \u00b7 frame " + data.frames[i];
   }
 
+  /* A click opens its frame once it is not the first of a double click,
+   * which shows all again (plot-tools.js). */
+  var pendingFrame = null;
+  document.addEventListener("dblclick", function () { clearTimeout(pendingFrame); }, true);
+
   function openFrame(data, frameNumber) {
     if (!data.linked || frameNumber == null || !window.FastMDXSeries || !window.FastMDXSeries.openFrame) return;
-    window.FastMDXSeries.openFrame(frameNumber);
+    clearTimeout(pendingFrame);
+    pendingFrame = setTimeout(function () { window.FastMDXSeries.openFrame(frameNumber); }, 280);
   }
 
   function nearestIndex(xs, x) {
@@ -678,7 +684,12 @@
       el("circle", { cx: cx.toFixed(1), cy: cy.toFixed(1), r: r,
                      fill: rgb(viridis((data.t[i] - tr[0]) / (tr[1] - tr[0]))) }, layer);
     }
-    colourBar(f, tr[0], tr[1], data.t_label === "Frame" ? "Frame" : "Time (ns)", viridis);
+    // Its time in the unit the run's length reads in, as the axes are: a
+    // run under a nanosecond in ps.
+    var framed = data.t_label === "Frame";
+    var inPs = !framed && Math.max(Math.abs(tr[0]), Math.abs(tr[1])) < 1;
+    colourBar(f, inPs ? tr[0] * 1000 : tr[0], inPs ? tr[1] * 1000 : tr[1],
+              framed ? "Frame" : inPs ? "Time (ps)" : "Time (ns)", viridis);
     var hint = data.linked ? "Click to open this frame" : "";
     f.svg.addEventListener("mousemove", function (event) {
       var p = pointer(f, event);

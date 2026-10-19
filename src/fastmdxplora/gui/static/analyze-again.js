@@ -198,6 +198,12 @@
     button.title = running
       ? "A run is going. The study can be analyzed again once it ends."
       : "Analyze this study's frames again, with the analyses you choose, simulating nothing";
+    // Each analysis's own (analysis-cells.js), on the same state.
+    Array.prototype.forEach.call(document.querySelectorAll(".cell-again"), function (cell) {
+      cell.hidden = button.hidden;
+      cell.disabled = button.disabled;
+      cell.title = running ? button.title : cell.dataset.title || cell.title;
+    });
     if (started === null || running || app.started_at !== started) return;
     if (app.returncode === null || app.returncode === undefined) return;
     started = null;

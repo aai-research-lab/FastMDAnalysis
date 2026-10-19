@@ -66,8 +66,18 @@
 
   /* The plot as it is drawn, standing alone: its fonts named, its tools and
    * brush left out. */
-  function standalone(svg) {
+  function standalone(svg, host) {
     var copy = svg.cloneNode(true);
+    // On the ground it is drawn on, so its words, coloured for that ground
+    // (light on a dark page), read where the file is opened.
+    var back = document.createElementNS(NS, "rect");
+    back.setAttribute("x", "0");
+    back.setAttribute("y", "0");
+    back.setAttribute("width", "100%");
+    back.setAttribute("height", "100%");
+    back.setAttribute("fill", ground(host || svg));
+    back.setAttribute("class", "plot-ground");
+    copy.insertBefore(back, copy.firstChild);
     copy.setAttribute("xmlns", NS);
     copy.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
     // The page's font for the plot's words, named in the file itself.
@@ -78,8 +88,8 @@
     return new XMLSerializer().serializeToString(copy);
   }
 
-  function saveSvg(svg, name) {
-    save(new Blob([standalone(svg)], { type: "image/svg+xml" }), fileName(name, "svg"));
+  function saveSvg(svg, name, host) {
+    save(new Blob([standalone(svg, host)], { type: "image/svg+xml" }), fileName(name, "svg"));
   }
 
   function savePng(svg, name, host) {
@@ -88,7 +98,7 @@
     var height = box && box.height ? box.height : svg.clientHeight;
     var scale = 3;
     var image = new Image();
-    var url = URL.createObjectURL(new Blob([standalone(svg)], { type: "image/svg+xml" }));
+    var url = URL.createObjectURL(new Blob([standalone(svg, host)], { type: "image/svg+xml" }));
     image.onload = function () {
       var canvas = document.createElement("canvas");
       canvas.width = Math.round(width * scale);
@@ -124,7 +134,11 @@
    *   shared: the clock's label where a dragged range is the page's,
    *   zoomed: whether it shows less than all,
    *   onView(view) with {x: [lo, hi], y: [lo, hi]} (y where "xy"), onReset(),
-   *   csv() -> rows, the first its head; name: the file's name. */
+   *   csv() -> rows, the first its head; name: the file's name;
+   *   ownArrows: the plot's arrow keys are its own (a cursor along it).
+   * By the keyboard on a focused plot: + and - zoom about the middle of
+   * what it shows, [ and ] move along it (and the arrows, where they are
+   * not the plot's own), 0 or Escape shows all. */
   function attach(host, opts) {
     var svg = opts.svg;
     var bar = document.createElement("div");
@@ -137,7 +151,7 @@
      ["CSV", "Save the numbers it shows, as CSV"]].forEach(function (kind) {
       var b = button(kind[0], kind[1]);
       b.addEventListener("click", function () {
-        if (kind[0] === "SVG") saveSvg(svg, opts.name);
+        if (kind[0] === "SVG") saveSvg(svg, opts.name, host);
         else if (kind[0] === "PNG") savePng(svg, opts.name, host);
         else saveCsv(opts.csv(), opts.name);
       });
@@ -149,7 +163,37 @@
       var tip = opts.shared
         ? "Drag across to see a time range on every plot on this clock; Shift and drag to move along; double-click for all"
         : "Drag across to zoom; Shift and drag to move; double-click for all";
-      svg.setAttribute("data-zoom-hint", tip);
+      var keys = "Keys: + and - zoom, [ and ] move along" + (opts.ownArrows ? "" : " (or the arrows)") +
+        ", 0 shows all.";
+      svg.setAttribute("data-zoom-hint", tip + ". " + keys);
+      // Reached by the keyboard, and its keys said with what it shows.
+      if (!svg.hasAttribute("tabindex")) svg.setAttribute("tabindex", "0");
+      svg.setAttribute("aria-keyshortcuts", "+ - [ ] 0");
+      var label = svg.getAttribute("aria-label") || "";
+      if (label.indexOf(keys) < 0) svg.setAttribute("aria-label", (label ? label + ". " : "") + keys);
+    }
+
+    /* What the plot shows now, in the data's units. */
+    function shown() {
+      var r = opts.plot;
+      var a = opts.invert(r.left, r.bottom), b = opts.invert(r.right, r.top);
+      return { x: [Math.min(a.x, b.x), Math.max(a.x, b.x)], y: [Math.min(a.y, b.y), Math.max(a.y, b.y)] };
+    }
+    function scaled(k) {
+      var now = shown(), view = {};
+      [["x", now.x], ["y", now.y]].forEach(function (axis) {
+        if (axis[0] === "y" && opts.zoom !== "xy") return;
+        var mid = (axis[1][0] + axis[1][1]) / 2, half = (axis[1][1] - axis[1][0]) / 2 * k;
+        view[axis[0]] = [mid - half, mid + half];
+      });
+      return view;
+    }
+    function along(fx, fy) {
+      if (!opts.zoomed) return null;
+      var now = shown(), dx = (now.x[1] - now.x[0]) * fx, dy = (now.y[1] - now.y[0]) * fy;
+      var view = { x: [now.x[0] + dx, now.x[1] + dx] };
+      if (opts.zoom === "xy") view.y = [now.y[0] + dy, now.y[1] + dy];
+      return view;
     }
 
     function reset() {
@@ -249,7 +293,32 @@
         }
       }, true);
       svg.addEventListener("keydown", function (event) {
-        if (event.key === "Escape" && opts.zoomed) { reset(); event.preventDefault(); }
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        var key = event.key, view = null;
+        if ((key === "Escape" || key === "0") && opts.zoomed) {
+          reset();
+        } else if (key === "+" || key === "=") {
+          view = scaled(0.5);
+        } else if ((key === "-" || key === "_") && opts.zoomed) {
+          view = scaled(2);
+        } else if ((key === "[" || key === "]") ||
+                   (!opts.ownArrows && /^Arrow(Left|Right)$/.test(key))) {
+          view = along(key === "[" || key === "ArrowLeft" ? -0.25 : 0.25, 0);
+        } else if (!opts.ownArrows && opts.zoom === "xy" && /^Arrow(Up|Down)$/.test(key)) {
+          view = along(0, key === "ArrowDown" ? -0.25 : 0.25);
+        } else {
+          return;
+        }
+        event.preventDefault();
+        if (view) {
+          if (opts.shared) setRange(opts.shared, view.x[0], view.x[1]);
+          else if (opts.onView) opts.onView(view);
+        }
+        // Drawn again: the keyboard stays on the plot.
+        requestAnimationFrame(function () {
+          var again = host.querySelector("svg.plot-zoomable");
+          if (again && document.activeElement !== again) again.focus({ preventScroll: true });
+        });
       });
     }
     return bar;

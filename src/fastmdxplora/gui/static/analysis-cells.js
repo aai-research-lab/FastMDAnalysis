@@ -40,11 +40,17 @@
   }
 
   /* What it was run with, in a line: the frames, the atoms, its options. */
-  function params(record) {
+  function params(record, row) {
     var host = make("span", "cell-params");
     if (!record) return null;
     var parts = [];
-    if (record.frames != null) {
+    // The frames the analysis itself read, as the results table says them:
+    // thermodynamics reads the state log's rows, not the trajectory's frames.
+    var own = ((row && row.quantities) || []).map(function (q) { return q.of_frames; })
+      .filter(function (n) { return n != null; })[0];
+    if (own != null && own !== record.frames) {
+      parts.push(own + " frames");
+    } else if (record.frames != null) {
       var stride = Number(record.stride || 1);
       parts.push(record.frames + " frames" + (stride > 1 ? ", every " + ordinal(stride) : ""));
     }
@@ -106,8 +112,9 @@
     button.type = "button";
     button.hidden = offered.hidden;
     button.disabled = offered.disabled;
-    button.title = offered.disabled ? offered.title : "Analyze this study's frames again with " + name +
+    button.dataset.title = "Analyze this study's frames again with " + name +
       " alone ticked; the panel above says what it writes again before it starts";
+    button.title = offered.disabled ? offered.title : button.dataset.title;
     button.addEventListener("click", function () {
       if (window.FastMDXAgain) window.FastMDXAgain.open([name]);
     });
@@ -129,7 +136,7 @@
       section.dataset.cell = name;
       var head = make("div", "analysis-cell-head");
       head.dataset.analysis = name;
-      [values(byName[name]), params(made[name]), again(name)].forEach(function (part) {
+      [values(byName[name]), params(made[name], byName[name]), again(name)].forEach(function (part) {
         if (part) head.appendChild(part);
       });
       if (!head.childElementCount) return;
@@ -175,13 +182,7 @@
   }
 
   document.addEventListener("fmx:time-range", sayRange);
-  /* Analyze again is offered while nothing runs, as the page's own is. */
-  window.addEventListener("dashboard:app-state", function () {
-    var offered = byId("analysis-again");
-    Array.prototype.forEach.call(document.querySelectorAll(".cell-again"), function (button) {
-      button.hidden = !offered || offered.hidden;
-      button.disabled = !offered || offered.disabled;
-    });
-  });
+  /* Analyze again follows the page's own as the run's state changes:
+   * analyze-again.js sets both on the same state. */
   window.FastMDXCells = { render: render };
 }());

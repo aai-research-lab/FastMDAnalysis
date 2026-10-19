@@ -146,6 +146,9 @@
     return host._view || null;
   }
 
+  /* How long a click waits for a second one, as a double click. */
+  var DOUBLE_CLICK_MS = 280;
+
   function draw(host, data) {
     host.innerHTML = "";
     var width = Math.max(260, Math.round(host.clientWidth || 440));
@@ -260,8 +263,11 @@
 
     // The mean over the frames kept, with its error where there is one.
     if (mean && mean.value != null) {
-      var from = px(mean.from_x != null ? mean.from_x * clock.factor : xLow);
-      if (mean.error != null) {
+      // Inside the axes: a range ending before the part averaged leaves
+      // nothing of the band to draw.
+      var from = Math.max(plot.left, Math.min(plot.right,
+        px(mean.from_x != null ? mean.from_x * clock.factor : xLow)));
+      if (mean.error != null && from < plot.right) {
         el("rect", {
           x: from, y: py(mean.value + mean.error), width: plot.right - from,
           height: Math.max(1, py(mean.value - mean.error) - py(mean.value + mean.error)),
@@ -334,7 +340,7 @@
     if (tools) {
       var timed = data.kind !== "residue";
       tools.attach(host, {
-        svg: svg, width: width, height: HEIGHT, plot: plot, zoom: "x",
+        svg: svg, width: width, height: HEIGHT, plot: plot, zoom: "x", ownArrows: true,
         shared: timed ? data.x_label : "",
         zoomed: !!view,
         name: data.analysis + (view ? "_range" : ""),
@@ -365,7 +371,16 @@
     svg.addEventListener("mouseleave", hide);
     svg.addEventListener("blur", hide);
     svg.addEventListener("focus", function () { show(at >= 0 ? at : 0); });
-    svg.addEventListener("click", function (event) { open(data, indexAt(event)); });
+    // A click opens the point; the first click of a double click (show
+    // all, plot-tools.js) does not: it waits to see if a second follows.
+    var pending = null;
+    svg.addEventListener("click", function (event) {
+      if (event.detail > 1) return;
+      var index = indexAt(event);
+      clearTimeout(pending);
+      pending = setTimeout(function () { open(data, index); }, DOUBLE_CLICK_MS);
+    });
+    svg.addEventListener("dblclick", function () { clearTimeout(pending); });
     svg.addEventListener("keydown", function (event) {
       var step = event.shiftKey ? Math.max(1, Math.round(xs.length / 20)) : 1;
       if (event.key === "ArrowRight") show(Math.min(xs.length - 1, (at < 0 ? 0 : at) + step));
@@ -499,6 +514,8 @@
 
   window.FastMDXSeries = {
     hydrate: hydrate, ticks: ticks, timeScale: timeScale, frameTimeSaid: frameTimeSaid,
+    /* A series drawn into a host from its payload (as /api/series gives it). */
+    draw: draw,
     forget: function () { cache = {}; playback = null; },
     /* A frame of the trajectory opened in the viewer (figure-chart.js). */
     openFrame: function (frame) { open({ linked: true, frames: [frame] }, 0); },

@@ -342,3 +342,212 @@ def test_a_plot_s_csv_names_the_units_of_its_columns(study):
     assert errors == []
     assert pca == "frame,time_ns,PC1 (nm),PC2 (nm)"
     assert bars == ["quantity,Fraction of frames present,standard error", "HBOND A,0.5,0.1"]
+
+
+def test_a_plot_is_zoomed_moved_and_shown_whole_by_the_keyboard(study):
+    """Zoom and pan were done by the pointer alone: a figure could not take
+    focus, and a series plot took only its cursor's keys. A big map drew
+    every cell (40,000 rectangles, seconds to draw again); a projection of
+    a run under a nanosecond said its time in ns; an SVG saved in Dark had
+    light words on no ground; a range ending before the part averaged drew
+    the error band with a negative width."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            logged: list[str] = []
+            page.on("console", lambda m: logged.append(m.text) if m.type == "error" else None)
+            page.add_init_script("localStorage.setItem('fmx.theme', 'dark');")
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector('.series-chart[data-analysis="rmsd"] .plot-tools')
+            page.wait_for_selector('.figure-chart[data-figure-kind="states"] .plot-tools')
+            view = "(s) => document.querySelector(s).dataset.view"
+            rmsd = '.series-chart[data-analysis="rmsd"]'
+            page.locator(rmsd + " svg").focus()
+            page.keyboard.press("+")
+            page.wait_for_function(view.replace("(s) =>", "() =>").replace("s)", f"'{rmsd}')")
+                                   + " === 'range'")
+            kept = page.evaluate(f"() => document.activeElement === document.querySelector('{rmsd} svg')")
+            page.keyboard.press("0")
+            page.wait_for_function(f"() => document.querySelector('{rmsd}').dataset.view === ''")
+            states = page.evaluate("""() => { const s = document.querySelector(
+                '.figure-chart[data-figure-kind="states"] svg');
+                return [s.getAttribute('tabindex'), s.getAttribute('aria-label'),
+                        window.FastMDXKeys.list().some((k) => k.name === 'plot-zoom')]; }""")
+            page.evaluate(PROJECTION.replace("t: [...Array(n).keys()],",
+                                             "t: [...Array(n).keys()].map((i) => 0.0001 * (i + 1)),")
+                          .replace("t_label: 'Frame'", "t_label: 'Time (ns)'"))
+            page.locator("#a-projection svg").focus()
+            page.keyboard.press("+")
+            page.wait_for_function("() => document.querySelector('#a-projection').dataset.view === 'zoomed'")
+            _, zoomed = _csv(page, "#a-projection")
+            page.locator("#a-projection svg").focus()
+            page.keyboard.press("]")
+            page.wait_for_timeout(200)
+            _, moved = _csv(page, "#a-projection")
+            page.locator("#a-projection svg").focus()
+            page.keyboard.press("0")
+            page.wait_for_function("() => document.querySelector('#a-projection').dataset.view === ''")
+            words = page.evaluate("() => [...document.querySelectorAll('#a-projection svg text')]"
+                                  ".map((t) => t.textContent)")
+            with page.expect_download() as got:
+                page.click('#a-projection .plot-tool:text("SVG")')
+            saved = Path(got.value.path()).read_text(encoding="utf-8")
+            drawn = page.evaluate("""() => {
+                const host = document.createElement('div');
+                host.style.width = '600px';
+                document.querySelector('.page[data-page="analysis"]').appendChild(host);
+                const n = 200, values = [...Array(n).keys()].map((i) =>
+                    [...Array(n).keys()].map((j) => Math.abs(Math.sin(i * 7 + j * 13))));
+                window.FastMDXFigures.plot(host, {ok: true, kind: 'matrix', title: 'RMSD between frames',
+                    values: values, extent: [0, 1], axis_label: 'Frame', label: 'RMSD', unit: 'nm',
+                    linked: false});
+                const said = host.querySelector('svg').dataset.cells;
+                host.remove();
+                return said;
+            }""")
+            # A range that ends before the frames averaged.
+            bands = page.evaluate("""() => {
+                const host = document.createElement('div');
+                host.style.width = '600px';
+                document.querySelector('.page[data-page="analysis"]').appendChild(host);
+                window.FastMDXPlotTools.setRange('Frame', 0, 3);
+                window.FastMDXSeries.draw(host, {ok: true, kind: 'time', analysis: 'rg', unit: 'nm',
+                    x: [...Array(20).keys()], frames: [...Array(20).keys()], x_label: 'Frame',
+                    y: [...Array(20).keys()].map((i) => 1 + 0.01 * Math.sin(i)),
+                    mean: {value: 1.0, error: 0.01, from_x: 10, discard: 10}});
+                const said = [...host.querySelectorAll('.series-error')].map((r) => +r.getAttribute('width'));
+                window.FastMDXPlotTools.clearRange();
+                host.remove();
+                return said;
+            }""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert kept is True
+    assert states[0] == "0" and "Keys: + and - zoom" in states[1] and states[2] is True
+    assert 0 < len(zoomed) < 100 and min(r[0] for r in moved) > min(r[0] for r in zoomed)
+    assert "Time (ps)" in words and "Time (ns)" not in words
+    assert '<rect x="0" y="0" width="100%" height="100%" fill="rgb(' in saved
+    assert drawn == "image"
+    assert all(width >= 0 for width in bands)
+    assert not [line for line in logged if "negative value" in line], logged
+
+
+@pytest.fixture(scope="module")
+def full(tmp_path_factory) -> Path:
+    """The helical study with its state log of 20 rows, analysed for RMSD,
+    RMSF and its thermodynamics."""
+    from tests.test_one_mean_has_one_verdict import ENERGY_HEADER
+    from tests.test_the_cartoon_is_dssp_of_each_frame import _helical_study
+
+    root = _helical_study(tmp_path_factory.mktemp("full") / "study", analyse=False)
+    lines = [ENERGY_HEADER] + [
+        f"{5 * k}%,{500 * (k + 1)},{1.0 * (k + 1)},{-45000 + 30 * (k % 3)},8500,"
+        f"{-36500 + 30 * (k % 3)},{300 + (k % 4)},33.0,1.02,5" for k in range(20)]
+    (root / "simulation" / "energy.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    from fastmdxplora.analysis import AnalysisOrchestrator
+
+    AnalysisOrchestrator(str(root / "simulation" / "production.dcd"),
+                         str(root / "simulation" / "trajectory_topology.pdb"),
+                         output_dir=str(root / "analysis")).run(
+        include=["rmsd", "rmsf", "thermodynamics"])
+    return root
+
+
+def test_a_cell_follows_its_page_and_says_what_its_analysis_read(full):
+    """Each cell's Analyze again copied the page's button before the page
+    had set it from the run's state, so a run starting left the cells
+    offered; the thermodynamics cell said the trajectory's frames beside a
+    table saying the state log's rows it read; and a double click on a
+    residue plot, to show all, opened the residue in the Viewer."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(full), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector('.analysis-cell-head[data-analysis="thermodynamics"]')
+            page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"] .cell-again')
+            page.wait_for_selector('.series-chart[data-analysis="rmsf"] .plot-tools')
+            thermo = page.text_content('.analysis-cell-head[data-analysis="thermodynamics"]')
+            rmsf = '.series-chart[data-analysis="rmsf"]'
+            page.locator(rmsf + " svg").scroll_into_view_if_needed()
+            box = page.locator(rmsf + " svg").bounding_box()
+            page.mouse.move(box["x"] + box["width"] * 0.3, box["y"] + 100)
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + 110, steps=6)
+            page.mouse.up()
+            page.wait_for_function(f"() => document.querySelector('{rmsf}').dataset.view === 'zoomed'")
+            box = page.locator(rmsf + " svg").bounding_box()
+            page.mouse.dblclick(box["x"] + box["width"] * 0.5, box["y"] + 100)
+            page.wait_for_function(f"() => document.querySelector('{rmsf}').dataset.view === ''")
+            page.wait_for_timeout(600)
+            where = page.evaluate("() => document.documentElement.dataset.page")
+            states = page.evaluate("""() => {
+                const board = window.FastMDXDashboard, now = board.state.appState;
+                const said = () => [document.getElementById('analysis-again').disabled,
+                    [...document.querySelectorAll('.cell-again')].map((b) => b.disabled)];
+                board.applyAppState({...now, process_running: true});
+                const going = said();
+                board.applyAppState({...now, process_running: false});
+                return [going, said()];
+            }""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert "20 frames" in thermo and "6 frames" not in thermo, thermo
+    going, ended = states
+    assert going[0] is True and all(going[1]) and going[1]
+    assert ended[0] is False and not any(ended[1])
+    assert where == "analysis"
+
+
+def test_a_study_of_runs_overlay_zooms_and_saves(tmp_path):
+    """The overlay of a study's runs, the Analysis page's only plot for such
+    a study, had no zoom, pan or save."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_runs_of_a_study_are_compared_on_one_page import _study
+
+    sweep = _study(tmp_path / "sweep", {
+        "t300": {"value": 300, "rmsd": (0.160, 0.001, None)},
+        "t310": {"value": 310, "rmsd": (0.164, 0.001, None)}})
+    session = start_dashboard_session(output=str(sweep), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector('#runs-overlay-chart[data-drawn="2"] .plot-tools')
+            head, every = (lambda h: (h[0], h[1]))(_csv_rows(page, "#runs-overlay-chart"))
+            page.locator("#runs-overlay-chart svg").focus()
+            page.keyboard.press("+")
+            page.wait_for_function("() => document.getElementById('runs-overlay-chart')"
+                                   ".dataset.view !== ''")
+            _, some = _csv_rows(page, "#runs-overlay-chart")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert head == "run,time_ns,rmsd (nm)" and len(every) == 10
+    assert 0 < len(some) < len(every)
+
+
+def _csv_rows(page, selector):
+    with page.expect_download() as got:
+        page.click(selector + ' .plot-tool:text("CSV")')
+    lines = Path(got.value.path()).read_text(encoding="utf-8").splitlines()
+    return lines[0], lines[1:]

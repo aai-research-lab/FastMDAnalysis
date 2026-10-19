@@ -105,8 +105,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   Read from the study's own records only; one not read is said so.
 - The Analysis page as cells: each analysis says under its heading what it
   determined, what it was run with and Analyze again for it alone. Every
-  plot zooms by a drag, moves with Shift, shows all again on a double
-  click and saves what it shows as SVG, PNG or CSV. A time range dragged on
+  plot, the overlay of a study's runs too, zooms by a drag or + and -,
+  moves with Shift or [ and ], shows all again on a double click or 0, and
+  saves what it shows as SVG, PNG or CSV. A time range dragged on
   one plot on the simulation's clock is every such plot's and is marked on
   the Viewer's timeline. Maps are drawn as their cells, and a run shorter
   than a nanosecond is read in picoseconds. Analyze again, which a GUI
