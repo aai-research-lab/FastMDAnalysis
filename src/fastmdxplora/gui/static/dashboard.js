@@ -55,8 +55,18 @@
     goneChecks: {},
     /* The open study whose tab was closed with no other open: not named. */
     studyClosed: "",
-    /* Until when a change of study is one a run started here makes. */
+    /* Until when a change of study is one a run started here makes, for a
+     * launch that does not say where its run went (the Config Builder's). */
     ownChangeUntil: 0,
+    /* The Agent's launches still unanswered, the studies those answered
+     * opened ({key, until}), and a change seen while one was unanswered,
+     * judged once all are answered ({from, to}): only a change to a run's
+     * own study is this window's own (CI-774 reviews K5, K6: the first
+     * change in the minute after a launch was taken as its own, whichever
+     * study it was). */
+    launchesAsked: 0,
+    ownStudies: [],
+    changeSeenLaunching: null,
   };
 
   let chartHistorySamples = 600;
@@ -1075,19 +1085,9 @@
     // of those loads the page again) nor by a run it started: said, with
     // the study now shown.
     if (state.addressKnown && was && key && was !== key && !state.addressAsking) {
-      if (Date.now() < state.ownChangeUntil) {
-        state.ownChangeUntil = 0;
-      } else {
-        const title = byId("topbar-run-title")?.textContent || "Another study";
-        emit("study-changed-elsewhere", {from: was, to: key, title});
-        // Named as the page names the study when it is said: once the rest
-        // of this read is applied (the study's name is in its results), and
-        // for one that waits, when it is said.
-        window.setTimeout(() => showNotice(
-          () => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
-            "in another window or by an AI app: this window now shows it.",
-          "warning", {kind: "study-changed-elsewhere", study: key}), 0);
-      }
+      const own = ownChange(key);
+      if (own === "later") state.changeSeenLaunching = {from: was, to: key};
+      else if (own !== "own") openedElsewhere(was, key);
     }
     if (!state.addressKnown) {
       state.addressKnown = true;
@@ -1110,6 +1110,56 @@
     if (asked !== studyNamed() && !state.addressAsking && state.goneChecks[key] !== "asking") {
       history.replaceState(history.state, "", addressFor(studyNamed()));
     }
+  }
+
+  /* Whether a change to the study ``key`` is this window's own: "own" (a
+   * run started here opened it), "later" (an Agent launch has not said yet
+   * where its run went) or "elsewhere". */
+  function ownChange(key) {
+    const now = Date.now();
+    state.ownStudies = state.ownStudies.filter((own) => now < own.until);
+    const at = state.ownStudies.findIndex((own) => own.key === key);
+    if (at >= 0) {
+      state.ownStudies.splice(at, 1);
+      return "own";
+    }
+    if (state.launchesAsked > 0) return "later";
+    if (now < state.ownChangeUntil) {
+      state.ownChangeUntil = 0;
+      return "own";
+    }
+    return "elsewhere";
+  }
+
+  function openedElsewhere(was, key) {
+    const title = byId("topbar-run-title")?.textContent || "Another study";
+    emit("study-changed-elsewhere", {from: was, to: key, title});
+    // Named as the page names the study when it is said: once the rest
+    // of this read is applied (the study's name is in its results), and
+    // for one that waits, when it is said.
+    window.setTimeout(() => showNotice(
+      () => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
+        "in another window or by an AI app: this window now shows it.",
+      "warning", {kind: "study-changed-elsewhere", study: key}), 0);
+  }
+
+  /* An Agent launch answered: ``key`` is the study its run went to, "" for
+   * none (refused, or no run), null where the answer could not be read
+   * (its run, if any, is taken as a launch that does not say). A change
+   * seen while it was unanswered is judged once none is. */
+  function launchAnswered(key) {
+    state.launchesAsked = Math.max(0, state.launchesAsked - 1);
+    if (typeof key === "string" && /^[0-9a-f]{16}$/.test(key)) {
+      state.ownStudies.push({key, until: Date.now() + 60000});
+    } else if (key === null) {
+      state.ownChangeUntil = Date.now() + 60000;
+    }
+    const seen = state.changeSeenLaunching;
+    if (state.launchesAsked > 0 || !seen) return;
+    state.changeSeenLaunching = null;
+    // Gone on since: that change was judged as it was seen.
+    if (state.studyShown !== seen.to) return;
+    if (ownChange(seen.to) !== "own") openedElsewhere(seen.from, seen.to);
   }
 
   /* Opened once the page is shown (Back or Forward to a step naming
@@ -2773,7 +2823,15 @@
     studySettled,
     /* A run started here: the study it opens is this window's own change. */
     studyChangeComing: () => { state.ownChangeUntil = Date.now() + 60000; },
-    studyChangeNotComing: () => { state.ownChangeUntil = 0; },
+    /* With a key, a run's study this window will not see opened as its own
+     * change: one opened later is opened elsewhere. */
+    studyChangeNotComing: (key) => {
+      if (key) state.ownStudies = state.ownStudies.filter((own) => own.key !== key);
+      else state.ownChangeUntil = 0;
+    },
+    /* An Agent launch: asked, then answered with where its run went. */
+    studyChangeAsked: () => { state.launchesAsked += 1; },
+    studyChangeAnswered: (key) => launchAnswered(key),
     /* Asked before any other way opens another study: "" or the reason. */
     holdStudySwitch,
     /* The same, and the switch marked as in flight where it may go on. */

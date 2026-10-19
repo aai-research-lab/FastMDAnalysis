@@ -286,6 +286,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   study it was started from (opened there again elsewhere as the run
   started): that page shows its own study's conversation.
 
+- A run the Agent started opens its own study, and only that change of
+  study is the window's own: another study opened as the run starts, or
+  after a launch that was refused, is said as opened elsewhere. A page that
+  never showed the run's study says the run's conversation is there, and
+  words typed in it are not taken there. With two runs started one after
+  the other, words typed for the thread go with it to the second.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is

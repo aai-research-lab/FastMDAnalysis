@@ -1464,10 +1464,12 @@
     /* The study a run this page started went to: the thread went there
      * with it, and so do the words being typed into it, whole (CI-774
      * review K2: the part typed before the page saw the switch was kept
-     * for the study left). Judged once, by the first switch seen. */
+     * for the study left). Judged once, by the first switch seen to it;
+     * another run's study is still judged when it is seen (CI-774 review
+     * K5: with two launches, the first judged emptied both). */
     var now = Date.now();
     var runsThere = runStudies.some(function (r) { return r.key === key && now < r.until; });
-    runStudies = [];
+    runStudies = runStudies.filter(function (r) { return r.key !== key && now < r.until; });
     if (begunElsewhere && runsThere) {
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
@@ -1506,7 +1508,7 @@
     if (seen) { restoreUnsent(seen); return; }
     /* Already on the run's study (it was the study open, or the page
      * learnt which study it was on only then): nothing to take there. */
-    if (runStudies.some(function (r) { return r.key === unsentKey; })) runStudies = [];
+    runStudies = runStudies.filter(function (r) { return r.key !== unsentKey; });
   }
   function putBack(key, typed) {
     var area = el("agent-request");
@@ -3879,13 +3881,18 @@
       entry.version = made.number;
       entry.eid = entry.eid || newEid();
       launching += 1;
-      if (window.FastMDXDashboard && window.FastMDXDashboard.studyChangeComing) {
-        window.FastMDXDashboard.studyChangeComing();
-      }
+      var dashboard = window.FastMDXDashboard;
+      if (dashboard && dashboard.studyChangeAsked) dashboard.studyChangeAsked();
       startingRuns.push(entry);
       function answered(started) {
         launching -= 1;
-        launchAnswered(started && started.ok ? started.study_key : "");
+        var runKey = started && started.ok && validStudyKey(started.study_key) ? started.study_key : "";
+        /* The study the run went to is this window's own change; no other
+         * is. An answer not read says nothing of where it went. */
+        if (dashboard && dashboard.studyChangeAnswered) {
+          dashboard.studyChangeAnswered(started === undefined ? null : runKey);
+        }
+        launchAnswered(runKey);
         startingRuns = startingRuns.filter(function (e) { return e !== entry; });
         /* Said where the person can see it: the reply it was asked in may
          * have been cut by a retry while it started. */
@@ -3922,7 +3929,10 @@
             /* The thread is the run's study's now: a page that goes on
              * showing another study (opened again elsewhere as the run
              * started) reads that study's own thread. */
-            if (c === conv) convFor = validStudyKey(started.study_key) ? started.study_key : "";
+            if (c === conv) {
+              convFor = validStudyKey(started.study_key) ? started.study_key : "";
+              launchedAway = convFor ? { key: convFor, from: shownStudy() } : null;
+            }
           }
           c.study = moved.study || started.output;
         }
@@ -4092,6 +4102,28 @@
    * refused as for another study than the GUI has open. */
   var convFor = "";
   var readAgain = false;
+  /* The thread on screen as a run took it to its study (`key`), with the
+   * study the page showed then (`from`): kept until the page shows another.
+   * Still on `from` once the run's thread is read away, the page never saw
+   * the run's study (another window opened `from` again as it started),
+   * and says where the run's thread is (CI-774 review K6, M1). */
+  var launchedAway = null;
+  /* The page's own study's thread read in place of one a run took to a
+   * study this page never showed: no word typed here goes there, nor is
+   * its opening this window's own, and where the run's thread is is said
+   * beside what is already said there. */
+  function readAway() {
+    var away = launchedAway;
+    if (!away || away.from === away.key || convFor !== away.from) return;
+    launchedAway = null;
+    runStudies = runStudies.filter(function (r) { return r.key !== away.key; });
+    var dashboard = window.FastMDXDashboard;
+    if (dashboard && dashboard.studyChangeNotComing) dashboard.studyChangeNotComing(away.key);
+    var host = el("agent-unsent-note");
+    var before = noteKind === "moved" && host ? host.textContent : "";
+    unsentSaid((before ? before + " " : "") + "The run's conversation is in the run's study, "
+               + "not this one: open the run's study to go on with it.", "moved");
+  }
   var reading = 0;
   var readFirst;
   var firstRead = new Promise(function (done) { readFirst = done; });
@@ -4639,14 +4671,16 @@
     if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
       window.FastMDXDashboard.on("study-addressed", function (study) {
         var key = study && study.key;
-        if (!validStudyKey(key) || launching || reading) return;
+        if (!validStudyKey(key)) return;
+        if (launchedAway && key !== launchedAway.from) launchedAway = null;
+        if (launching || reading) return;
         /* A read refused as the GUI had gone on (a run's study, its
          * thread on screen): the page is on that study now. */
         if (readAgain && convFor === key && conv.study) { readAgain = false; return; }
         if (readAgain || (conv.study && convFor && convFor !== key)) {
           readAgain = false;
           hideList();
-          restore(true).then(told);
+          restore(true).then(function () { readAway(); told(); });
         }
       });
     }
@@ -4661,7 +4695,7 @@
       if (launching) return;
       if (String(detail.activeRun || "") === String(conv.study)) return;
       hideList();
-      restore(true).then(told);
+      restore(true).then(function () { readAway(); told(); });
     });
 
     window.FastMDXAgentPanel = {

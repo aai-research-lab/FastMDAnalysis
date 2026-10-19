@@ -2977,11 +2977,12 @@ def test_a_thread_whose_new_was_answered_gone_keeps_a_question_as_it_closes(
                                      KEPT_AFTER_DELETE]]
 
 
-def _a_study_opened_again_as_its_run_starts(tmp_path, monkeypatch):
+def _a_study_opened_again_as_its_run_starts(tmp_path, monkeypatch, then=None):
     """A run started from the study ``here``, with words typed as it starts;
     another window opens ``here`` again before the launch answers, and this
-    page never sees the run's study. Then what is in the box is sent. Gives
-    the page, after the send, and the workspace."""
+    page never sees the run's study. Then what is in the box is sent, and
+    ``then(page, session, workspace)`` is asked. Gives the page, after the
+    send, and the workspace."""
     import json
     import tempfile
     import time
@@ -3052,6 +3053,8 @@ def _a_study_opened_again_as_its_run_starts(tmp_path, monkeypatch):
         page.keyboard.press("Enter")
         page.wait_for_selector("#agent-thread .agent-answer:has-text('Said here.')")
         page.wait_for_timeout(1500)
+        if then is not None:
+            shown["then"] = then(page, session, workspace)
         shown["errors"] = list(errors)
     finally:
         close()
