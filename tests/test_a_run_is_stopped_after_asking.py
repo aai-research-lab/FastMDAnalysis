@@ -69,8 +69,12 @@ def test_it_is_offered_to_run_again_not_from_a_checkpoint(tmp_path):
     _runtime_running(study).stop()
     [remedy] = remedies_of(study)
     assert remedy.code == "simulation.run.stopped"
-    assert "wrote no checkpoint" in remedy.fix
     assert "Production already written is kept" not in remedy.fix
+    # Said once, in the stop's own words: the card read "wrote no
+    # checkpoint" in the reason and again in the fix.
+    assert "no checkpoint" in remedy.why
+    assert "checkpoint" not in remedy.fix
+    assert remedy.fix == "Run it again from the start."
 
 
 def test_a_run_stopped_in_production_keeps_what_it_recorded(tmp_path):

@@ -9,6 +9,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- A study just started no longer shows the last study's length, wall time
+  and last update under its name on the Overview until its own first
+  status arrives.
+- The NVT equilibration's box, in ns, said "Not set: 500 ps"; it says
+  "0.5 ns (500 ps)", so the number read is the number to type.
+- A run stopped before production is priced at the speed its
+  equilibration measured, not "no speed has been measured here". A run
+  stopped as asked is under "To carry it on" rather than "What would fix
+  it", and says it wrote no checkpoint once, not twice.
+- The New study form's results folder says its timestamp is UTC, as the
+  docs do: the folder read 23:48 beside a log at 16:48.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
