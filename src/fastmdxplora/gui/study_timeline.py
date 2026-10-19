@@ -135,9 +135,11 @@ def _of_its_runs(base: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _phase(base: Path, record: dict[str, Any], *, replaced: bool,
            again: bool = False) -> dict[str, Any]:
+    from fastmdxplora.gui.overview_view import phase_status
+
     name = str(record.get("name"))
     made = record.get("produced_by") if isinstance(record.get("produced_by"), dict) else {}
-    status = str(record.get("status") or "")
+    status = phase_status(record)
     started, finished = record.get("started_at"), record.get("finished_at")
     said = DONE[name] if status in ("ok", "completed", "") else f"{name.capitalize()} {status}"
     event = {

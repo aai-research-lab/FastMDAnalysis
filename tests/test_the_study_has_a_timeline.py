@@ -449,3 +449,23 @@ def test_a_step_with_no_time_says_none_and_comes_after_those_with_one(tmp_path):
         "seed 1: Set up", "seed 2: Simulated"]
     # The one time recorded is said; no step is given a time it has not.
     assert shown[0][1] != "" and all(when == "" for _, when in shown[1:]), shown
+
+
+def test_a_run_asked_to_stop_is_said_stopped_as_its_overview_says_it(tmp_path):
+    """A run stopped by Ctrl+C records its simulation as "error" with the
+    refusal `simulation.run.stopped`: the Timeline said "Simulation error"
+    where the Overview, the runs table and Compare said stopped."""
+    from fastmdxplora.gui.overview_view import _phases
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    root = tmp_path / "study"
+    root.mkdir()
+    stopped = {**_phase("simulation", "07:00:04", "07:01:19"), "status": "error",
+               "refusal": {"code": "simulation.run.stopped",
+                           "message": "Production was stopped by Ctrl+C at step 6,400."}}
+    (root / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04"), stopped]}), encoding="utf-8")
+    said = {e["phase"]: e for e in timeline_of(root)["events"]}
+    assert said["simulation"]["said"] == "Simulation stopped"
+    assert said["simulation"]["status"] == {p["name"]: p for p in _phases(root)}[
+        "simulation"]["status"] == "stopped"

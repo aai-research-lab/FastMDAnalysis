@@ -39,7 +39,7 @@ from typing import Any
 
 from fastmdxplora import record_access as _records
 
-__all__ = ["overview_payload", "THERMODYNAMICS", "MOST_TILES", "thinned_metrics"]
+__all__ = ["overview_payload", "THERMODYNAMICS", "MOST_TILES", "thinned_metrics", "phase_status"]
 
 #: The thermodynamic quantities the Overview plots, as the live record
 #: names them, with what each is called and its unit.
@@ -670,6 +670,18 @@ def _four_figures(value: float) -> str:
 _PHASES = ("setup", "simulation", "analysis", "report")
 
 
+def phase_status(phase: dict[str, Any]) -> str:
+    """A phase's status as its Manifest records it, "stopped" where it
+    ended in error by its own refusal code for a run asked to stop: as the
+    health card beside it says, where it read "Simulation failed" beside
+    "Stopped". Every page that says a phase reads it here."""
+    status = str(phase.get("status") or "")
+    refusal = phase.get("refusal") if isinstance(phase.get("refusal"), dict) else {}
+    if status == "error" and str(refusal.get("code") or "") == "simulation.run.stopped":
+        return "stopped"
+    return status
+
+
 def _phases(root: Path) -> list[dict[str, Any]]:
     """Each phase the study recorded, in order, with its status and the
     seconds it took."""
@@ -709,12 +721,7 @@ def _phases(root: Path) -> list[dict[str, Any]]:
             seconds = max(0.0, (ended - began).total_seconds())
         except (KeyError, ValueError, TypeError):
             pass
-        status = str(phase.get("status") or "")
-        if status == "error" and str((phase.get("refusal") or {}).get("code") or "") \
-                == "simulation.run.stopped":
-            # Asked to stop, as the health card beside it says: it read
-            # "Simulation failed" beside "Stopped".
-            status = "stopped"
+        status = phase_status(phase)
         if carried_on and phase.get("name") == "simulation" and status in ("stopped", "error"):
             status = carried_on
         if waiting and phase.get("name") in ("simulation", "analysis", "report"):
