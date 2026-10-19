@@ -4324,6 +4324,9 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
     flex: 1 1 130px; display: flex; flex-direction: column; align-items: stretch; gap: 4px;
 }
 .side-section .select-field select { width: 100%; }
+/* The study to play beside: a row of its own, so a run's name
+ * ("temps, temperature 310 K") is said whole, its buttons under it. */
+#side-beside .select-field { flex-basis: 100%; }
 /* One box to a section: the groups inside it are rows, not boxes again. */
 .side-section .control-group,
 .side-section .icon-group.text-group { border: none; background: none; padding: 0; }

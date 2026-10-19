@@ -48,8 +48,19 @@
       var option = document.createElement("option");
       option.value = card.path;
       option.textContent = card.name + (card.system ? " (" + card.system + ")" : "");
+      option.title = option.textContent;
       return option;
     }));
+    // The study chosen said whole on hover, where a name is longer than
+    // the panel is wide.
+    var named = function () {
+      select.title = select.selectedOptions[0] ? select.selectedOptions[0].textContent : "";
+    };
+    if (!select.dataset.named) {
+      select.dataset.named = "true";
+      select.addEventListener("change", named);
+    }
+    named();
     byId("side-beside").hidden = cards.length === 0;
     state.ready = true;
     takeUpNext();
@@ -95,9 +106,11 @@
       var option = document.createElement("option");
       option.value = asked.path;
       option.textContent = asked.name || asked.path;
+      option.title = option.textContent;
       select.appendChild(option);
     }
     select.value = asked.path;
+    select.title = select.selectedOptions[0] ? select.selectedOptions[0].textContent : "";
     byId("side-beside").hidden = false;
     var rail = window.FastMDXViewerRail;
     if (rail && rail.choose) rail.choose("side-beside");

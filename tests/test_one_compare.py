@@ -185,7 +185,8 @@ def test_the_viewer_plays_the_second_beside_the_first(tmp_path):
     first = _helical_study(tmp_path / "work" / "alpha", analyse=False)
     (first / "resolved_config.yml").write_text(
         "systems:\n  - system: 1HHO\nsimulation:\n  temperature_K: 300\n", encoding="utf-8")
-    second = tmp_path / "work" / "beta"
+    # A name as long as a run's ("temps, temperature 310 K"): said whole.
+    second = tmp_path / "work" / "beta-temperature-310-K"
     shutil.copytree(first, second)
     (second / "resolved_config.yml").write_text(
         "systems:\n  - system: 1HHO\nsimulation:\n  temperature_K: 310\n", encoding="utf-8")
@@ -200,14 +201,29 @@ def test_the_viewer_plays_the_second_beside_the_first(tmp_path):
         page.wait_for_function("() => document.documentElement.dataset.page === 'viewer'")
         page.wait_for_function("() => !document.getElementById('beside-remove').hidden",
                                timeout=120000)
-        return page.evaluate("""() => [document.getElementById('beside-study').value,
-            document.getElementById('beside-note').textContent,
-            window.FastMDXViewerRail.chosen]""")
+        return page.evaluate("""() => {
+            const select = document.getElementById('beside-study');
+            const probe = document.createElement('span');
+            const style = getComputedStyle(select);
+            probe.style.font = style.font;
+            probe.style.whiteSpace = 'nowrap';
+            probe.textContent = select.selectedOptions[0].textContent;
+            document.body.appendChild(probe);
+            const needs = probe.getBoundingClientRect().width;
+            probe.remove();
+            // Its text, its padding and the arrow (about 20 px) within it.
+            const room = select.clientWidth - parseFloat(style.paddingLeft)
+                - parseFloat(style.paddingRight) - 20;
+            return [select.value, document.getElementById('beside-note').textContent,
+                    window.FastMDXViewerRail.chosen, needs <= room, select.title];
+        }""")
 
-    value, note, chosen = _browse(first, look)
+    value, note, chosen, whole, title = _browse(first, look)
     assert value == str(second)
-    assert note.startswith("beta,") and "paired" in note
+    assert note.startswith("beta-temperature-310-K,") and "paired" in note
     assert chosen == "side-beside"
+    assert whole is True
+    assert title.startswith("beta-temperature-310-K")
 
 
 # ---------------------------------------------------------------------------
