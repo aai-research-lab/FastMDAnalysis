@@ -808,9 +808,10 @@ CODES: tuple[Code, ...] = (
          detail_keys=("frames", "independent", "statistical_inefficiency", "needed")),
     Code("analysis.sampling.still_drifting",
          "The frames averaged still move in one direction: their last third's "
-         "mean differs from their first third's by at least twice their spread.",
+         "mean differs from their first third's by at least twice their spread, "
+         "or they trend steadily by at least twice the trend's own error.",
          Kind.INSUFFICIENT, Disclosure.FIELD_ONLY,
-         detail_keys=("frames", "drift_in_spread", "needed")),
+         detail_keys=("frames", "drift_in_spread", "trend_in_errors", "needed")),
     Code("analysis.sampling.drifting",
          "The segment means move in order across the run, so it had not "
          "equilibrated at the scale of the whole run.",

@@ -36,6 +36,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   distribution's free energy, which the binding integral uses, stays in
   `pmf.json` and beside it in the data file, and its summary is read off
   W(r), not off the distribution's wall at the first window.
+
+- A mean whose frames still trend is withheld when the trend is large
+  against its own error, not only against the frames' spread. That bar did
+  not tighten as a run grew: on frames 500 inefficiencies long under a
+  decay of one spread over half the run, every mean was called determined,
+  a median five errors from where the decay was heading; about two in five
+  are now withheld, a stationary series in under one in a hundred. Counted
+  as the stopping rule's third remedy in
+  `preregistration/stopping-calibration.md`, with two cases relaxing over
+  30 ns that no test within a run can see, as the report of a study run
+  until it knew now says.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

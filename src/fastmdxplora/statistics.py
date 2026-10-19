@@ -61,6 +61,7 @@ __all__ = [
     "detect_equilibration",
     "summarise",
     "drift_in_spread",
+    "trend_in_errors",
     "mean_record",
     "shared_start",
     "with_its_error",
@@ -133,10 +134,24 @@ DRIFT_FRAMES = 6
 #: determined or not (``rules``), so what reads a record made by an
 #: earlier version can say its verdict may not be this version's. 2: a
 #: mean whose averaged frames still move one way is withheld
-#: (``analysis.sampling.still_drifting``). A record without the key was
-#: written by an earlier version, most of which did not withhold such a
-#: mean, so it may call one determined.
-MEAN_RULES = 2
+#: (``analysis.sampling.still_drifting``). 3: so is one whose frames trend
+#: by :data:`DRIFT_IN_ERRORS` of the trend's own error. A record without
+#: the key was written by an earlier version, most of which did not
+#: withhold such a mean, so it may call one determined.
+MEAN_RULES = 3
+
+#: A series whose averaged frames trend by this many times the trend's own
+#: error is still drifting, however small the trend is against the frames'
+#: spread. The spread's test (:data:`DRIFT_IN_SPREAD`) does not tighten as a
+#: run grows while the mean's error does, so a relaxation slower than the
+#: run passed it: on AR(1) frames 500 inefficiencies long under a decay of
+#: one spread over half the run, every mean was determined and its median
+#: five errors from the value the decay was heading to. Judged against the
+#: trend's error it is withheld in about two of five such runs, and a
+#: stationary series in fewer than one in a hundred; a run extended until
+#: it is determined is asked again at each look (counted in
+#: ``preregistration/stopping-calibration.md``, the third remedy).
+DRIFT_IN_ERRORS = 2.5
 
 #: The error of a mean after a discard is taken from the whole run, scaled to
 #: the frames kept, unless discarding gained at least this many times the
@@ -499,6 +514,47 @@ def drift_in_spread(values: Any) -> float:
     return float((last.mean() - first.mean()) / noise)
 
 
+def _trend_error(values: np.ndarray, inefficiency: float) -> float:
+    """The error of the least-squares slope of ``values`` against frame
+    number, its residuals' variance taken as correlated over
+    ``inefficiency`` frames: ``sqrt(g var(r) / sum (t - t_bar)^2)``."""
+    t = np.arange(values.size, dtype=float)
+    t -= t.mean()
+    spread = float((t * t).sum())
+    if values.size < 3 or spread <= 0.0:
+        return float("nan")
+    slope = float((t * (values - values.mean())).sum() / spread)
+    left = values - values.mean() - slope * t
+    variance = float((left ** 2).sum()) / (values.size - 2)
+    return float(np.sqrt(max(float(inefficiency), 1.0) * variance / spread))
+
+
+def trend_in_errors(values: Any, inefficiency: float) -> float:
+    """How steadily a series moves, against the error of that movement: the
+    least-squares slope over frame number divided by its error, the frames
+    taken as correlated over ``inefficiency`` frames (the series' own, as
+    the mean's error takes it; the trend's residuals decorrelate no slower,
+    so the error is if anything wide). Zero for a series too short, or one
+    that does not vary.
+
+    Unlike :func:`drift_in_spread` it tightens as a run grows, as the
+    mean's error does: a run long enough to give a mean an error of a
+    hundredth of its spread can show a trend of a tenth of a spread, and
+    that trend is the mean's bias.
+    """
+    series = np.asarray(values, dtype=np.float64)
+    series = series[np.isfinite(series)]
+    if series.size < DRIFT_FRAMES:
+        return 0.0
+    error = _trend_error(series, inefficiency)
+    if not np.isfinite(error) or error <= 0.0:
+        return 0.0
+    t = np.arange(series.size, dtype=float)
+    t -= t.mean()
+    slope = float((t * (series - series.mean())).sum() / (t * t).sum())
+    return float(slope / error)
+
+
 def summarise(
     series: np.ndarray,
     *,
@@ -603,6 +659,26 @@ def _summary(
         )
 
     drift = drift_in_spread(kept)
+    trend = trend_in_errors(kept, g)
+    if kept.size >= DRIFT_FRAMES and abs(trend) >= DRIFT_IN_ERRORS \
+            and abs(drift) < DRIFT_IN_SPREAD:
+        import dataclasses
+
+        change = trend * _trend_error(kept, g) * (kept.size - 1)
+        return dataclasses.replace(equilibrated, standard_error=float("nan")), Withholding(
+            f"Still drifting after its equilibration: over the {kept.size} frames "
+            f"averaged the series moves steadily, by {change:+.4g} from first to "
+            f"last, a trend {abs(trend):.1f} times its own error with the frames' "
+            "correlation allowed for. Small against how much the frames wobble, it "
+            "is not small against the mean's error, and a relaxation slower than "
+            "the run puts the mean where the run happened to stop rather than "
+            "where the system is going; the remedy is a longer run. (A relaxation "
+            "far slower than the run may show no trend at all: runs from "
+            "different structures are what test that.)",
+            code="analysis.sampling.still_drifting",
+            frames=int(kept.size), drift_in_spread=round(float(drift), 2),
+            trend_in_errors=round(float(trend), 2), needed=DRIFT_IN_ERRORS,
+        )
     if kept.size >= DRIFT_FRAMES and abs(drift) >= DRIFT_IN_SPREAD:
         # Its own error cannot say so: a series moving steadily through the
         # frames averaged holds the start of a trend, not a state, and the

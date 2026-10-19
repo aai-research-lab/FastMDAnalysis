@@ -438,3 +438,116 @@ What holds: the stated precision for `fast_three_replicas` (67.4% and
 `transient_three_replicas` (68.6% and 94.3%, a mean `(value - truth) /
 error` of +0.18), and usability for `fast_three_replicas` (97.9%) and
 `transient_three_replicas` (98.6%).
+
+## A third remedy: the trend judged against its own error
+
+**Written 2026-10-18.** A mean was withheld as still drifting
+(`analysis.sampling.still_drifting`) only where its averaged frames' first
+and last thirds differed by two of the frames' spreads. That bar does not
+tighten as a run grows, while the mean's error does. On AR(1) frames 500
+inefficiencies long under a decay of one spread over half the run, every
+mean was determined, a median five of its errors from the value the decay
+was heading to.
+
+**The remedy** (`statistics.trend_in_errors`, `DRIFT_IN_ERRORS`): the
+least-squares slope of the averaged frames over frame number, divided by its
+error with the residuals taken as correlated over the series' own
+inefficiency, as the mean's error takes it. A trend of 2.5 times its error
+withholds the mean, beside the spread's test. `MEAN_RULES` becomes 3.
+
+**Chosen outside both sets**, on series drawn from `default_rng` with seeds
+424242, 777, 99 and 31337, before either set was run with it. At 2.5 a
+stationary series 25 to 500 inefficiencies long is withheld for its trend
+in 0.2% to 0.8% of cases, and the decay above in about two of five at 500
+inefficiencies, about one in thirty at 100. A threshold of 2.0 was tried
+first and not taken: it withheld 3% to 7% of stationary series, and a study
+of ten analyses or a run joined from ten segments would then have one
+withheld falsely in about one case in five.
+
+**Two cases registered with it**, appended after the seven so that theirs
+keep their numbers and seeds (case numbers 7 and 8): the fast series
+starting 3 sigma (0.15) away and relaxing over 3000 frames (30 ns), ten
+times slower than the transient's and slower than the first piece, as one
+run (`slow_transient_one_run`, 1000 studies, 2 ns first piece, 100 ns
+ceiling) and as three replicas (`slow_transient_three_replicas`, the same).
+They have no threshold; what is reported is how often a study is determined
+with the truth outside two of its errors.
+
+**Disclosed:** the remedy was chosen knowing that, by the reasoning in its
+docstring, a relaxation slower than the run cannot be seen from within it;
+the two cases were added to measure that, not to show the remedy works.
+
+### Counted on the registered set
+
+Study indices 0 to 999 (0 to 499 for the cases of 500 studies) and 0 to 499
+for the check, with the remedy, and with today's `main` (`edc75f8e`, before
+it) on the same seeds, because the counts of 2026-10-01 above predate other
+changes and are not the same code. Every study is in
+[`stopping-calibration-trend-registered.json`](stopping-calibration-trend-registered.json)
+(the remedy) and
+[`stopping-calibration-trend-baseline.json`](stopping-calibration-trend-baseline.json)
+(today's `main`).
+
+What fails, first:
+
+- **The slow transient is not seen, with or without the remedy.** One run:
+  997 of 1000 determined at a median 39.4 ns, the truth within one error in
+  0.3% and within two in 1.5% (today's `main`: 1000, 0.3%, 1.1%). Three
+  replicas: 945 of 1000 at 58.6 ns, 0.3% and 1.6% (today's `main`: 967,
+  0.3%, 1.3%). The window a mean is taken over, after equilibration is
+  detected, sees about half of the mean's bias as a trend, and the error of
+  a trend over a window is about 3.5 times the error of the window's mean,
+  so a trend a mean five errors off shows at about one of its own errors.
+  Replicas from one structure share the relaxation. Only starts from
+  different structures can show it; the report now says so.
+- **The transient's precision does not hold**: 92.7% within two errors
+  against a floor of 92.8%. It does not hold on today's `main` either
+  (92.5%, from 93.0% counted on 2026-10-01 with the shared start): something
+  changed since then, and that is reported to the coordinating session to
+  find. The remedy changes 23 of its 1000 studies.
+- **Two states**, unchanged by the remedy: 31 of 500 studies started together
+  and 31 of 500 with drawn starts looked determined while trapped, every one
+  with the truth outside two errors.
+
+| Case | Determined | At the ceiling | Median production | Within 1 error | Within 2 | Floors | Holds | Fixed length, within 1 / 2 |
+|---|---|---|---|---|---|---|---|---|
+| `fast_one_run` | 1000 of 1000 (100.0%) | 0 | 25.4 ns | 65.0% | 93.0% | 62.4%, 92.8% | yes | 69.0% / 94.8% (930 given at 25.4 ns) |
+| `fast_three_replicas` | 988 of 1000 (98.8%) | 12 | 28.6 ns | 72.0% | 95.5% | 62.4%, 92.8% | yes | 74.7% / 97.5% (856 given at 28.6 ns) |
+| `slow_one_run` | 459 of 500 (91.8%) | 41 | 255.1 ns | 68.0% | 92.6% | 59.6%, 91.6% | yes | 69.3% / 94.7% (472 given at 255.1 ns) |
+| `slow_three_replicas` | 273 of 500 (54.6%) | 227 | 200.0 ns | 67.8% | 93.0% | 57.0%, 90.4% | yes | 71.7% / 97.6% (290 given at 200.0 ns) |
+| `transient_three_replicas` | 980 of 1000 (98.0%) | 20 | 48.5 ns | 66.9% | 92.7% | 62.3%, 92.8% | no | 72.5% / 96.3% (814 given at 48.5 ns) |
+| `two_states_one_start` | 31 of 500 (6.2%) | 469 | 20.0 ns | 0.0% | 0.0% | 34.8%, 80.5% | no | 50.0% / 54.7% (64 given at 20.0 ns) |
+| `two_states_drawn_starts` | 31 of 500 (6.2%) | 469 | 21.6 ns | 0.0% | 0.0% | 34.8%, 80.5% | no | 66.1% / 67.7% (62 given at 21.6 ns) |
+| `slow_transient_one_run` | 997 of 1000 (99.7%) | 3 | 39.4 ns | 0.3% | 1.5% | 62.4%, 92.8% | no | 0.0% / 0.0% (856 given at 39.4 ns) |
+| `slow_transient_three_replicas` | 945 of 1000 (94.5%) | 55 | 58.6 ns | 0.3% | 1.6% | 62.2%, 92.7% | no | 0.0% / 0.0% (827 given at 58.6 ns) |
+
+Against today's `main` on the same seeds, study by study, the remedy changed
+how 3 of 1000 `fast_one_run` studies ended, 13 of `fast_three_replicas`, 1
+of 500 `slow_one_run`, 4 of `slow_three_replicas`, 23 of
+`transient_three_replicas`, none of either two-state case, 100 of
+`slow_transient_one_run` and 74 of `slow_transient_three_replicas` (among
+those that ended determined either way, the truth within two errors in 0%
+before and 4% after, and 2% and 8%).
+
+What holds: the stated precision for `fast_one_run`, `fast_three_replicas`,
+`slow_one_run` and `slow_three_replicas`, and usability for
+`fast_three_replicas` (98.8%), `slow_one_run` (91.8%) and
+`transient_three_replicas` (98.0%).
+
+**The check.** A stationary series is withheld for any reason, with the
+remedy against today's `main`: the fast series at 50, 100 and 250 times its
+inefficiency in 73, 7 and 3 of 500 (72, 6 and 0), the slow in 80, 4 and 2 of
+500 (79, 3 and 0). At 1.25 to 12.5 times it is unchanged.
+
+### What the third held-out set is to show
+
+Written before it was counted. The third held-out set is study indices 3000
+to 3999 (1500 to 1999 for the cases of 500 studies) for the seven cases,
+1000 to 1999 for the two slow transients, and 1000 to 1499 for the check, run
+with the code committed with this section. The remedy is adopted if each
+claim that holds for it above holds there too: the stated precision for
+`fast_one_run`, `fast_three_replicas`, `slow_one_run` and
+`slow_three_replicas`, and usability for `fast_three_replicas`,
+`slow_one_run` and `transient_three_replicas`. The transient's precision,
+which fails above with and without the remedy, does not decide it. Both
+results are reported, whichever way they go.
