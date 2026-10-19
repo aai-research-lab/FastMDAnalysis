@@ -3848,8 +3848,9 @@
     text(el("run-note"), "Starting…");
     let started;
     launchesPending += 1;
-    // The study the run opens is this window's own change, not another's.
-    window.FastMDXDashboard?.studyChangeComing?.();
+    // The study the run opens is this window's own change, and no other
+    // study opened meanwhile is (CI-774 reviews L1 and L2).
+    window.FastMDXDashboard?.studyChangeAsked?.();
     try {
       const response = await fetch("/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3857,7 +3858,8 @@
       });
       started = await response.json();
     } catch (error) {
-      window.FastMDXDashboard?.studyChangeNotComing?.();
+      // No answer read: whether a run started, and where, is not known.
+      window.FastMDXDashboard?.studyChangeAnswered?.(null);
       text(el("run-note"), "Could not reach the server.");
       // Kept when the summary's check comes back.
       el("run-note").dataset.ok = "false";
@@ -3866,8 +3868,8 @@
       backToTyping();
       return;
     } finally { launchesPending -= 1; }
+    window.FastMDXDashboard?.studyChangeAnswered?.(started && started.ok ? started.study_key || "" : "");
     if (!started.ok) {
-      window.FastMDXDashboard?.studyChangeNotComing?.();
       text(el("run-note"), started.error || "Could not start.");
       el("run-note").dataset.ok = "false";
       sayRefusal(started);

@@ -286,12 +286,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   study it was started from (opened there again elsewhere as the run
   started): that page shows its own study's conversation.
 
-- A run the Agent started opens its own study, and only that change of
-  study is the window's own: another study opened as the run starts, or
-  after a launch that was refused, is said as opened elsewhere. A page that
-  never showed the run's study says the run's conversation is there, and
-  words typed in it are not taken there. With two runs started one after
-  the other, words typed for the thread go with it to the second.
+- A run the Agent or the Config Builder started opens its own study, and
+  only that change of study is the window's own: another study opened as
+  the run starts, or after a launch that was refused, is said as opened
+  elsewhere, and so is a run's study the window went past without showing
+  it. A page that never showed the run's study says the run's conversation
+  is there, and words typed in it are not taken there. A message sent while
+  a run starts waits until the page has read which study is open, and is
+  answered and kept in the thread of the study shown. With two runs
+  started one after the other, words typed for the thread go with it to
+  the second.
 
 ### Added
 

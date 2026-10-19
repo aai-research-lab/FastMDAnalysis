@@ -1443,7 +1443,7 @@
    * was kept, never over it. Typed for another study shown before (the
    * study changed under this window): kept for that one, where it was
    * begun, and taken out of this study's box. */
-  function restoreUnsent(study) {
+  function restoreUnsent(study, late) {
     var key = study && study.key;
     if (!validStudyKey(key)) return;
     var title = (study && study.title) || "";
@@ -1464,12 +1464,18 @@
     /* The study a run this page started went to: the thread went there
      * with it, and so do the words being typed into it, whole (CI-774
      * review K2: the part typed before the page saw the switch was kept
-     * for the study left). Judged once, by the first switch seen to it;
-     * another run's study is still judged when it is seen (CI-774 review
-     * K5: with two launches, the first judged emptied both). */
+     * for the study left). Judged once, by the first switch seen to it.
+     * The GUI goes to each run's study before its launch answers: seen,
+     * a run's study is past every one before it, and a study that is no
+     * run's, seen once every launch has answered, is past them all; one
+     * seen while a launch went on (`late`) may have come before the run's
+     * (CI-774 reviews K5 and L1: the first judged emptied a later run's,
+     * and a run's never seen was kept for a study opened elsewhere later). */
     var now = Date.now();
-    var runsThere = runStudies.some(function (r) { return r.key === key && now < r.until; });
-    runStudies = runStudies.filter(function (r) { return r.key !== key && now < r.until; });
+    var at = lastRun(runStudies, key);
+    var runsThere = at >= 0 && now < runStudies[at].until;
+    runStudies = runStudies.slice(at + 1).filter(function (r) { return now < r.until; });
+    if (at < 0 && !late) runStudies = [];
     if (begunElsewhere && runsThere) {
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
@@ -1498,6 +1504,11 @@
     unsentTitle = title;
     putBack(key, begunElsewhere ? "" : typed);
   }
+  /* The last of `list` for the study `key`, or -1. */
+  function lastRun(list, key) {
+    for (var i = list.length - 1; i >= 0; i -= 1) if (list[i].key === key) return i;
+    return -1;
+  }
   /* Every launch this page made has answered: the run's study, if one
    * started (`key`), is known, and a switch seen meanwhile is judged. */
   function launchAnswered(key) {
@@ -1505,10 +1516,11 @@
     if (launching) return;
     var seen = seenWhileLaunching;
     seenWhileLaunching = null;
-    if (seen) { restoreUnsent(seen); return; }
+    if (seen) { restoreUnsent(seen, true); return; }
     /* Already on the run's study (it was the study open, or the page
      * learnt which study it was on only then): nothing to take there. */
-    runStudies = runStudies.filter(function (r) { return r.key !== unsentKey; });
+    var at = lastRun(runStudies, unsentKey);
+    if (at >= 0) runStudies = runStudies.slice(at + 1);
   }
   function putBack(key, typed) {
     var area = el("agent-request");
@@ -2215,6 +2227,7 @@
     /* Not before the thread has been read: sent first, it went into a
      * second conversation (seventeenth review, 10-08). Sent once it has. */
     if (!threadRead) { firstRead.then(draft); return; }
+    if (sendWaits()) { holdSend(); return; }
     /* Sent as typed. It used to be joined to a question the Agent had
      * asked, whatever it said ("which lysozyme...?" and "Has it run long
      * enough?" went as one request); the conversation goes with every
@@ -3893,6 +3906,9 @@
           dashboard.studyChangeAnswered(started === undefined ? null : runKey);
         }
         launchAnswered(runKey);
+        /* After the thread's move is taken in: a message held while the
+         * run started goes once the page knows its study. */
+        Promise.resolve().then(function () { sendHeldNow(true); });
         startingRuns = startingRuns.filter(function (e) { return e !== entry; });
         /* Said where the person can see it: the reply it was asked in may
          * have been cut by a retry while it started. */
@@ -3926,12 +3942,15 @@
            * run started. */
           if ((moved.study || started.output || null) !== (c.study || null)) {
             c.page = "";
-            /* The thread is the run's study's now: a page that goes on
-             * showing another study (opened again elsewhere as the run
-             * started) reads that study's own thread. */
+            /* The thread is the run's study's now, and its saves are named
+             * so, as a page reading it there would name them. A page that
+             * goes on showing another study (opened again elsewhere as the
+             * run started) reads that study's own thread. */
+            c.page = validStudyKey(started.study_key) ? started.study_key : "";
             if (c === conv) {
-              convFor = validStudyKey(started.study_key) ? started.study_key : "";
-              launchedAway = convFor ? { key: convFor, from: shownStudy() } : null;
+              convFor = c.page;
+              var from = shownStudy();
+              launchedAway = convFor && from !== convFor ? { key: convFor, from: from } : null;
             }
           }
           c.study = moved.study || started.output;
@@ -4123,6 +4142,33 @@
     var before = noteKind === "moved" && host ? host.textContent : "";
     unsentSaid((before ? before + " " : "") + "The run's conversation is in the run's study, "
                + "not this one: open the run's study to go on with it.", "moved");
+    sendHeldNow();
+  }
+  /* A message sent while a run starts, or before the page knows whether
+   * the thread on screen went with it to a study it does not show: held in
+   * the box, and sent once that is known, to the thread then on screen. A
+   * reply is never asked with one study open and kept in another's thread
+   * (CI-774 reviews L1 and L2). */
+  var sendHeld = false;
+  function sendWaits() { return launching > 0 || launchedAway !== null; }
+  function holdSend() {
+    if (!sendHeld) {
+      sendHeld = true;
+      unsentSaid("Sent once the run has started and this page has read which study is open.", "held");
+    }
+    var dashboard = window.FastMDXDashboard;
+    if (launchedAway && dashboard && dashboard.readStatusNow) dashboard.readStatusNow();
+  }
+  function sendHeldNow(ask) {
+    if (!sendHeld) return;
+    if (sendWaits()) {
+      var dashboard = window.FastMDXDashboard;
+      if (ask && launchedAway && dashboard && dashboard.readStatusNow) dashboard.readStatusNow();
+      return;
+    }
+    sendHeld = false;
+    if (noteKind === "held") unsentSaid("");
+    draft();
   }
   var reading = 0;
   var readFirst;
@@ -4673,6 +4719,7 @@
         var key = study && study.key;
         if (!validStudyKey(key)) return;
         if (launchedAway && key !== launchedAway.from) launchedAway = null;
+        sendHeldNow();
         if (launching || reading) return;
         /* A read refused as the GUI had gone on (a run's study, its
          * thread on screen): the page is on that study now. */

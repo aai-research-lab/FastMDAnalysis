@@ -1954,12 +1954,17 @@ def make_handler(
                 # Runs what the config describes rather than what a form was
                 # wired for, which is how an analysis of an existing
                 # trajectory can be started at all.
-                self._send_json(
-                    app_runtime.launch_from_config(
-                        payload or {},
-                        dashboard_url=self.headers.get("Origin"),
-                    )
+                started = app_runtime.launch_from_config(
+                    payload or {},
+                    dashboard_url=self.headers.get("Origin"),
                 )
+                if isinstance(started, dict) and started.get("ok") and started.get("output"):
+                    from fastmdxplora.gui.workspace import study_key
+
+                    # The run's study, by the key the page names it by: the
+                    # change to it is the page's own, and no other is.
+                    started["study_key"] = study_key(started["output"])
+                self._send_json(started)
                 return
             if path == "/api/agent/model":
                 # Reading and setting which AI model to ask. The key is

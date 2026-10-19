@@ -56,9 +56,9 @@
     /* The open study whose tab was closed with no other open: not named. */
     studyClosed: "",
     /* Until when a change of study is one a run started here makes, for a
-     * launch that does not say where its run went (the Config Builder's). */
+     * launch whose answer could not be read. */
     ownChangeUntil: 0,
-    /* The Agent's launches still unanswered, the studies those answered
+    /* The launches still unanswered, the studies those answered
      * opened ({key, until}), and a change seen while one was unanswered,
      * judged once all are answered ({from, to}): only a change to a run's
      * own study is this window's own (CI-774 reviews K5, K6: the first
@@ -1114,16 +1114,24 @@
 
   /* Whether a change to the study ``key`` is this window's own: "own" (a
    * run started here opened it), "later" (an Agent launch has not said yet
-   * where its run went) or "elsewhere". */
-  function ownChange(key) {
+   * where its run went) or "elsewhere". One seen while a launch was
+   * unanswered (``late``) may have come before a run's study, which is kept. */
+  function ownChange(key, late = false) {
     const now = Date.now();
     state.ownStudies = state.ownStudies.filter((own) => now < own.until);
-    const at = state.ownStudies.findIndex((own) => own.key === key);
+    // The GUI goes to each run's study before its launch answers: a run's
+    // study seen is past every one before it, and once every launch has
+    // answered, a study seen that is no run's is past them all (CI-774 review
+    // L1: a run's study never seen was taken as this window's own when
+    // another window opened it later).
+    let at = -1;
+    state.ownStudies.forEach((own, index) => { if (own.key === key) at = index; });
     if (at >= 0) {
-      state.ownStudies.splice(at, 1);
+      state.ownStudies.splice(0, at + 1);
       return "own";
     }
     if (state.launchesAsked > 0) return "later";
+    if (!late) state.ownStudies = [];
     if (now < state.ownChangeUntil) {
       state.ownChangeUntil = 0;
       return "own";
@@ -1143,7 +1151,7 @@
       "warning", {kind: "study-changed-elsewhere", study: key}), 0);
   }
 
-  /* An Agent launch answered: ``key`` is the study its run went to, "" for
+  /* A launch answered: ``key`` is the study its run went to, "" for
    * none (refused, or no run), null where the answer could not be read
    * (its run, if any, is taken as a launch that does not say). A change
    * seen while it was unanswered is judged once none is. */
@@ -1159,7 +1167,7 @@
     state.changeSeenLaunching = null;
     // Gone on since: that change was judged as it was seen.
     if (state.studyShown !== seen.to) return;
-    if (ownChange(seen.to) !== "own") openedElsewhere(seen.from, seen.to);
+    if (ownChange(seen.to, true) !== "own") openedElsewhere(seen.from, seen.to);
   }
 
   /* Opened once the page is shown (Back or Forward to a step naming
@@ -2829,8 +2837,15 @@
       if (key) state.ownStudies = state.ownStudies.filter((own) => own.key !== key);
       else state.ownChangeUntil = 0;
     },
-    /* An Agent launch: asked, then answered with where its run went. */
+    /* A launch (the Agent's, the Config Builder's): asked, then answered
+     * with where its run went. */
     studyChangeAsked: () => { state.launchesAsked += 1; },
+    /* The study the GUI has open, asked now rather than at the next poll,
+     * paused or not. */
+    readStatusNow: () => {
+      if (polling) changedWhilePolling = true;
+      else pollNow().catch((error) => console.warn("dashboard poll error", error));
+    },
     studyChangeAnswered: (key) => launchAnswered(key),
     /* Asked before any other way opens another study: "" or the reason. */
     holdStudySwitch,
