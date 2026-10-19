@@ -276,8 +276,11 @@ def _energies(root: Path) -> dict[str, dict[str, Any]]:
             continue
         every = max(1, -(-len(points) // MOST_POINTS))
         kept = points[::every]
+        # Production's clock, from zero where production began (the runner
+        # sets it so), named as every other series on the card names it
+        # (`series.analysed_axis`), so the page says them in one unit.
         found[key] = {"x": [t for t, _ in kept], "y": [v for _, v in kept],
-                      "x_label": "Simulation time (ns)",
+                      "x_label": "Time (ns)",
                       "thinned": every if every > 1 else None, "mean": None}
     return found
 

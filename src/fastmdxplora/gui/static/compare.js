@@ -328,6 +328,14 @@
       return;
     }
     var runs = window.FastMDXRunsCompared;
+    // One clock for the card: every series on production's time, said in
+    // one unit chosen over all of them (ps under 1 ns).
+    var times = [];
+    found.forEach(function (s) {
+      [s.first, s.second].forEach(function (line) {
+        if (line.x_label === "Time (ns)") times = times.concat(line.x);
+      });
+    });
     found.forEach(function (s) {
       var block = make("div", "compare-series-block");
       block.dataset.analysis = s.analysis;
@@ -350,7 +358,7 @@
         return { r: { run: { run_id: i ? "second" : "first", label: side.said }, index: i },
                  series: { x: line.x, y: line.y, x_label: line.x_label } };
       });
-      runs.drawOverlay(chart, legend, drawn, { label: s.label, unit: s.unit }, 0);
+      runs.drawOverlay(chart, legend, drawn, { label: s.label, unit: s.unit }, 0, times);
       chart.setAttribute("data-drawn", "2");
     });
   }

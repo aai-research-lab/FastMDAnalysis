@@ -188,19 +188,26 @@
     });
   }
 
-  function draw(chart, legend, drawn, measure, missing) {
+  /* ``over``, where given, is every time on the card the chart is on: the
+   * unit is chosen once for all of them (Compare), so one card never says
+   * one series in ps and the next in ns. */
+  function draw(chart, legend, drawn, measure, missing, over) {
     chart.innerHTML = "";
     legend.innerHTML = "";
     if (!drawn.length) {
       chart.appendChild(el("div", "muted small", "No finished run has this series to plot."));
       return;
     }
-    var W = 720, H = 280, L = 64, R = 16, T = 12, B = 40;
+    // Drawn at the width it is shown at (up to 720), so its labels keep
+    // their size on a phone rather than the whole chart scaled down to 5 px.
+    var room = Math.round(chart.clientWidth || 0);
+    var W = room > 0 ? Math.max(280, Math.min(720, room)) : 720;
+    var H = W < 480 ? 240 : 280, L = 64, R = 16, T = 12, B = 40;
     var xs = [], ys = [];
     drawn.forEach(function (d) { xs = xs.concat(d.series.x); ys = ys.concat(d.series.y); });
     // In picoseconds under a nanosecond, as every chart of a series says it.
     var clock = window.FastMDXSeries && window.FastMDXSeries.timeScale
-      ? window.FastMDXSeries.timeScale(xs, drawn[0].series.x_label)
+      ? window.FastMDXSeries.timeScale(over || xs, drawn[0].series.x_label)
       : { factor: 1, label: drawn[0].series.x_label };
     if (clock.factor !== 1) xs = xs.map(function (x) { return x * clock.factor; });
     var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
@@ -238,7 +245,7 @@
       line(L, py(v), W - R, py(v), "runs-overlay-grid");
       text(L - 6, py(v) + 4, +v.toPrecision(4), "end");
     });
-    tick(x0, x1, 6).forEach(function (v) {
+    tick(x0, x1, W < 480 ? 4 : 6).forEach(function (v) {
       text(px(v), H - B + 16, +v.toPrecision(4), "middle");
     });
     line(L, H - B, W - R, H - B, "runs-overlay-axis");

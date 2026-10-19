@@ -379,6 +379,16 @@ def test_the_replica_error_is_the_spread_or_the_run_s_own_where_larger():
 # ---------------------------------------------------------------------------
 # The thermodynamic means and series, as the run's Overview reads them.
 
+def _on_a_clock(run: Path, every_ps: float) -> None:
+    """The run's analyses loaded its frames ``every_ps`` apart, as a run
+    with a clock records it."""
+    path = run / "analysis" / "analysis_manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    manifest["load_kwargs"] = {**(manifest.get("load_kwargs") or {}), "saving_interval_ps": every_ps}
+    manifest.pop("frame_times_ps", None)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
 def _energies(run: Path, potential: float) -> None:
     import numpy as np
 
@@ -395,8 +405,9 @@ def test_the_thermodynamic_means_and_series_are_compared(variants):
     from fastmdxplora.gui.overview_view import overview_payload
 
     first, second = _runs(variants)
-    _energies(first, -1000.0)
-    _energies(second, -1100.0)
+    for run, potential in ((first, -1000.0), (second, -1100.0)):
+        _energies(run, potential)
+        _on_a_clock(run, 10.0)
     said = compared(first, second)
     rows = {m["analysis"]: m for m in said["measures"]}
     potential = rows["potential_energy"]
@@ -408,8 +419,49 @@ def test_the_thermodynamic_means_and_series_are_compared(variants):
     assert potential["versus"]["resolved"] is True
     assert list(rows)[-2:] == ["potential_energy", "temperature"]
     drawn = {s["analysis"]: s for s in said["series"]}
-    assert drawn["potential_energy"]["first"]["x_label"] == "Simulation time (ns)"
+    # Production's clock, named as the analyses' series on the card are.
+    assert drawn["potential_energy"]["first"]["x_label"] == drawn["rmsd"]["first"]["x_label"] \
+        == "Time (ns)"
     assert len(drawn["potential_energy"]["second"]["y"]) == 400
+
+
+def test_every_series_on_the_card_is_said_on_one_clock_legibly_on_a_phone(variants):
+    """RMSD was drawn against "Time (ps)" and, on the same card, the
+    energies against "Simulation time (ns)": two clocks for one run. And on
+    a phone each chart was scaled down whole, its labels about 5 px."""
+    first, second = _runs(variants)
+    for run, potential in ((first, -1000.0), (second, -1100.0)):
+        _energies(run, potential)
+        _on_a_clock(run, 10.0)
+    place = urllib.parse.quote(str(first), safe="") + "|" + urllib.parse.quote(str(second), safe="")
+
+    def look(page, url):
+        out = {}
+        for width in (1440, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+            page.wait_for_selector('.compare-series-chart[data-drawn="2"]')
+            out[width] = page.evaluate("""() => {
+                const charts = [...document.querySelectorAll('.compare-series-block')];
+                return {
+                    clocks: charts.map((c) => [c.dataset.analysis,
+                        c.querySelector('text.runs-overlay-label').textContent]),
+                    smallest: Math.min(...[...document.querySelectorAll(
+                        '.compare-series-chart text')].map((t) => t.getBoundingClientRect().height)),
+                    sideways: document.documentElement.scrollWidth > window.innerWidth,
+                };
+            }""")
+            page.goto(url + "#overview", wait_until="domcontentloaded")
+        return out
+
+    said = _browse(variants, look)
+    for width in (1440, 390):
+        clocks = dict(said[width]["clocks"])
+        assert {"rmsd", "potential_energy", "temperature"} <= set(clocks)
+        assert set(clocks.values()) == {"Time (ps)"}, clocks
+        assert said[width]["sideways"] is False
+    # Labels as legible on a phone as at full width: drawn at their size.
+    assert said[390]["smallest"] >= 9, said[390]
 
 
 # ---------------------------------------------------------------------------
