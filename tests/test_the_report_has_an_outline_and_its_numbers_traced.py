@@ -544,3 +544,18 @@ def test_a_number_s_card_and_the_outline_are_reached_by_the_keyboard(tmp_path):
     assert marked == states.get("none", 0) + states.get("several", 0), wide
     assert (redrawn["marked"], redrawn["pressed"], redrawn["mark"]) == ("true", "true", "Unmark them")
     assert section.startswith("H2") and "Convergence" in section
+
+
+def test_a_temperature_s_error_in_degrees_c_is_its_error_in_kelvin():
+    """An error is a difference, so 2.4 K is 2.4 degrees C; the trace added
+    273.15 to it as to a temperature."""
+    from fastmdxplora.gui.report_numbers import trace_number
+
+    records = [{"file": "analysis/thermodynamics/options.json",
+                "key": "findings.thermodynamics.temperature.mean", "value": 298.04, "unit": "K"},
+               {"file": "analysis/thermodynamics/options.json",
+                "key": "findings.thermodynamics.temperature.standard_error", "value": 2.4, "unit": "K"}]
+    mean = trace_number("24.89", "°C", records, subjects=("thermodynamics",))
+    error = trace_number("2.4", "°C", records, subjects=("thermodynamics",), error=True)
+    assert mean["traced"] and mean["record"]["key"].endswith("temperature.mean")
+    assert error["traced"] and error["record"]["key"].endswith("standard_error")

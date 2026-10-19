@@ -473,7 +473,12 @@ def trace_number(said: str, unit: str, records: Any, *, counts: str = "",
             theirs = _in_base(record["value"], record_unit) if record_unit else None
             if theirs is None or theirs[0] != _UNITS[said_unit][0]:
                 continue
-            candidates = [_from_base(theirs[0], theirs[1], said_unit)]
+            if error and theirs[0] == "temperature":
+                # An error is a difference: a kelvin is a degree C, with no
+                # 273.15 between them.
+                candidates = [record["value"]]
+            else:
+                candidates = [_from_base(theirs[0], theirs[1], said_unit)]
         elif counts:
             if record_unit or not _counts_of(field, counts):
                 continue
