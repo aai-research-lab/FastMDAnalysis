@@ -2972,3 +2972,109 @@ def test_a_thread_whose_new_was_answered_gone_keeps_a_question_as_it_closes(
         session.server.shutdown()
     assert _texts(workspace)[1] == [["a slow question", "Stopped before it finished.",
                                      KEPT_AFTER_DELETE]]
+
+
+def _a_study_opened_again_as_its_run_starts(tmp_path, monkeypatch):
+    """A run started from the study ``here``, with words typed as it starts;
+    another window opens ``here`` again before the launch answers, and this
+    page never sees the run's study. Then what is in the box is sent. Gives
+    the page, after the send, and the workspace."""
+    import json
+    import tempfile
+    import time
+    import urllib.request
+
+    import pytest
+
+    pytest.importorskip("playwright.sync_api")
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.workspace import study_key
+
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", tempfile.mkdtemp())
+    workspace = tmp_path / "workspace"
+    here = workspace / "here"
+    (here / "simulation").mkdir(parents=True)
+    (here / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+    made = _launches(monkeypatch, workspace, taking=4.0)
+    session = start_dashboard_session(output=str(here), host="127.0.0.1", port=0)
+    words = "words typed as it starts"
+    held, answered = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Said here.")])
+    try:
+        page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
+        _say(page, "chignolin")
+        page.wait_for_selector("#agent-thread .agent-study:not([hidden]) [data-role=run]")
+        page.wait_for_function("(key) => window.FastMDXDashboard.state.studyShown === key",
+                               arg=study_key(here))
+        page.wait_for_timeout(800)
+        # The page reads no status while the GUI is on the run's folder.
+        page.route("**/api/status*", lambda route: held.append(route))
+        page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        time.sleep(1.0)
+        base = session.url.split("#")[0].rstrip("/")
+        asked = urllib.request.Request(base + "/api/explore/switch", method="POST",
+                                       data=json.dumps({"folder": str(here)}).encode(),
+                                       headers={"content-type": "application/json"})
+        with urllib.request.urlopen(asked, timeout=30) as answer:
+            assert json.loads(answer.read()).get("ok") is not False
+        page.unroute("**/api/status*")
+        for route in list(held):
+            route.continue_()
+        while not answered:
+            page.wait_for_timeout(100)
+        for _ in range(6):
+            page.wait_for_timeout(500)
+            page.evaluate("() => document.getElementById('refresh-now').click()")
+        shown = {
+            "study": page.evaluate("() => window.FastMDXDashboard.state.studyShown"),
+            "thread": page.inner_text("#agent-thread"),
+            "box": page.input_value("#agent-request"),
+            "note": page.evaluate(
+                "() => (document.getElementById('agent-unsent-note') || {}).textContent || ''"),
+            "kept": page.evaluate("""() => {
+                const kept = {};
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    if (key.startsWith('fmx.agentUnsent:')) {
+                        kept[key.slice('fmx.agentUnsent:'.length)] =
+                            JSON.parse(sessionStorage.getItem(key)).words;
+                    }
+                }
+                return kept;
+            }"""),
+        }
+        page.focus("#agent-request")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Said here.')")
+        page.wait_for_timeout(1500)
+        shown["errors"] = list(errors)
+    finally:
+        close()
+        session.server.shutdown()
+    assert made == [str(workspace / "run1")]
+    return shown, workspace, words
+
+
+def test_a_run_s_thread_is_not_written_in_from_a_study_opened_again(tmp_path, monkeypatch):
+    """The run's thread went with the run: a page left on the study it was
+    started from shows that study's own thread, and what is sent there is
+    written there (CI-774 review K6, M1: it was written into the run's
+    study, the run's thread still on screen)."""
+    from fastmdxplora.gui.workspace import study_key
+
+    shown, workspace, words = _a_study_opened_again_as_its_run_starts(tmp_path, monkeypatch)
+    here = workspace / "here"
+    assert shown["study"] == study_key(here)
+    assert "chignolin" not in shown["thread"], shown["thread"]
+    assert shown["box"] == words
+    assert shown["kept"] == {study_key(here): words}, shown["kept"]
+    kept = _entries_everywhere(workspace)
+    in_here = [e.get("text") for path, entries in kept.items()
+               if f"{here.name}/agent" in path for e in entries]
+    in_run = [e.get("text") for path, entries in kept.items()
+              if "run1/agent" in path for e in entries]
+    assert words in in_here and "Said here." in in_here, kept
+    assert words not in in_run and "chignolin" in in_run, kept
+    assert shown["errors"] == []
