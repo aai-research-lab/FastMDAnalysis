@@ -290,7 +290,9 @@ the page says how many of the runs' means each spread was taken over ("from
 compared were read for a quantity, the spread of their two means is their
 difference over the square root of 2, so the difference would equal its
 error whatever they are: each is set against the runs' own errors, and the
-page says why. A finished run its
+page says why. Where the two also differ in a setting besides their seed,
+the page names it from the Settings diff rather than saying they differ
+only by seed. A finished run its
 study's manifest places outside the study is named and left out, not looked
 for. Where one of the two did not finish, the spread is not its error: each
 difference is set against the runs' own errors, and the page says why;

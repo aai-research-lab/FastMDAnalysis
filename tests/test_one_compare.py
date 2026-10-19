@@ -466,6 +466,41 @@ def test_two_replicas_whose_spread_is_of_those_two_alone_keep_their_own_errors(t
             "difference over the square root of 2") in shown["note"], shown["note"]
 
 
+def test_two_replicas_whose_settings_differ_otherwise_say_what_differs(tmp_path):
+    """Compare said two replicas "differ only by random seed" right under
+    its Settings table listing other settings in which they differ."""
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    first, second, _ = _runs(study)
+    config = (second / "resolved_config.yml").read_text(encoding="utf-8")
+    (second / "resolved_config.yml").write_text(
+        config.replace("duration_ns: 1.0", "duration_ns: 0.5"), encoding="utf-8")
+    said = compared(first, second)
+    differ = [d["setting"] for d in said["settings"]]
+    assert "simulation.duration_ns" in differ
+    assert said["replicas"]["also_differ"] == [
+        name for name in differ if name not in ("simulation.random_seed", "setup.random_seed")]
+
+    def look(page, url):
+        place = (urllib.parse.quote(str(first), safe="") + "|"
+                 + urllib.parse.quote(str(second), safe=""))
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("() => document.querySelector('.compare-replicas').textContent")
+
+    note = _browse(study, look)
+    assert "differ only by random seed:" not in note, note
+    assert ("the study ran as repeats of one measurement, differing only by random seed; "
+            "these two also differ in simulation.duration_ns") in note, note
+
+    # Where the seed is all that differs, it is said so.
+    (second / "resolved_config.yml").write_text(config, encoding="utf-8")
+    said = compared(first, second)
+    assert said["replicas"]["also_differ"] == []
+
+
 def test_a_series_is_named_on_its_chart_as_in_the_table(variants):
     """The Over time chart's axis said "end_to_end (nm)" where the table
     said "End-to-end distance"."""

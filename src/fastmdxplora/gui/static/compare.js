@@ -346,8 +346,9 @@
     }
   }
 
-  /* The replicas' note: how many runs each spread was taken over, where
-   * fewer than all of them were read ("from 2 of the 3 runs"); and the quantities only
+  /* The replicas' note: what the two differ in, from the Settings diff
+   * above; how many runs each spread was taken over, where fewer than all
+   * of them were read ("from 2 of the 3 runs"); and the quantities only
    * these two were read for, set against their own errors. */
   function replicasSaid(data) {
     var n = data.replicas.runs;
@@ -361,8 +362,13 @@
       if (k < n) (fewer[k] = fewer[k] || []).push(m.label || m.analysis);
       if (k === n) every = true;
     });
-    var said = "These are two of " + n + " runs that differ only by random seed: repeats of " +
-      "one measurement.";
+    var also = data.replicas.also_differ || [];
+    var said = also.length
+      ? "These are two of " + n + " runs the study ran as repeats of one measurement, " +
+        "differing only by random seed; these two also differ in " + also.join(", ") +
+        " (Settings that differ, above)."
+      : "These are two of " + n + " runs that differ only by random seed: repeats of one " +
+        "measurement.";
     if (spread) {
       var counts = Object.keys(fewer).map(Number).sort(function (a, b) { return b - a; });
       var of = counts.length

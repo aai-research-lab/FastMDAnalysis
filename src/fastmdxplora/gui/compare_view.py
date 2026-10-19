@@ -43,8 +43,12 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
         _the_replicas_said(said, replicas)
     elif replicas.get("unfinished"):
         names = " and ".join(places[i]["where"]["said"] for i in replicas["unfinished"])
+        also = _also_differ(said)
         said["replicas_not_used"] = (
-            f"These are runs that differ only by random seed, but {names} did not finish: the "
+            (f"The study ran these as runs that differ only by random seed, and these two "
+             f"also differ in {', '.join(also)}" if also
+             else "These are runs that differ only by random seed")
+            + f", but {names} did not finish: the "
             "spread of the finished runs' means is the error of a run that went its full "
             "length, not of one that ended early. Each difference is set against the errors "
             "the two runs estimated for themselves, which replicas can show too tight.")
@@ -186,7 +190,18 @@ def _the_replicas_said(said: dict[str, Any], replicas: dict[str, Any]) -> None:
         versus["error_of"] = ("replicas" if mine == ["spread", "spread"]
                               else "own" if mine == ["own", "own"] else "mixed")
         versus["from_runs"] = counts.get(name)
-    said["replicas"] = {"runs": replicas["runs"], "why": replicas["why"]}
+    said["replicas"] = {"runs": replicas["runs"], "why": replicas["why"],
+                        "also_differ": _also_differ(said)}
+
+
+def _also_differ(said: dict[str, Any]) -> list[str]:
+    """The settings in which two runs the study ran as replicas differ
+    besides their seed, from the Settings diff the page shows: the page says
+    them, never "only by random seed" beside a table that lists more."""
+    from fastmdxplora.batch.aggregate import SEED_AXES
+
+    return [str(d.get("setting")) for d in said.get("settings") or ()
+            if str(d.get("setting")) not in SEED_AXES]
 
 
 def _both_measured(sides: list[dict[str, Any]]) -> dict[str, bool]:
