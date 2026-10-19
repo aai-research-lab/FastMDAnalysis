@@ -665,6 +665,44 @@ def test_a_run_stopped_part_way_is_stopped_on_compare_and_in_its_study_s_runs_ta
     assert said["first"]["state"] == table[first.name] == "completed"
 
 
+def _one_stopped(study: Path) -> Path:
+    """The second run of a study of runs stopped by Ctrl+C in production,
+    as its records say it: the live record "stopped" and its Manifest's
+    simulation "error" with the refusal `simulation.run.stopped`."""
+    second = _runs(study)[1]
+    (second / "simulation" / "live_status.json").write_text(json.dumps({
+        "status": "stopped", "stage": "production", "current_step": 6400,
+        "total_planned_steps": 40000}), encoding="utf-8")
+    manifest = json.loads((second / "manifest.json").read_text(encoding="utf-8"))
+    manifest["phases"] = [{"name": "setup", "status": "ok"},
+                          {"name": "simulation", "status": "error",
+                           "refusal": {"code": "simulation.run.stopped"}}]
+    (second / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return study
+
+
+def test_a_stopped_study_of_runs_is_said_stopped_in_the_status_bar_as_its_card_says(variants):
+    """A study of runs, one of which was stopped, read "Starting stopped ·
+    Step — of —" in the status bar: it has no stage of its own, and no step."""
+    study = _one_stopped(variants)
+
+    def look(page, url):
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => document.getElementById('status-run').dataset.run === 'stopped'")
+        page.wait_for_timeout(500)
+        return page.evaluate("""() => ({
+            card: document.getElementById('topbar-status-text').textContent.trim(),
+            stage: document.getElementById('topbar-stage').textContent.trim(),
+            said: document.getElementById('status-run').innerText.replace(/\\s+/g, ' ').trim(),
+        })""")
+
+    said = _browse(study, look)
+    assert said["card"] == "Stopped"
+    assert said["stage"] == "Stopped", said
+    assert "Starting" not in said["said"] and "Step" not in said["said"], said
+
+
 # ---------------------------------------------------------------------------
 # On a phone, and the page's own figures.
 

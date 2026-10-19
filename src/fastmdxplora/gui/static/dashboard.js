@@ -1215,8 +1215,13 @@
     // A run that has not reported a stage has not reached one; it is
     // starting. It is not a run whose stage cannot be determined.
     const stage = stageWord(status.stage) || "Starting";
+    // One that ended with no stage of its own (a study of runs, one of
+    // which was stopped) is said as its card says it: it read "Starting
+    // stopped".
+    const ended = !stageWord(status.stage) && (run === "stopped" || run === "failed");
     // Said stage first, "Simulation failed", as the phases are said.
-    setText("topbar-stage", run === "stopped" ? `${stage} stopped`
+    setText("topbar-stage", ended ? statusWord(run)
+      : run === "stopped" ? `${stage} stopped`
       : run === "failed" ? `${stage} failed`
       : run === "interrupted" ? (status.last_update_timestamp
         ? `${stage}, last update ${formatWhen(status.last_update_timestamp)}` : stage)
@@ -1224,6 +1229,9 @@
     setText("status-stage-count", stageCount(status));
     setText("topbar-step", valueOrDash(status.current_step));
     setText("topbar-total", valueOrDash(status.total_planned_steps));
+    // No step recorded and none planned: "Step — of —" is not said.
+    const steps = byId("topbar-step")?.parentElement;
+    if (steps) steps.hidden = status.current_step == null && status.total_planned_steps == null;
     const pct = progressPercent(status);
     setText("topbar-progress", pct != null ? `${pct.toFixed(1)}%` : "—");
     // A run that has ended has no time left, whatever its last step: a
