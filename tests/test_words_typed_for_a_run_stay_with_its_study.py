@@ -157,7 +157,9 @@ def test_words_typed_once_a_run_from_a_study_started_stay_with_it(tmp_path, monk
 
 def test_a_study_another_window_opens_during_a_launch_takes_no_words(tmp_path, monkeypatch):
     """Another window opens a study while the run is being launched: the
-    words typed meanwhile are not the other study's (K4)."""
+    words typed meanwhile are not the other study's (K4). Typed after Run
+    into the thread the run took with it, they are the run's study's
+    (L2: they were kept for the study the launch began in)."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, made, session = _gui(tmp_path, monkeypatch, taking=5.0)
@@ -189,8 +191,10 @@ def test_a_study_another_window_opens_during_a_launch_takes_no_words(tmp_path, m
         close()
     finally:
         session.server.shutdown()
+    run = study_key(workspace / "run2")
     assert words not in box
     assert words not in kept.get(study_key(other), "")
-    assert kept.get(left) == words, kept
-    assert "is kept for it, not put here" in said, said
+    assert words not in kept.get(left, ""), kept
+    assert kept.get(run) == words, kept
+    assert "The unsent message typed for the run's study is kept for it, not put here" in said, said
     assert errors == []

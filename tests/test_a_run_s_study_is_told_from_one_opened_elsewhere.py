@@ -452,6 +452,50 @@ def test_a_message_sent_as_the_run_starts_is_answered_in_the_study_shown(tmp_pat
     assert errors == []
 
 
+def test_words_typed_for_the_run_s_thread_follow_it_past_another_study(tmp_path, monkeypatch):
+    """L2 L1: words typed after Run into the thread the run took with it,
+    another study seen first: they are kept for the run's study, where the
+    thread went, not for the study the run was started from."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    words = "words for the run's thread"
+    held, answered = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG)])
+    try:
+        page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        page.route("**/api/status*", lambda route: held.append(route))
+        page.click(_RUN)
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        time.sleep(1.0)
+        _switch_elsewhere(session, other)
+        page.unroute("**/api/status*")
+        for route in list(held):
+            route.continue_()
+        _shows(page, study_key(other))
+        while not answered:
+            page.wait_for_timeout(100)
+        page.wait_for_timeout(2000)
+        box = page.input_value("#agent-request")
+        kept = _unsent(page)
+        note = _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    run = study_key(workspace / "run1")
+    assert made
+    assert kept.get(run) == words, kept
+    assert words not in kept.get(study_key(here), ""), kept
+    assert words not in box
+    assert "kept for it, not put here" in note, note
+    assert errors == []
+
+
 def test_a_config_builder_launch_takes_only_its_run_s_study_as_its_own(browser, site,  # noqa: F811
                                                                          monkeypatch):
     """L1 4 and L2 M2: the Config Builder's Start pressed, another window

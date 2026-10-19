@@ -1509,14 +1509,32 @@
     for (var i = list.length - 1; i >= 0; i -= 1) if (list[i].key === key) return i;
     return -1;
   }
+  /* A run whose launch took the thread on screen with it, words typed
+   * into that thread after Run being in the box: the words are the run's
+   * study's, whatever study is seen first (CI-774 reviews K6 and L2). */
+  var wordsFollowRun = "";
   /* Every launch this page made has answered: the run's study, if one
    * started (`key`), is known, and a switch seen meanwhile is judged. */
-  function launchAnswered(key) {
+  function launchAnswered(key, follows) {
     if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
+    if (validStudyKey(key) && follows) wordsFollowRun = key;
     if (launching) return;
     var seen = seenWhileLaunching;
+    var follow = wordsFollowRun;
     seenWhileLaunching = null;
-    if (seen) { restoreUnsent(seen, true); return; }
+    wordsFollowRun = "";
+    if (seen) {
+      if (follow && seen.key !== follow && validStudyKey(unsentKey) && unsentKey !== follow) {
+        /* Seen first: another study. The words are kept for the run's,
+         * where the thread they were typed into went. */
+        delete heldInPage[unsentKey];
+        try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+        unsentKey = follow;
+        unsentTitle = "the run's study";
+      }
+      restoreUnsent(seen, true);
+      return;
+    }
     /* Already on the run's study (it was the study open, or the page
      * learnt which study it was on only then): nothing to take there. */
     var at = lastRun(runStudies, unsentKey);
@@ -3896,6 +3914,7 @@
       launching += 1;
       var dashboard = window.FastMDXDashboard;
       if (dashboard && dashboard.studyChangeAsked) dashboard.studyChangeAsked();
+      var boxAtRun = boxNow();
       startingRuns.push(entry);
       function answered(started) {
         launching -= 1;
@@ -3905,7 +3924,9 @@
         if (dashboard && dashboard.studyChangeAnswered) {
           dashboard.studyChangeAnswered(started === undefined ? null : runKey);
         }
-        launchAnswered(runKey);
+        var took = started && started.conversation;
+        launchAnswered(runKey, Boolean(c === conv && took && took.ok && took.moved
+                                       && boxNow().trim() && boxNow() !== boxAtRun));
         /* After the thread's move is taken in: a message held while the
          * run started goes once the page knows its study. */
         Promise.resolve().then(function () { sendHeldNow(true); });

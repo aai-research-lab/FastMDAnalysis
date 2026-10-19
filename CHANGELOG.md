@@ -293,9 +293,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   it. A page that never showed the run's study says the run's conversation
   is there, and words typed in it are not taken there. A message sent while
   a run starts waits until the page has read which study is open, and is
-  answered and kept in the thread of the study shown. With two runs
-  started one after the other, words typed for the thread go with it to
-  the second.
+  answered and kept in the thread of the study shown. Words typed for the
+  thread a run took with it go with it to the run's study, also where
+  another study was seen first; with two runs started one after the other,
+  they go with it to the second.
 
 ### Added
 
