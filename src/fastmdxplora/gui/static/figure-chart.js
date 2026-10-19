@@ -891,7 +891,9 @@
         rows.push([k.cluster, k.frames, k.fraction, k.medoid_frame, k.medoid_time_ns]);
       });
     } else if (data.kind === "hbars") {
-      rows = [["quantity", "value", "error"]];
+      // The value as its axis says it, with its unit or what it is a
+      // share of; the error, where there is one, in the same.
+      rows = [["quantity", data.x_label || "value", "standard error"]];
       (data.bars || []).forEach(function (b) { rows.push([b.label, b.value, b.error]); });
     } else if (data.kind === "dendrogram") {
       rows = [["link", "x1", "x2", "x3", "x4", "height1", "height2", "height3", "height4", "cluster"]];
@@ -899,7 +901,9 @@
         rows.push([i].concat(xs, data.dcoord[i], [data.groups[i]]));
       });
     } else if (data.kind === "projection") {
-      rows = [["frame", data.t_label === "Frame" ? "frame_shown" : "time_ns", data.axes[0], data.axes[1]]];
+      var per = data.unit ? " (" + data.unit + ")" : "";
+      rows = [["frame", data.t_label === "Frame" ? "frame_shown" : "time_ns",
+               data.axes[0] + per, data.axes[1] + per]];
       data.x.forEach(function (v, i) {
         if (v != null && data.y[i] != null && inX(v) && inY(data.y[i])) {
           rows.push([data.frames[i], data.t[i], v, data.y[i]]);

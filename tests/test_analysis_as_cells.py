@@ -299,3 +299,46 @@ def test_beyond_loopback_no_cell_offers_analyze_again(study, public):
         assert offered == {"bound": "true", "cells": 0, "page": False}
     else:
         assert offered["cells"] >= 3 and offered["page"] is True
+
+
+def test_a_plot_s_csv_names_the_units_of_its_columns(study):
+    """A projection's CSV named its components without the nm its axes
+    give, and a list of bars called its column "value", whatever the bars
+    were (a share of frames, an error as a percent of a mean)."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"]')
+            page.evaluate("""() => {
+                const add = (id, data) => {
+                    const host = document.createElement('div');
+                    host.id = id;
+                    host.style.width = '600px';
+                    document.querySelector('.page[data-page="analysis"]').appendChild(host);
+                    window.FastMDXFigures.plot(host, data);
+                };
+                add('a-pca', {ok: true, kind: 'projection', title: 'Projection', axes: ['PC1', 'PC2'],
+                    unit: 'nm', x: [0, 1, 2], y: [0, 1, 2], t: [0.1, 0.2, 0.3], frames: [0, 1, 2],
+                    t_label: 'Time (ns)', linked: false});
+                add('a-bars', {ok: true, kind: 'hbars', title: 'Protein-ligand interactions by type',
+                    x_label: 'Fraction of frames present', x_low: 0, x_high: 1,
+                    bars: [{label: 'HBOND A', value: 0.5, error: 0.1, said: ['HBOND A']}]});
+                document.getElementById('a-pca').scrollIntoView();
+            }""")
+            pca = _csv(page, "#a-pca")[0]
+            with page.expect_download() as got:
+                page.click('#a-bars .plot-tool:text("CSV")')
+            bars = Path(got.value.path()).read_text(encoding="utf-8").splitlines()
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert pca == "frame,time_ns,PC1 (nm),PC2 (nm)"
+    assert bars == ["quantity,Fraction of frames present,standard error", "HBOND A,0.5,0.1"]
