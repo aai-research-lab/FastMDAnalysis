@@ -206,12 +206,16 @@ def run_of(directory: Path) -> dict[str, Any] | None:
     manifest, which records each run by its id."""
     import json
 
+    from fastmdxplora import record_access
+
     parent = directory.parent
     if parent.name != "runs":
         return None
     root = parent.parent
     try:
-        data = json.loads((root / "batch_manifest.json").read_text(encoding="utf-8"))
+        # Through `record_access`: held to the study where the read is.
+        data = json.loads(record_access.read_text(root / "batch_manifest.json",
+                                                  encoding="utf-8"))
     except (OSError, ValueError):
         return None
     entries = (data.get("planned") or data.get("runs") or []) if isinstance(data, dict) else []

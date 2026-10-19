@@ -1,0 +1,25 @@
+/* The study's Timeline in the side panel (study-timeline.js): each step a
+ * dot on a line, newest at the top. */
+.side-pane[data-side-pane="timeline"]:not([hidden]) { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.study-timeline-said { margin: 12px; }
+.study-timeline-said:empty { display: none; }
+.study-timeline { list-style: none; margin: 0; padding: 8px 12px 16px 12px; }
+.tl-event {
+    position: relative; padding: 0 0 14px 18px; font-size: var(--text-xs); color: var(--text-secondary);
+    border-left: 1px solid var(--border-subtle); margin-left: 4px;
+}
+.tl-event:last-child { border-left-color: transparent; }
+.tl-dot {
+    position: absolute; left: -5px; top: 3px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 2px var(--background-secondary, var(--panel-glass));
+}
+.tl-event[data-replaced="true"] .tl-dot { background: var(--text-muted); }
+.tl-head { display: flex; align-items: baseline; gap: 8px; }
+.tl-said { color: var(--text-primary); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.tl-event[data-replaced="true"] .tl-said { color: var(--text-secondary); font-weight: 500; }
+.tl-when { margin-left: auto; flex: none; color: var(--text-muted); font-size: var(--text-2xs); }
+.tl-facts { margin-top: 2px; color: var(--text-muted); overflow-wrap: anywhere; }
+.tl-changes { margin-top: 6px; }
+.tl-changes > summary { cursor: pointer; color: var(--accent-text, var(--accent)); }
+.tl-table { width: 100%; margin-top: 6px; table-layout: fixed; }
+.tl-table td, .tl-table th { overflow-wrap: anywhere; vertical-align: top; font-size: var(--text-2xs); }

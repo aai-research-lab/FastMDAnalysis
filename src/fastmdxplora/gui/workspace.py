@@ -23,8 +23,9 @@ from typing import Any
 
 from fastmdxplora.system_id import system_id
 
-__all__ = ["studies_in", "card_of", "studies_compared", "tags_used", "thumbnail_of",
-           "thumbnail_series", "study_key", "study_keyed", "study_state"]
+__all__ = ["studies_in", "card_of", "head_of", "studies_compared", "compared_side", "sides_compared",
+           "means_of", "tags_used", "thumbnail_of", "thumbnail_series", "study_key", "study_keyed",
+           "study_state"]
 
 #: A difference is marked past this many combined standard errors.
 RESOLVED_AT = 2.0
@@ -196,15 +197,26 @@ def tags_used(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for tag, n in sorted(counted.values(), key=lambda kept: (-kept[1], kept[0].casefold()))]
 
 
-def card_of(folder: Path | str) -> dict[str, Any]:
-    """What a card says of one study, from its records."""
+def head_of(folder: Path | str) -> dict[str, Any]:
+    """What a study is, from its records: its folder, its system, what kind
+    of study it is and where it stands. Read through `record_access`, held
+    to the study where the read is (the Compare page): where the record its
+    state is said from was not read, the state is not known, never one
+    taken from that record's absence."""
+    from fastmdxplora import record_access
+
     base = Path(folder)
-    config = _lifted(_read_yaml(base / "resolved_config.yml")
-                     or _read_yaml(base / "exploration.yml"))
-    batch = _read_json(base / "batch_manifest.json")
-    manifest = _read_json(base / "manifest.json")
+    head = _head(base, *_records_of(base))
+    for name in ("batch_manifest.json", "manifest.json"):
+        if os.path.lexists(base / name) and not record_access.can_read(base / name):
+            head["state"] = f"not known: {name} was not read"
+            break
+    return head
+
+
+def _head(base: Path, config: Any, batch: Any, manifest: Any) -> dict[str, Any]:
     named = _system_of(config, batch, manifest)
-    card: dict[str, Any] = {
+    return {
         "path": str(base),
         "name": base.name,
         # The system in four capital characters (fastmdxplora.system_id),
@@ -213,6 +225,23 @@ def card_of(folder: Path | str) -> dict[str, Any]:
         "structure": named,
         "kind": _kind_of(config, batch, simulated=_simulated(base)),
         "state": _state_of(base, batch, manifest),
+    }
+
+
+def _records_of(base: Path) -> tuple[Any, Any, Any]:
+    """The study's Config (its phase settings lifted), batch manifest and
+    Manifest, each None where it has none."""
+    config = _lifted(_read_yaml(base / "resolved_config.yml")
+                     or _read_yaml(base / "exploration.yml"))
+    return config, _read_json(base / "batch_manifest.json"), _read_json(base / "manifest.json")
+
+
+def card_of(folder: Path | str) -> dict[str, Any]:
+    """What a card says of one study, from its records."""
+    base = Path(folder)
+    config, batch, manifest = _records_of(base)
+    card: dict[str, Any] = {
+        **_head(base, config, batch, manifest),
         "when": _when(base, manifest),
         # When anything was last done with it: run, analysed, reported,
         # tagged, viewed or talked about.
@@ -322,17 +351,87 @@ def thumbnail_of(folder: Path | str) -> Path | None:
 def studies_compared(first: Path | str, second: Path | str) -> dict[str, Any]:
     """Two studies side by side: the settings in which they differ, and the
     means both recorded, a difference marked only where it is resolved."""
-    from fastmdxplora.config.diff import config_of, differences
-
     a, b = Path(first), Path(second)
     try:
-        left, _ = config_of(a)
-        right, _ = config_of(b)
+        one, other = compared_side(a), compared_side(b)
     except Exception as exc:  # noqa: BLE001 - said, not raised
         from fastmdxplora.refusals import refusal_of
 
         return {"ok": False, "reason": refusal_of(exc).message}
-    found = [d for d in differences(left, right, ran=(_phases_ran(a), _phases_ran(b)))
+    return {"ok": True, "first": card_of(a), "second": card_of(b),
+            **sides_compared(one, other)}
+
+
+def compared_side(base: Path) -> dict[str, Any]:
+    """What a comparison reads of one study: its Config, the phases and
+    analyses it ran, and the means it recorded. Each record is read through
+    `record_access`, so a read held to the study refuses one linked out of
+    it; an analysis whose record was refused is named in ``not_read``,
+    never taken for one that recorded no mean. Raises where the study has
+    no Config to compare."""
+    from fastmdxplora import record_access
+    from fastmdxplora.config.diff import config_of
+
+    config, _ = config_of(base)
+    not_read: list[str] = []
+    try:
+        folders = [f for f in record_access.iterdir(base / "analysis") if record_access.is_dir(f)]
+    except OSError:
+        folders = []
+    for folder in folders:
+        options = folder / "options.json"
+        if os.path.lexists(options) and not record_access.can_read(options):
+            not_read.append(folder.name)
+    return {"config": config, "ran": _phases_ran(base), "analysed": _analysed(base),
+            "ran_analyses": _ran_analyses(base), "means": means_of(base),
+            "not_read": sorted(not_read)}
+
+
+def means_of(base: Path) -> dict[str, dict[str, Any]]:
+    """Every mean a comparison sets beside another's: each analysis's own,
+    then the thermodynamic means as the run's Overview reads them (from the
+    thermodynamics analysis where it recorded them, from production's
+    energy file otherwise), each with its error only where it is
+    determined. A thermodynamic mean whose record was not read is said so."""
+    means = dict(_means(base))
+    try:
+        from fastmdxplora.gui.overview_view import THERMODYNAMICS, _thermodynamics
+
+        found = _thermodynamics(base)
+    except Exception:  # noqa: BLE001 - compared without them
+        return means
+    shown = found.get("means") if isinstance(found.get("means"), dict) else {}
+    for key, label, unit in THERMODYNAMICS:
+        said = shown.get(key)
+        if isinstance(said, dict) and _finite(said.get("mean")) is not None:
+            determined = bool(said.get("determined"))
+            means[key] = {"label": label, "mean": _finite(said.get("mean")),
+                          "error": _finite(said.get("error")) if determined else None,
+                          "unit": unit,
+                          "withheld": None if determined else (str(said.get("why") or "")
+                                                               or "not determined")}
+        elif key in shown and found.get("not_read"):
+            means[key] = {"label": label, "mean": None, "error": None, "unit": unit,
+                          "withheld": None, "not_read": True}
+        elif key in (found.get("no_mean") or {}):
+            # Its analysis ran and said why it gave no mean: not determined,
+            # never "not recorded".
+            means[key] = {"label": label, "mean": None, "error": None, "unit": unit,
+                          "withheld": found["no_mean"][key]}
+    return means
+
+
+def sides_compared(one: dict[str, Any], other: dict[str, Any],
+                   errors: dict[str, tuple[float, float]] | None = None) -> dict[str, Any]:
+    """The settings in which two studies differ and the means each recorded,
+    from what `compared_side` read of each. ``errors`` gives, by quantity,
+    the error of each one's mean to compare them with in place of the
+    error each run estimated for itself: two replicas' (the Compare page,
+    `batch.aggregate.replica_error`)."""
+    from fastmdxplora.config.diff import differences
+
+    found = [d for d in differences(one["config"], other["config"],
+                                    ran=(one["ran"], other["ran"]))
              if not d.where_only]
 
     def not_reached(d: Any) -> bool:
@@ -340,8 +439,8 @@ def studies_compared(first: Path | str, second: Path | str) -> dict[str, Any]:
         # its analysis: null there is not a choice of none, and was listed
         # against the default list the other study recorded.
         return d.setting == "analysis.include" and any(
-            value is None and not _analysed(where)
-            for value, where in ((d.first, a), (d.second, b)))
+            value is None and not side["analysed"]
+            for value, side in ((d.first, one), (d.second, other)))
 
     def as_ran(d: Any) -> Any:
         # Left to the default by a study that ran its analyses: what it ran
@@ -349,8 +448,8 @@ def studies_compared(first: Path | str, second: Path | str) -> dict[str, Any]:
         # list written out, or against another list.
         if d.setting != "analysis.include":
             return d
-        first = _ran_analyses(a) if d.first is None else d.first
-        second = _ran_analyses(b) if d.second is None else d.second
+        first = one["ran_analyses"] if d.first is None else d.first
+        second = other["ran_analyses"] if d.second is None else d.second
         if (isinstance(first, list) and isinstance(second, list)
                 and sorted(map(str, first)) == sorted(map(str, second))):
             return None
@@ -361,23 +460,37 @@ def studies_compared(first: Path | str, second: Path | str) -> dict[str, Any]:
     settings = [d.as_record() for d in found if not (d.unrecorded or not_reached(d))]
     unrecorded = [d.setting for d in found if d.unrecorded or not_reached(d)]
 
-    mine, theirs = dict(_means(a)), dict(_means(b))
+    mine, theirs = one["means"], other["means"]
+    # An analysis whose record was not read is said so on its side, never
+    # as one that recorded no mean.
+    for side, means in ((one, mine), (other, theirs)):
+        for name in side.get("not_read") or ():
+            means.setdefault(name, {"label": _label_of(name), "mean": None, "error": None,
+                                    "unit": "", "withheld": None, "not_read": True})
+    from fastmdxplora.gui.overview_view import THERMODYNAMICS
+
+    thermodynamic = [key for key, _, _ in THERMODYNAMICS]
+    names = set(mine) | set(theirs)
     measures = []
-    for name in _in_order(set(mine) | set(theirs)):
-        one, other = mine.get(name), theirs.get(name)
-        row: dict[str, Any] = {"analysis": name, "first": one, "second": other,
-                               "label": (one or other or {}).get("label", name),
-                               "unit": (one or other or {}).get("unit", "")}
-        usable = [side for side in (one, other)
+    for name in (_in_order(names - set(thermodynamic))
+                 + [key for key in thermodynamic if key in names]):
+        first, second = mine.get(name), theirs.get(name)
+        row: dict[str, Any] = {"analysis": name, "first": first, "second": second,
+                               "label": (first or second or {}).get("label", name),
+                               "unit": (first or second or {}).get("unit", "")}
+        usable = [side for side in (first, second)
                   if side and side.get("mean") is not None and side.get("error") is not None]
         if len(usable) == 2:
-            difference = other["mean"] - one["mean"]
-            error = math.hypot(one["error"], other["error"])
+            difference = second["mean"] - first["mean"]
+            given = (errors or {}).get(name)
+            error = math.hypot(*(given or (first["error"], second["error"])))
             row["versus"] = {"difference": difference, "error": error,
                              "resolved": error > 0 and abs(difference) > RESOLVED_AT * error}
+            if given:
+                row["versus"]["errors"] = list(given)
+                row["versus"]["error_of"] = "replicas"
         measures.append(row)
-    return {"ok": True, "first": card_of(a), "second": card_of(b),
-            "settings": settings, "unrecorded": unrecorded, "measures": measures,
+    return {"settings": settings, "unrecorded": unrecorded, "measures": measures,
             "resolved_at": RESOLVED_AT}
 
 
@@ -654,8 +767,10 @@ def _read_json(path: Path) -> Any:
 def _read_yaml(path: Path) -> Any:
     import yaml
 
+    from fastmdxplora import record_access
+
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
+        return yaml.safe_load(record_access.read_text(path, encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return None
 

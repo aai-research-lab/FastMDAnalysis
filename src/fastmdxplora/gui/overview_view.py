@@ -39,7 +39,7 @@ from typing import Any
 
 from fastmdxplora import record_access as _records
 
-__all__ = ["overview_payload", "THERMODYNAMICS", "MOST_TILES", "thinned_metrics"]
+__all__ = ["overview_payload", "THERMODYNAMICS", "MOST_TILES", "thinned_metrics", "phase_status"]
 
 #: The thermodynamic quantities the Overview plots, as the live record
 #: names them, with what each is called and its unit.
@@ -205,6 +205,7 @@ def _tiles(root: Path) -> dict[str, Any]:
                 "unit": quantity.get("unit") or "",
                 "determined": bool(quantity.get("determined")),
                 "why": quantity.get("why") or "",
+                "reason": _in_a_line(quantity.get("why") or ""),
                 "samples": quantity.get("samples"),
                 "from_ns": quantity.get("from_ns"),
                 "reweighted": bool(quantity.get("reweighted")),
@@ -217,7 +218,120 @@ def _tiles(root: Path) -> dict[str, Any]:
     return {"tiles": shown, "more": more, "means": means,
             "determined": determined, "not_read": not_read, "analyses": len(rows),
             "biased": bool(overview.get("biased")),
-            "judged_earlier": list(overview.get("judged_earlier") or [])}
+            "judged_earlier": list(overview.get("judged_earlier") or []),
+            "lead": _lead(root, means, determined, not_read)}
+
+
+def _in_a_line(why: str) -> str:
+    """Why a mean was not determined, in a line for its tile; the whole is
+    there on hover. The two reasons a run too short gives are said by what
+    they come to; any other by its first sentence."""
+    import re
+
+    text = " ".join(str(why or "").split())
+    if not text:
+        return ""
+    fewer = re.match(r"[\d.]+ independent samples? in \d+ frames.*?Below (\d+)", text)
+    if fewer:
+        return f"Fewer than {fewer.group(1)} independent samples: the run has to be longer."
+    if text.startswith("This run is not long against its own correlation time"):
+        return "Short against its own correlation time: a longer run, or replicas."
+    first = re.match(r"(.+?[.;:])(\s|$)", text)
+    line = first.group(1) if first else text
+    return line[:-1] + "." if line.endswith((";", ":")) else line
+
+
+def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[str, Any] | None:
+    """The sentence the Overview of one run leads with: how many of its
+    means are determined and, where they are not, how much longer the run
+    would have to be and what that costs here, as the analyses asked for it
+    (:func:`fastmdxplora.simulation.sampling_ask.sampling_asked_for`: the
+    largest ask, since a run long enough for the slowest mean is long enough
+    for the rest, at this run's own speed). Where the records do not say
+    how much longer, that is said, never guessed; a result whose record
+    was not read is counted apart, and a record the ask was not read from
+    named (`record_access`)."""
+    unread = ("" if not not_read else
+              f" {not_read} result{' was' if not_read == 1 else 's were'} not read: "
+              f"{'it says' if not_read == 1 else 'each says'} why below.")
+    if not means:
+        if not unread:
+            return None
+        return {"said": unread.strip(), "undetermined": 0, "means": 0, "more_ns": None,
+                "seconds": None, "platform": "", "lower_bound": False}
+    if determined >= means:
+        said = ("Its mean is determined." if means == 1
+                else f"All {means} means are determined.")
+        return {"said": said + unread, "undetermined": 0, "means": means, "more_ns": None,
+                "seconds": None, "platform": "", "lower_bound": False}
+    from fastmdxplora import record_access
+    from fastmdxplora.simulation.sampling_ask import (duration_said, length_said,
+                                                      sampling_asked_for)
+
+    undetermined = means - determined
+    counted = ("Its mean is not determined" if means == 1
+               else "Neither mean is determined" if means == 2 and not determined
+               else f"None of its {means} means is determined" if not determined
+               else f"{undetermined} of {means} means "
+                    f"{'is' if undetermined == 1 else 'are'} not determined")
+    before = record_access.refused()
+    try:
+        ask = sampling_asked_for(root)
+    except Exception:  # noqa: BLE001 - said as not known, never guessed
+        ask = None
+    # A record the ask would be read from, refused: said so, never as a
+    # record the run does not have. The analyses' own records are looked
+    # at whether or not an earlier read (the tiles') refused them first.
+    refused_now = record_access.refused() - before
+    refused = sorted(refused_now | {name for name in _analyses_not_read(root)
+                                    if not any(seen.endswith(name) for seen in refused_now)})
+    them = "it" if undetermined == 1 else "them"
+    if ask is None:
+        why = (f"is not said: {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} "
+               f"not read." if refused else "is not in the records: each says why below.")
+        return {"said": f"{counted}. How much longer would determine {them} {why}" + unread,
+                "undetermined": undetermined, "means": means, "more_ns": None,
+                "seconds": None, "platform": "", "lower_bound": False}
+    asking = len(ask.analyses)
+    who = them if asking >= undetermined \
+        else f"the {asking} withheld for want of sampling"
+    amount = ("at least " if ask.lower_bound else "about ") + length_said(ask.more_ns)
+    said = f"{counted}: {amount} more production should determine {who}"
+    if ask.seconds is not None:
+        on = f" on {ask.platform}" if ask.platform else ""
+        said += f", {duration_said(ask.seconds)} at this run's speed{on}"
+    said += "."
+    if ask.lower_bound:
+        said += (" A floor: the run is too short to resolve its own correlation time, "
+                 "so run that much and estimate again.")
+    if refused:
+        said += (f" {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} not read, "
+                 f"so what {'it says' if len(refused) == 1 else 'they say'} is not counted "
+                 f"here.")
+    said += unread
+    return {"said": said, "undetermined": undetermined, "means": means,
+            "more_ns": ask.more_ns, "seconds": ask.seconds, "platform": ask.platform,
+            "lower_bound": ask.lower_bound}
+
+
+def _analyses_not_read(root: Path) -> set[str]:
+    """The analyses' records of the run that a held read refuses, named in
+    the run (``analysis/rmsd/options.json``); none outside a held read."""
+    import os
+
+    from fastmdxplora import record_access
+
+    folder = root / "analysis"
+    try:
+        names = [entry.name for entry in record_access.iterdir(folder)]
+    except OSError:
+        return set()
+    refused = set()
+    for name in names:
+        record = folder / name / "options.json"
+        if os.path.lexists(record) and not record_access.can_read(record):
+            refused.add(f"analysis/{name}/options.json")
+    return refused
 
 
 def _not_read(row: dict[str, Any], quantity: dict[str, Any]) -> dict[str, Any]:
@@ -289,6 +403,12 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     start = _production_start_ns(rows, times)
     production = [row for row in rows if _is_production(row)]
     recorded = _recorded_thermodynamics(root)
+    # The thermodynamics analysis's record refused: its means were not
+    # read, and are not taken from the energy file in its place (refused
+    # is not missing).
+    not_read: list[str] = []
+    if isinstance(recorded, NotRead):
+        not_read, recorded = list(recorded.names), {}
     # Production's own energy file, where it wrote one: the series the
     # thermodynamics analysis and the report's convergence table average,
     # so a mean the analysis did not record is the report's, not one taken
@@ -296,9 +416,8 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     energies = _production_energies(root)
     # Records of the study's pieces this read refused: the means over its
     # production were not read, which is not the means of the piece read.
-    not_read: list[str] = []
     if isinstance(energies, NotRead):
-        not_read, energies = energies.names, None
+        not_read, energies = not_read + energies.names, None
     # A study carried on in pieces with a piece's record missing has no
     # means of its energy (the thermodynamics analysis refuses it), not the
     # live record's.
@@ -307,10 +426,18 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     held = len(volumes) > 1 and max(volumes) - min(volumes) <= 1e-9 * max(abs(max(volumes)), 1e-30)
     means: dict[str, Any] = {}
     interval = _spacing_ns(averaged)
+    # A quantity the analysis ran on and gave no mean for, with why ("2
+    # usable frame(s): there is nothing to average"): not one unrecorded.
+    no_mean: dict[str, str] = {}
     for key, _label, unit in THERMODYNAMICS:
         entry = recorded.get(key)
         if isinstance(entry, dict) and ("mean" in entry or "not_a_measurement" in entry):
             means[key] = _said(entry, unit, _count(recorded.get("samples")))
+            if means[key] is None and entry.get("not_a_measurement"):
+                why = entry["not_a_measurement"]
+                if isinstance(why, dict):
+                    why = why.get("message") or why.get("reason") or ""
+                no_mean[key] = str(why or "not determined")
             continue
         if not_read:
             means[key] = None
@@ -325,6 +452,8 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     said = {"production_start_ns": start, "target_temperature_K": target,
             "npt_from_ns": _npt_from_ns(times, start),
             "means": means, "samples": len(production)}
+    if no_mean:
+        said["no_mean"] = no_mean
     if not_read and any(value is None for value in means.values()):
         # Named for the card to say its means were not read, and why.
         said["not_read"] = not_read
@@ -422,12 +551,18 @@ HELD_DENSITY = ("The box volume did not change over this run, so the density is 
                 "constant the setup fixed rather than something the simulation sampled.")
 
 
-def _recorded_thermodynamics(root: Path) -> dict[str, Any]:
-    """What the thermodynamics analysis recorded of the run, if it has."""
+def _recorded_thermodynamics(root: Path) -> dict[str, Any] | NotRead:
+    """What the thermodynamics analysis recorded of the run, if it has;
+    `NotRead` where its record is there and a held read refused it (a link
+    out of the study), which is not a run without it."""
+    from fastmdxplora.refusals import OutsideWorkspace
+
+    path = root / "analysis" / "thermodynamics" / "options.json"
     try:
-        found = json.loads(_records.read_text(
-            root / "analysis" / "thermodynamics" / "options.json",
-            encoding="utf-8")).get("findings") or {}
+        found = json.loads(_records.read_text(path, encoding="utf-8")).get("findings") or {}
+    except OutsideWorkspace as refusal:
+        return NotRead(_refused_names(root, refusal) if getattr(refusal, "filename", None)
+                       else ["analysis/thermodynamics/options.json"])
     except (OSError, ValueError, AttributeError):
         return {}
     record = found.get("thermodynamics") if isinstance(found, dict) else None
@@ -535,6 +670,18 @@ def _four_figures(value: float) -> str:
 _PHASES = ("setup", "simulation", "analysis", "report")
 
 
+def phase_status(phase: dict[str, Any]) -> str:
+    """A phase's status as its Manifest records it, "stopped" where it
+    ended in error by its own refusal code for a run asked to stop: as the
+    health card beside it says, where it read "Simulation failed" beside
+    "Stopped". Every page that says a phase reads it here."""
+    status = str(phase.get("status") or "")
+    refusal = phase.get("refusal") if isinstance(phase.get("refusal"), dict) else {}
+    if status == "error" and str(refusal.get("code") or "") == "simulation.run.stopped":
+        return "stopped"
+    return status
+
+
 def _phases(root: Path) -> list[dict[str, Any]]:
     """Each phase the study recorded, in order, with its status and the
     seconds it took."""
@@ -574,12 +721,7 @@ def _phases(root: Path) -> list[dict[str, Any]]:
             seconds = max(0.0, (ended - began).total_seconds())
         except (KeyError, ValueError, TypeError):
             pass
-        status = str(phase.get("status") or "")
-        if status == "error" and str((phase.get("refusal") or {}).get("code") or "") \
-                == "simulation.run.stopped":
-            # Asked to stop, as the health card beside it says: it read
-            # "Simulation failed" beside "Stopped".
-            status = "stopped"
+        status = phase_status(phase)
         if carried_on and phase.get("name") == "simulation" and status in ("stopped", "error"):
             status = carried_on
         if waiting and phase.get("name") in ("simulation", "analysis", "report"):

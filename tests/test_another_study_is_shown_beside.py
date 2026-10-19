@@ -261,3 +261,35 @@ def test_an_unrelated_protein_is_not_paired_with_it(pair, tmp_path):
     trp_cage = _study(tmp_path / "trp-cage", protein, 10, seed=3, turn=0.2, wobble=0.0)
     said = beside(wild, trp_cage, most_frames=2000)
     assert not said.get("ok") and "is not a form of this study's protein" in said["reason"]
+
+
+def _peptide(letters: str) -> md.Trajectory:
+    """Trypsin's first residues, renamed to spell ``letters``."""
+    from fastmdxplora.gui.beside import ONE_LETTER
+
+    named = {letter: name for name, letter in ONE_LETTER.items()
+             if name in ("ALA", "GLY", "ILE", "LEU", "SER", "TRP", "VAL")}
+    protein = _protein()
+    protein = protein.atom_slice(protein.topology.select(f"resSeq 16 to {15 + len(letters)}"))
+    for residue, letter in zip(protein.topology.residues, letters):
+        residue.name = named[letter]
+    return protein
+
+
+def test_a_peptide_of_three_is_beside_itself(tmp_path):
+    """Two runs of one tripeptide were refused as unrelated: a run of four
+    residues alike can never be found in three. One sequence is one
+    protein's at any length; two unlike tripeptides are still refused."""
+    from fastmdxplora.gui.beside import beside
+
+    first = _study(tmp_path / "seed-1", _peptide("IVG"), 10, seed=4, turn=0.0, wobble=0.0)
+    second = _study(tmp_path / "seed-2", _peptide("IVG"), 10, seed=5, turn=0.5, wobble=0.0)
+    said = beside(first, second, most_frames=2000)
+    assert said.get("ok"), said
+    assert said["paired"] == 3 and said["mutations"] == [] and said["unpaired"] == 0
+    other = _study(tmp_path / "other", _peptide("SWL"), 10, seed=6, turn=0.0, wobble=0.0)
+    refused = beside(first, other, most_frames=2000)
+    assert not refused.get("ok") and "is not a form of this study's protein" in refused["reason"]
+    near = _study(tmp_path / "near", _peptide("IVA"), 10, seed=7, turn=0.0, wobble=0.0)
+    refused = beside(first, near, most_frames=2000)
+    assert not refused.get("ok") and "is not a form of this study's protein" in refused["reason"]

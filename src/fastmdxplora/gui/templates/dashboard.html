@@ -13,10 +13,13 @@
   <link rel="stylesheet" href="/static/study-tabs.css">
   <link rel="stylesheet" href="/static/place.css">
   <link rel="stylesheet" href="/static/statusbar.css">
+  <link rel="stylesheet" href="/static/compare.css">
+  <link rel="stylesheet" href="/static/study-timeline.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
-<body class="state-loading" data-refresh-seconds="__FASTMDX_REFRESH_SECONDS__">
+<body class="state-loading" data-refresh-seconds="__FASTMDX_REFRESH_SECONDS__"
+      data-beyond-loopback="__FASTMDX_BEYOND_LOOPBACK__">
   <!-- Loading screen -->
   <div id="loading-screen" class="loading-screen" aria-hidden="false">
     <div class="loading-shell">
@@ -624,6 +627,8 @@
                 <button type="button" class="seg-btn seg-icon active" data-studies-view="cards" aria-pressed="true" aria-label="Cards" title="As cards"><!--icon:cards:line-icon--></button>
                 <button type="button" class="seg-btn seg-icon" data-studies-view="table" aria-pressed="false" aria-label="Table" title="As a table"><!--icon:table:line-icon--></button>
               </div>
+              <a href="#compare" class="line-btn" data-view-link="compare" id="studies-compare-page"
+                 aria-label="Compare two studies" title="Compare two studies: choose two here, or open the page"><!--icon:compare:line-icon--></a>
               <button type="button" class="line-btn" id="studies-look-in" aria-label="Look in another folder"
                       title="Look in another folder"><!--icon:lookin:line-icon--></button>
               <button type="button" class="line-btn" id="studies-open-shared" aria-expanded="false"
@@ -663,7 +668,6 @@
             <button type="button" class="line-btn" id="studies-clear" aria-label="Clear"
                     title="Clear"><!--icon:erase:line-icon--></button>
           </div>
-          <div class="card studies-compared" id="studies-compared" hidden></div>
           <section class="card remote-jobs" id="remote-jobs" aria-labelledby="remote-jobs-title" hidden></section>
           <div class="studies-grid" id="studies-grid" role="list"></div>
           <!-- The same studies as rows, sorted by a column's head
@@ -672,6 +676,29 @@
             <table class="studies-table" id="studies-table"></table>
           </div>
           <p class="muted studies-empty" id="studies-empty" hidden></p>
+        </section>
+
+        <!-- Compare (compare.js, compare_view.py): two studies, or two runs,
+             side by side; the address names the two. -->
+        <section class="page" data-page="compare" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Compare</h1>
+              <div class="page-subtitle" id="compare-said">Two studies, or two runs, side by side.</div>
+            </div>
+            <div class="page-header-actions">
+              <button type="button" class="chip-btn" id="compare-swap" hidden
+                      title="Put the second first">Swap</button>
+              <button type="button" class="chip-btn" id="compare-beside" hidden
+                      title="Open the first in the Viewer, the second played beside it">Play them beside in the Viewer</button>
+            </div>
+          </div>
+          <p class="muted compare-empty" id="compare-empty" role="status"></p>
+          <p class="muted small compare-not-read" id="compare-not-read" hidden></p>
+          <div class="compare-heads" id="compare-heads" hidden></div>
+          <section class="card compare-section" id="compare-settings" hidden></section>
+          <section class="card compare-section" id="compare-means" hidden></section>
+          <section class="card compare-section" id="compare-series" hidden></section>
         </section>
 
         <!-- The Config Builder (run-builder.js): five steps in the order a
@@ -943,6 +970,10 @@
               <h2 id="overview-results-title">What the analyses determined</h2>
               <span class="overview-sec-said" id="overview-results-said"></span>
             </div>
+            <!-- How many are determined and, where some are not, how much
+                 longer the run would need and what that costs here, where
+                 the records say (overview_view._lead). -->
+            <p class="overview-lead" id="overview-lead" hidden></p>
             <div class="overview-tiles" id="overview-tiles"></div>
           </section>
 
@@ -953,6 +984,8 @@
             <div class="overview-sec">
               <h2 id="overview-runs-title">The runs</h2>
               <span class="overview-sec-said" id="overview-runs-said"></span>
+              <button type="button" class="chip-btn overview-runs-compare" id="overview-runs-compare" hidden
+                      title="The two runs chosen, on the Compare page">Compare the two</button>
             </div>
             <div class="card overview-runs-card">
               <div class="runs-compared-scroll">
@@ -1965,11 +1998,12 @@
     <div class="col-handle" data-handle="panel" role="separator" aria-orientation="vertical" aria-label="Resize side panel"></div>
 
     <!-- Side panel: the run as it happens, and what it has written -->
-    <aside class="side-panel" id="side-panel" aria-label="Run log, files and problems">
+    <aside class="side-panel" id="side-panel" aria-label="Run log, files, problems and timeline">
       <div class="side-panel-tabs" role="tablist">
         <button type="button" class="side-tab active" role="tab" data-side-tab="log" aria-selected="true">Log</button>
         <button type="button" class="side-tab" role="tab" data-side-tab="files" aria-selected="false">Files</button>
         <button type="button" class="side-tab" id="problems-tab" role="tab" data-side-tab="problems" aria-selected="false" aria-controls="problems-pane">Problems</button>
+        <button type="button" class="side-tab" id="timeline-tab" role="tab" data-side-tab="timeline" aria-selected="false" aria-controls="timeline-pane">Timeline</button>
         <span class="side-panel-spacer"></span>
         <button type="button" class="fold-btn side-collapse" id="side-collapse" title="Collapse panel" aria-label="Collapse side panel"><!--icon:panel:fold-icon--></button>
       </div>
@@ -2016,6 +2050,12 @@
           <button type="button" class="line-btn" id="problems-refresh" aria-label="Refresh problems" title="Refresh problems"><!--icon:refresh:line-icon--></button>
         </div>
         <div class="problems-body" id="problems-body"></div>
+      </div>
+      <!-- What happened to the study, newest first (study-timeline.js,
+           study_timeline.py). -->
+      <div class="side-pane" id="timeline-pane" data-side-pane="timeline" role="tabpanel" aria-labelledby="timeline-tab" hidden>
+        <p class="muted small study-timeline-said" id="study-timeline-said" role="status"></p>
+        <ol class="study-timeline" id="study-timeline-list"></ol>
       </div>
     </aside>
     <button type="button" class="side-expand" id="side-expand" hidden title="Show panel" aria-label="Show side panel"><!--icon:panel:fold-icon--></button>
@@ -2094,6 +2134,8 @@
     <script src="/static/statusbar.js"></script>
     <script src="/static/keys.js"></script>
     <script src="/static/overview-runs.js"></script>
+    <script src="/static/compare.js"></script>
+    <script src="/static/study-timeline.js"></script>
     <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>

@@ -253,7 +253,7 @@ def test_the_routes(workspace) -> None:
     from fastmdxplora.gui.server import GETS_ANSWERED_BEYOND_LOOPBACK, start_dashboard_session
 
     # Folders are listed only where browsing is: never beyond loopback.
-    assert not {"/api/studies", "/api/studies-compared",
+    assert not {"/api/studies", "/api/compared",
                 "/api/study-thumbnail"} & GETS_ANSWERED_BEYOND_LOOPBACK
     session = start_dashboard_session(output=str(workspace / "ubiquitin"), host="127.0.0.1",
                                       port=0)
@@ -262,9 +262,18 @@ def test_the_routes(workspace) -> None:
         listed = json.loads(urllib.request.urlopen(
             base + "/api/studies?" + urlencode({"path": str(workspace)}), timeout=30).read())
         compared = json.loads(urllib.request.urlopen(
-            base + "/api/studies-compared?" + urlencode(
+            base + "/api/compared?" + urlencode(
                 {"a": str(workspace / "ubiquitin"), "b": str(workspace / "stopped")}),
             timeout=30).read())
+        # Retired: it read the two unheld, through a link out of either, and
+        # no page asked it (Compare reads `/api/compared`, each held).
+        try:
+            urllib.request.urlopen(base + "/api/studies-compared?" + urlencode(
+                {"a": str(workspace / "ubiquitin"), "b": str(workspace / "stopped")}),
+                timeout=30)
+            retired = 200
+        except urllib.error.HTTPError as exc:
+            retired = exc.code
         with urllib.request.urlopen(base + "/api/study-thumbnail?" + urlencode(
                 {"path": str(workspace / "ubiquitin")}), timeout=30) as answer:
             figure = (answer.headers["Content-Type"], answer.read())
@@ -278,6 +287,7 @@ def test_the_routes(workspace) -> None:
         session.server.shutdown()
     assert len(listed["studies"]) == 4
     assert compared["ok"] and compared["settings"][0]["setting"] == "systems[0].system"
+    assert retired == 404
     assert figure == ("image/png", PIXEL)
     assert missing == 404
 
@@ -316,11 +326,14 @@ def test_the_page(workspace) -> None:
             # One chosen offers nothing yet: Compare and Clear come with the second.
             waiting = page.is_hidden("#studies-compare-bar")
             page.check('.study-card[data-path$="ubiquitin_longer"] .study-pick input')
+            # Compared on the Compare page (compare.js), then back to the cards.
             page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            setting = page.text_content(".studies-settings tr:nth-child(2)")
-            rmsd = page.text_content('.studies-means tr[data-analysis="rmsd"]')
-            resolved = page.get_attribute('.studies-means tr[data-analysis="rmsd"]', "class")
+            page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+            setting = page.text_content(".compare-settings-table tr:nth-child(2)")
+            rmsd = page.text_content('.compare-means-table tr[data-analysis="rmsd"]')
+            resolved = page.get_attribute('.compare-means-table tr[data-analysis="rmsd"]', "class")
+            page.go_back()
+            page.wait_for_selector('.study-card[data-path$="stopped"] .study-open')
             page.click('.study-card[data-path$="stopped"] .study-open')
             # Said beside its button, which is an icon (and named so for a moment).
             page.wait_for_selector('.study-card[data-path$="stopped"] .study-open-said:has-text("Not in this test.")')

@@ -228,8 +228,9 @@
       page = "overview";
       place = "";
     }
-    // Only the Analysis page has places the address names, so far.
-    if (page !== "analysis") place = "";
+    // The Analysis page's places are its sections; Compare's, the two it
+    // compares (compare.js). No other page has places the address names.
+    if (page !== "analysis" && page !== "compare") place = "";
     state.activePage = page;
     state.activePlace = place;
     $$('.page').forEach((element) => {
@@ -259,7 +260,7 @@
       if (window.FastMDXDialog?.afterHistory) window.FastMDXDialog.afterHistory(step);
       else step();
     }
-    if (place) revealAnalysis(place);
+    if (place && page === "analysis") revealAnalysis(place);
     requestAnimationFrame(() => {
       // The live panels moved onto the overview, so opening that is
       // what starts the polling they need. Keyed to a page that no
@@ -1098,8 +1099,13 @@
       } else {
         const title = byId("topbar-run-title")?.textContent || "Another study";
         emit("study-changed-elsewhere", {from: was, to: key, title});
-        showToast(`${title} was opened elsewhere, in another window or by an AI app: this window now shows it.`,
-                  "warning");
+        // Named as the page names the study when it is said: once the rest
+        // of this read is applied (the study's name is in its results), and
+        // for one that waits, when it is said.
+        window.setTimeout(() => showNotice(
+          () => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
+            "in another window or by an AI app: this window now shows it.",
+          "warning", {kind: "study-changed-elsewhere", study: key}), 0);
       }
     }
     if (!state.addressKnown) {
@@ -1235,8 +1241,13 @@
     // A run that has not reported a stage has not reached one; it is
     // starting. It is not a run whose stage cannot be determined.
     const stage = stageWord(status.stage) || "Starting";
+    // One that ended with no stage of its own (a study of runs, one of
+    // which was stopped) is said as its card says it: it read "Starting
+    // stopped".
+    const ended = !stageWord(status.stage) && (run === "stopped" || run === "failed");
     // Said stage first, "Simulation failed", as the phases are said.
-    setText("topbar-stage", run === "stopped" ? `${stage} stopped`
+    setText("topbar-stage", ended ? statusWord(run)
+      : run === "stopped" ? `${stage} stopped`
       : run === "failed" ? `${stage} failed`
       : run === "interrupted" ? (status.last_update_timestamp
         ? `${stage}, last update ${formatWhen(status.last_update_timestamp)}` : stage)
@@ -1244,6 +1255,9 @@
     setText("status-stage-count", stageCount(status));
     setText("topbar-step", valueOrDash(status.current_step));
     setText("topbar-total", valueOrDash(status.total_planned_steps));
+    // No step recorded and none planned: "Step — of —" is not said.
+    const steps = byId("topbar-step")?.parentElement;
+    if (steps) steps.hidden = status.current_step == null && status.total_planned_steps == null;
     const pct = progressPercent(status);
     setText("topbar-progress", pct != null ? `${pct.toFixed(1)}%` : "—");
     // A run that has ended has no time left, whatever its last step: a
@@ -2597,7 +2611,10 @@
 
   /* The page's notice. With an action ({label, run}), a button for it, Undo
    * above all, offered while the notice shows, and longer. */
-  function showToast(message, kind, action) {
+  function showToast(message, kind, action, about) {
+    // What a notice shown is about (showNotice), so a later one about the
+    // same thing replaces it.
+    showToast.about = about || null;
     let toast = byId("dashboard-toast");
     if (!toast) {
       toast = document.createElement("div");
@@ -2638,7 +2655,13 @@
         if (hadFocus && from && from !== document.body && document.contains(from)) {
           from.focus({preventScroll: true});
         }
-        action.run();
+        // A notice that waited on it, once the action has said its word:
+        // an Undo the server answers says it then (studies.js, its tags).
+        showToast.acting = (showToast.acting || 0) + 1;
+        Promise.resolve(action.run()).catch(() => {}).then(() => {
+          showToast.acting -= 1;
+          if (!toast.classList.contains("show")) showWaitingNotice();
+        });
       }, {once: true});
       // Spaced from the message by itself, so nothing is left when it goes.
       button.style.marginLeft = "0.5em";
@@ -2650,6 +2673,7 @@
       toast.style.pointerEvents = "";
       // Hidden, it is not offered: nothing to reach with Tab and press.
       toast.querySelectorAll(".dashboard-toast-action").forEach((old) => old.remove());
+      showWaitingNotice();
     };
     const wait = (ms) => {
       window.clearTimeout(showToast.timer);
@@ -2666,6 +2690,41 @@
       button.addEventListener("mouseenter", hold);
       button.addEventListener("blur", go);
       button.addEventListener("mouseleave", go);
+    }
+  }
+
+  /* A notice the person did not ask for. It replaces no notice still
+   * within its time but an earlier one about the same thing, nor one an
+   * action (Undo) is still to answer with (CI-774 review K4: the Undo's
+   * refusal was cut short): it waits until that one is gone, after any that
+   * waits already. Of the notices about the same thing (`about.kind`) only
+   * the latest is said, and one naming a study (`about.study`) is said only
+   * while that study is the one shown. The message, or what makes it as it
+   * is said. */
+  function showNotice(message, kind, about) {
+    if (about && about.study && about.study !== state.studyShown) return;
+    const toast = byId("dashboard-toast");
+    const showing = Boolean(toast && toast.classList.contains("show"));
+    const waiting = showToast.waiting || [];
+    const same = showing && about && showToast.about && showToast.about.kind === about.kind;
+    if ((showing && !same) || showToast.acting || waiting.length) {
+      showToast.waiting = waiting.filter((one) => !(about && one.about && one.about.kind === about.kind))
+        .concat([{message, kind, about}]);
+      if (!showing) showWaitingNotice();
+      return;
+    }
+    showToast(typeof message === "function" ? message() : message, kind, null, about);
+  }
+
+  function showWaitingNotice() {
+    if (showToast.acting) return;
+    const waiting = showToast.waiting || [];
+    while (waiting.length) {
+      const next = waiting.shift();
+      if (next.about && next.about.study && next.about.study !== state.studyShown) continue;
+      showToast(typeof next.message === "function" ? next.message() : next.message, next.kind,
+                null, next.about);
+      return;
     }
   }
 

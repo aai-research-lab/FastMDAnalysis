@@ -143,7 +143,10 @@ def beside(root: str | Path, other: str | Path, *, most_frames: int) -> dict[str
     pairs, mutations, unpaired = paired(residues_a, residues_b)
     shorter = min(len(residues_a), len(residues_b))
     shared = anchored(residues_a, residues_b)
-    if len(pairs) < 3 or shared < max(3, RELATED * shorter):
+    # One sequence is one protein's at any length: two runs of a tripeptide
+    # share no run of four, yet are the same peptide.
+    same = [r["letter"] for r in residues_a] == [r["letter"] for r in residues_b]
+    if len(pairs) < 3 or (not same and shared < max(3, RELATED * shorter)):
         return {"ok": False, "reason": (
             f"{name} is not a form of this study's protein: their sequences share "
             f"{shared} of the shorter one's {shorter} residues in runs of {ANCHOR} or "

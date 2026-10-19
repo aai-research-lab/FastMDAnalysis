@@ -4378,6 +4378,9 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
     flex: 1 1 130px; display: flex; flex-direction: column; align-items: stretch; gap: 4px;
 }
 .side-section .select-field select { width: 100%; }
+/* The study to play beside: a row of its own, so a run's name
+ * ("temps, temperature 310 K") is said whole, its buttons under it. */
+#side-beside .select-field { flex-basis: 100%; }
 /* One box to a section: the groups inside it are rows, not boxes again. */
 .side-section .control-group,
 .side-section .icon-group.text-group { border: none; background: none; padding: 0; }
@@ -5138,6 +5141,11 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 }
 .overview-runs-open:hover span:last-child { text-decoration: underline; }
 .overview-runs-open .status-dot { width: 7px; height: 7px; margin: 0; }
+.overview-runs-pick { margin: 0 8px 0 0; vertical-align: middle; accent-color: var(--accent); }
+.overview-runs-compare[hidden] { display: none; }
+/* Offered without making the heading's line taller: ticking the second
+ * run moved the table down under the pointer. */
+.overview-runs-compare { margin-block: -6px; }
 .overview-runs-state { white-space: nowrap; color: var(--text-secondary); }
 .overview-runs-bar {
     display: inline-block; width: 64px; height: 5px; margin-right: 8px; vertical-align: middle;
@@ -5384,15 +5392,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
     border-radius: 10px; box-shadow: var(--shadow-modal); color: var(--text-primary); }
 /* Put aside while every place for it would cover what is being read. */
 .studies-compare-bar.is-aside { visibility: hidden; }
-.studies-compare-bar[hidden], .studies-compared[hidden], .studies-empty[hidden] { display: none; }
-.studies-compared { padding: 16px 18px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
-.studies-compared .card-header { padding: 0; display: flex; justify-content: space-between; align-items: center; }
-.studies-compared-title { margin: 8px 0 0; font-size: var(--text-sm); }
-.studies-compared table { width: 100%; table-layout: fixed; }
-.studies-compared td, .studies-compared th { overflow-wrap: anywhere; vertical-align: top; }
-.studies-settings td:first-child, .studies-settings th:first-child { width: 34%; }
-.studies-more { align-self: flex-start; }
-.studies-means tr.is-resolved td { color: var(--accent-orange); }
+.studies-compare-bar[hidden], .studies-empty[hidden] { display: none; }
 /* A study's tags and note (studies.js, study_tags.py). */
 .study-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .study-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
@@ -5884,7 +5884,15 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
 .tile-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-badge { flex: none; font-size: var(--text-2xs); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-primary); color: var(--text-muted); }
 .tile-badge[data-kind="yes"] { color: var(--status-completed); border-color: color-mix(in srgb, var(--status-completed) 45%, transparent); }
-.tile-badge[data-kind="no"] { color: var(--status-waiting); border-color: color-mix(in srgb, var(--status-waiting) 45%, transparent); }
+/* Not determined is said quietly, with its reason in a line under the
+   value: the lead sentence above says what would determine them. */
+.tile-badge[data-kind="no"] { color: var(--text-muted); border-color: transparent; padding-right: 0; }
+.tile-reason {
+    margin-top: 2px; font-size: var(--text-2xs); color: var(--text-muted); line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.overview-lead { margin: -2px 0 12px; font-size: var(--text-sm); color: var(--text-primary); line-height: 1.5; }
+.overview-lead[hidden] { display: none; }
 .tile-value { margin: 4px 0 2px; font-size: var(--text-lg); letter-spacing: -0.01em; color: var(--text-primary); overflow-wrap: anywhere; }
 .overview-tile[data-determined="false"] .tile-value { color: var(--text-secondary); }
 .tile-note { font-size: var(--text-2xs); color: var(--text-muted); min-height: 1.2em; }
@@ -5910,6 +5918,25 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
 .overview-run-body { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 760px) { .overview-run-body { grid-template-columns: minmax(0, 1fr); } }
 #live-panels .overview-run .preview-frame { height: 240px; }
+
+/* A run that ended, on a wide column: the means beside the run, then its
+   thermodynamics across both, rather than one column of 845 px between
+   empty margins. The column's width, not the window's: the side panel
+   open beside it leaves it too narrow for two. */
+.main { container-type: inline-size; container-name: maincolumn; }
+@container maincolumn (width >= 1180px) {
+    /* Only where both are there to sit side by side. */
+    html[data-page="overview"]:not([data-overview-runs]) .page-shell:has(.overview-body[data-lead="results"] > #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) { max-width: 1380px; }
+    html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) {
+        display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        grid-auto-flow: row dense; align-items: start; gap: 16px;
+    }
+    html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) > *, html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) #live-panels > * { grid-column: 1 / -1; }
+    html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) #live-panels { display: contents; }
+    html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) > #overview-results { grid-column: 1; }
+    html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) #live-panels > #overview-run { grid-column: 2; }
+    html:not([data-overview-runs]) .overview-body[data-lead="results"]:has(> #overview-results:not([hidden]) ~ #live-panels:not([hidden]) > #overview-run:not([hidden])) .overview-run-body { grid-template-columns: minmax(0, 1fr); }
+}
 .overview-run-molecule p { margin: 6px 0 0; }
 .overview-phases { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px; }
 .overview-phases[hidden] { display: none; }

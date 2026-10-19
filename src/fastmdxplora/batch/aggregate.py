@@ -34,8 +34,10 @@ import numpy as np
 __all__ = [
     "SEED_AXES",
     "aggregate_members",
+    "finished_members",
     "member_directory",
     "read_member_findings",
+    "replica_error",
 ]
 
 #: Sweep axes that make members repeats rather than different studies.
@@ -66,23 +68,31 @@ def member_directory(batch_dir: str | Path, run: dict[str, Any]) -> Path:
     or copied reads its own members; otherwise the path recorded. A
     campaign moved without that record found every member missing, or, with
     another campaign at the old path, read that one's."""
+    from fastmdxplora import record_access
+
+    # Through `record_access`: held to the study where the read is (the
+    # Compare page), a folder linked out of it is not looked into.
     root = Path(batch_dir)
     relative = run.get("output_dir_relative")
-    if relative and (root / str(relative)).is_dir():
+    if relative and record_access.is_dir(root / str(relative)):
         return root / str(relative)
     run_id = run.get("run_id")
-    if run_id and (root / "runs" / str(run_id)).is_dir():
+    if run_id and record_access.is_dir(root / "runs" / str(run_id)):
         return root / "runs" / str(run_id)
     return Path(str(run.get("output_dir", "")))
 
 
 def read_member_findings(run_dir: str | Path) -> dict[str, dict[str, Any]]:
     """Every analysis's findings in one member, keyed by analysis name."""
+    from fastmdxplora import record_access
+
     root = Path(run_dir)
     out: dict[str, dict[str, Any]] = {}
-    for options in sorted(root.glob("analysis/*/options.json")):
+    # Through `record_access`: held to the study where the read is (the
+    # Compare page), as pathlib elsewhere.
+    for options in sorted(record_access.glob(root, "analysis/*/options.json")):
         try:
-            record = json.loads(options.read_text(encoding="utf-8"))
+            record = json.loads(record_access.read_text(options, encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         name = record.get("analysis") or options.parent.name
@@ -90,6 +100,47 @@ def read_member_findings(run_dir: str | Path) -> dict[str, dict[str, Any]]:
         if isinstance(findings, dict):
             out[str(name)] = findings
     return out
+
+
+def _finished(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The campaign's manifest and its members that finished. Read through
+    `record_access`: held to the study where the read is (the Compare
+    page), as pathlib elsewhere."""
+    from fastmdxplora import record_access
+
+    manifest = json.loads(record_access.read_text(root / "batch_manifest.json",
+                                                  encoding="utf-8"))
+    return manifest, [r for r in manifest.get("runs", []) if r.get("status") == "ok"]
+
+
+def finished_members(batch_dir: str | Path) -> tuple[list[tuple[str, Path]], bool, str]:
+    """The members of a campaign that finished, each its run's id and its
+    folder; whether they are replicas, and why that was decided, from its
+    manifest as :func:`aggregate_members` reads it. Raises OSError or
+    ValueError where the manifest cannot be read."""
+    root = Path(batch_dir)
+    manifest, runs = _finished(root)
+    replicas, why = _members_are_replicas(manifest)
+    return ([(str(run.get("run_id") or ""), member_directory(root, run)) for run in runs],
+            replicas, why)
+
+
+def replica_error(means: Any, own: float | None) -> float | None:
+    """The standard error of one replica's mean: the spread of the
+    replicas' means (sample standard deviation, ``spread_of_means``), since
+    members that differ only by seed are repeats of one measurement and
+    their spread is its error; or the run's own error where that is the
+    larger, since a spread of few replicas can fall short of it by chance
+    and a run's error is never narrowed by its repeats. None where fewer
+    than two means give a spread. The one error a difference between two
+    replicas is set against (the Compare page) as here."""
+    values = np.asarray([m for m in means], dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size < 2:
+        return None
+    spread = float(np.std(values, ddof=1))
+    mine = _finite_or_none(own)
+    return max(spread, mine) if mine is not None and mine > 0 else spread
 
 
 def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
@@ -163,8 +214,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
             "to aggregate. A single run is not a campaign."
         )}
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    runs = [r for r in manifest.get("runs", []) if r.get("status") == "ok"]
+    manifest, runs = _finished(root)
     if len(runs) < 2:
         return {"members": [], "refused": (
             f"{len(runs)} member(s) finished, and a comparison across "
@@ -201,6 +251,9 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
         if len(rows) < 2:
             continue
         means = np.array([r["mean"] for r in rows], dtype=float)
+        if replicas:
+            for r in rows:
+                r["error_as_a_replica"] = replica_error(means, r["standard_error"])
         entry: dict[str, Any] = {
             "members": rows,
             "mean_of_means": float(np.mean(means)),

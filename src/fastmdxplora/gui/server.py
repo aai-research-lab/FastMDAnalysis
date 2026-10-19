@@ -241,6 +241,27 @@ def _can_run_script(content_type: str) -> bool:
     return "html" in kind or "xml" in kind
 
 
+def _page_study_refused(root: Path, payload: Any) -> dict[str, Any] | None:
+    """A write to the open study's views, scenes or selections from a page
+    for another study (``page_study``, the key its address names: a window
+    that has not yet seen another one open a study): refused, as a
+    conversation's write is (`agent_panel.page_study_refused`). None when
+    the write may go on, and when the page names no study (an AI app, a
+    script)."""
+    import re
+
+    from fastmdxplora.gui.agent_panel import STUDY_CHANGED
+    from fastmdxplora.gui.workspace import study_key
+
+    asked = (payload or {}).get("page_study") if isinstance(payload, dict) else None
+    if not isinstance(asked, str) or not re.fullmatch(r"[0-9a-f]{16}", asked):
+        return None
+    if asked == study_key(root):
+        return None
+    return {"ok": False, "study_changed": True, "study_key": study_key(root),
+            "reason": STUDY_CHANGED, "error": STUDY_CHANGED}
+
+
 def _get_answered_beyond_loopback(path: str) -> bool:
     return (path in GETS_ANSWERED_BEYOND_LOOPBACK
             or path.startswith(GET_PREFIXES_ANSWERED_BEYOND_LOOPBACK))
@@ -814,6 +835,9 @@ def make_handler(
     html = with_icons(html)
     refresh_seconds = min(60.0, max(1.0, float(cfg.refresh_seconds or 3.0)))
     html = html.replace("__FASTMDX_REFRESH_SECONDS__", f"{refresh_seconds:g}")
+    # Whether only the routes listed as answered beyond loopback are
+    # answered, so the page offers no way that would then be refused.
+    html = html.replace("__FASTMDX_BEYOND_LOOPBACK__", "false" if allow_control else "true")
     # Injected rather than written into the template, so the citation cannot
     # drift from the one the report, the slides and `fastmdx info` print. The
     # GUI carried none at all: the interface the documentation sends a new
@@ -1098,11 +1122,13 @@ def make_handler(
                     listing["home"] = str(hosting.workspace)
                 self._send_json(listing)
                 return
-            if path in ("/api/studies", "/api/studies-compared", "/api/study-thumbnail"):
+            if path in ("/api/studies", "/api/compared", "/api/study-thumbnail"):
                 # The studies in the workspace, two of them compared, and a
                 # figure for a card: read from the studies' records, inside
                 # the workspace when hosted, loopback otherwise, as browsing
-                # folders is.
+                # folders is. Two compared are read only as the Compare page
+                # reads them, each held to itself (`/api/studies-compared`,
+                # which read them unheld, is retired: no page asked it).
                 from fastmdxplora.gui import workspace
 
                 query = parse_qs(parsed.query)
@@ -1116,11 +1142,15 @@ def make_handler(
                         return
                     self._send_json(workspace.studies_in(named))
                     return
-                if path == "/api/studies-compared":
+                if path == "/api/compared":
+                    # The Compare page: two studies or runs, their series too.
                     first, second = self._path_for(one("a")), self._path_for(one("b"))
                     if first is None or second is None:
                         return
-                    self._send_json(workspace.studies_compared(first, second))
+                    from fastmdxplora.gui.compare_view import compared
+
+                    # Each of the two read held to itself (`_confined`).
+                    self._send_json(compared(first, second))
                     return
                 named = self._path_for(one("path"))
                 if named is None:
@@ -1298,6 +1328,14 @@ def make_handler(
                 # Read from the study's own records only (`_confined`), the
                 # page saying which were not read.
                 self._send_json(_said_not_read(_confined(root, report_payload)))
+                return
+            if path == "/api/study-timeline":
+                # What happened to the study, newest first (side panel).
+                # Read from the study's own records only (`_confined`), the
+                # page saying which were not read.
+                from fastmdxplora.gui.study_timeline import timeline_of
+
+                self._send_json(_said_not_read(_confined(root, timeline_of)))
                 return
             if path == "/api/timeline":
                 # What the Viewer's timeline marks on the frames it plays.
@@ -1904,6 +1942,10 @@ def make_handler(
                 from fastmdxplora.scenes import write_scene
 
                 study = app_runtime.data_root()
+                refused = _page_study_refused(study, payload)
+                if refused:
+                    self._send_json(refused, status=409)
+                    return
                 if not is_study(study):
                     self._send_json({"ok": False, "reason": "No study is open to save it in."})
                     return
@@ -1937,6 +1979,10 @@ def make_handler(
                 from fastmdxplora.gui.viewer_selections import delete_selection, save_selection
 
                 study = app_runtime.data_root()
+                refused = _page_study_refused(study, payload)
+                if refused:
+                    self._send_json(refused, status=409)
+                    return
                 if not is_study(study):
                     self._send_json({"ok": False, "reason": "No study is open to save it in."})
                     return
@@ -1951,6 +1997,10 @@ def make_handler(
                 from fastmdxplora.gui.saved_views import delete_view, save_view
 
                 study = app_runtime.data_root()
+                refused = _page_study_refused(study, payload)
+                if refused:
+                    self._send_json(refused, status=409)
+                    return
                 if not is_study(study):
                     self._send_json({"ok": False, "reason": "No study is open to save it in."})
                     return
@@ -2267,9 +2317,14 @@ def make_handler(
                 study = self._optional_path_for((payload or {}).get("study"))
                 if study is False:
                     return
-                self._send_json(open_conversation(app_runtime,
-                                                  (payload or {}).get("id"),
-                                                  study))
+                opened = open_conversation(app_runtime, (payload or {}).get("id"), study)
+                if opened.get("ok") and opened.get("study"):
+                    from fastmdxplora.gui.workspace import study_key
+
+                    # The study the page then opens, by the key its address
+                    # names it by: this one, not whichever is open by then.
+                    opened["study_key"] = study_key(opened["study"])
+                self._send_json(opened)
                 return
             if path == "/api/agent/attachment":
                 from fastmdxplora.gui.agent_panel import read_attachment

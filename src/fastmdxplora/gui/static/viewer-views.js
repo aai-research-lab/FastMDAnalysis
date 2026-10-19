@@ -16,6 +16,14 @@
 
   function viewer() { return window.FastMDXMoleculeViewer; }
 
+  /* The study this page shows, by its key: named with each write, which
+   * the server refuses for another study open since (another window). */
+  function pageStudy() {
+    var board = window.FastMDXDashboard;
+    var key = board && board.state ? board.state.studyShown : "";
+    return /^[0-9a-f]{16}$/.test(key || "") ? key : "";
+  }
+
   function say(text) {
     var live = byId("sr-live");
     if (live) live.textContent = text;
@@ -82,7 +90,13 @@
         board.toast("The view was not put back: another study is open now.", "warning");
         return;
       }
-      post(back).then(function (answer) {
+      // Named for the study it was done in: refused if another is open by
+      // now, though this window has not seen it yet.
+      return post(back, study).then(function (answer) {
+        if (answer && answer.study_changed) {
+          board.toast("The view was not put back: another study is open now.", "warning");
+          return;
+        }
         if (!answer || !answer.ok) {
           say("It could not be undone: " + ((answer && (answer.reason || answer.error)) || "no reason given"));
           return;
@@ -94,10 +108,11 @@
     } });
   }
 
-  function post(body) {
+  function post(body, study) {
+    var page = study === undefined ? pageStudy() : study;
     return fetch("/api/views", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(page ? Object.assign({ page_study: page }, body) : body),
     }).then(function (r) {
       return r.json().catch(function () { return { ok: false, reason: "HTTP " + r.status }; });
     }).catch(function () { return { ok: false, reason: "The server did not answer." }; });
@@ -211,7 +226,7 @@
     say("Writing the scene " + name + "\u2026");
     return fetch("/api/scenes", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name, view: shown, ligands: ligands() }),
+      body: JSON.stringify({ name: name, view: shown, ligands: ligands(), page_study: pageStudy() || undefined }),
     }).then(function (r) {
       return r.json().catch(function () { return { ok: false, reason: "HTTP " + r.status }; });
     }).catch(function () { return { ok: false, reason: "The server did not answer." }; })

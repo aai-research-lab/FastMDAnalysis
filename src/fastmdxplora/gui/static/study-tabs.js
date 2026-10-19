@@ -30,7 +30,7 @@
     var state = api.state;
     return safeRoute(state.activePage + (state.activePlace ? "/" + state.activePlace : ""));
   }
-  function studyPage() { return ["studies", "run"].indexOf(api.state.activePage) < 0; }
+  function studyPage() { return ["studies", "run", "compare"].indexOf(api.state.activePage) < 0; }
   /* Named as Recent names it: the system, and the folder too where
    * another study of the workspace, or another open one, has the same. */
   function label(tab) {

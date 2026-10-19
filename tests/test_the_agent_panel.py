@@ -2467,8 +2467,8 @@ class TestConversationsBelongToStudies(unittest.TestCase):
                   / "agent-panel.js").read_text(encoding="utf-8")
         self.assertIn('post("/api/agent/conversation/open", { id: id, study: study })', script)
         self.assertIn("openConversation(c.id, g.study, g.loaded || g.chats);", script)
-        self.assertIn("if (o.loaded_study && (!loaded || (o.study || null) !== (study || null))) {",
-                      script)
+        self.assertIn("if (o.loaded_study && (!loaded || (o.study || null) !== (study || null)) &&\n"
+                      "            !(o.study_key && o.study_key === shownStudy())) {", script)
         # The launch names the conversation and its place; the server moves
         # it as the run starts (tenth review, 10-08).
         self.assertIn("conversation: c.id ? { id: c.id, study: c.study || null, "

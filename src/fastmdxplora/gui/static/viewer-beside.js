@@ -12,7 +12,8 @@
   var COLOUR = "#E69F00";
   var KEY = "rmsf-difference";
 
-  var state = { said: null, listed: false, colourBefore: null };
+  var state = { said: null, listed: false, ready: false, colourBefore: null, next: null,
+                shownNext: null };
 
   function byId(id) { return document.getElementById(id); }
 
@@ -47,9 +48,78 @@
       var option = document.createElement("option");
       option.value = card.path;
       option.textContent = card.name + (card.system ? " (" + card.system + ")" : "");
+      option.title = option.textContent;
       return option;
     }));
+    // The study chosen said whole on hover, where a name is longer than
+    // the panel is wide.
+    var named = function () {
+      select.title = select.selectedOptions[0] ? select.selectedOptions[0].textContent : "";
+    };
+    if (!select.dataset.named) {
+      select.dataset.named = "true";
+      select.addEventListener("change", named);
+    }
+    named();
     byId("side-beside").hidden = cards.length === 0;
+    state.ready = true;
+    takeUpNext();
+  }
+
+  /* What Compare asked to play beside the study it opened in the Viewer:
+   * kept for this tab while the page loads again on that study. */
+  var NEXT = "fastmdx.besideNext";
+
+  function next(path, name, on) {
+    var asked = { path: path, name: name || "", on: on || [] };
+    try {
+      sessionStorage.setItem(NEXT, JSON.stringify(asked));
+    } catch (error) {
+      state.next = asked;
+    }
+    if (state.ready) takeUpNext();
+  }
+
+  /* Kept until it is shown: the page may list its studies again (the run
+   * it shows settles) before the frames are there to play beside. Taken
+   * up on the Viewer only: asked from Compare, the page may load again on
+   * the study first. */
+  function takeUpNext() {
+    if (document.documentElement.dataset.page !== "viewer") return;
+    try {
+      var stored = JSON.parse(sessionStorage.getItem(NEXT) || "null");
+      sessionStorage.removeItem(NEXT);
+      if (stored && stored.path) state.next = stored;
+    } catch (error) { /* kept in state.next instead */ }
+    var asked = state.next;
+    if (!asked || !asked.path) return;
+    // Asked for beside the study Compare opened: not beside another one (a
+    // switch the server refused leaves the study open as it was).
+    var openNow = "";
+    try { openNow = window.FastMDXDashboard.state.appState.active_run || ""; } catch (error) { openNow = ""; }
+    var on = [].concat(asked.on || []);
+    if (on.length && openNow && on.indexOf(openNow) < 0) { state.next = null; return; }
+    var select = byId("beside-study");
+    var here = Array.prototype.some.call(select.options, function (o) { return o.value === asked.path; });
+    if (!here) {
+      // A run of a study is not among the workspace's studies: offered too.
+      var option = document.createElement("option");
+      option.value = asked.path;
+      option.textContent = asked.name || asked.path;
+      option.title = option.textContent;
+      select.appendChild(option);
+    }
+    select.value = asked.path;
+    select.title = select.selectedOptions[0] ? select.selectedOptions[0].textContent : "";
+    byId("side-beside").hidden = false;
+    var rail = window.FastMDXViewerRail;
+    if (rail && rail.choose) rail.choose("side-beside");
+    show().then(function () {
+      if (state.said && state.next === asked) {
+        state.next = null;
+        state.shownNext = asked;
+      }
+    });
   }
 
   function listMutations() {
@@ -134,12 +204,22 @@
     });
     window.FastMDXDashboard && window.FastMDXDashboard.on("playback-ready", listStudies);
     window.addEventListener("dashboard:viewer-rendered", listStudies);
+    window.addEventListener("dashboard:viewer-page-opened", function () {
+      if (state.ready) takeUpNext();
+    });
     window.addEventListener("dashboard:frames-ready", function () {
       if (state.said) show();
+      else if (state.next && state.ready) takeUpNext();
     });
-    window.addEventListener("dashboard:run-changed", function () {
+    window.addEventListener("dashboard:run-changed", function (event) {
+      // The page's first word of the study it opened on comes after the
+      // Viewer may have shown what Compare asked for: shown again then.
+      var again = event.detail && event.detail.first ? state.shownNext || state.next : null;
+      state.shownNext = null;
+      state.next = again;
       state.said = null;
       state.listed = false;
+      state.ready = false;
       state.colourBefore = null;
       byId("side-beside").hidden = true;
       byId("beside-remove").hidden = true;
@@ -152,5 +232,5 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire);
   else wire();
 
-  window.FastMDXBeside = { show: show, remove: remove };
+  window.FastMDXBeside = { show: show, remove: remove, next: next };
 }());

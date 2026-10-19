@@ -23,7 +23,7 @@ from typing import Any
 
 from fastmdxplora.statistics import MINIMUM_EFFECTIVE_SAMPLES
 
-__all__ = ["SamplingAsk", "sampling_asked_for"]
+__all__ = ["SamplingAsk", "duration_said", "length_said", "sampling_asked_for"]
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ class SamplingAsk:
                      "time, so run that much and estimate again)")
         if self.seconds is not None:
             where = f" on {self.platform}" if self.platform else ""
-            text += f"; at this run's own speed{where}, about {_duration(self.seconds)}"
+            text += f"; at this run's own speed{where}, {duration_said(self.seconds)}"
         return text + "."
 
     def config(self, study: str | Path) -> dict[str, Any]:
@@ -97,14 +97,20 @@ class SamplingAsk:
 def sampling_asked_for(study: str | Path) -> SamplingAsk | None:
     """What the study's analyses asked for, or None where none asked in
     nanoseconds (every mean measured, or no clock to say it in)."""
+    import os
+
+    from fastmdxplora import record_access
+
+    # Through `record_access`: held to the study where the read is (the
+    # Overview, a remedy), as pathlib elsewhere.
     root = Path(study)
     analysis = root / "analysis"
-    if not analysis.is_dir():
+    if not record_access.is_dir(analysis):
         return None
     asked: list[tuple[float, str, bool]] = []
-    for options in sorted(analysis.glob("*/options.json")):
+    for options in sorted(record_access.glob(analysis, "*/options.json")):
         try:
-            record = json.loads(options.read_text(encoding="utf-8"))
+            record = json.loads(record_access.read_text(options, encoding="utf-8"))
         except (OSError, ValueError):
             continue
         findings = (record.get("findings") or {}) if isinstance(record, dict) else {}
@@ -123,7 +129,10 @@ def sampling_asked_for(study: str | Path) -> SamplingAsk | None:
                 target, bool) and math.isfinite(target) and target > 0 \
                 else float(MINIMUM_EFFECTIVE_SAMPLES)
             asked.append((float(more), said, bool(shortfall.get("lower_bound")), target))
-    if not (analysis / "thermodynamics" / "options.json").is_file():
+    thermodynamics = analysis / "thermodynamics" / "options.json"
+    # Not there at all: a record there but refused by a held read is not
+    # read, never taken for one the analysis did not write.
+    if not record_access.is_file(thermodynamics) and not os.path.lexists(thermodynamics):
         # Analysed without its thermodynamics: the Overview still takes those
         # means from the run's energy file and withholds them, so their asks
         # are counted too (they were left out, and the figure fell below the
@@ -188,6 +197,10 @@ def _round_up(value: float) -> float:
     run that stops short."""
     if value <= 0:
         return 0.0
+    # To six significant figures first: an ask written in single precision
+    # (0.1 ns as 0.10000002384185791) is not a hair over 0.1, and rounding
+    # that hair up said 110 ps for 100.
+    value = float(f"{value:.6g}")
     scale = 10 ** (math.floor(math.log10(value)) - 1)
     return round(math.ceil(value / scale - 1e-9) * scale, 12)
 
@@ -240,6 +253,14 @@ def length_said(ns: float) -> str:
         # One frame saved every few steps is hundredths of a picosecond.
         return f"{ps:.1g} ps"
     return f"{round(ps, 1):g} ps"
+
+
+def duration_said(seconds: float) -> str:
+    """Wall time as a sentence says it: "about 8 min", or "under a minute"
+    where it rounds to none (4 s was said as "about 1 min")."""
+    if seconds < 30:
+        return "under a minute"
+    return f"about {_duration(seconds)}"
 
 
 def _duration(seconds: float) -> str:

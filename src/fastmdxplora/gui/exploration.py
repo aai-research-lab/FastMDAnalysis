@@ -313,19 +313,19 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
             # Interrupted, as its card says: in a later piece, or before any
             # result was written.
             state = "interrupted"
-        elif live.get("piece") and str(live.get("status") or "").lower() in (
-                "failed", "error", "stopped"):
-            # A later piece that failed or was stopped, past a first result
-            # that said the run completed.
-            state = "failed" if str(live.get("status")).lower() != "stopped" else "stopped"
+        elif live and str(live.get("status") or "").lower() in ("failed", "error", "stopped"):
+            # The run's own record says it failed or was stopped: believed
+            # over the study's result, as the run's state is everywhere else
+            # (`workspace.study_state`, the Compare page). A later piece that
+            # failed or was stopped, past a first result that said the run
+            # completed; or a run whose results are written once its study's
+            # rounds end, hours on; or one the study recorded "ok" though its
+            # production was stopped part way.
+            state = "stopped" if str(live.get("status")).lower() == "stopped" else "failed"
         elif result.get("status") in ("ok", "success", "completed"):
             state, fraction = "completed", 1.0
         elif result.get("status") in ("failed", "error"):
             state = "failed"
-        elif live and str(live.get("status") or "").lower() in ("failed", "error", "stopped"):
-            # Its record says how it ended, before any result: the study's
-            # results are written once its rounds end, hours on.
-            state = "stopped" if str(live.get("status")).lower() == "stopped" else "failed"
         elif live:
             stage = str(live.get("stage") or live.get("status") or "").lower()
             step, total = live.get("current_step"), live.get("total_planned_steps")

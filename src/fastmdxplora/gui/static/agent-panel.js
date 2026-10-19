@@ -219,7 +219,8 @@
       fetch("/api/scenes", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: named, view: view, highlight: scene.highlight || "",
-                               labels: !!scene.labels, ligands: sceneLigands() }),
+                               labels: !!scene.labels, ligands: sceneLigands(),
+                               page_study: pageStudy() || undefined }),
       }).then(function (r) {
         return r.json().catch(function () { return { ok: false, reason: "HTTP " + r.status }; });
       }).catch(function () { return { ok: false, reason: "The server did not answer." }; })
@@ -1561,6 +1562,17 @@
   var UNSENT_WORDS = "fmx.agentUnsent:";
   var unsentKey = "";
   var unsentTitle = "";
+  /* The studies runs this page started went to, as their launches
+   * answered them (`study_key`), each for a short while after: the GUI
+   * goes to a run's folder as it starts, and the page may see that after
+   * the answer. Words typed are taken to a run's study only, by the first
+   * switch seen after the answer; any other study opened (another window,
+   * an AI app) gets none of them (CI-774 reviews K3, K4: for a minute after
+   * a launch, they went to whatever study was opened next). */
+  var runStudies = [];
+  /* A study seen while a launch is still going: whether it is the run's is
+   * known only once the launch answers, so it is judged then. */
+  var seenWhileLaunching = null;
   var unsentKept = false;
   /* Per study, what this page holds that no storage kept. */
   var heldInPage = {};
@@ -1708,10 +1720,35 @@
     var key = study && study.key;
     if (!validStudyKey(key)) return;
     var title = (study && study.title) || "";
-    if (key === unsentKey) { unsentTitle = title || unsentTitle; return; }
+    if (key === unsentKey) {
+      seenWhileLaunching = null;
+      unsentTitle = title || unsentTitle;
+      return;
+    }
+    if (launching) {
+      /* The words stay with the study they were begun in until the launch
+       * says where the run went. */
+      seenWhileLaunching = { key: key, title: title };
+      return;
+    }
     var area = el("agent-request");
     var typed = boxNow();
     var begunElsewhere = validStudyKey(unsentKey);
+    /* The study a run this page started went to: the thread went there
+     * with it, and so do the words being typed into it, whole (CI-774
+     * review K2: the part typed before the page saw the switch was kept
+     * for the study left). Judged once, by the first switch seen. */
+    var now = Date.now();
+    var runsThere = runStudies.some(function (r) { return r.key === key && now < r.until; });
+    runStudies = [];
+    if (begunElsewhere && runsThere) {
+      delete heldInPage[unsentKey];
+      try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+      unsentKey = key;
+      unsentTitle = title;
+      putBack(key, typed);
+      return;
+    }
     if (begunElsewhere && (typed.trim() || pendingFiles.length || attaching)) {
       var was = unsentKey;
       var forTitle = unsentTitle || "the study before";
@@ -1731,6 +1768,18 @@
     unsentKey = key;
     unsentTitle = title;
     putBack(key, begunElsewhere ? "" : typed);
+  }
+  /* Every launch this page made has answered: the run's study, if one
+   * started (`key`), is known, and a switch seen meanwhile is judged. */
+  function launchAnswered(key) {
+    if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
+    if (launching) return;
+    var seen = seenWhileLaunching;
+    seenWhileLaunching = null;
+    if (seen) { restoreUnsent(seen); return; }
+    /* Already on the run's study (it was the study open, or the page
+     * learnt which study it was on only then): nothing to take there. */
+    if (runStudies.some(function (r) { return r.key === unsentKey; })) runStudies = [];
   }
   function putBack(key, typed) {
     var area = el("agent-request");
@@ -4098,8 +4147,9 @@
         window.FastMDXDashboard.studyChangeComing();
       }
       startingRuns.push(entry);
-      function answered() {
+      function answered(started) {
         launching -= 1;
+        launchAnswered(started && started.ok ? started.study_key : "");
         startingRuns = startingRuns.filter(function (e) { return e !== entry; });
         /* Said where the person can see it: the reply it was asked in may
          * have been cut by a retry while it started. */
@@ -4122,10 +4172,19 @@
           conversation: c.id ? { id: c.id, study: c.study || null, run: entry.eid } : null
         });
       }).then(function (started) {
-        answered();
+        answered(started);
         var moved = started && started.conversation;
         if (moved && moved.ok && moved.id) {
           c.id = moved.id;
+          /* Moved by the run into its folder: where it is now is the
+           * server's word, as for a save's answer (persistOf). Named for
+           * the study left, the next save was refused, and the read of the
+           * run's study put the thread back without what was said as the
+           * run started. */
+          if ((moved.study || started.output || null) !== (c.study || null)) {
+            c.page = "";
+            if (c === conv) convFor = "";
+          }
           c.study = moved.study || started.output;
           if (validStudyKey(moved.study_key)) c.page = moved.study_key;
           if (c === conv) {
@@ -4512,23 +4571,80 @@
     }
 
     /* Another study's conversation opened: that study opened as a step of
-     * its own, on the Agent page, so Back returns to the page before. */
-    function openStudyOfConversation(waited) {
+     * its own, on the Agent page, so Back returns to the page before. The
+     * study opened is the conversation's, as the open's answer names it,
+     * never whichever study the GUI has open by then (a run, another
+     * window). */
+    function openStudyOfConversation(o, waited) {
       waited = waited || 0;
       if (launching && waited < 60000) {
-        setTimeout(function () { openStudyOfConversation(waited + 100); }, 100);
+        setTimeout(function () { openStudyOfConversation(o, waited + 100); }, 100);
         return;
       }
       var dashboard = window.FastMDXDashboard;
-      if (!dashboard || !dashboard.studyOpened) { reloadOnceLaunched(); return; }
-      fetch("/api/status", { cache: "no-store" }).then(function (r) { return r.json(); })
-        .then(function (status) {
-          if (status && status.study) dashboard.studyOpened({ study_key: status.study }, "agent");
-          else reloadOnceLaunched();
-        }).catch(function () { reloadOnceLaunched(); });
+      if (!dashboard || !dashboard.studyOpened || !o || !o.study_key) { reloadOnceLaunched(); return; }
+      dashboard.studyOpened({ study_key: o.study_key }, "agent");
     }
 
-    function openConversation(id, study, loaded) {
+    /* Said beside the list, where it is open: why an open is held, or
+     * that it waits. */
+    function saidBesideList(text) {
+      if (!list || list.hidden) return null;
+      var said = list.querySelector(".agent-conv-held") || node("p", "agent-conv-held muted small");
+      said.setAttribute("role", "status");
+      said.textContent = text;
+      list.insertBefore(said, list.firstChild);
+      return said;
+    }
+
+    /* Said where the person is: beside the list where it is open, else in
+     * the page's notice (CI-774 review K3: with the list closed, an open
+     * that waited said nothing). */
+    function saidWhereSeen(text) {
+      var said = saidBesideList(text);
+      if (said) return said;
+      var dashboard = window.FastMDXDashboard;
+      if (dashboard && dashboard.toast) dashboard.toast(text, "ok");
+      return null;
+    }
+
+    /* Asked while a run this page started is being launched: the whole
+     * open waits for the launch's answer, its hold judged and the server
+     * asked only then. The launch switches the GUI to the run's folder as
+     * it starts, so a study opened before its answer was left again at
+     * once (CI-774 review K1). The list said for the GUI before the run
+     * may name a study no longer open: the conversation's own study is
+     * opened. The latest asked is the one opened, and it is said that it
+     * replaced the one asked before. */
+    var openWaiting = null;
+    var WAITS = "Opens once the run has started.";
+    var WAITS_UNSEEN = "The conversation opens once the run has started.";
+    var REPLACED = "The conversation asked for last opens once the run has started, not the one before.";
+    function openOnceLaunched(id, study) {
+      var replaced = Boolean(openWaiting);
+      if (openWaiting) openWaiting.resolve({ ok: false, error: "Another conversation was asked for." });
+      var said = saidWhereSeen(replaced ? REPLACED : (list && !list.hidden ? WAITS : WAITS_UNSEEN));
+      return new Promise(function (resolve) {
+        var mine = openWaiting = { resolve: resolve };
+        var waited = 0;
+        (function look() {
+          if (openWaiting !== mine) return;
+          /* A run with no answer in a minute: the open is judged now, and
+           * held by the launch as any switch is. */
+          if (launching && waited < 60000) {
+            waited += 100;
+            setTimeout(look, 100);
+            return;
+          }
+          openWaiting = null;
+          if (said && (said.textContent === WAITS || said.textContent === REPLACED)) said.remove();
+          resolve(openConversation(id, study, false, true));
+        })();
+      });
+    }
+
+    function openConversation(id, study, loaded, launchWaited) {
+      if (launching && !launchWaited) return openOnceLaunched(id, study);
       /* Another study's opens that study: held as every other way to
        * another study is, with the reason said beside the list too. */
       var dashboard = window.FastMDXDashboard;
@@ -4536,12 +4652,7 @@
       if (another) {
         var held = dashboard.beginStudySwitch();
         if (held) {
-          if (list && !list.hidden) {
-            var said = list.querySelector(".agent-conv-held") || node("p", "agent-conv-held muted small");
-            said.setAttribute("role", "status");
-            said.textContent = held;
-            list.insertBefore(said, list.firstChild);
-          }
+          saidBesideList(held);
           return Promise.resolve({ ok: false, error: held });
         }
       }
@@ -4554,9 +4665,10 @@
       }).then(function (o) {
         if (!o || !o.ok) { ended(); window.alert((o && o.error) || "Could not open it."); return o; }
         /* Loaded elsewhere than the list said (a run took it with it):
-         * the page reads that study too. */
-        if (o.loaded_study && (!loaded || (o.study || null) !== (study || null))) {
-          openStudyOfConversation();
+         * the page reads that study too, unless it is the one shown. */
+        if (o.loaded_study && (!loaded || (o.study || null) !== (study || null)) &&
+            !(o.study_key && o.study_key === shownStudy())) {
+          openStudyOfConversation(o);
           return o;
         }
         ended();
