@@ -411,22 +411,35 @@ def _size(n_bytes: float) -> str:
     return f"{n_bytes:.0f} bytes"
 
 
-def _production_steps(simulation: dict[str, Any]) -> tuple[int, bool]:
-    """The production steps of one run, and whether that is a ceiling (a
-    study run until it is determined may stop sooner), as `cost.total_steps`
-    reads them."""
-    from fastmdxplora.simulation.lengths import (
-        DEFAULT_PRODUCTION_NS, DEFAULT_TIMESTEP_FS, steps_in,
-    )
+def _frames_planned(simulation: dict[str, Any]) -> tuple[int, bool]:
+    """The production frames one run writes, and whether that is a ceiling
+    (a study run until it is determined may stop sooner). The interval is
+    the runner's own (`trajectory_interval_for` of the first piece's
+    production, as `run_simulation` picks it, unless the Config sets one),
+    and every continuation keeps it (`resume`), so a study run in pieces up
+    to a ceiling writes the ceiling's production at the first piece's
+    interval."""
+    from fastmdxplora.simulation.lengths import DEFAULT_TIMESTEP_FS, steps_in
+    from fastmdxplora.simulation.runner import plan_stages, trajectory_interval_for
+
+    def number(key: str) -> Any:
+        value = simulation.get(key)
+        return None if value is None or isinstance(value, bool) else value
 
     timestep = float(simulation.get("timestep_fs") or DEFAULT_TIMESTEP_FS)
+    first = plan_stages(
+        duration_ns=number("duration_ns"), timestep_fs=timestep,
+        nvt_steps=number("nvt_steps"), npt_steps=number("npt_steps"),
+        production_steps=number("production_steps"),
+        nvt_duration_ns=number("nvt_duration_ns"),
+        npt_duration_ns=number("npt_duration_ns"))["production_steps"]
+    interval = number("trajectory_interval_steps")
+    interval = int(interval) if interval else trajectory_interval_for(first)
     stop_when = simulation.get("stop_when")
     ceiling = stop_when.get("max_duration_ns") if isinstance(stop_when, dict) else None
     if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and ceiling > 0:
-        return steps_in(ceiling, timestep), True
-    if simulation.get("production_steps") is not None:
-        return int(simulation["production_steps"]), False
-    return steps_in(simulation.get("duration_ns") or DEFAULT_PRODUCTION_NS, timestep), False
+        return steps_in(ceiling, timestep) // max(1, interval), True
+    return first // max(1, interval), False
 
 
 def _simulates(config: dict[str, Any]) -> bool:
@@ -471,7 +484,11 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
                  "said": "Nothing is simulated, so no time, trajectory or GPU memory is counted."}]
     simulation = config.get("simulation") or {}
     particles = int(estimate.particles)
-    runs = int(time.get("runs") or 0) if time.get("ok") else 0
+    # Every run the study makes, timed or not: the disk does not wait on
+    # the calibration.
+    from fastmdxplora.agent.staged import _runs_of
+
+    runs = len(_runs_of(config, Path("."))[0])
     lines: list[dict[str, str]] = []
 
     # The speed of one run, from the timing the time is worked out from.
@@ -498,12 +515,7 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
             + f", {int(time['steps']):,} steps in all, equilibration included")})
 
     # The trajectories: production frames of the atoms the run keeps.
-    from fastmdxplora.simulation.runner import trajectory_interval_for
-
-    steps, ceiling = _production_steps(simulation)
-    interval = simulation.get("trajectory_interval_steps")
-    interval = int(interval) if interval else trajectory_interval_for(steps)
-    frames = steps // max(1, interval)
+    frames, ceiling = _frames_planned(simulation)
     kept = simulation.get("save_selection", "not water")
     waters = int(getattr(estimate, "waters", 0) or 0)
     sites = WATER_SITES.get(str(getattr(estimate, "water_model", "")).lower(), 3)
@@ -544,7 +556,7 @@ def _gpu_line(config: dict[str, Any],
               path_for: Callable[[Any], str | None] | None) -> dict[str, str]:
     """The GPU memory one run needs against what this computer's GPUs have
     free, as a Run here would choose its GPU (`gpu_here.choice_here`)."""
-    from fastmdxplora.gpu_here import choice_here
+    from fastmdxplora.gpu_here import choice_here, held_from
     from fastmdxplora.remote.send import simulates_on_gpu
 
     if not simulates_on_gpu(config, os.cpu_count()):
@@ -555,7 +567,7 @@ def _gpu_line(config: dict[str, Any],
         return {"kind": "gpu", "level": "note",
                 "said": "not checked: no GPU here that nvidia-smi reads"}
     folder = _where_written(config, path_for) or Path.cwd()
-    choice, notes = choice_here(config, folder, [], room=room)
+    choice, notes = choice_here(config, folder, held_from(_going_near(folder)), room=room)
     if choice is None:
         return {"kind": "gpu", "level": "note",
                 "said": " ".join(notes) or "not checked"}
@@ -570,6 +582,24 @@ def _gpu_line(config: dict[str, Any],
     return {"kind": "gpu", "level": "note",
             "said": f"about {choice.need.mb / 1024:.1f} GB of GPU memory a run "
                     f"({choice.need.how}), on {on}"}
+
+
+def _going_near(folder: Path) -> list[dict[str, Any]]:
+    """The runs started from the GUI going in the folder the study is
+    written to or a folder above it (its workspace's record of them,
+    `runs_here.going_in`): the GPUs they hold are not free to this study,
+    as a Run here counts them."""
+    from fastmdxplora.runs_here import going_in
+
+    going: dict[str, dict[str, Any]] = {}
+    for here in (folder, *list(folder.parents)[:3]):
+        try:
+            runs = going_in(here, walk=False)
+        except OSError:
+            continue
+        for run in runs:
+            going.setdefault(str(run.get("folder")), run)
+    return list(going.values())
 
 
 def _duration(seconds: float) -> str:

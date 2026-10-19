@@ -20,6 +20,7 @@ that would leave the disk all but full a warning.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 from collections import namedtuple
 
 import pytest
@@ -216,3 +217,63 @@ def test_a_fast_run_s_speed_is_said_in_figures_not_an_exponent(tmp_path):
     assert "e+" not in said
     assert said.startswith(f"about {round(per_day, places):,.0f} ns/day on CPU")
     assert preview._three_figures(56.78) == "56.8" and preview._three_figures(0.01234) == "0.0123"
+
+
+def _disk(config, timed=False):
+    from types import SimpleNamespace
+
+    estimate = SimpleNamespace(particles=30_000, waters=9_000, water_model="tip3p")
+    time = ({"ok": True, "seconds": 1000.0, "runs": 1, "steps": 1, "platform": "CPU"} if timed
+            else {"ok": False, "reason": "This machine has not been timed yet."})
+    return next(line["said"] for line in preview.study_cost(config, estimate, time)
+                if line["kind"] == "disk")
+
+
+def test_a_study_run_until_determined_is_counted_at_the_runner_s_own_interval(tmp_path):
+    """The interval was worked out from the ceiling's length, but the runner
+    picks it from the first piece's production and every continuation keeps
+    it: a 10 ns first piece with a 100 ns ceiling writes up to 20,000 frames,
+    not 2,000."""
+    from fastmdxplora.simulation.lengths import steps_in
+    from fastmdxplora.simulation.runner import trajectory_interval_for
+
+    simulation = {"duration_ns": 10, "timestep_fs": 2,
+                  "stop_when": {"max_duration_ns": 100, "measure": "rmsd"}}
+    said = _disk({"output": str(tmp_path), "simulation": simulation})
+    frames = steps_in(100, 2.0) // trajectory_interval_for(steps_in(10, 2.0))
+    assert frames == 20_000
+    assert f" at most: {frames:,} frames of 3,000 atoms" in said, said
+    # A set interval is the runner's too.
+    simulation["trajectory_interval_steps"] = 5_000
+    assert " at most: 10,000 frames of 3,000 atoms" in _disk({"output": str(tmp_path),
+                                                              "simulation": simulation})
+
+
+def test_every_run_of_a_study_is_counted_on_a_machine_not_timed(tmp_path):
+    """The runs were counted from the time line, so on a machine never timed
+    a study of five seeds was costed as one run's disk."""
+    config = {"output": str(tmp_path), "systems": [{"id": "s", "system": "1UBQ"}],
+              "sweep": {"simulation.random_seed": [1, 2, 3, 4, 5]},
+              "simulation": {"duration_ns": 10, "timestep_fs": 2}}
+    for timed in (False, True):
+        assert "in each of 5 runs" in _disk(config, timed=timed)
+
+
+def test_the_gpu_line_counts_the_gpus_runs_going_here_hold(tmp_path, monkeypatch):
+    """A Run here leaves out the GPUs its workspace's runs hold; the cost's
+    GPU line counted none held, so a GPU a run just took read as free."""
+    from types import SimpleNamespace
+
+    from fastmdxplora import gpu_here, runs_here
+
+    going = [{"folder": str(tmp_path / "other"), "by": "the GUI", "pid": 4242,
+              "gpu": {"uuids": ["GPU-1"], "need_mb": 6000}}]
+    asked: list = []
+    monkeypatch.setattr(runs_here, "going_in", lambda folder, walk=True: going
+                        if Path(folder) == tmp_path else [])
+    monkeypatch.setattr(preview, "_gpus_now", lambda: SimpleNamespace(gpus=[object()]))
+    monkeypatch.setattr("fastmdxplora.remote.send.simulates_on_gpu", lambda config, cpus: True)
+    monkeypatch.setattr(gpu_here, "choice_here",
+                        lambda config, folder, held, room=None: (asked.append(held), (None, []))[1])
+    preview._gpu_line({"output": str(tmp_path / "new"), "simulation": {}}, None)
+    assert [[(h.uuid, h.need_mb) for h in held] for held in asked] == [[("GPU-1", 6000)]]
