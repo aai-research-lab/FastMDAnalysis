@@ -66,6 +66,7 @@
   var ERROR_OF = {
     replicas: " (replicas' spread)",
     own: " (each run's own error, larger than the replicas' spread)",
+    alone: " (each run's own error: the spread is of these two alone)",
     mixed: " (the replicas' spread, or a run's own error where larger)",
   };
 
@@ -346,25 +347,40 @@
   }
 
   /* The replicas' note: how many runs each spread was taken over, where
-   * fewer than all of them recorded a mean ("from 2 of the 3 runs"). */
+   * fewer than all of them were read ("from 2 of the 3 runs"); and the quantities only
+   * these two were read for, set against their own errors. */
   function replicasSaid(data) {
     var n = data.replicas.runs;
-    var fewer = {}, every = false;
+    var fewer = {}, every = false, spread = false, alone = [];
     (data.measures || []).forEach(function (m) {
-      var k = m.versus && m.versus.from_runs;
-      if (k != null && k < n) (fewer[k] = fewer[k] || []).push(m.label || m.analysis);
+      var v = m.versus;
+      if (!v || v.from_runs == null) return;
+      if (v.error_of === "alone") { alone.push(m.label || m.analysis); return; }
+      spread = true;
+      var k = v.from_runs;
+      if (k < n) (fewer[k] = fewer[k] || []).push(m.label || m.analysis);
       if (k === n) every = true;
     });
-    var counts = Object.keys(fewer).map(Number).sort(function (a, b) { return b - a; });
-    var spread = counts.length
-      ? "the spread of the runs' means that recorded it (" + counts.map(function (k) {
-          return fewer[k].join(", ") + " from " + k + " of the " + n + " runs";
-        }).join("; ") + (every ? "; the others from all " + n : "") + ")"
-      : "the spread of the " + n + " runs' means";
-    return "These are two of " + n + " runs that differ only by random seed: repeats of one " +
-      "measurement. Each mean's error, as the columns give it, is " + spread + ", or the run's " +
-      "own where that is larger, as the study's replicas are aggregated; each difference says " +
-      "which it was set against.";
+    var said = "These are two of " + n + " runs that differ only by random seed: repeats of " +
+      "one measurement.";
+    if (spread) {
+      var counts = Object.keys(fewer).map(Number).sort(function (a, b) { return b - a; });
+      var of = counts.length
+        ? "the spread of the runs' means that were read (" + counts.map(function (k) {
+            return fewer[k].join(", ") + " from " + k + " of the " + n + " runs";
+          }).join("; ") + (every ? "; the others from all " + n : "") + ")"
+        : "the spread of the " + n + " runs' means";
+      said += " Each mean's error, as the columns give it, is " + of + ", or the run's own " +
+        "where that is larger, as the study's replicas are aggregated; each difference says " +
+        "which it was set against.";
+    }
+    if (alone.length) {
+      said += " " + alone.join(", ") + ": only these two runs' means were read, and the " +
+        "spread of two means is their difference over the square root of 2, so a difference " +
+        "set against it would equal its error whatever the two are. Each is set against the " +
+        "error the run estimated for itself, which replicas can show too tight.";
+    }
+    return said;
   }
 
   function colourOf(i) {

@@ -286,7 +286,11 @@ the run's own where that is larger, as `batch/aggregate.py` gives a
 replica's (`replica_error`); the columns give the error used, each
 difference says whether it was the replicas' spread or the runs' own, and
 the page says how many of the runs' means each spread was taken over ("from
-2 of the 3 runs") where fewer than all recorded it. A finished run its
+2 of the 3 runs") where fewer than all were read. Where only the two
+compared were read for a quantity, the spread of their two means is their
+difference over the square root of 2, so the difference would equal its
+error whatever they are: each is set against the runs' own errors, and the
+page says why. A finished run its
 study's manifest places outside the study is named and left out, not looked
 for. Where one of the two did not finish, the spread is not its error: each
 difference is set against the runs' own errors, and the page says why;

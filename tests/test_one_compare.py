@@ -383,27 +383,30 @@ def _mean_of(run: Path, name: str, mean: float, error: float) -> None:
 
 
 def test_a_replicas_spread_is_said_from_the_runs_that_recorded_it(tmp_path):
-    """Seed 3 recorded no RMSD: its spread is of two means, not of the 3
-    runs' the note said; and RMSD's error is each run's own, larger than
-    the spread, where "(replicas' spread)" marked it."""
+    """Seed 4 recorded no RMSD: its spread is of three means, not of the 4
+    runs' the note said, and the note says the runs' means "that were read"
+    (one refused was not, though its run recorded it); and RMSD's error is
+    each run's own, larger than the spread, where "(replicas' spread)"
+    marked it."""
     from fastmdxplora.batch.aggregate import replica_error
     from fastmdxplora.gui.compare_view import compared
+    from fastmdxplora.gui.workspace import means_of
     from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
 
-    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
-    first, second, third = _runs(study)
-    (third / "analysis" / "rmsd" / "options.json").unlink()
-    # Rg: each run's own error ten times the spread of the three means.
-    for run, mean in ((first, 1.200), (second, 1.202), (third, 1.204)):
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3, 4])
+    first, second, third, fourth = _runs(study)
+    (fourth / "analysis" / "rmsd" / "options.json").unlink()
+    # Rg: each run's own error ten times the spread of the four means.
+    for run, mean in ((first, 1.200), (second, 1.202), (third, 1.204), (fourth, 1.203)):
         _mean_of(run, "rg", mean, 0.02)
     said = compared(first, second)
     rows = {m["analysis"]: m for m in said["measures"]}
     rmsd, rg = rows["rmsd"]["versus"], rows["rg"]["versus"]
-    means = [rows["rmsd"]["first"]["mean"], rows["rmsd"]["second"]["mean"]]
-    assert rmsd["from_runs"] == 2 and said["replicas"]["runs"] == 3
+    means = [means_of(run)["rmsd"]["mean"] for run in (first, second, third)]
+    assert rmsd["from_runs"] == 3 and said["replicas"]["runs"] == 4
     assert rmsd["errors"][0] == pytest.approx(replica_error(means, rows["rmsd"]["first"]["error"]))
     assert rmsd["error_of"] == "replicas"
-    assert rg["from_runs"] == 3
+    assert rg["from_runs"] == 4
     assert rg["errors"] == pytest.approx([0.02, 0.02]) and rg["error_of"] == "own"
 
     def look(page, url):
@@ -418,10 +421,49 @@ def test_a_replicas_spread_is_said_from_the_runs_that_recorded_it(tmp_path):
         })""")
 
     shown = _browse(study, look)
-    assert "RMSD from 2 of the 3 runs" in shown["note"], shown["note"]
-    assert "the spread of the 3 runs' means" not in shown["note"]
+    assert "RMSD from 3 of the 4 runs" in shown["note"], shown["note"]
+    assert "the runs' means that were read (" in shown["note"], shown["note"]
+    assert "that recorded it" not in shown["note"]
+    assert "the spread of the 4 runs' means" not in shown["note"]
     assert shown["rg"][3].endswith("(each run's own error, larger than the replicas' spread)")
     assert "replicas' spread)" not in shown["rg"][3].replace("larger than the replicas' spread)", "")
+
+
+def test_two_replicas_whose_spread_is_of_those_two_alone_keep_their_own_errors(tmp_path):
+    """Of two runs differing only by seed, the spread of the two means is
+    their difference over the square root of 2, so the difference set
+    against it equals its error whatever the two are: it was always "within
+    the errors". Each is set against the error the run estimated itself."""
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    first, second = _runs(study)
+    _mean_of(first, "rg", 1.20, 0.001)
+    _mean_of(second, "rg", 1.25, 0.001)
+    said = compared(first, second)
+    rg = next(m for m in said["measures"] if m["analysis"] == "rg")["versus"]
+    assert rg["error"] == pytest.approx((2 * 0.001 ** 2) ** 0.5)
+    assert rg["error_of"] == "alone" and rg["resolved"] is True and "errors" not in rg
+    assert said["replicas"]["runs"] == 2
+
+    def look(page, url):
+        place = (urllib.parse.quote(str(first), safe="") + "|"
+                 + urllib.parse.quote(str(second), safe=""))
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("""() => ({
+            note: document.querySelector('.compare-replicas').textContent,
+            rg: [...document.querySelectorAll(
+                '.compare-means-table tr[data-analysis="rg"] td')].map((n) => n.textContent),
+        })""")
+
+    shown = _browse(study, look)
+    assert shown["rg"][3].endswith(", resolved (each run's own error: the spread is of these "
+                                   "two alone)"), shown["rg"]
+    assert "the spread of the 2 runs' means" not in shown["note"], shown["note"]
+    assert ("only these two runs' means were read, and the spread of two means is their "
+            "difference over the square root of 2") in shown["note"], shown["note"]
 
 
 def test_a_series_is_named_on_its_chart_as_in_the_table(variants):

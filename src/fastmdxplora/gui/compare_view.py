@@ -39,7 +39,7 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
     replicas = _as_replicas(a, b, places, sides)
     said = {"ok": True, **sides_compared(sides[0]["compared"], sides[1]["compared"],
                                          replicas.get("errors"))}
-    if replicas.get("errors"):
+    if replicas.get("errors") or replicas.get("alone"):
         _the_replicas_said(said, replicas)
     elif replicas.get("unfinished"):
         names = " and ".join(places[i]["where"]["said"] for i in replicas["unfinished"])
@@ -138,9 +138,17 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
         errors: dict[str, tuple[float, float]] = {}
         kinds: dict[str, tuple[str, str]] = {}
         counts: dict[str, int] = {}
+        alone: list[str] = []
         for name in wanted:
             values = [(m.get(name) or {}).get("mean") for m in means]
             values = [v for v in values if v is not None]
+            if len(values) == 2:
+                # Only the two compared were read: the spread of two means
+                # is their difference over the square root of 2, so the
+                # difference set against it equals its error whatever the
+                # two are. Each keeps the error it estimated itself.
+                alone.append(name)
+                continue
             own = [sides[i]["compared"]["means"][name]["error"] for i in (0, 1)]
             pair = [replica_error(values, own[i]) for i in (0, 1)]
             spread = replica_error(values, None)
@@ -149,8 +157,8 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
                 kinds[name] = tuple("own" if own[i] is not None and own[i] > spread else "spread"
                                     for i in (0, 1))
                 counts[name] = len(values)
-        return {"errors": errors, "kinds": kinds, "counts": counts, "runs": len(members),
-                "why": why, "outside": outside}
+        return {"errors": errors, "kinds": kinds, "counts": counts, "alone": alone,
+                "runs": len(members), "why": why, "outside": outside}
 
     from fastmdxplora.gui.server import _confined
 
@@ -163,8 +171,14 @@ def _the_replicas_said(said: dict[str, Any], replicas: dict[str, Any]) -> None:
     run's own where that was the larger, and how many of the runs' means
     the spread was taken over."""
     kinds, counts = replicas.get("kinds") or {}, replicas.get("counts") or {}
+    alone = set(replicas.get("alone") or ())
     for row in said.get("measures") or ():
         versus, name = row.get("versus"), row.get("analysis")
+        if versus and name in alone:
+            versus["error_kinds"] = ["own", "own"]
+            versus["error_of"] = "alone"
+            versus["from_runs"] = 2
+            continue
         if not versus or name not in kinds:
             continue
         mine = list(kinds[name])
