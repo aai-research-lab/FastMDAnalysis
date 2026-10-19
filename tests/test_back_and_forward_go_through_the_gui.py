@@ -242,6 +242,8 @@ def test_a_reload_with_a_dialog_open_opens_it_again(browser, session) -> None:
     page = _open(browser, session)
     page.click("#settings-open")
     page.click("[data-dialog-open='prefs-dialog']")
+    page.wait_for_function("() => !document.getElementById('prefs-dialog').hidden"
+                           " && history.state && history.state.fmxDialog === 'prefs-dialog'")
     page.reload(wait_until="domcontentloaded")
     page.wait_for_function("() => document.body.classList.contains('state-ready')")
     page.wait_for_function("() => !document.getElementById('prefs-dialog').hidden")
