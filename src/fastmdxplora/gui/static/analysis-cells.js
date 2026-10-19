@@ -94,11 +94,17 @@
     return host;
   }
 
+  /* Analyze again POSTs, which a GUI served beyond this computer refuses:
+   * not offered there. Elsewhere shown as the page's own is, now and as
+   * the run's state changes. */
+  function beyondLoopback() { return document.body.dataset.beyondLoopback === "true"; }
+
   function again(name) {
     var offered = byId("analysis-again");
-    if (!offered || offered.hidden) return null;
+    if (!offered || beyondLoopback()) return null;
     var button = make("button", "chip-btn cell-again", "Analyze again");
     button.type = "button";
+    button.hidden = offered.hidden;
     button.disabled = offered.disabled;
     button.title = offered.disabled ? offered.title : "Analyze this study's frames again with " + name +
       " alone ticked; the panel above says what it writes again before it starts";

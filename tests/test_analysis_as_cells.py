@@ -265,3 +265,37 @@ def test_the_range_is_marked_on_the_viewer_s_timeline(study):
     assert errors == []
     assert marked[0] == "on" and marked[1] > 1
     assert cleared == ""
+
+
+@pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
+def test_beyond_loopback_no_cell_offers_analyze_again(study, public):
+    """Analyze again POSTs, and a GUI served beyond this computer refuses
+    it; each cell offered it there, only to be refused. The page offers it
+    where it is answered."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _serving
+
+    runtime = DashboardRuntime(workspace_root=study, exploration_root=study.parent,
+                               active_root=study)
+    with _serving(runtime, allow_control=not public) as url, sync_playwright() as pw:
+        browser, page, errors = _page(pw, None)
+        page.goto(url + "#analysis", wait_until="domcontentloaded")
+        page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"] .cell-values')
+        page.wait_for_function("() => window.FastMDXDashboard && "
+                               "window.FastMDXDashboard.state.appState.active_run")
+        page.wait_for_timeout(500)
+        offered = page.evaluate("""() => ({
+            bound: document.body.dataset.beyondLoopback,
+            cells: [...document.querySelectorAll('.cell-again')].filter((b) => !b.hidden).length,
+            page: !document.getElementById('analysis-again').hidden,
+        })""")
+        browser.close()
+    assert errors == []
+    assert offered["bound"] == ("true" if public else "false")
+    if public:
+        assert offered == {"bound": "true", "cells": 0, "page": False}
+    else:
+        assert offered["cells"] >= 3 and offered["page"] is True

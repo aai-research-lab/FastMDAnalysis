@@ -109,7 +109,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   click and saves what it shows as SVG, PNG or CSV. A time range dragged on
   one plot on the simulation's clock is every such plot's and is marked on
   the Viewer's timeline. Maps are drawn as their cells, and a run shorter
-  than a nanosecond is read in picoseconds.
+  than a nanosecond is read in picoseconds. Analyze again, which a GUI
+  served beyond this computer refuses, is not offered there.
 - The Report page has an outline beside the report, its sections
   numbered as the PDF now numbers them. Each number the report states
   opens the record it was traced to (file, place, value, converted to the

@@ -191,7 +191,9 @@
     if (!button) return;
     app = app || {};
     running = !!app.process_running;
-    button.hidden = !app.active_run;
+    // Not offered where it would be refused: a GUI served beyond this
+    // computer answers no POST that starts a run.
+    button.hidden = !app.active_run || document.body.dataset.beyondLoopback === "true";
     button.disabled = running;
     button.title = running
       ? "A run is going. The study can be analyzed again once it ends."
