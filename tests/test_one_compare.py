@@ -418,7 +418,7 @@ def test_a_replicas_spread_is_said_from_the_runs_that_recorded_it(tmp_path):
         })""")
 
     shown = _browse(study, look)
-    assert "rmsd from 2 of the 3 runs" in shown["note"].lower(), shown["note"]
+    assert "RMSD from 2 of the 3 runs" in shown["note"], shown["note"]
     assert "the spread of the 3 runs' means" not in shown["note"]
     assert shown["rg"][3].endswith("(each run's own error, larger than the replicas' spread)")
     assert "replicas' spread)" not in shown["rg"][3].replace("larger than the replicas' spread)", "")

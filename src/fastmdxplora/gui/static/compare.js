@@ -302,7 +302,12 @@
         }
         row.appendChild(node);
         if (side && side.mean == null && side.withheld) {
-          noMean.push(said + ", " + (m.label || m.analysis).toLowerCase() + ": " + side.withheld);
+          // One line for each run and reason, its quantities listed.
+          var why = String(side.withheld).replace(/\.+$/, "");
+          var key = said + "\u0000" + why;
+          var entry = noMean.filter(function (e) { return e.key === key; })[0];
+          if (!entry) noMean.push(entry = { key: key, said: said, why: why, what: [] });
+          entry.what.push((m.label || m.analysis).toLowerCase());
         }
       });
       var difference = cell("mono", "", "Difference");
@@ -322,7 +327,9 @@
     if (noMean.length) {
       // An analysis that ran and gave no mean says why (overview_view.py).
       host.appendChild(make("p", "muted small compare-no-mean",
-        "Not determined, no mean: " + noMean.join("; ") + "."));
+        "Not determined, no mean: " + noMean.map(function (e) {
+          return e.said + ", " + e.what.join(", ") + ": " + e.why;
+        }).join("; ") + "."));
     }
     host.appendChild(make("p", "muted small",
       "The difference is the second's mean less the first's. It is resolved past " +
@@ -345,7 +352,7 @@
     var fewer = {}, every = false;
     (data.measures || []).forEach(function (m) {
       var k = m.versus && m.versus.from_runs;
-      if (k != null && k < n) (fewer[k] = fewer[k] || []).push((m.label || m.analysis).toLowerCase());
+      if (k != null && k < n) (fewer[k] = fewer[k] || []).push(m.label || m.analysis);
       if (k === n) every = true;
     });
     var counts = Object.keys(fewer).map(Number).sort(function (a, b) { return b - a; });
