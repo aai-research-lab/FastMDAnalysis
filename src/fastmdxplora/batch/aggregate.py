@@ -68,12 +68,16 @@ def member_directory(batch_dir: str | Path, run: dict[str, Any]) -> Path:
     or copied reads its own members; otherwise the path recorded. A
     campaign moved without that record found every member missing, or, with
     another campaign at the old path, read that one's."""
+    from fastmdxplora import record_access
+
+    # Through `record_access`: held to the study where the read is (the
+    # Compare page), a folder linked out of it is not looked into.
     root = Path(batch_dir)
     relative = run.get("output_dir_relative")
-    if relative and (root / str(relative)).is_dir():
+    if relative and record_access.is_dir(root / str(relative)):
         return root / str(relative)
     run_id = run.get("run_id")
-    if run_id and (root / "runs" / str(run_id)).is_dir():
+    if run_id and record_access.is_dir(root / "runs" / str(run_id)):
         return root / "runs" / str(run_id)
     return Path(str(run.get("output_dir", "")))
 
@@ -109,15 +113,16 @@ def _finished(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return manifest, [r for r in manifest.get("runs", []) if r.get("status") == "ok"]
 
 
-def finished_members(batch_dir: str | Path) -> tuple[list[Path], bool, str]:
-    """The folders of a campaign's members that finished, whether they are
-    replicas, and why that was decided, from its manifest as
-    :func:`aggregate_members` reads it. Raises OSError or ValueError where
-    the manifest cannot be read."""
+def finished_members(batch_dir: str | Path) -> tuple[list[tuple[str, Path]], bool, str]:
+    """The members of a campaign that finished, each its run's id and its
+    folder; whether they are replicas, and why that was decided, from its
+    manifest as :func:`aggregate_members` reads it. Raises OSError or
+    ValueError where the manifest cannot be read."""
     root = Path(batch_dir)
     manifest, runs = _finished(root)
     replicas, why = _members_are_replicas(manifest)
-    return [member_directory(root, run) for run in runs], replicas, why
+    return ([(str(run.get("run_id") or ""), member_directory(root, run)) for run in runs],
+            replicas, why)
 
 
 def replica_error(means: Any, own: float | None) -> float | None:

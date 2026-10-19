@@ -274,13 +274,23 @@ which they differ, defaults filled in as `fastmdx diff` says them, the
 means each recorded (its analyses', then the thermodynamic means as the
 run's Overview gives them) with the second's less the first's, marked
 resolved only past twice their combined standard error, and each series
-both recorded over time overlaid on one clock (not overlaid where one is on
-frame numbers and the other on time), production's energies, temperature
-and density among them. Two runs of a study of replicas (runs that differ
-only by seed) are repeats of one measurement: each one's error is the
-spread of the replicas' means, or the run's own where that is larger, as
-`batch/aggregate.py` gives a replica's (`replica_error`), and the page says
-so; where the study's record of its runs was not read, whether they are
+both recorded over time overlaid on production's clock, every chart on the
+card in one unit (ps under 1 ns; not overlaid where one is on frame numbers
+and the other on time), production's energies, temperature and density
+among them. A thermodynamic quantity whose analysis ran and gave no mean is
+said not determined, with why; where the analysis's record was not read,
+its means are said not read, never taken from the energy file instead. Two
+runs of a study of replicas (runs that differ only by seed) are repeats of
+one measurement: each one's error is the spread of the replicas' means, or
+the run's own where that is larger, as `batch/aggregate.py` gives a
+replica's (`replica_error`); the columns give the error used, each
+difference says whether it was the replicas' spread or the runs' own, and
+the page says how many of the runs' means each spread was taken over ("from
+2 of the 3 runs") where fewer than all recorded it. A finished run its
+study's manifest places outside the study is named and left out, not looked
+for. Where one of the two did not finish, the spread is not its error: each
+difference is set against the runs' own errors, and the page says why;
+where the study's record of its runs was not read, whether they are
 replicas is said not known. **Play them beside in the Viewer**
 opens the first in the Viewer with the second played beside it (Compare
 study, below). It opens from All studies (two chosen), from a study of

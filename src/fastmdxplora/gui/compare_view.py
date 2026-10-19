@@ -19,6 +19,7 @@ a record the study does not have.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -39,7 +40,14 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
     said = {"ok": True, **sides_compared(sides[0]["compared"], sides[1]["compared"],
                                          replicas.get("errors"))}
     if replicas.get("errors"):
-        said["replicas"] = {"runs": replicas["runs"], "why": replicas["why"]}
+        _the_replicas_said(said, replicas)
+    elif replicas.get("unfinished"):
+        names = " and ".join(places[i]["where"]["said"] for i in replicas["unfinished"])
+        said["replicas_not_used"] = (
+            f"These are runs that differ only by random seed, but {names} did not finish: the "
+            "spread of the finished runs' means is the error of a run that went its full "
+            "length, not of one that ended early. Each difference is set against the errors "
+            "the two runs estimated for themselves, which replicas can show too tight.")
     elif replicas.get("unknown"):
         said["replicas_unknown"] = (
             f"Whether these two runs are replicas is not known: {places[0]['study']}'s "
@@ -61,6 +69,13 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
         *(_not_read_said(place["study"], place, replicas if index == 0 else {})
           for index, (_, place) in enumerate(studies)),
     ) if line]
+    outside = replicas.get("outside") or []
+    if outside:
+        not_read.append(f"{places[0]['study']}: " + ", ".join(outside) + ": "
+                        + ("its" if len(outside) == 1 else "their")
+                        + " manifest places " + ("it" if len(outside) == 1 else "them")
+                        + " outside the study, so " + ("it was" if len(outside) == 1 else "they were")
+                        + " not read and not counted among the replicas.")
     if not_read:
         said["not_read"] = " ".join(not_read)
     return said
@@ -74,7 +89,15 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
     the means of the study's finished runs, or the run's own error where
     that is larger), read held to the study. Two repeats of one
     measurement differ by its error, which the spread of the repeats
-    measures and each run's own estimate can understate. Empty for two
+    measures and each run's own estimate can understate.
+
+    With ``errors``: ``runs``, the finished runs; ``counts``, by quantity,
+    how many of them recorded the mean its spread is taken over; and
+    ``kinds``, by quantity, which error each of the two has ("spread" or
+    "own", where the run's own is larger). ``unfinished``: the two are
+    replicas but one of them did not finish, so the spread is not used.
+    ``outside``: finished runs its manifest places outside the study, left
+    out unread (named by their place, never looked for). Empty for two
     studies, for two runs of a sweep of anything else, and where the
     study's records were not read."""
     study = places[0].get("study_path")
@@ -95,28 +118,61 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
             return {"unknown": True}
         if not replicas:
             return {}
-        # Both of the two among the replicas that finished, or neither is
-        # set against their spread.
-        try:
-            folders = {member.resolve() for member in members}
-            if not {a.resolve(), b.resolve()} <= folders:
-                return {}
-        except OSError:
-            return {}
-        means = [means_of(member) for member in members]
+        # Each finished run by its place in the study, without following a
+        # link or looking outside it: one its manifest places elsewhere is
+        # named, and left out.
+        kept: list[Path] = []
+        outside: list[str] = []
+        for run_id, member in members:
+            try:
+                kept.append(Path(os.path.abspath(member)).relative_to(inside))
+            except ValueError:
+                outside.append(f"runs/{run_id or member.name}")
+        finished = {run_id for run_id, _ in members}
+        unfinished = [i for i, run in enumerate((a, b)) if run.name not in finished]
+        if unfinished:
+            # A run that stopped or failed is a shorter measurement than
+            # those the spread is taken over: their spread is not its error.
+            return {"unfinished": unfinished, "outside": outside}
+        means = [means_of(inside / place) for place in kept]
         errors: dict[str, tuple[float, float]] = {}
+        kinds: dict[str, tuple[str, str]] = {}
+        counts: dict[str, int] = {}
         for name in wanted:
             values = [(m.get(name) or {}).get("mean") for m in means]
             values = [v for v in values if v is not None]
             own = [sides[i]["compared"]["means"][name]["error"] for i in (0, 1)]
             pair = [replica_error(values, own[i]) for i in (0, 1)]
-            if None not in pair:
+            spread = replica_error(values, None)
+            if None not in pair and spread is not None:
                 errors[name] = (pair[0], pair[1])
-        return {"errors": errors, "runs": len(members), "why": why}
+                kinds[name] = tuple("own" if own[i] is not None and own[i] > spread else "spread"
+                                    for i in (0, 1))
+                counts[name] = len(values)
+        return {"errors": errors, "kinds": kinds, "counts": counts, "runs": len(members),
+                "why": why, "outside": outside}
 
     from fastmdxplora.gui.server import _confined
 
     return _confined(Path(study), read)
+
+
+def _the_replicas_said(said: dict[str, Any], replicas: dict[str, Any]) -> None:
+    """Each difference between two replicas marked with the error it was
+    set against: the replicas' spread where that is each one's error, each
+    run's own where that was the larger, and how many of the runs' means
+    the spread was taken over."""
+    kinds, counts = replicas.get("kinds") or {}, replicas.get("counts") or {}
+    for row in said.get("measures") or ():
+        versus, name = row.get("versus"), row.get("analysis")
+        if not versus or name not in kinds:
+            continue
+        mine = list(kinds[name])
+        versus["error_kinds"] = mine
+        versus["error_of"] = ("replicas" if mine == ["spread", "spread"]
+                              else "own" if mine == ["own", "own"] else "mixed")
+        versus["from_runs"] = counts.get(name)
+    said["replicas"] = {"runs": replicas["runs"], "why": replicas["why"]}
 
 
 def _both_measured(sides: list[dict[str, Any]]) -> dict[str, bool]:

@@ -359,6 +359,107 @@ def test_two_replicas_are_set_against_the_replicas_spread_not_their_own_errors(t
     assert said["replicas"]["runs"] == 3
 
 
+def _mean_of(run: Path, name: str, mean: float, error: float) -> None:
+    (run / "analysis" / name / "options.json").write_text(json.dumps({
+        "analysis": name, "options": {},
+        "findings": {"mean": {"mean": mean, "standard_error": error, "n_frames": 400,
+                              "effective_samples": 100.0, "discard": 0}}}), encoding="utf-8")
+
+
+def test_a_replicas_spread_is_said_from_the_runs_that_recorded_it(tmp_path):
+    """Seed 3 recorded no RMSD: its spread is of two means, not of the 3
+    runs' the note said; and RMSD's error is each run's own, larger than
+    the spread, where "(replicas' spread)" marked it."""
+    from fastmdxplora.batch.aggregate import replica_error
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    first, second, third = _runs(study)
+    (third / "analysis" / "rmsd" / "options.json").unlink()
+    # Rg: each run's own error ten times the spread of the three means.
+    for run, mean in ((first, 1.200), (second, 1.202), (third, 1.204)):
+        _mean_of(run, "rg", mean, 0.02)
+    said = compared(first, second)
+    rows = {m["analysis"]: m for m in said["measures"]}
+    rmsd, rg = rows["rmsd"]["versus"], rows["rg"]["versus"]
+    means = [rows["rmsd"]["first"]["mean"], rows["rmsd"]["second"]["mean"]]
+    assert rmsd["from_runs"] == 2 and said["replicas"]["runs"] == 3
+    assert rmsd["errors"][0] == pytest.approx(replica_error(means, rows["rmsd"]["first"]["error"]))
+    assert rmsd["error_of"] == "replicas"
+    assert rg["from_runs"] == 3
+    assert rg["errors"] == pytest.approx([0.02, 0.02]) and rg["error_of"] == "own"
+
+    def look(page, url):
+        place = (urllib.parse.quote(str(first), safe="") + "|"
+                 + urllib.parse.quote(str(second), safe=""))
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("""() => ({
+            note: document.querySelector('.compare-replicas').textContent,
+            rg: [...document.querySelectorAll(
+                '.compare-means-table tr[data-analysis="rg"] td')].map((n) => n.textContent),
+        })""")
+
+    shown = _browse(study, look)
+    assert "rmsd from 2 of the 3 runs" in shown["note"].lower(), shown["note"]
+    assert "the spread of the 3 runs' means" not in shown["note"]
+    assert shown["rg"][3].endswith("(each run's own error, larger than the replicas' spread)")
+    assert "replicas' spread)" not in shown["rg"][3].replace("larger than the replicas' spread)", "")
+
+
+def test_two_replicas_one_of_which_did_not_finish_say_which_error_is_used(tmp_path):
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    first, second, _ = _runs(study)
+    manifest = json.loads((study / "batch_manifest.json").read_text(encoding="utf-8"))
+    manifest["runs"][1]["status"] = "failed"
+    (study / "batch_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    said = compared(first, second)
+    rmsd = next(m for m in said["measures"] if m["analysis"] == "rmsd")
+    assert "error_of" not in rmsd["versus"] and "replicas" not in said
+    assert said["replicas_not_used"].startswith(
+        "These are runs that differ only by random seed, but study, seed 2 did not finish")
+    assert "errors the two runs estimated for themselves" in said["replicas_not_used"]
+
+
+def test_a_replica_its_manifest_places_outside_the_study_is_named_not_looked_for(tmp_path,
+                                                                                  monkeypatch):
+    import os
+
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    first, second, third = _runs(study)
+    elsewhere = tmp_path / "elsewhere" / "runs" / third.name
+    shutil.move(str(third), str(elsewhere))
+    _mean_of(elsewhere, "rmsd", 777.0, 0.01)
+    manifest = json.loads((study / "batch_manifest.json").read_text(encoding="utf-8"))
+    manifest["runs"][2]["output_dir"] = str(elsewhere)
+    (study / "batch_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    looked: list[str] = []
+    for name in ("stat", "lstat"):
+        real = getattr(os, name)
+
+        def watched(path, *args, _real=real, **kwargs):
+            if str(os.fspath(path)).startswith(str(tmp_path / "elsewhere")):
+                looked.append(str(path))
+            return _real(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, name, watched)
+    said = compared(first, second)
+    monkeypatch.undo()
+    assert looked == []
+    rmsd = next(m for m in said["measures"] if m["analysis"] == "rmsd")
+    assert rmsd["versus"]["from_runs"] == 2 and said["replicas"]["runs"] == 3
+    assert (f"study: runs/{third.name}: its manifest places it outside the study, so it was "
+            "not read and not counted among the replicas.") in said["not_read"]
+    assert "an unavailable record" not in said["not_read"]
+
+
 def test_two_runs_of_a_sweep_keep_their_own_errors(variants):
     from fastmdxplora.gui.compare_view import compared
 
@@ -464,6 +565,46 @@ def test_every_series_on_the_card_is_said_on_one_clock_legibly_on_a_phone(varian
     assert said[390]["smallest"] >= 9, said[390]
 
 
+def test_a_thermodynamics_record_not_read_is_said_not_read_not_taken_from_energy_csv(
+        variants, tmp_path):
+    from fastmdxplora.gui.compare_view import compared
+
+    first, second = _runs(variants)
+    for run, potential in ((first, -1000.0), (second, -1100.0)):
+        _energies(run, potential)
+    record = first / "analysis" / "thermodynamics" / "options.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text("{}", encoding="utf-8")
+    _linked_out(record, tmp_path / "elsewhere" / "options.json", {"findings": {"thermodynamics": {
+        "potential_energy": {"mean": 777.0, "standard_error": 1.0}}}})
+    said = compared(first, second)
+    potential = next(m for m in said["measures"] if m["analysis"] == "potential_energy")
+    assert potential["first"]["not_read"] is True and potential["first"]["mean"] is None
+    assert "versus" not in potential
+    assert "analysis/thermodynamics/options.json" in said["not_read"]
+
+
+def test_thermodynamics_that_gave_no_mean_is_said_not_determined_not_unrecorded(variants):
+    from fastmdxplora.gui.compare_view import compared
+
+    first, second = _runs(variants)
+    for run, potential in ((first, -1000.0), (second, -1100.0)):
+        _energies(run, potential)
+    why = "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+    record = first / "analysis" / "thermodynamics" / "options.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"analysis": "thermodynamics", "findings": {"thermodynamics": {
+        "samples": 2, "potential_energy": {"units": "kJ/mol", "not_a_measurement": why},
+        "temperature": {"units": "K", "not_a_measurement": why}}}}), encoding="utf-8")
+    said = compared(first, second)
+    rows = {m["analysis"]: m for m in said["measures"]}
+    for key in ("potential_energy", "temperature"):
+        assert rows[key]["first"]["mean"] is None and rows[key]["first"]["withheld"] == why
+        assert "versus" not in rows[key]
+
+
+# ---------------------------------------------------------------------------
+# A run whose Manifest was not read is not said to stand anywhere.
 # ---------------------------------------------------------------------------
 # A run whose Manifest was not read is not said to stand anywhere.
 
@@ -498,6 +639,15 @@ def test_the_page_on_a_phone_breaks_no_word_and_says_the_replicas_error(tmp_path
     (second / "resolved_config.yml").write_text(
         (second / "resolved_config.yml").read_text(encoding="utf-8")
         + "setup:\n  random_seed: 7\n", encoding="utf-8")
+    # The first's thermodynamics ran and gave no mean, and said why.
+    for run, potential in ((first, -1000.0), (second, -1100.0)):
+        _energies(run, potential)
+    record = first / "analysis" / "thermodynamics" / "options.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"analysis": "thermodynamics", "findings": {"thermodynamics": {
+        "samples": 2, "temperature": {"units": "K", "not_a_measurement":
+                                      "2 usable frame(s): there is nothing to average"}}}}),
+        encoding="utf-8")
     place = urllib.parse.quote(str(first), safe="") + "|" + urllib.parse.quote(str(second), safe="")
 
     def look(page, url):
@@ -505,8 +655,10 @@ def test_the_page_on_a_phone_breaks_no_word_and_says_the_replicas_error(tmp_path
         page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
         page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
         return page.evaluate("""() => {
+            // Every cell shown, its values too: "record/ed", "determ/ined".
             const words = [...document.querySelectorAll(
-                '.compare-means-table th, .compare-settings-table td.compare-setting')];
+                '.compare-means-table th, .compare-means-table td, .compare-settings-table td')]
+                .filter((n) => n.getClientRects().length);
             return {
                 broken: words.filter((n) => n.textContent.split(/[ ._]/).some((w) => {
                     const probe = document.createElement('span');
@@ -522,6 +674,11 @@ def test_the_page_on_a_phone_breaks_no_word_and_says_the_replicas_error(tmp_path
                 })).map((n) => n.textContent),
                 sideways: document.documentElement.scrollWidth > window.innerWidth,
                 note: (document.querySelector('.compare-replicas') || {}).textContent || '',
+                cells: words.length,
+                temperature: [...document.querySelectorAll(
+                    '.compare-means-table tr[data-analysis="temperature"] td')]
+                    .map((n) => n.textContent),
+                noMean: (document.querySelector('.compare-no-mean') || {}).textContent || '',
                 errorOf: document.querySelector(
                     '.compare-means-table tr[data-analysis="rmsd"] td:last-child').dataset.errorOf,
                 small: window.FastMDXCompare.withError
@@ -532,6 +689,10 @@ def test_the_page_on_a_phone_breaks_no_word_and_says_the_replicas_error(tmp_path
     said = _browse(study, look)
     assert said["sideways"] is False
     assert said["broken"] == [], said
+    assert said["cells"] > 12
+    assert said["temperature"][1] == "not determined"
+    assert said["noMean"] == ("Not determined, no mean: study, seed 1, temperature: "
+                              "2 usable frame(s): there is nothing to average.")
     assert said["errorOf"] == "replicas"
     assert said["note"].startswith("These are two of 3 runs that differ only by random seed")
     # An error below a millionth said in its powers of ten, never 0.000000.

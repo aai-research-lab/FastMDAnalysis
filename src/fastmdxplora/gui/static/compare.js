@@ -47,13 +47,34 @@
     return said + (unit ? " " + unit : "");
   }
 
-  function meanSaid(record) {
+  /* A mean as the comparison sets it: with the error the difference is
+   * set against where that is not its own (two replicas: the replicas'
+   * spread). */
+  function meanSaid(record, error) {
     if (!record) return "not recorded";
     // Its record was not read (compare_view.py): said so, never as a study
     // that recorded no mean.
     if (record.not_read) return "not read";
+    // Its analysis ran and gave no mean, and said why (below the table).
+    if (record.mean == null && record.withheld) return "not determined";
     if (record.withheld) return withError(record.mean, null, record.unit) + ", not determined";
-    return withError(record.mean, record.error, record.unit);
+    return withError(record.mean, error != null ? error : record.error, record.unit);
+  }
+
+  /* What the error of a difference between two replicas is, by which
+   * error each of the two has (compare_view.py). */
+  var ERROR_OF = {
+    replicas: " (replicas' spread)",
+    own: " (each run's own error, larger than the replicas' spread)",
+    mixed: " (the replicas' spread, or a run's own error where larger)",
+  };
+
+  /* A cell of a table, with the column it is in for a phone, where the
+   * table is laid out one quantity under another. */
+  function cell(cls, text, label) {
+    var node = make("td", cls, text);
+    if (label) node.dataset.label = label;
+    return node;
   }
 
   /* A setting's name, a line allowed to break after each dot and
@@ -218,7 +239,7 @@
       host.appendChild(make("p", "muted small", "None: they asked for the same study."));
     } else {
       var table = make("table", "kv-table compare-settings-table");
-      var top = make("tr");
+      var top = make("tr", "compare-head-row");
       ["Setting", data.first.said, data.second.said].forEach(function (label) {
         top.appendChild(make("th", "", label));
       });
@@ -227,8 +248,8 @@
         var row = make("tr");
         if (i >= SHOWN_FIRST) row.hidden = true;
         row.appendChild(settingName(d.setting));
-        row.appendChild(make("td", "mono", settingSaid(d.first)));
-        row.appendChild(make("td", "mono", settingSaid(d.second)));
+        row.appendChild(cell("mono", settingSaid(d.first), data.first.said));
+        row.appendChild(cell("mono", settingSaid(d.second), data.second.said));
         table.appendChild(row);
       });
       host.appendChild(table);
@@ -262,31 +283,47 @@
       return;
     }
     var table = make("table", "kv-table compare-means-table");
-    var top = make("tr");
+    var top = make("tr", "compare-head-row");
     ["Quantity", data.first.said, data.second.said, "Difference"].forEach(function (label) {
       top.appendChild(make("th", "", label));
     });
     table.appendChild(top);
+    var noMean = [];
     found.forEach(function (m) {
       var row = make("tr");
       row.dataset.analysis = m.analysis;
-      row.appendChild(make("td", "", m.label || m.analysis));
-      row.appendChild(make("td", "mono", meanSaid(m.first)));
-      row.appendChild(make("td", "mono", meanSaid(m.second)));
-      var cell = make("td", "mono");
+      row.appendChild(cell("compare-quantity", m.label || m.analysis));
+      var used = m.versus && m.versus.errors ? m.versus.errors : [null, null];
+      [m.first, m.second].forEach(function (side, i) {
+        var said = i ? data.second.said : data.first.said;
+        var node = cell("mono", meanSaid(side, used[i]), said);
+        if (used[i] != null && side && side.error != null && used[i] !== side.error) {
+          node.title = "Its own error: " + withError(side.error, null, m.unit);
+        }
+        row.appendChild(node);
+        if (side && side.mean == null && side.withheld) {
+          noMean.push(said + ", " + (m.label || m.analysis).toLowerCase() + ": " + side.withheld);
+        }
+      });
+      var difference = cell("mono", "", "Difference");
       if (m.versus) {
-        cell.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
+        difference.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
           (m.versus.resolved ? ", resolved" : ", within the errors") +
-          (m.versus.error_of === "replicas" ? " (replicas' spread)" : "");
-        if (m.versus.error_of) cell.dataset.errorOf = m.versus.error_of;
+          (ERROR_OF[m.versus.error_of] || "");
+        if (m.versus.error_of) difference.dataset.errorOf = m.versus.error_of;
         if (m.versus.resolved) row.classList.add("is-resolved");
       } else {
-        cell.textContent = "not compared";
+        difference.textContent = "not compared";
       }
-      row.appendChild(cell);
+      row.appendChild(difference);
       table.appendChild(row);
     });
     host.appendChild(table);
+    if (noMean.length) {
+      // An analysis that ran and gave no mean says why (overview_view.py).
+      host.appendChild(make("p", "muted small compare-no-mean",
+        "Not determined, no mean: " + noMean.join("; ") + "."));
+    }
     host.appendChild(make("p", "muted small",
       "The difference is the second's mean less the first's. It is resolved past " +
       data.resolved_at + " times the two's combined standard error. A mean an analysis " +
@@ -294,14 +331,33 @@
     if (data.replicas) {
       // Two repeats of one measurement (batch/aggregate.py): their spread
       // is its error, and each run's own estimate can understate it.
+      host.appendChild(make("p", "muted small compare-replicas", replicasSaid(data)));
+    } else if (data.replicas_not_used || data.replicas_unknown) {
       host.appendChild(make("p", "muted small compare-replicas",
-        "These are two of " + data.replicas.runs + " runs that differ only by random seed: " +
-        "repeats of one measurement. Each mean's error is the spread of the " +
-        data.replicas.runs + " runs' means, or the run's own where that is larger, as the " +
-        "study's replicas are aggregated; marked \u201creplicas' spread\u201d."));
-    } else if (data.replicas_unknown) {
-      host.appendChild(make("p", "muted small compare-replicas", data.replicas_unknown));
+                            data.replicas_not_used || data.replicas_unknown));
     }
+  }
+
+  /* The replicas' note: how many runs each spread was taken over, where
+   * fewer than all of them recorded a mean ("from 2 of the 3 runs"). */
+  function replicasSaid(data) {
+    var n = data.replicas.runs;
+    var fewer = {}, every = false;
+    (data.measures || []).forEach(function (m) {
+      var k = m.versus && m.versus.from_runs;
+      if (k != null && k < n) (fewer[k] = fewer[k] || []).push((m.label || m.analysis).toLowerCase());
+      if (k === n) every = true;
+    });
+    var counts = Object.keys(fewer).map(Number).sort(function (a, b) { return b - a; });
+    var spread = counts.length
+      ? "the spread of the runs' means that recorded it (" + counts.map(function (k) {
+          return fewer[k].join(", ") + " from " + k + " of the " + n + " runs";
+        }).join("; ") + (every ? "; the others from all " + n : "") + ")"
+      : "the spread of the " + n + " runs' means";
+    return "These are two of " + n + " runs that differ only by random seed: repeats of one " +
+      "measurement. Each mean's error, as the columns give it, is " + spread + ", or the run's " +
+      "own where that is larger, as the study's replicas are aggregated; each difference says " +
+      "which it was set against.";
   }
 
   function colourOf(i) {
