@@ -1,0 +1,1 @@
+{"analysis": "rmsd", "options": {}, "findings": {"mean": {"discard": 40, "statistical_inefficiency": 1.0055865921787708, "effective_samples": 358.00000000000006, "mean": 0.16000529429315674, "standard_error": 0.0001074965164073924, "standard_deviation": 0.002033929539640317, "degrees_of_freedom": 120.0, "rules": 2, "n_frames": 400, "unit": "nm"}}}

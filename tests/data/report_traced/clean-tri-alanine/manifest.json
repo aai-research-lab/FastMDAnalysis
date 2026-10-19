@@ -1,0 +1,223 @@
+{
+  "tool": "FastMDXplora",
+  "version": "0.1.0",
+  "source": {
+    "commit": "be6ea867cb0b",
+    "dirty": false
+  },
+  "environment": {
+    "mdtraj": "1.11.1.post2",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "openmm": "8.6.1",
+    "pdbfixer": "1.12.0",
+    "rdkit": "2026.09.1",
+    "openff.toolkit": null,
+    "openmmforcefields": null,
+    "openmmplumed": null,
+    "propka": null,
+    "sklearn": "1.9.1",
+    "pandas": "3.0.6",
+    "matplotlib": "3.11.2",
+    "am1bcc": null,
+    "ambertools": null,
+    "plumed": null,
+    "python": "3.11.17",
+    "platform": "linux"
+  },
+  "doi": "10.1002/jcc.70350",
+  "citation": "Aina, A.; Kwan, D. FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories. J. Comput. Chem. 2026, 47, e70350. DOI: 10.1002/jcc.70350",
+  "system": "/tmp/D/real/tri-ala.pdb",
+  "output_dir": "/tmp/D/ws/clean-tri-alanine",
+  "phases": [
+    {
+      "name": "setup",
+      "status": "ok",
+      "output_dir": "/tmp/D/ws/clean-tri-alanine/setup",
+      "started_at": "2026-10-18T03:26:16.499345+00:00",
+      "finished_at": "2026-10-18T03:26:17.204120+00:00",
+      "message": "Phase 'setup' completed.",
+      "artifacts": [
+        "input.pdb",
+        "prepared.pdb",
+        "solvated.pdb",
+        "topology.pdb",
+        "system.xml",
+        "state.xml",
+        "setup_parameters.json"
+      ],
+      "produced_by": {
+        "version": "0.1.0",
+        "host": "vm",
+        "environment": {
+          "mdtraj": "1.11.1.post2",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "openmm": "8.6.1",
+          "pdbfixer": "1.12.0",
+          "rdkit": null,
+          "openff.toolkit": null,
+          "openmmforcefields": null,
+          "openmmplumed": null,
+          "propka": null,
+          "sklearn": "1.9.1",
+          "pandas": "3.0.6",
+          "matplotlib": "3.11.2",
+          "am1bcc": null,
+          "ambertools": null,
+          "plumed": null,
+          "python": "3.11.17",
+          "platform": "linux"
+        }
+      }
+    },
+    {
+      "name": "simulation",
+      "status": "ok",
+      "output_dir": "/tmp/D/ws/clean-tri-alanine/simulation",
+      "started_at": "2026-10-18T03:26:17.206844+00:00",
+      "finished_at": "2026-10-18T03:27:58.710714+00:00",
+      "message": "Phase 'simulation' completed.",
+      "artifacts": [
+        "production.dcd",
+        "topology.pdb",
+        "state_final.xml",
+        "energy.csv",
+        "simulation.log",
+        "state_minimized.xml",
+        "simulation_parameters.json"
+      ],
+      "produced_by": {
+        "version": "0.1.0",
+        "host": "vm",
+        "environment": {
+          "mdtraj": "1.11.1.post2",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "openmm": "8.6.1",
+          "pdbfixer": "1.12.0",
+          "rdkit": null,
+          "openff.toolkit": null,
+          "openmmforcefields": null,
+          "openmmplumed": null,
+          "propka": null,
+          "sklearn": "1.9.1",
+          "pandas": "3.0.6",
+          "matplotlib": "3.11.2",
+          "am1bcc": null,
+          "ambertools": null,
+          "plumed": null,
+          "python": "3.11.17",
+          "platform": "linux"
+        }
+      }
+    },
+    {
+      "name": "analysis",
+      "status": "ok",
+      "output_dir": "/tmp/D/ws/clean-tri-alanine/analysis",
+      "started_at": "2026-10-18T03:27:58.712432+00:00",
+      "finished_at": "2026-10-18T03:27:59.759836+00:00",
+      "message": "Phase 'analysis' completed.",
+      "artifacts": [
+        "rmsd/rmsd.dat",
+        "rmsd/rmsd.png",
+        "rmsd/rmsd.svg",
+        "rmsd/options.json",
+        "thermodynamics/thermodynamics.dat",
+        "thermodynamics/thermodynamics.png",
+        "thermodynamics/thermodynamics.svg",
+        "thermodynamics/options.json",
+        "analysis_manifest.json"
+      ],
+      "produced_by": {
+        "version": "0.1.0",
+        "host": "vm",
+        "environment": {
+          "mdtraj": "1.11.1.post2",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "openmm": "8.6.1",
+          "pdbfixer": "1.12.0",
+          "rdkit": null,
+          "openff.toolkit": null,
+          "openmmforcefields": null,
+          "openmmplumed": null,
+          "propka": null,
+          "sklearn": "1.9.1",
+          "pandas": "3.0.6",
+          "matplotlib": "3.11.2",
+          "am1bcc": null,
+          "ambertools": null,
+          "plumed": null,
+          "python": "3.11.17",
+          "platform": "linux"
+        }
+      }
+    },
+    {
+      "name": "report",
+      "status": "ok",
+      "output_dir": "/tmp/D/ws/clean-tri-alanine/report",
+      "started_at": "2026-10-18T03:27:59.762091+00:00",
+      "finished_at": "2026-10-18T03:28:01.762713+00:00",
+      "message": "Phase 'report' completed.",
+      "artifacts": [
+        "analysis_summary.png",
+        "analysis_summary.svg",
+        "analysis_summary_manifest.json",
+        "report.md",
+        "slides_outline.md",
+        "slides.pptx",
+        "dashboard.html",
+        "project_bundle.zip",
+        "not_produced.json"
+      ],
+      "produced_by": {
+        "version": "0.1.0",
+        "host": "vm",
+        "environment": {
+          "mdtraj": "1.11.1.post2",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "openmm": "8.6.1",
+          "pdbfixer": "1.12.0",
+          "rdkit": "2026.09.1",
+          "openff.toolkit": null,
+          "openmmforcefields": null,
+          "openmmplumed": null,
+          "propka": null,
+          "sklearn": "1.9.1",
+          "pandas": "3.0.6",
+          "matplotlib": "3.11.2",
+          "am1bcc": null,
+          "ambertools": null,
+          "plumed": null,
+          "python": "3.11.17",
+          "platform": "linux"
+        }
+      }
+    }
+  ],
+  "options": {
+    "setup": {
+      "ph": 7.0,
+      "solvent_padding_nm": 1.2,
+      "nonbonded_cutoff_nm": 0.9
+    },
+    "simulation": {
+      "platform": "CPU",
+      "production_steps": 20000,
+      "nvt_steps": 200,
+      "npt_steps": 200,
+      "timestep_fs": 2,
+      "trajectory_interval_steps": 100
+    },
+    "analysis": {
+      "include": [
+        "thermodynamics",
+        "rmsd"
+      ]
+    }
+  }
+}

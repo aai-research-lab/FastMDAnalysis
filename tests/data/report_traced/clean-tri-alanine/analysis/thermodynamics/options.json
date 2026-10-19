@@ -1,0 +1,89 @@
+{
+  "analysis": "thermodynamics",
+  "class": "Thermodynamics",
+  "selection": null,
+  "options": {
+    "state_csv": null
+  },
+  "findings": {
+    "thermodynamics": {
+      "source": "/tmp/D/ws/clean-tri-alanine/simulation/energy.csv",
+      "samples": 20,
+      "ensemble": "constant pressure",
+      "density": {
+        "units": "g/mL",
+        "discard": 2,
+        "statistical_inefficiency": 1.125,
+        "effective_samples": 16.0,
+        "mean": 0.9988588720203767,
+        "standard_error": 0.0024857197055781948,
+        "standard_deviation": 0.009942878822312779,
+        "degrees_of_freedom": 6.0,
+        "rules": 2
+      },
+      "potential_energy": {
+        "units": "kJ/mol",
+        "discard": 1,
+        "statistical_inefficiency": 1.4844857340064168,
+        "effective_samples": 12.799045194406611,
+        "mean": -19798.34214913949,
+        "standard_error": 42.519208923753204,
+        "standard_deviation": 152.11567261495568,
+        "degrees_of_freedom": 6.666666666666667,
+        "rules": 2
+      },
+      "kinetic_energy": {
+        "units": "kJ/mol",
+        "discard": 2,
+        "statistical_inefficiency": 1.3446102949388725,
+        "effective_samples": 13.386778360802525,
+        "mean": 3517.596671307164,
+        "standard_error": 28.275500947215836,
+        "standard_deviation": 103.45425186197104,
+        "degrees_of_freedom": 6.666666666666667,
+        "rules": 2
+      },
+      "total_energy": {
+        "units": "kJ/mol",
+        "discard": 4,
+        "statistical_inefficiency": 1.683868636538247,
+        "effective_samples": 9.501928863580078,
+        "mean": -16289.972734400832,
+        "standard_error": 65.82271110109177,
+        "standard_deviation": 202.89981609031926,
+        "degrees_of_freedom": 6.666666666666667,
+        "rules": 2,
+        "not_a_measurement": "9.5 independent samples in 16 frames (one every 2). Below 10 a mean and its error describe how this particular run happened to go rather than the system it was run on. The frames are correlated, so recording them more often will not help -- the run has to be longer.",
+        "shortfall": {
+          "target_independent": 10.0,
+          "independent": 9.501928863580078,
+          "statistical_inefficiency": 1.683868636538247,
+          "more_frames": 1,
+          "more_ns": 0.0019999999999997797
+        }
+      },
+      "temperature": {
+        "units": "K",
+        "discard": 2,
+        "statistical_inefficiency": 1.3446102949388725,
+        "effective_samples": 13.386778360802525,
+        "mean": 298.04130732551357,
+        "standard_error": 2.3957457477523634,
+        "standard_deviation": 8.765541747532641,
+        "degrees_of_freedom": 6.666666666666667,
+        "rules": 2
+      },
+      "volume": {
+        "units": "nm^3",
+        "discard": 2,
+        "statistical_inefficiency": 1.125,
+        "effective_samples": 16.0,
+        "mean": 14.229677935120248,
+        "standard_error": 0.03554402594008133,
+        "standard_deviation": 0.14217610376032533,
+        "degrees_of_freedom": 6.0,
+        "rules": 2
+      }
+    }
+  }
+}

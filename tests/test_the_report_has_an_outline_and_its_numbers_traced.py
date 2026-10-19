@@ -7,8 +7,9 @@ them, the one being read marked; and a number given with a unit, an
 error, a percent or what it counts, or with a decimal point, opens the
 record it was traced to: the file, the place in it, the value as
 recorded and, where the report gives it in other units, as it gives it.
-A number no record holds is said so, with the nearest of its kind, and
-the records written again since the report are named: a report written
+A number no record was traced to is said so, one more than one record
+holds names them all, and a record whose value a number was traced to
+when the report was first read, changed since, is named: a report written
 before its analyses were run again says numbers they no longer hold.
 """
 
@@ -48,7 +49,7 @@ The prepared system contained 7,439 atoms and was simulated for 20 ps at 26.85 \
 | RMSD | 0.07990 |
 | Rg | 1.3 |
 
-At least 50 ps more production would determine it. The run lasted 50 ps.
+At least 50 ps more production would determine the RMSD. The run lasted 50 ps.
 """
 
 
@@ -74,15 +75,20 @@ def study(tmp_path) -> Path:
         json.dumps({"n_atoms_solvated": 7439}), encoding="utf-8")
     (root / "resolved_config.yml").write_text(
         "simulation:\n  duration_ns: 0.02\n  temperature_K: 300.0\n", encoding="utf-8")
-    # Everything as it was when the report was written, but the Rg
-    # analysed again after it.
-    written = (root / "report" / "report.md").stat().st_mtime
-    for path in root.rglob("*"):
-        if path.is_file():
-            os.utime(path, (written - 60, written - 60))
-    os.utime(root / "report" / "report.md", (written, written))
-    os.utime(root / "analysis" / "rg" / "options.json", (written + 60, written + 60))
     return root
+
+
+@pytest.fixture(autouse=True)
+def _own_cache(monkeypatch, tmp_path):
+    # What a report's numbers traced to when it was first read is kept in
+    # the user's cache folder.
+    monkeypatch.setenv("FASTMDXPLORA_CACHE_DIR", str(tmp_path / "cache"))
+
+
+def _analysed_again(study, mean=1.3):
+    """The Rg analysed again after the report was first read."""
+    (study / "analysis" / "rg" / "options.json").write_text(
+        json.dumps(_findings(mean, 22.0)), encoding="utf-8")
 
 
 def _payload(study):
@@ -123,23 +129,28 @@ def test_each_number_is_traced_to_its_record_in_the_unit_the_report_gives(study)
     assert numbers["0.07990"][0]["record"]["file"] == "analysis/rmsd/options.json"
 
 
-def test_a_number_no_record_holds_is_said_so_with_the_nearest(study):
+def test_a_number_no_record_holds_is_said_so(study):
     said = _payload(study)
     numbers = _by_said(said["numbers"])
     # The RMSD's mean, said under the Rg: not the Rg's record, and no other
     # analysis's.
     elsewhere = numbers["0.0799 nm"][0]
-    assert elsewhere["traced"] is False
+    assert elsewhere["traced"] is False and not elsewhere.get("candidates")
     invented = numbers["1.3"][0]
-    assert invented["traced"] is False
-    assert invented["nearest"]["file"] == "analysis/rg/options.json"
-    assert invented["nearest"]["key"] == "findings.mean.mean"
+    assert invented["traced"] is False and not invented.get("candidates")
     # What a run still needs is a record of what is missing: taken for "50
     # ps more", not for the 50 ps a run lasted.
     more, lasted = numbers["50 ps"]
     assert more["traced"] and more["record"]["key"] == "findings.mean.shortfall.more_ns"
     assert lasted["traced"] is False
+    assert said["records_changed"] == []
+    _analysed_again(study)
+    said = _payload(study)
     assert said["records_changed"] == ["analysis/rg/options.json"]
+    rg = _by_said(said["numbers"])["1.235 nm"][0]
+    assert rg["traced"] is False
+    assert rg["changed"] == {"file": "analysis/rg/options.json", "key": "findings.mean.mean",
+                             "then": 1.2345, "now": 1.3}
     # The marks are around the numbers alone, and nothing else changed; the
     # report as rendered is kept for the standalone page.
     assert 'data-traced="true" role="button" tabindex="0" aria-expanded="false">7,439</span> atoms' \
@@ -178,7 +189,7 @@ def test_a_record_linked_out_of_the_study_is_not_read_to_trace_a_number(study, t
         atoms = _by_said(said["numbers"])["7,439"][0]
         assert atoms["traced"] is False
         assert atoms["not_read"] == ["setup/setup_parameters.json"]
-        assert all((n.get("record") or n.get("nearest") or {}).get("file")
+        assert all((n.get("record") or {}).get("file")
                    != "setup/setup_parameters.json" for n in said["numbers"])
         assert "setup/setup_parameters.json" not in said["records_changed"]
         assert said["unavailable"] == ["setup/setup_parameters.json"]
@@ -212,6 +223,7 @@ LOOK = """() => ({
 def test_the_outline_is_beside_the_report_and_a_number_opens_its_record(study):
     pytest.importorskip("playwright.sync_api")
     _payload(study)
+    _analysed_again(study)
     from playwright.sync_api import sync_playwright
 
     from fastmdxplora.gui.server import start_dashboard_session
@@ -241,7 +253,7 @@ def test_the_outline_is_beside_the_report_and_a_number_opens_its_record(study):
             page.wait_for_selector(".report-number-card")
             traced = page.evaluate(LOOK)
             page.keyboard.press("Escape")
-            page.click('#report-document .report-number:text-is("0.0799")')
+            page.click('#report-document .report-number:text-is("1.235")')
             page.wait_for_selector('.report-number-card[data-traced="false"]')
             missing = page.evaluate(LOOK)
             page.keyboard.press("Escape")
@@ -261,12 +273,14 @@ def test_the_outline_is_beside_the_report_and_a_number_opens_its_record(study):
     assert first["numbered"] == ["1", "2", "2.1", "2.2", "3"]
     assert first["beside"] == "grid" and first["folded"] == "block"
     assert first["said"].startswith("8 of 11 numbers traced to a record")
-    assert "1 record changed after the report was written: analysis/rg/options.json" in first["said"]
+    assert ("1 record changed since this report was first read here: analysis/rg/options.json"
+            in first["said"])
     assert went["current"] == "3Convergence"
     assert "analysis/rmsd/options.json" in traced["card"] and "findings.mean.mean = 0.0799 nm" in traced["card"]
     assert "That is 0.799 \u00c5, as the report gives it." in traced["card"]
-    assert "No record of this study holds it." in missing["card"]
-    assert "analysis/rg/options.json was written again after the report" in missing["card"]
+    assert "No record traced." in missing["card"]
+    assert ("When this report was first read here, analysis/rg/options.json held "
+            "findings.mean.mean = 1.2345; it holds 1.3 now." in missing["card"])
     assert marked["marked"] == "true"
     assert (narrow["beside"], narrow["folded"]) == ("block", "none")
     assert opened["folded"] == "block"
@@ -305,6 +319,228 @@ def test_the_page_says_a_number_of_a_record_not_read_is_not_traced(study, tmp_pa
     assert errors == []
     assert said["card"].startswith("7,439×Not traced: setup/setup_parameters.json was not read, "
                                    "so whether it holds it is not known.")
-    assert "No record of this study holds it." not in said["card"]
-    assert "setup/setup_parameters.json was not read, so a number not traced may be one it holds." \
-        in said["said"]
+    assert "No record traced." not in said["card"]
+    assert ("setup/setup_parameters.json was not read, so 4 numbers are not traced: it may hold them."
+            in said["said"])
+
+
+#: Reports the software wrote, with the records they were written from: a
+#: tri-alanine run of all 13 analyses, one of RMSD and thermodynamics, and a
+#: comparison of two runs of a sweep (`tests/data/report_traced`).
+WRITTEN = Path(__file__).resolve().parent / "data" / "report_traced"
+
+
+def _written(tmp_path, name):
+    root = tmp_path / name
+    shutil.copytree(WRITTEN / name, root)
+    return root
+
+
+def _traced_in(root, report="report/report.md"):
+    from fastmdxplora.gui.report_numbers import traced_html
+    from fastmdxplora.gui.report_page import render_markdown
+
+    html, rendered = render_markdown((root / report).read_text(encoding="utf-8"))
+    if rendered != "html":
+        pytest.skip("the Markdown library is not installed")
+    return traced_html(html, root)[1]
+
+
+def _where(number):
+    record = number.get("record") or {}
+    return record.get("file"), record.get("key")
+
+
+def test_a_written_report_s_numbers_are_traced_only_to_records_that_hold_them(tmp_path):
+    """On reports the pipeline wrote, numbers were traced to records that
+    do not hold them: a 4 ps run to an atom index, 1.40 nm to a box
+    vector's part, 2 ps to an analysis's count of rules, a count of samples
+    that is a method's threshold to an analysis's, and a potential energy's
+    samples to the kinetic energy's; the record holding the run's length was
+    not seen (ns in the middle of `duration_ns_actual`)."""
+    tri = _by_said(_traced_in(_written(tmp_path, "tri")))
+    assert _where(tri["4 ps"][0]) == ("simulation/simulation_parameters.json", "duration_ns_actual")
+    assert _where(tri["1.40 nm"][0])[1] == "setup.solvent_padding_nm"
+    assert _where(tri["1.20 nm"][0])[1].endswith("solvent_padding_nm")
+    assert _where(tri["0.04 ps"][0]) == ("analysis/analysis_manifest.json",
+                                         "load_kwargs.saving_interval_ps")
+    # A threshold of the method ("at least 10 independent samples") and
+    # "34 frames hold ..." are no record's.
+    assert [n["traced"] for n in tri["10"]] == [False]
+    assert [n["traced"] for n in tri["34"]] == [False, False, False]
+    assert not any(n.get("candidates") for n in tri["10"] + tri["34"])
+    # In a section, its own analysis's record.
+    assert [_where(n)[0] for n in tri["66"]][:2] == ["analysis/rmsd/options.json",
+                                                     "analysis/rg/options.json"]
+    # Where more than one record holds it, each is said and none picked.
+    pressure = tri["1.0 bar"][0]
+    assert pressure["traced"] is False and len(pressure["candidates"]) == 2
+    clean = _by_said(_traced_in(_written(tmp_path, "clean-tri-alanine")))
+    assert _where(clean["40 ps"][0])[1] == "duration_ns_actual"
+    assert _where(clean["2 ps"][0]) == ("analysis/thermodynamics/options.json",
+                                        "findings.thermodynamics.total_energy.shortfall.more_ns")
+    assert "kinetic_energy" not in str(_where(clean["13"][0])[1])
+    for said in (tri, clean):
+        for number in (n for found in said.values() for n in found if n["traced"]):
+            record = number["record"]
+            # No list item (a box vector's part, an atom pair), and a number
+            # said with a unit only from a record that says one.
+            assert "[" not in record["key"], number
+            if number["said"].split(" ", 1)[1:] and not number["counts"]:
+                assert record["unit"], number
+
+
+def test_a_study_of_runs_traces_each_run_s_numbers_to_that_run(tmp_path):
+    """Run folders have hyphens (`s1__temperature-K-310`), the names rows
+    gave had not: no row named its run, and the 310 K run's mean was
+    traced to the 300 K run's record."""
+    numbers = _traced_in(_written(tmp_path, "sweep"), "comparison/comparison_report.md")
+    rows = [n for n in numbers if any(s.startswith("s1__") for s in n["subjects"])]
+    assert len(rows) == 10
+    for number in rows:
+        run = next(s for s in number["subjects"] if s.startswith("s1__"))
+        if number["said"] in ("300", "310"):
+            continue
+        assert number["traced"], number
+        assert number["record"]["file"].startswith(
+            "runs/" + run.replace("_k_", "-K-").replace("temperature_", "temperature-") + "/"), number
+    # Said of the change between them: each run's error, none picked.
+    error = _by_said(numbers)["0.00011 nm"][0]
+    assert error["traced"] is False
+    assert sorted(c["file"].split("/")[1] for c in error["candidates"]) == [
+        "s1__temperature-K-300", "s1__temperature-K-310"]
+
+
+def test_a_record_the_run_writes_again_unchanged_is_not_said_changed(tmp_path):
+    """The pipeline writes the manifest and the resolved Config after the
+    report, so every finished study said both had changed since, and Write
+    it again could not clear it. Only a value a number was traced to,
+    changed since the report was first read, is a change."""
+    from fastmdxplora.gui.report_page import report_payload
+
+    root = _written(tmp_path, "tri")
+    first = report_payload(root)
+    if first.get("rendered") != "html":
+        pytest.skip("the Markdown library is not installed")
+    for name in ("manifest.json", "resolved_config.yml"):
+        path = root / name
+        path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        later = (root / "report" / "report.md").stat().st_mtime + 3
+        os.utime(path, (later, later))
+    assert first["records_changed"] == []
+    assert report_payload(root)["records_changed"] == []
+    options = root / "analysis" / "rmsd" / "options.json"
+    record = json.loads(options.read_text(encoding="utf-8"))
+    record["findings"]["mean"]["mean"] = 0.0081
+    options.write_text(json.dumps(record), encoding="utf-8")
+    again = report_payload(root)
+    assert again["records_changed"] == ["analysis/rmsd/options.json"]
+    assert _by_said(again["numbers"])["0.0078 nm"][0]["changed"]["now"] == 0.0081
+
+
+KEYS = """() => {
+    const active = document.activeElement;
+    const doc = document.getElementById('report-document');
+    const card = document.querySelector('.report-number-card');
+    const box = card ? card.getBoundingClientRect() : null;
+    const cut = [...doc.querySelectorAll('table')].filter((t) => {
+        const r = t.getBoundingClientRect(), d = doc.getBoundingClientRect();
+        return r.right > d.right + 1 || t.scrollWidth > t.clientWidth + 1;
+    }).length;
+    return {
+        inCard: !!(card && card.contains(active)),
+        active: active ? (active.className || active.tagName) + ':' + (active.textContent || '').slice(0, 20) : '',
+        cardInView: box ? box.top >= 0 && box.bottom <= innerHeight : null, cardBox: box ? [box.top, box.bottom, innerHeight] : null,
+        mark: (document.querySelector('#report-outline .outline-mark') || {}).textContent || '',
+        pressed: (document.querySelector('#report-outline .outline-mark') || {
+            getAttribute: () => ''}).getAttribute('aria-pressed'),
+        marked: doc.dataset.marked || '',
+        cut, docWidth: doc.clientWidth,
+        layout: getComputedStyle(document.getElementById('report-layout')).display,
+        states: [...doc.querySelectorAll('.report-number')].reduce((a, n) => {
+            a[n.dataset.state] = (a[n.dataset.state] || 0) + 1; return a; }, {}),
+    };
+}"""
+
+
+def test_a_number_s_card_and_the_outline_are_reached_by_the_keyboard(tmp_path):
+    """A number's card opened by Enter left focus on the number and sat at
+    the report's end: Tab went on to the next numbers. Opened near the
+    window's foot it opened out of sight. A section chosen from the folded
+    outline left focus nowhere. Mark counted numbers whose record was not
+    read as no record's, and lost its state when the report was drawn
+    again. With the outline beside it the report's tables were cut."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_study_pages_read_only_the_study import _link
+
+    root = _written(tmp_path, "tri")
+    _traced_in(root)
+    # One record linked out: its numbers are not traced, and not marked.
+    record = root / "setup" / "setup_parameters.json"
+    outside = tmp_path / "outside" / "setup_parameters.json"
+    outside.parent.mkdir()
+    shutil.copy(record, outside)
+    record.unlink()
+    _link(record, outside)
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 700})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#report", wait_until="domcontentloaded")
+            page.wait_for_selector("#report-outline .outline-item", state="attached")
+            page.evaluate("() => window.FastMDXFrame.setCollapsed(true)")
+            page.wait_for_function("() => getComputedStyle(document.getElementById("
+                                   "'report-layout')).display === 'grid'")
+            wide = page.evaluate(KEYS)
+            # A number near the window's foot, by the keyboard.
+            number = page.locator('#report-document .report-number:text-is("4.7592")')
+            number.evaluate("(n) => window.scrollBy(0, n.getBoundingClientRect().bottom - innerHeight + 4)")
+            number.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".report-number-card")
+            page.wait_for_function("""() => { const r = document.querySelector('.report-number-card')
+                .getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }""",
+                                   timeout=15000)
+            opened = page.evaluate(KEYS)
+            page.keyboard.press("Tab")
+            tabbed = page.evaluate(KEYS)
+            page.keyboard.press("Escape")
+            back = page.evaluate(KEYS)
+            page.click("#report-outline .outline-mark")
+            # The report drawn again, its records changed: Mark keeps its state.
+            page.evaluate("""async () => {
+                const data = await (await fetch('/api/report')).json();
+                window.FastMDXReportOutline.render(document.getElementById('report-document'),
+                    {...data, records_changed: ['analysis/rmsd/options.json']});
+            }""")
+            redrawn = page.evaluate(KEYS)
+            page.set_viewport_size({"width": 390, "height": 800})
+            page.wait_for_function("() => getComputedStyle(document.getElementById("
+                                   "'report-layout')).display === 'block'")
+            page.click("#report-outline .outline-toggle")
+            page.locator('#report-outline .outline-item:has-text("Convergence")').focus()
+            page.keyboard.press("Enter")
+            section = page.evaluate("() => document.activeElement.tagName + ' ' + "
+                                    "document.activeElement.textContent")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert (wide["layout"], wide["cut"]) == ("grid", 0) and wide["docWidth"] >= 840, repr(wide)
+    assert opened["inCard"] and opened["cardInView"], opened
+    assert tabbed["inCard"] and tabbed["active"].startswith("line-btn number-close"), tabbed
+    assert back["active"].startswith("report-number:4.7592"), back
+    # Not the numbers of the record not read.
+    marked = int(re.search(r"Mark the (\d+) not traced", wide["mark"]).group(1))
+    states = wide["states"]
+    assert states.get("unread", 0) > 0
+    assert marked == states.get("none", 0) + states.get("several", 0), wide
+    assert (redrawn["marked"], redrawn["pressed"], redrawn["mark"]) == ("true", "true", "Unmark them")
+    assert section.startswith("H2") and "Convergence" in section

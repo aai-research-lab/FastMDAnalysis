@@ -1,0 +1,69 @@
+{
+  "analysis": "sasa",
+  "class": "SASA",
+  "selection": "protein",
+  "options": {
+    "mode": "total",
+    "probe_radius": 0.14,
+    "n_sphere_points": 960,
+    "ligand_resname": null,
+    "with_ligand": false
+  },
+  "findings": {
+    "hydrophobic_sasa": {
+      "discard": 35,
+      "statistical_inefficiency": 5.042082697991302,
+      "effective_samples": 12.891498194961207,
+      "mean": 2.527232593577038,
+      "standard_error": NaN,
+      "standard_deviation": 0.04109678818882916,
+      "degrees_of_freedom": 4.333333333333333,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 65 frames hold 12.9 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "shortfall": {
+        "target_independent": 25.0,
+        "independent": 12.891498194961207,
+        "statistical_inefficiency": 5.042082697991302,
+        "more_frames": 65,
+        "more_ns": 0.0025999975204467774,
+        "lower_bound": true
+      },
+      "n_frames": 100,
+      "unit": "nm\u00b2"
+    },
+    "polar_sasa": {
+      "discard": 47,
+      "statistical_inefficiency": 5.398211633713524,
+      "effective_samples": 9.818066351641047,
+      "mean": 2.227544259377506,
+      "standard_error": NaN,
+      "standard_deviation": 0.05656619131063183,
+      "degrees_of_freedom": 4.818181818181818,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 53 frames hold 9.8 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "shortfall": {
+        "target_independent": 25.0,
+        "independent": 9.818066351641047,
+        "statistical_inefficiency": 5.398211633713524,
+        "more_frames": 82,
+        "more_ns": 0.003279996871948242,
+        "lower_bound": true
+      },
+      "n_frames": 100,
+      "unit": "nm\u00b2"
+    },
+    "surface_classes": "Hydrophobic is the area of carbon and sulfur atoms, polar that of nitrogen and oxygen atoms, each hydrogen counted with the heavy atom it is bonded to; other is any remaining element. 0 of 33 atoms are other.",
+    "mean": {
+      "discard": 60,
+      "statistical_inefficiency": 1.6504978469285478,
+      "effective_samples": 24.235111893321754,
+      "mean": 4.759154880046845,
+      "standard_error": 0.007547557718641827,
+      "standard_deviation": 0.03715600028163848,
+      "degrees_of_freedom": 13.333333333333334,
+      "rules": 2,
+      "n_frames": 100,
+      "unit": "nm\u00b2"
+    }
+  }
+}

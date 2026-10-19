@@ -1701,7 +1701,7 @@ def _report_for_page(
     from fastmdxplora.gui.report_page import report_payload
 
     try:
-        payload = report_payload(project_root)
+        payload = report_payload(project_root, trace=False)
     except Exception as exc:  # noqa: BLE001 - the page stands without its report
         logger.debug("dashboard: no report for the page: %s", exc)
         return {"ok": False}

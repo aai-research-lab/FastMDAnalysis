@@ -63,6 +63,11 @@
     .outline-toggle { display: none; }
     .outline-body { display: block; padding-top: 0; }
     .outline-title { display: block; }
+    /* The page's column widened by the outline's, so the report keeps the
+       width it has without it and its tables are not cut. */
+    .page-shell:has(> .page[data-page="report"]:not([hidden]) .report-layout > .report-outline:not([hidden])) {
+        max-width: calc(900px + 244px);
+    }
 }
 
 /* A number the report states, and where it came from on a click. */
@@ -76,7 +81,8 @@
 #report-document .report-number[aria-expanded="true"] {
     background: color-mix(in srgb, var(--accent) 14%, transparent); outline: none;
 }
-#report-document[data-marked="true"] .report-number[data-traced="false"] {
+#report-document[data-marked="true"] .report-number[data-state="none"],
+#report-document[data-marked="true"] .report-number[data-state="several"] {
     background: color-mix(in srgb, var(--accent-orange) 22%, transparent);
     text-decoration-color: var(--accent-orange);
 }
@@ -93,6 +99,9 @@
 .report-number-card .number-where { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px; }
 .report-number-card .number-where code { overflow-wrap: anywhere; white-space: normal; }
 .report-number-card[data-traced="false"] .number-head b { color: var(--accent-orange); }
+.report-number-card:focus { outline: none; }
+.report-number-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.report-number-card .plot-tool { margin: 0 6px 4px 0; }
 .number-stale { color: var(--accent-orange); }
 
 @media print {

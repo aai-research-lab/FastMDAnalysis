@@ -2,9 +2,9 @@
  * its sections numbered as the PDF numbers them (2, 2.1), the one being
  * read marked, each a way to it. And each number the report states, on a
  * click, the record it was traced to (report_numbers.py): the file, the
- * place in it and the value as recorded; or that no record holds it, with
- * the nearest of its kind, and the records changed after the report was
- * written. A record not read (linked out of the study) is named: a number
+ * place in it and the value as recorded; or the records that could each
+ * hold it, none picked; or that no record was traced; and a record it was
+ * traced to that holds another value since the report was first read. A record not read (linked out of the study) is named: a number
  * not traced may be one of its, so it is said as not traced, never as one
  * no record holds.
  */
@@ -86,9 +86,23 @@
   }
   document.addEventListener("scroll", follow, true);
 
+  /* What became of each number: traced to one record; held by more than
+   * one (the candidates said, none picked); not traced where a record was
+   * not read; or no record traced. */
+  function stateOf(n) {
+    if (n.traced) return "traced";
+    if (n.candidates && n.candidates.length) return "several";
+    if (n.not_read && n.not_read.length) return "unread";
+    return "none";
+  }
+
   function counts() {
-    var traced = numbers.filter(function (n) { return n.traced; }).length;
-    return { traced: traced, missing: numbers.length - traced };
+    var by = { traced: 0, several: 0, unread: 0, none: 0 };
+    numbers.forEach(function (n) { by[stateOf(n)] += 1; });
+    // Marked: the numbers no record was traced to by these rules, and those
+    // more than one holds; not those of a record not read.
+    by.marked = by.none + by.several;
+    return by;
   }
 
   /* The records not read, which a number not traced may come from. */
@@ -111,6 +125,12 @@
     numbers = (data && data.numbers) || [];
     changed = (data && data.records_changed) || [];
     close();
+    if (doc) {
+      Array.prototype.forEach.call(doc.querySelectorAll(".report-number"), function (span) {
+        var found = numbers[Number(span.dataset.number)];
+        if (found) span.dataset.state = stateOf(found);
+      });
+    }
     if (!outline) return;
     outline.replaceChildren();
     if (!doc || doc.hidden) { outline.hidden = true; return; }
@@ -121,7 +141,7 @@
     var toggle = make("button", "outline-toggle", "Outline");
     toggle.type = "button";
     toggle.setAttribute("aria-expanded", "false");
-    toggle.appendChild(make("span", "muted", " \u00b7 " + headings.filter(function (h) {
+    toggle.appendChild(make("span", "muted", " · " + headings.filter(function (h) {
       return h.level === 2;
     }).length + " sections"));
     toggle.addEventListener("click", function () {
@@ -146,6 +166,10 @@
       item.addEventListener("click", function () {
         go(h.node);
         if (outline.dataset.open === "true") toggle.click();
+        // Focus goes to the section, so the keyboard reads on from there
+        // (the folded outline it came from is gone).
+        if (!h.node.hasAttribute("tabindex")) h.node.setAttribute("tabindex", "-1");
+        h.node.focus({ preventScroll: true });
       });
       li.appendChild(item);
       if (h.level === 2) {
@@ -170,30 +194,39 @@
     var box = make("div", "outline-numbers");
     box.id = "report-numbers-said";
     if (!numbers.length) {
+      delete doc.dataset.marked;
       box.appendChild(make("p", "muted", "No number in it to trace to a record."));
       return box;
     }
     var n = counts();
-    box.appendChild(make("p", "", n.traced + " of " + numbers.length + " numbers traced to a record; " +
-      "click one for it."));
+    box.appendChild(make("p", "", n.traced + " of " + numbers.length + " numbers traced to a record" +
+      (n.several ? ", " + n.several + " held by more than one" : "") + "; click one for it."));
     var notRead = unread();
     if (notRead.length) {
-      box.appendChild(make("p", "outline-changed", wereNotRead(notRead) + ", so a number not " +
-        "traced may be one " + (notRead.length === 1 ? "it holds" : "they hold") + "."));
+      box.appendChild(make("p", "outline-changed", wereNotRead(notRead) + ", so " + n.unread +
+        (n.unread === 1 ? " number is" : " numbers are") + " not traced: " +
+        (notRead.length === 1 ? "it" : "they") + " may hold " + (n.unread === 1 ? "it" : "them") + "."));
     }
-    if (n.missing) {
-      var show = make("button", "plot-tool outline-mark",
-        "Mark the " + n.missing + " not found");
+    // Kept as it was when the report is drawn again, the button built
+    // from it.
+    if (!n.marked) delete doc.dataset.marked;
+    if (n.marked) {
+      var on = doc.dataset.marked === "true";
+      var words = function (pressed) {
+        return pressed ? "Unmark them" : "Mark the " + n.marked + " not traced";
+      };
+      var show = make("button", "plot-tool outline-mark", words(on));
       show.type = "button";
-      show.setAttribute("aria-pressed", "false");
-      show.title = "Mark each number no record of this study holds";
+      show.setAttribute("aria-pressed", String(on));
+      show.title = "Mark each number no record was traced to, or more than one record holds" +
+        (n.unread ? " (not those of a record not read)" : "");
       show.addEventListener("click", function () {
-        var on = doc.dataset.marked !== "true";
-        doc.dataset.marked = String(on);
-        show.setAttribute("aria-pressed", String(on));
-        show.textContent = on ? "Unmark them" : "Mark the " + n.missing + " not found";
-        if (on) {
-          var first = doc.querySelector('.report-number[data-traced="false"]');
+        var pressed = doc.dataset.marked !== "true";
+        doc.dataset.marked = String(pressed);
+        show.setAttribute("aria-pressed", String(pressed));
+        show.textContent = words(pressed);
+        if (pressed) {
+          var first = doc.querySelector('.report-number[data-state="none"], .report-number[data-state="several"]');
           if (first) first.scrollIntoView({ block: "center" });
         }
       });
@@ -202,8 +235,9 @@
     if (changed.length) {
       box.appendChild(make("p", "outline-changed",
         changed.length + (changed.length === 1 ? " record" : " records") +
-        " changed after the report was written: " + changed.join(", ") +
-        ". Write it again to have it say them."));
+        " changed since this report was first read here: " + changed.join(", ") +
+        ". Write it again to have it say what " + (changed.length === 1 ? "it holds" : "they hold") +
+        " now."));
     }
     return box;
   }
@@ -230,6 +264,14 @@
     return line;
   }
 
+  function opener(file, words) {
+    if (!(window.FastMDXFrame && window.FastMDXFrame.previewPath)) return null;
+    var show = make("button", "plot-tool", words);
+    show.type = "button";
+    show.addEventListener("click", function () { window.FastMDXFrame.previewPath(file); });
+    return show;
+  }
+
   function open(span) {
     var found = numbers[Number(span.dataset.number)];
     if (!found) return;
@@ -240,66 +282,69 @@
     card = make("div", "report-number-card");
     card.setAttribute("role", "dialog");
     card.setAttribute("aria-label", "Where " + found.said + " comes from");
+    card.tabIndex = -1;
     var head = make("div", "number-head");
     head.appendChild(make("b", "", found.said));
-    var shut = make("button", "line-btn number-close", "\u00d7");
+    var shut = make("button", "line-btn number-close", "×");
     shut.type = "button";
     shut.setAttribute("aria-label", "Close");
     shut.addEventListener("click", function () { close(); span.focus(); });
     head.appendChild(shut);
     card.appendChild(head);
-    var record = found.record || found.nearest;
-    if (found.traced) {
-      card.dataset.traced = "true";
+    var state = stateOf(found);
+    card.dataset.traced = String(state === "traced");
+    card.dataset.state = state;
+    if (state === "traced") {
+      var record = found.record;
       card.appendChild(make("p", "", "From the study's record:"));
       card.appendChild(where(record));
       if (record.unit && record.in && record.unit !== record.in) {
         card.appendChild(make("p", "muted", "That is " + plain(record.as_said) + " " + record.in +
           ", as the report gives it."));
       }
-      if (found.others) {
-        card.appendChild(make("p", "muted", found.others === 1
-          ? "One other record holds a value that rounds to it too."
-          : found.others + " other records hold a value that rounds to it too."));
+      if (found.also && found.also.length) {
+        card.appendChild(make("p", "muted", "The same setting is kept in " + found.also.join(", ") + "."));
       }
-    } else {
-      card.dataset.traced = "false";
-      var unreadHere = found.not_read || [];
-      card.appendChild(make("p", "", unreadHere.length
-        ? "Not traced: " + wereNotRead(unreadHere) + ", so whether it holds it is not known."
-        : "No record of this study holds it."));
-      if (record) {
-        card.appendChild(make("p", "", unreadHere.length ? "The nearest of its kind in the records read:"
-          : "The nearest of its kind:"));
-        card.appendChild(where(record));
-      }
-      // The records of what it is about, changed since the report said it.
-      var stale = changed.filter(function (file) {
-        return (record && file === record.file) || (found.subjects || []).some(function (subject) {
-          return ("/" + file).indexOf("/" + subject + "/") >= 0;
-        });
+      var one = opener(record.file, "Open the record");
+      if (one) card.appendChild(one);
+    } else if (state === "several") {
+      var many = found.candidates_count || found.candidates.length;
+      card.appendChild(make("p", "", "Held by " + many + " records; which one the report took is not " +
+        "said, so none is picked:"));
+      found.candidates.forEach(function (candidate) {
+        card.appendChild(where(candidate));
+        var each = opener(candidate.file, "Open " + candidate.file.split("/").slice(-3).join("/"));
+        if (each) card.appendChild(each);
       });
-      if (stale.length) {
-        card.appendChild(make("p", "number-stale", (stale.length === 1 ? stale[0] + " was" :
-          stale.join(", ") + " were") + " written again after the report: Write it again to have " +
-          "the report say what the records hold now."));
-      }
+    } else if (state === "unread") {
+      card.appendChild(make("p", "", "Not traced: " + wereNotRead(found.not_read) +
+        ", so whether it holds it is not known."));
+    } else {
+      card.appendChild(make("p", "", "No record traced."));
       card.appendChild(make("p", "muted",
-        "A threshold of the method, a citation, or a number the report works out from more than " +
-        "one record has none."));
+        "A record is taken only where its unit, or what it counts, and the words beside the number " +
+        "say it is that one. A threshold of the method, a citation, or a number the report works " +
+        "out from more than one record has none."));
     }
-    if (record && window.FastMDXFrame && window.FastMDXFrame.previewPath) {
-      var show = make("button", "plot-tool", "Open the record");
-      show.type = "button";
-      show.addEventListener("click", function () { window.FastMDXFrame.previewPath(record.file); });
-      card.appendChild(show);
+    // A record its number was traced to when the report was first read
+    // here, holding another value now.
+    if (found.changed) {
+      var was = found.changed;
+      card.appendChild(make("p", "number-stale", "When this report was first read here, " + was.file +
+        " held " + was.key + " = " + plain(was.then) + (was.now === null || was.now === undefined
+          ? "; it holds no such value now." : "; it holds " + plain(was.now) + " now.") +
+        " Write it again to have the report say what the records hold now."));
     }
-    doc.appendChild(card);
+    // Right after its number, so the keyboard comes to it next; placed by
+    // the report, where it is drawn above the text.
+    span.after(card);
     var box = doc.getBoundingClientRect(), at = span.getBoundingClientRect();
     var left = Math.max(8, Math.min(at.left - box.left, box.width - card.offsetWidth - 8));
     card.style.left = left + "px";
     card.style.top = (at.bottom - box.top + 6) + "px";
     span.setAttribute("aria-expanded", "true");
+    card.scrollIntoView({ block: "nearest", behavior: "instant" });
+    card.focus({ preventScroll: true });
   }
 
   document.addEventListener("click", function (event) {

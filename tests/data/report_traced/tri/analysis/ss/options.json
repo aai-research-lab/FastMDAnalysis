@@ -1,0 +1,36 @@
+{
+  "analysis": "ss",
+  "class": "SS",
+  "selection": "protein",
+  "options": {
+    "simplified": true
+  },
+  "findings": {
+    "helix_fraction": {
+      "discard": 66,
+      "statistical_inefficiency": 34.0,
+      "effective_samples": 1.0,
+      "mean": 0.0,
+      "standard_error": NaN,
+      "standard_deviation": 0.0,
+      "degrees_of_freedom": 1.0,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 34 frames hold 1.0 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "n_frames": 100,
+      "unit": ""
+    },
+    "strand_fraction": {
+      "discard": 66,
+      "statistical_inefficiency": 34.0,
+      "effective_samples": 1.0,
+      "mean": 0.0,
+      "standard_error": NaN,
+      "standard_deviation": 0.0,
+      "degrees_of_freedom": 1.0,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 34 frames hold 1.0 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "n_frames": 100,
+      "unit": ""
+    }
+  }
+}

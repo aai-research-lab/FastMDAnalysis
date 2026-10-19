@@ -114,10 +114,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - The Report page has an outline beside the report, its sections
   numbered as the PDF now numbers them. Each number the report states
   opens the record it was traced to (file, place, value, converted to the
-  report's units), or says no record holds it, with the nearest and the
-  records written again since the report. Records are read from the study
-  only: one linked out of it is named as not read, and a number it may
-  hold is said as not traced, never as one no record holds.
+  report's units). A record is taken only where it is plainly the
+  number's: its unit or what it counts, the number's own analysis or run,
+  and the words beside it; where several could hold it each is named and
+  none picked, and otherwise no record is said to be traced. A record a
+  number was traced to whose value changed since the report was first read
+  is named. Records are read from the study only: one linked out of it is
+  named as not read, and a number it may hold is said as not traced. A
+  number's card takes the keyboard's focus, and the report keeps its width
+  beside the outline.
 - New study shows all five steps from the start, steps 2 to 5 to read
   until a starting point is chosen, with Run on this machine quiet until
   there is a study to run. Beside the summary, What it costs here: the

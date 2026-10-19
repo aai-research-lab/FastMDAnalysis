@@ -21,14 +21,16 @@ from fastmdxplora import record_access as _records
 __all__ = ["methods_payload", "report_payload"]
 
 
-def report_payload(root: Path | str) -> dict[str, Any]:
+def report_payload(root: Path | str, *, trace: bool = True) -> dict[str, Any]:
     """What the Report page needs, or why there is nothing to show. For a
-    study of several runs, the comparison across them."""
+    study of several runs, the comparison across them. ``trace``: each
+    number the report states traced to its record (the Report page; the
+    standalone page shows the report as written)."""
     base = Path(root)
     from fastmdxplora.simulation.pipeline import _refused
 
     if _records.is_file(base / "batch_manifest.json"):
-        return _study_of_runs_payload(base)
+        return _study_of_runs_payload(base, trace=trace)
     report_dir = base / "report"
     source = report_dir / "report.md"
     if _refused(source):
@@ -89,7 +91,7 @@ def report_payload(root: Path | str) -> dict[str, Any]:
         "generated": _generated_line(text),
         "rendered": rendered,
         "figure_provenance": provenance,
-        **_traced(html, rendered, base, source),
+        **_traced(html, rendered, base, source, trace=trace),
     }
 
 
@@ -194,7 +196,7 @@ def render_markdown(text: str) -> tuple[str, str]:
         return '<pre class="report-plain">' + _escape(text) + "</pre>", "plain"
 
 
-def _study_of_runs_payload(base: Path) -> dict[str, Any]:
+def _study_of_runs_payload(base: Path, *, trace: bool = True) -> dict[str, Any]:
     """The report of a study of several runs: the comparison the batch
     writes once every run has completed, with its figures served from
     comparison/; before that, what the completed runs say so far, and how
@@ -220,7 +222,7 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
                 "generated": _generated_line(text), "rendered": rendered,
                 "figures_under": "comparison", "runs": len(runs), "pending": pending,
                 "figure_provenance": _comparison_provenance(comparison.parent),
-                **_traced(html, rendered, base, comparison)}
+                **_traced(html, rendered, base, comparison, trace=trace)}
     if not completed:
         return {"ok": False, "reason": f"none of {len(runs)} runs completed yet",
                 "html": "", "not_produced": [], "downloads": {},
@@ -244,20 +246,22 @@ def _held(base: Path) -> bool:
     return not _records.can_read(Path(base.absolute().anchor))
 
 
-def _traced(html: str, rendered: str, base: Path, source: Path) -> dict[str, Any]:
+def _traced(html: str, rendered: str, base: Path, source: Path, *,
+            trace: bool = True) -> dict[str, Any]:
     """The report's HTML as rendered, and as the Report page shows it:
     each number it states marked and traced to its record
-    (`report_numbers.py`); and the records changed since the report was
-    written, since a number a record no longer holds is most often one of
-    those. The standalone page and the Files tab's preview take the first.
+    (`report_numbers.py`); and the records whose values the report's
+    numbers were traced to that changed since the report was first read
+    here (`_changed_since`). The standalone page and the Files tab's
+    preview take the first; the standalone page asks for no trace.
 
     Every record is read through `record_access`: in a read held to the
     study, one linked out of it is not read, its numbers not traced to it,
     and it is named in ``unavailable`` (again when the trace is kept from
     an earlier read, which reads nothing)."""
-    if rendered != "html":
+    if rendered != "html" or not trace:
         return {"html": html, "marked": "", "numbers": [], "records_changed": []}
-    from fastmdxplora.gui.report_numbers import record_files, traced_html
+    from fastmdxplora.gui.report_numbers import record_files, records_of, traced_html
 
     def mtime(path: Path) -> int | None:
         try:
@@ -267,24 +271,88 @@ def _traced(html: str, rendered: str, base: Path, source: Path) -> dict[str, Any
 
     listed_unread: list[str] = []
     files = record_files(base, listed_unread)
-    written = mtime(source) or 0
     stamps = tuple((str(p), mtime(p)) for p in files)
-    signature = (html, written, stamps, tuple(sorted(set(listed_unread))))
+    signature = (html, mtime(source), stamps, tuple(sorted(set(listed_unread))))
     place = (str(base), _held(base))
     kept = _TRACED.get(place)
     if kept is not None and kept[0] == signature:
         return kept[1]
     not_read: list[str] = []
-    marked, numbers = traced_html(html, base, not_read)
-    changed = sorted(Path(name).relative_to(base).as_posix() for name, stamp in stamps
-                     if stamp is not None and stamp > written)
+    records = records_of(base, not_read)
+    marked, numbers = traced_html(html, base, not_read, records=records)
+    unread = sorted(set(not_read) | set(listed_unread))
+    numbers, changed = _changed_since(base, html, numbers, records, unread)
     said: dict[str, Any] = {"html": html, "marked": marked, "numbers": numbers,
                             "records_changed": changed}
-    unread = sorted(set(not_read) | set(listed_unread))
     if unread:
         said["unavailable"] = unread
     _TRACED[place] = (signature, said)
     return said
+
+
+#: What each report's numbers were traced to when it was first read, by
+#: study and report, where no folder to keep them in could be written.
+_FIRST_READ: dict[str, dict[str, Any]] = {}
+
+
+def _first_read_file(key: str) -> Path:
+    import os
+
+    override = os.environ.get("FASTMDXPLORA_CACHE_DIR")
+    root = Path(override) if override else Path.home() / ".cache" / "fastmdxplora"
+    return root / "report_traces" / f"{key}.json"
+
+
+def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
+                   records: list[dict[str, Any]], unread: list[str]
+                   ) -> tuple[list[dict[str, Any]], list[str]]:
+    """The records changed since this report was first read here, by
+    content: each number traced then is looked up again by its file and
+    key, and a record whose value there is now another (or gone) changed.
+    A record the run writes again unchanged after its report (its manifest,
+    its resolved Config) is not one; a file's time says nothing. Kept
+    outside the study (the user's cache folder), as the GUI writes nothing
+    into a study it reads. Each number whose record changed is given
+    ``changed``: the file, the key, and the value then and now."""
+    import hashlib
+
+    key = hashlib.sha256(f"{base.resolve()}\0{html}".encode()).hexdigest()[:32]
+    first = _FIRST_READ.get(key)
+    if first is None:
+        try:
+            first = json.loads(_first_read_file(key).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            first = None
+    if not isinstance(first, dict) or not isinstance(first.get("numbers"), dict):
+        first = {"numbers": {str(i): {"file": n["record"]["file"], "key": n["record"]["key"],
+                                      "value": float(n["record"]["value"])}
+                             for i, n in enumerate(numbers) if n.get("traced")}}
+        _FIRST_READ[key] = first
+        try:
+            path = _first_read_file(key)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(first), encoding="utf-8")
+        except OSError:
+            pass
+        return numbers, []
+    _FIRST_READ[key] = first
+    now = {(r["file"], r["key"]): r["value"] for r in records}
+    said = [dict(n) for n in numbers]
+    changed: set[str] = set()
+    for index, then in first["numbers"].items():
+        try:
+            number = said[int(index)]
+            file, field, value = then["file"], then["key"], float(then["value"])
+        except (KeyError, ValueError, TypeError, IndexError):
+            continue
+        if file in unread:
+            continue
+        current = now.get((file, field))
+        if current is not None and abs(current - value) <= 1e-12 * max(1.0, abs(value)):
+            continue
+        changed.add(file)
+        number["changed"] = {"file": file, "key": field, "then": value, "now": current}
+    return said, sorted(changed)
 
 
 def _comparison_provenance(folder: Path) -> dict[str, dict[str, Any]]:

@@ -9,13 +9,19 @@ it and the value as recorded, converted where the report gives it in
 other units (nm and angstrom, fs, ps, ns and microseconds, K and degrees C).
 
 A number is matched to a record value that rounds to it as the report
-gives it, in a unit of the same kind. Where several do, the one in the
-section's own analysis, or whose name says what the number counts, is
-taken. A number no record holds is said so, with the nearest value of
-its kind where there is one: a method's own threshold, a citation, a
-number the report works out from more than one record, or a report
-written before its records last changed. Code alone, no reading of the
-prose beyond the words next to the number.
+gives it, and only where the record is plainly the number's: a number said
+with a unit to a record whose field names a unit of that kind (a token
+anywhere in its name, `duration_ns_actual`, or its dict's own `unit`); a
+count to a record that counts that thing; any other number to a record its
+words or its table column name. An analysis's records are taken only for a
+number about that analysis (its section, its table row, or the words
+beside it), and a run's only for one about that run. Of those, the ones
+about the number's own subject, then the ones the words beside it name
+best, then the ones in the unit it is said in; where more than one value
+of the study is still left, each is said and none picked. A number no
+record is traced to is said so: a method's own threshold, a citation, or a
+number the report works out from more than one record has none. Code
+alone, no reading of the prose beyond the words next to the number.
 
 Records are read through `record_access`, so in a read held to the study
 a record linked out of it is not read. A number no record that was read
@@ -69,18 +75,6 @@ _UNITS: dict[str, tuple[str, float]] = {
     "mM": ("concentration", 0.001), "M": ("concentration", 1.0),
     "%": ("percent", 1.0), "\u00b0": ("angle", 1.0),
 }
-#: A record's unit as the end of its key names it.
-_SUFFIXES: tuple[tuple[str, str], ...] = (
-    ("_per_ps", "ps\u207b\u00b9"), ("ns_per_day", "ns/day"), ("_kjmol", "kJ/mol"),
-    ("_kcalmol", "kcal/mol"), ("_nm2", "nm\u00b2"), ("_nm", "nm"), ("_angstrom", "\u00c5"),
-    ("_A", "\u00c5"), ("_fs", "fs"), ("_ps", "ps"), ("_ns", "ns"), ("_us", "\u00b5s"),
-    ("_K", "K"), ("_kelvin", "K"), ("_bar", "bar"), ("_atm", "atm"), ("_M", "M"),
-    ("_mM", "mM"), ("_deg", "\u00b0"), ("_degrees", "\u00b0"),
-)
-#: A record's unit as a word in its key says it.
-_WORDS: tuple[tuple[str, str], ...] = (
-    ("temperature", "K"), ("pressure", "bar"), ("ns_per_day", "ns/day"),
-)
 #: What a unit a record gives in a field of its own is called here.
 _NAMED = {"A": "\u00c5", "angstrom": "\u00c5", "nm^2": "nm\u00b2", "A^2": "\u00c5\u00b2",
           "kj/mol": "kJ/mol", "kcal/mol": "kcal/mol", "deg": "\u00b0", "degrees": "\u00b0",
@@ -113,14 +107,38 @@ _SKIPPED = {"code", "pre", "a", "h1", "h2", "h3", "h4", "h5", "h6", "script", "s
 # ---------------------------------------------------------------------------
 
 def _unit_of_key(key: str) -> str:
-    for suffix, unit in _SUFFIXES:
-        if key.endswith(suffix):
-            return unit
-    lowered = key.lower()
-    for word, unit in _WORDS:
-        if word in lowered:
-            return unit
-    return ""
+    """A record's unit as its field's name says it, from a token anywhere in
+    the name (`duration_ns_actual`, `solvent_padding_nm`, `friction_per_ps`);
+    "" where it names none or one this does not know (`..._kjmol_per_nm`)."""
+    tokens = key.split("_")
+    lowered = [token.lower() for token in tokens]
+    if "per" in lowered:
+        at = lowered.index("per")
+        if lowered[at - 1:at + 2] == ["ns", "per", "day"]:
+            return "ns/day"
+        if lowered[at + 1:] == ["ps"] and lowered.count("per") == 1:
+            return "ps⁻¹"
+        return ""
+    found = ""
+    for at, (token, low) in enumerate(zip(tokens, lowered)):
+        unit = _TOKENS.get(token) or _TOKENS_ANY_CASE.get(low, "")
+        if unit == "\u00b0" and at != len(tokens) - 1:
+            # `degrees_of_freedom` is a count, not an angle.
+            unit = ""
+        if unit:
+            if found and found != unit:
+                return ""
+            found = unit
+    return found
+
+
+#: A unit as a token of a field's name gives it, case kept where it matters.
+_TOKENS = {"K": "K", "A": "Å", "M": "M", "mM": "mM"}
+_TOKENS_ANY_CASE = {
+    "nm": "nm", "nm2": "nm²", "angstrom": "Å", "fs": "fs", "ps": "ps", "ns": "ns",
+    "us": "µs", "kelvin": "K", "bar": "bar", "atm": "atm", "kjmol": "kJ/mol",
+    "kcalmol": "kcal/mol", "deg": "°", "degrees": "°",
+}
 
 
 def _named_unit(said: Any) -> str:
@@ -278,22 +296,31 @@ def _about(subject: str, record: dict[str, Any]) -> bool:
 
 
 class _Study:
-    """A study's records, and what its headings and table rows can name:
-    each analysis by its folder (or its title), each run by its folder,
-    and each quantity a record is kept under (`potential_energy`)."""
+    """A study's records, and what its headings, table rows and the words
+    beside a number can name: each analysis by its folder (or its title),
+    each run by its folder, and each quantity an analysis measured
+    (`potential_energy`)."""
 
     def __init__(self, records: list[dict[str, Any]]) -> None:
         self.records = records
         self.analyses: set[str] = set()
-        self.runs: set[str] = set()
+        #: Each run's folder, by its name as a heading or a row says it.
+        self.runs: dict[str, str] = {}
         self.quantities: set[str] = set()
+        self.measured: set[str] = set()
         self.vocabulary: set[str] = set()
         for record in records:
             parts = record["file"].split("/")
             if parts[0] == "runs" and len(parts) > 2:
-                self.runs.add(parts[1].lower())
-            if "analysis" in parts and parts.index("analysis") + 2 < len(parts):
-                self.analyses.add(parts[parts.index("analysis") + 1].lower())
+                self.runs[_named(parts[1])] = parts[1]
+            analysis = _analysis_of(record["file"])
+            if analysis:
+                self.analyses.add(analysis)
+                # What it measured: the parts its values are kept under
+                # (`findings.thermodynamics.total_energy.shortfall.more_ns`).
+                keys = [w for w in record["key"].lower().split(".") if not w.endswith("]")]
+                self.measured.update(w for w in keys[:-1]
+                                     if w not in _GENERIC and w != analysis and w not in _COUNTED)
             self.quantities.update(w for w in record["key"].lower().split(".")
                                    if not w.endswith("]"))
             self.vocabulary |= _key_words(record["key"])
@@ -301,13 +328,199 @@ class _Study:
 
     def named(self, words: str) -> str:
         said = _named(words)
-        return said if said in self.analyses | self.runs | self.quantities else ""
+        return said if said in self.analyses or said in self.runs or said in self.quantities else ""
 
     def titled(self, words: str) -> list[str]:
         """The analyses a column's head names, by folder or by title."""
         plain = " " + re.sub(r"[^a-z0-9_]+", " ", words.lower()) + " "
         return [name for name, titles in self.titles.items()
                 if f" {name} " in plain or any(f" {title} " in plain for title in titles)]
+
+    def spoken(self, words: str) -> list[str]:
+        """The analyses and measured quantities the words beside a number
+        name ("the mean temperature", "potential energy, 13")."""
+        plain = re.findall(r"[a-z0-9]+", words.lower())
+        found = [w for w in plain if w in self.measured or w in self.analyses]
+        found += [f"{a}_{b}" for a, b in zip(plain, plain[1:])
+                  if f"{a}_{b}" in self.measured or f"{a}_{b}" in self.analyses]
+        return found + self.titled(words)
+
+
+#: Parts of a record's name that say where it is kept, not what it is.
+_GENERIC = {"findings", "parameters", "resolved", "options", "mean", "shortfall", "summary"}
+#: Fields that hold an error, taken only for a number said as one.
+_ERRORS = {"standard_error", "error", "sem", "uncertainty", "standard_deviation", "std"}
+#: Fields that count a thing other than by its plural (frames discarded).
+_COUNT_FIELDS = {"frames": {"discard", "discarded"}, "samples": {"independent"}}
+
+
+def _analysis_of(file: str) -> str:
+    parts = file.lower().split("/")
+    if "analysis" in parts and parts.index("analysis") + 2 < len(parts):
+        return parts[parts.index("analysis") + 1]
+    return ""
+
+
+def _run_of(file: str) -> str:
+    parts = file.split("/")
+    return parts[1] if parts[0] == "runs" and len(parts) > 2 else ""
+
+
+def _quantity(record: dict[str, Any]) -> str:
+    """The quantity an analysis's record is a field of (`polar_sasa` in
+    `findings.polar_sasa.n_frames`); "" for a setting of the study."""
+    keys = [w for w in record["key"].lower().split(".") if not w.endswith("]")]
+    if _analysis_of(record["file"]) and len(keys) >= 2:
+        return keys[-2]
+    return ""
+
+
+def _field(key: str) -> str:
+    return key.lower().split(".")[-1]
+
+
+def _counts_of(field: str, noun: str) -> bool:
+    """Whether a field is a count of ``noun``: `n_atoms_solvated` of atoms,
+    `n_frames` and `discard` of frames, `effective_samples` of samples;
+    not `first_frame`, an index."""
+    words = field.split("_")
+    stems = _COUNTED.get(noun, ())
+    if field in _COUNT_FIELDS.get(noun, ()):
+        return True
+    if any(word == noun or (word.endswith("s") and word[:-1] in stems) for word in words):
+        return True
+    return words[0] == "n" and any(word.startswith(stem) for word in words[1:] for stem in stems)
+
+
+def records_said(study: Any) -> _Study:
+    return study if isinstance(study, _Study) else _Study(study)
+
+
+def trace_number(said: str, unit: str, records: Any, *, counts: str = "",
+                 subjects: tuple[str, ...] = (), context: str = "", after: str = "",
+                 head: str = "", error: bool = False) -> dict[str, Any]:
+    """The record a number as the report gives it was taken from.
+
+    ``said`` is the number as written ("7,439", "0.07415"), ``unit`` the
+    unit after it, ``counts`` the noun it counts, ``subjects`` the
+    analyses, runs or quantities its section, table row or column is
+    about, ``context`` and ``after`` the words before and after it, ``head``
+    its table column's head (the head's unit is the number's where the cell
+    gives none), ``error`` whether it is an error after a plus-minus.
+
+    A wrong trace is worse than none, so a record is taken only where it
+    is plainly the number's: a number said with a unit only from a record
+    whose name or own field says a unit of that kind; a count only from a
+    record that counts that thing; any other number only from a record its
+    words or column name. An analysis's record is taken only for a number
+    about that analysis (its section, row, or the words beside it), and a
+    run's only for a number about that run. Of those, the ones about the
+    number's own subject, then the ones its words name best, then the ones
+    in the unit it is said in; where they are still more than one value
+    of the study, every one is said (``candidates``), never one picked."""
+    study = records_said(records)
+    decimals = _decimals(said)
+    if not unit and head:
+        in_head = re.search(r"\(([^)]+)\)\s*$", head)
+        unit = in_head.group(1).strip() if in_head else ""
+    said_unit = unit if unit in _UNITS else ""
+    before_words = _words(context + " " + head)
+    after_words = _words(after)
+    asking = any(word in (context + " " + after).lower() for word in _ASKING)
+    explicit = tuple(s for s in subjects if s)
+    spoken = tuple(study.spoken(context + " " + after))
+    runs = [s for s in explicit + spoken if s in study.runs]
+    # The analyses the number's section, row or column is about hold it if
+    # any does; the words beside it then say which of their quantities.
+    sections = [s for s in explicit if s in study.analyses]
+    found: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
+    for record in study.records:
+        key = record["key"].lower()
+        if "[" in key:
+            # A list's item is a vector's part or a series' point, not a
+            # value the report states.
+            continue
+        file = record["file"]
+        field = _field(key)
+        analysis = _analysis_of(file)
+        run = _run_of(file)
+        if runs and run and _named(run) not in runs:
+            continue
+        own = any(s == analysis or _about(s, record) for s in explicit if s not in study.runs)
+        said_of = any(s == analysis or _about(s, record) for s in spoken if s not in study.runs)
+        if analysis:
+            if sections and analysis not in sections:
+                continue
+            if not (own or said_of):
+                continue
+        about = own or bool(runs and run)
+        if not asking and any(word in key for word in _ASKED):
+            continue
+        key_words = _key_words(key)
+        field_words = _key_words(field)
+        if field in _ERRORS and not (error or "error" in before_words | after_words):
+            continue
+        if error and field not in _ERRORS:
+            continue
+        record_unit = record["unit"]
+        named = len(field_words & after_words) * 2 + len(key_words & before_words)
+        if said_unit == "%":
+            if record_unit or not named:
+                continue
+            candidates = [record["value"], record["value"] * 100.0]
+        elif said_unit:
+            # Said with a unit: only a record that says one of its kind.
+            theirs = _in_base(record["value"], record_unit) if record_unit else None
+            if theirs is None or theirs[0] != _UNITS[said_unit][0]:
+                continue
+            candidates = [_from_base(theirs[0], theirs[1], said_unit)]
+        elif counts:
+            if record_unit or not _counts_of(field, counts):
+                continue
+            candidates = [record["value"]]
+        else:
+            # Said with neither: a record whose field the words or the
+            # column name, about the number's subject where it has a unit.
+            head_named = bool(_words(head) & field_words) if head else False
+            if not (head_named or field_words & before_words):
+                continue
+            if record_unit and not about:
+                continue
+            candidates = [record["value"]]
+        for value in candidates:
+            near, _exact = _rounds_to(value, said, decimals)
+            if near:
+                rank = (int(about), int(said_of), named,
+                        int(bool(said_unit) and record_unit == said_unit))
+                found.append((rank, {**record, "as_said": value}))
+                break
+    if not found:
+        return {"traced": False}
+    best = max(rank for rank, _ in found)
+    kept = [record for rank, record in found if rank == best]
+    # One setting of the study, kept in several files (the temperature
+    # asked in the Config, the setup and the simulation records) is one
+    # record; the same field of two runs, two analyses or two quantities
+    # an analysis measured (polar and hydrophobic SASA) is two.
+    values: dict[tuple[str, str, str, str, float], list[dict[str, Any]]] = {}
+    for record in kept:
+        place = (_run_of(record["file"]), _analysis_of(record["file"]), _quantity(record),
+                 _field(record["key"]), record["value"])
+        values.setdefault(place, []).append(record)
+    if len(values) == 1:
+        same = next(iter(values.values()))
+        return {"traced": True, "record": _said_record(same[0], said_unit),
+                "also": [r["file"] for r in same[1:] if r["file"] != same[0]["file"]]}
+    return {"traced": False,
+            "candidates": [_said_record(group[0], said_unit) for group in values.values()][:8],
+            "candidates_count": len(values)}
+
+
+def _said_record(record: dict[str, Any], unit: str) -> dict[str, Any]:
+    value = record["value"]
+    said = repr(value) if not float(value).is_integer() else str(int(value))
+    return {"file": record["file"], "key": record["key"], "value": said,
+            "unit": record["unit"], "in": unit, "as_said": record["as_said"]}
 
 
 def _titles(analyses: set[str]) -> dict[str, list[str]]:
@@ -325,126 +538,6 @@ def _titles(analyses: set[str]) -> dict[str, list[str]]:
         if name in titles:
             titles[name].append(re.sub(r"[^a-z0-9_]+", " ", title.lower()).strip())
     return titles
-
-
-def records_said(study: Any) -> _Study:
-    return study if isinstance(study, _Study) else _Study(study)
-
-
-def trace_number(said: str, unit: str, records: Any, *, counts: str = "",
-                 subjects: tuple[str, ...] = (), context: str = "", head: str = "",
-                 error: bool = False) -> dict[str, Any]:
-    """The record a number as the report gives it comes from, or the
-    nearest of its kind where none does.
-
-    ``said`` is the number as written ("7,439", "0.07415"), ``unit`` the
-    unit after it, ``counts`` the noun it counts, ``subjects`` the
-    analyses, runs or quantities its section, table row or column is
-    about (another analysis's or run's records are then not its),
-    ``context`` the words before it, ``head`` its table column's head (a
-    record must then be what the head names, and the head's unit is the
-    number's where the cell gives none), ``error`` whether it is an error
-    after a plus-minus."""
-    study = records_said(records)
-    decimals = _decimals(said)
-    figures = _figures(said)
-    number = float(said.replace(",", "").replace("−", "-"))
-    stems = _COUNTED.get(counts, ())
-    if not unit and head:
-        in_head = re.search(r"\(([^)]+)\)\s*$", head)
-        unit = in_head.group(1).strip() if in_head else ""
-    said_unit = unit if unit in _UNITS else ""
-    near_words = _words(context + " " + head)
-    head_words = _words(head) & study.vocabulary
-    asking = any(word in context.lower() for word in _ASKING)
-    best: tuple[float, dict[str, Any]] | None = None
-    others = 0
-    nearest: tuple[tuple[int, float], dict[str, Any]] | None = None
-    for record in study.records:
-        key = record["key"].lower()
-        file = record["file"].lower()
-        in_analysis = "analysis/" in file and file.count("/") >= 2
-        about = 0
-        apart = False
-        for subject in subjects:
-            if subject in study.runs:
-                if file.startswith("runs/"):
-                    if file.startswith(f"runs/{subject}/"):
-                        about += 1
-                    else:
-                        apart = True
-            elif _about(subject, record):
-                about += 1
-            elif in_analysis:
-                apart = True
-        if apart:
-            continue
-        if not asking and any(word in key for word in _ASKED):
-            continue
-        key_words = _key_words(key)
-        if head_words and not head_words & key_words:
-            continue
-        relevant = 3 * about
-        if stems and any(stem in key for stem in stems):
-            relevant += 3
-        if error and "error" in key:
-            relevant += 2
-        named = bool(near_words & key_words)
-        if named:
-            relevant += 2
-        record_unit = record["unit"]
-        if said_unit == "%":
-            if record_unit:
-                continue
-            candidates = [record["value"], record["value"] * 100.0]
-        elif said_unit:
-            if record_unit:
-                theirs = _in_base(record["value"], record_unit)
-                if theirs is None or theirs[0] != _UNITS[said_unit][0]:
-                    continue
-                candidates = [_from_base(theirs[0], theirs[1], said_unit)]
-            else:
-                candidates = [record["value"]]
-        else:
-            # A number said without its unit (a table's column of means)
-            # is a record's with one only where it is plainly that record.
-            if record_unit and (counts or not (about and named)):
-                continue
-            candidates = [record["value"]]
-        for value in candidates:
-            near, exact = _rounds_to(value, said, decimals)
-            if not near:
-                if relevant >= 2 and number and (record_unit or not said_unit):
-                    gap = abs(value - number) / abs(number)
-                    rank = (-relevant, gap)
-                    if gap < 0.5 and (nearest is None or rank < nearest[0]):
-                        nearest = (rank, {**record, "as_said": value})
-                continue
-            # A unit the record does not say, or a number with no unit or
-            # noun: taken only where the record's name says what it is, or
-            # the number is too precise to meet by chance.
-            known = bool(record_unit) and bool(said_unit) and said_unit != "%"
-            if not known and not relevant and not (exact and figures >= 3):
-                continue
-            # Of two alike, the shorter name: `findings.mean.n_frames`
-            # before `findings.hydrophobic_sasa.n_frames`.
-            score = 10 * exact + 5 * known + relevant - len(key) / 1000.0
-            if best is None or score > best[0]:
-                if best is not None:
-                    others += 1
-                best = (score, {**record, "as_said": value})
-            else:
-                others += 1
-    if best is not None:
-        return {"traced": True, "record": _said_record(best[1], said_unit), "others": others}
-    return {"traced": False, "nearest": _said_record(nearest[1], said_unit) if nearest else None}
-
-
-def _said_record(record: dict[str, Any], unit: str) -> dict[str, Any]:
-    value = record["value"]
-    said = repr(value) if not float(value).is_integer() else str(int(value))
-    return {"file": record["file"], "key": record["key"], "value": said,
-            "unit": record["unit"], "in": unit, "as_said": record["as_said"]}
 
 
 # ---------------------------------------------------------------------------
@@ -486,18 +579,40 @@ def _numbers_in(text: str, every: bool) -> Iterator[tuple[int, int, str, str, st
         yield start, end, said, unit, counts, error
 
 
-def traced_html(html: str, root: Path | str,
-                not_read: list[str] | None = None) -> tuple[str, list[dict[str, Any]]]:
+#: How far before and after a number its words are read, at most.
+_BESIDE = 64
+
+
+def _beside(text: str, start: int, end: int, spans: list[tuple[int, int]]) -> tuple[str, str]:
+    """The words before a number back to the number before it (or its
+    sentence's start), and after it up to the next number (or its
+    sentence's end): what the words beside it say of it, not of another."""
+    earlier = [e for s, e in spans if e <= start]
+    later = [s for s, e in spans if s >= end]
+    low = max([0, start - _BESIDE] + earlier[-1:])
+    high = min([end + _BESIDE] + later[:1])
+    before = re.split(r"[.!?]\s", text[low:start])[-1]
+    after = re.split(r"[.!?](?:\s|$)", text[end:high])[0]
+    return before, after
+
+
+def traced_html(html: str, root: Path | str, not_read: list[str] | None = None, *,
+                records: list[dict[str, Any]] | None = None) -> tuple[str, list[dict[str, Any]]]:
     """The report's HTML with each number it states marked, and what each
     traced to. A mark is `<span class="report-number" data-number="i">`
     around the number alone. A number not traced where a record was not
     read names those records (``not_read``, filled here too): it may be
     one of theirs."""
     refused: list[str] = []
-    study = _Study(records_of(root, refused))
+    if records is None:
+        records = records_of(root, refused)
+        if not_read is not None:
+            not_read.extend(refused)
+    else:
+        # Read already (`records_of`), its refusals in ``not_read``.
+        refused = list(not_read or [])
+    study = _Study(records)
     unread = sorted(set(refused))
-    if not_read is not None:
-        not_read.extend(unread)
     parts = re.split(r"(<[^>]+>)", html)
     out: list[str] = []
     numbers: list[dict[str, Any]] = []
@@ -552,7 +667,10 @@ def traced_html(html: str, root: Path | str,
                         pass
                 if tag in ("h2", "h3") and heading is not None:
                     # A section of the run (Methods, Results) is no analysis.
-                    said = study.named("".join(heading))
+                    words = "".join(heading)
+                    said = study.named(words)
+                    titled = study.titled(words)
+                    said = said or (titled[0] if len(titled) == 1 else "")
                     section = said if tag == "h3" or said in study.analyses else ""
                     heading = None
             elif not part.endswith("/>") and tag in _SKIPPED:
@@ -576,10 +694,11 @@ def traced_html(html: str, root: Path | str,
                          + (study.titled(head) if head else []) if s)
         cursor = 0
         pieces: list[str] = []
+        spans = [m.span() for m in _NUMBER.finditer(part)]
         for start, end, said, unit, counts, error in _numbers_in(part, in_cell):
+            before, after = _beside(part, start, end, spans)
             trace = trace_number(said, unit, study, counts=counts, subjects=subjects,
-                                 context=part[max(0, start - 48):start], head=head,
-                                 error=error)
+                                 context=before, after=after, head=head, error=error)
             index = len(numbers)
             if unread and not trace["traced"]:
                 trace = {**trace, "not_read": unread}
