@@ -441,16 +441,15 @@ def _status_records(root: Path) -> dict[str, Any]:
     read for it (`simulated_times` would say an outside record's production)."""
     from fastmdxplora.gui.simulated_time import simulated_times
 
-    from fastmdxplora import record_access
     from fastmdxplora.gui.series import refused_said
     from fastmdxplora.gui.telemetry import live_records_refused, not_read_health
 
     # The study's name, as its results name it: the status can come first.
-    # A manifest the held read refused names nothing, not the folder.
-    refused_before = record_access.refused()
+    # A manifest the held read refused is read as none, so the study is
+    # named by its folder, as its results name it; nothing is read through
+    # the link.
     manifest = _load_json(root / "manifest.json")
-    title = ("" if _no_study(root) or record_access.refused() - refused_before
-             else _run_title(root, manifest))
+    title = "" if _no_study(root) else _run_title(root, manifest)
     # A run that ended without saying so is said to have.
     status = status_as_it_stands(root)
     metrics = read_metrics(root)
