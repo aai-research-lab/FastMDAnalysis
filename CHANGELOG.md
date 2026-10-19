@@ -46,6 +46,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the list. Unused axis and remedy-price work is skipped; unexpected reader
   failures retain a public note and a private debug traceback.
 
+- A running study is named in the tab's title and its end notice from its
+  first status, even where its results are not read with it; the name is
+  read from the study's own manifest, and one linked out of it names
+  nothing.
+
 ### Added
 
 - Every page of a study says where it is at its head: the study, the run

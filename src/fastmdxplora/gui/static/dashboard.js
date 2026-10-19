@@ -854,6 +854,10 @@
     state.times = payload.times || {};
     state.stages = Array.isArray(payload.stages) ? payload.stages : [];
     state.phases = Array.isArray(payload.phases) ? payload.phases : [];
+    // Name the study before announcing its status, even if results are pending.
+    state.runTitle = (byId("setting-run-name")?.value || "").trim()
+      || payload.run_title
+      || state.runTitle;
     applyPhaseVisibility();
     renderTopBar(status, health);
     renderHero(status);
