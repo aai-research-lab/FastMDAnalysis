@@ -101,6 +101,7 @@ def test_the_run_moves_its_conversation_as_it_starts(tmp_path, monkeypatch) -> N
     the new study. The server moves it as it starts the run."""
     from fastmdxplora.gui.agent_panel import run_endpoint
     from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.workspace import study_key
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -111,10 +112,12 @@ def test_the_run_moves_its_conversation_as_it_starts(tmp_path, monkeypatch) -> N
                             "conversation": {"id": cid, "study": None}}, runtime)
     assert started["ok"] and started["conversation"]["moved"]
     assert started["conversation"]["study"] == made[0]
+    assert started["study_key"] == study_key(made[0])
     assert read_conversation(runtime)["id"] == cid
     again = run_endpoint({"config": {"systems": [{"system": "1UAO"}]},
                           "conversation": {"id": cid, "study": made[0]}}, runtime)
     assert again["conversation"]["moved"] and again["conversation"]["study"] == made[1]
+    assert again["study_key"] == study_key(made[1])
 
 
 def test_a_slow_disk_loses_nothing_across_two_runs(tmp_path, monkeypatch) -> None:
