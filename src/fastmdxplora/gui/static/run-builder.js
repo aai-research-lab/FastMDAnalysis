@@ -3747,6 +3747,8 @@
     button.disabled = true;
     text(el("run-note"), "Starting…");
     launchesPending += 1;
+    // The study the run opens is this window's own change, as Start's is.
+    window.FastMDXDashboard?.studyChangeAsked?.();
     let started;
     try {
       const response = await fetch("/api/run-config", {
@@ -3756,7 +3758,11 @@
         body: JSON.stringify({ path }),
       });
       started = await response.json();
+    } catch (error) {
+      window.FastMDXDashboard?.studyChangeAnswered?.(null);
+      throw error;
     } finally { launchesPending -= 1; }
+    window.FastMDXDashboard?.studyChangeAnswered?.(started && started.ok ? started.study_key || "" : "");
     if (!started.ok) {
       text(el("run-note"), started.error || "Could not start.");
       button.disabled = false;

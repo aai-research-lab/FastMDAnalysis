@@ -66,7 +66,15 @@
      * study it was). */
     launchesAsked: 0,
     ownStudies: [],
-    changeSeenLaunching: null,
+    changesSeenLaunching: [],
+    /* When the last unanswered launch answered, and when the status last
+     * applied was asked: a status asked after every launch answered says
+     * where the GUI is once every run's switch is made (CI-774 review L3). */
+    answeredAt: 0,
+    statusAsked: 0,
+    /* The newest poll applied: an older one answered later is not applied
+     * over it (CI-774 review L4). */
+    pollApplied: 0,
   };
 
   let chartHistorySamples = 600;
@@ -577,7 +585,10 @@
     }
   }
 
+  let pollsAsked = 0;
   async function pollOnce() {
+    const asked = Date.now();
+    const number = ++pollsAsked;
     const names = ["app", "status", "metrics", "events", "results", "structure", "playback"];
     const urls = [
       "/api/app-state", "/api/status", `/api/metrics?most=${chartHistorySamples}`,
@@ -588,6 +599,9 @@
     // A successful switch can precede its HTTP answer. Do not paint the
     // new study under the previous study's address while navigation waits.
     if (state.addressAsking) return;
+    // Asked before one already applied: what it read is older.
+    if (number < state.pollApplied) return;
+    state.pollApplied = number;
     let successes = 0;
 
     settled.forEach((result, index) => {
@@ -601,7 +615,10 @@
       successes += 1;
       const payload = result.value;
       if (name === "app") safeApply(name, () => applyAppState(payload));
-      if (name === "status") safeApply(name, () => applyStatus(payload));
+      if (name === "status") {
+        state.statusAsked = asked;
+        safeApply(name, () => applyStatus(payload));
+      }
       // A record of the study not read (a link out of it) is said so,
       // never shown as a run that recorded none.
       if (name === "metrics") safeApply(name, () => applyMetrics(payload.metrics || [], payload.not_read || ""));
@@ -892,6 +909,8 @@
       key, title: byId("topbar-run-title")?.textContent || "Study",
       folder: byId("study-folder")?.dataset.name || "",
       gone: Boolean(key) && state.goneChecks[key] === "gone",
+      // Read where the GUI is once every launch answered (`studyKnown`).
+      past: studyKnown(),
     });
   }
 
@@ -1086,9 +1105,14 @@
     // the study now shown.
     if (state.addressKnown && was && key && was !== key && !state.addressAsking) {
       const own = ownChange(key);
-      if (own === "later") state.changeSeenLaunching = {from: was, to: key};
-      else if (own !== "own") openedElsewhere(was, key);
+      if (own === "later") {
+        state.changesSeenLaunching.push(
+          {from: was, to: key, title: byId("topbar-run-title")?.textContent || "Another study"});
+      } else if (own !== "own") openedElsewhere(was, key);
     }
+    // Asked once every launch had answered: the GUI has made every run's
+    // switch, and this is where it is. No run's study is ahead of it.
+    if (studyKnown()) state.ownStudies = [];
     if (!state.addressKnown) {
       state.addressKnown = true;
       if (state.addressRefused) showToast(state.addressRefused, "warning");
@@ -1162,12 +1186,38 @@
     } else if (key === null) {
       state.ownChangeUntil = Date.now() + 60000;
     }
-    const seen = state.changeSeenLaunching;
-    if (state.launchesAsked > 0 || !seen) return;
-    state.changeSeenLaunching = null;
-    // Gone on since: that change was judged as it was seen.
-    if (state.studyShown !== seen.to) return;
-    if (ownChange(seen.to, true) !== "own") openedElsewhere(seen.from, seen.to);
+    if (state.launchesAsked > 0) return;
+    state.answeredAt = Date.now();
+    // Where the GUI is now that every run's switch is made: asked at once.
+    readStatusNow();
+    // Each change seen meanwhile, in turn: one still shown is said as any
+    // study opened elsewhere, one gone past in past words.
+    const seen = state.changesSeenLaunching;
+    state.changesSeenLaunching = [];
+    seen.forEach((change) => {
+      if (ownChange(change.to, true) === "own") return;
+      if (state.studyShown === change.to) {
+        openedElsewhere(change.from, change.to);
+        return;
+      }
+      emit("study-changed-elsewhere", {from: change.from, to: change.to, title: change.title});
+      window.setTimeout(() => showNotice(
+        `${change.title} was opened elsewhere as the run started, in another window or by an AI app.`,
+        "warning", {kind: "study-opened-as-the-run-started"}), 0);
+    });
+  }
+
+  /* Whether the status applied was asked once every launch had answered
+   * (or none was made): the study it names is where the GUI is, every
+   * run's switch made. */
+  function studyKnown() {
+    return state.launchesAsked === 0
+      && (state.answeredAt === 0 || state.statusAsked > state.answeredAt);
+  }
+
+  function readStatusNow() {
+    if (polling) changedWhilePolling = true;
+    else pollNow().catch((error) => console.warn("dashboard poll error", error));
   }
 
   /* Opened once the page is shown (Back or Forward to a step naming
@@ -2841,11 +2891,10 @@
      * with where its run went. */
     studyChangeAsked: () => { state.launchesAsked += 1; },
     /* The study the GUI has open, asked now rather than at the next poll,
-     * paused or not. */
-    readStatusNow: () => {
-      if (polling) changedWhilePolling = true;
-      else pollNow().catch((error) => console.warn("dashboard poll error", error));
-    },
+     * paused or not; and whether the one shown was asked once every launch
+     * had answered. */
+    readStatusNow,
+    studyKnown,
     studyChangeAnswered: (key) => launchAnswered(key),
     /* Asked before any other way opens another study: "" or the reason. */
     holdStudySwitch,

@@ -213,6 +213,16 @@ def _page_study_refused(root: Path, payload: Any) -> dict[str, Any] | None:
             "reason": STUDY_CHANGED, "error": STUDY_CHANGED}
 
 
+def _with_its_study_key(started: Any) -> Any:
+    """A launch's answer with the run's study, by the key the page names it
+    by: the change to it is the page's own, and no other is."""
+    if isinstance(started, dict) and started.get("ok") and started.get("output"):
+        from fastmdxplora.gui.workspace import study_key
+
+        started["study_key"] = study_key(started["output"])
+    return started
+
+
 def _get_answered_beyond_loopback(path: str) -> bool:
     return (path in GETS_ANSWERED_BEYOND_LOOPBACK
             or path.startswith(GET_PREFIXES_ANSWERED_BEYOND_LOOPBACK))
@@ -1954,17 +1964,10 @@ def make_handler(
                 # Runs what the config describes rather than what a form was
                 # wired for, which is how an analysis of an existing
                 # trajectory can be started at all.
-                started = app_runtime.launch_from_config(
+                self._send_json(_with_its_study_key(app_runtime.launch_from_config(
                     payload or {},
                     dashboard_url=self.headers.get("Origin"),
-                )
-                if isinstance(started, dict) and started.get("ok") and started.get("output"):
-                    from fastmdxplora.gui.workspace import study_key
-
-                    # The run's study, by the key the page names it by: the
-                    # change to it is the page's own, and no other is.
-                    started["study_key"] = study_key(started["output"])
-                self._send_json(started)
+                )))
                 return
             if path == "/api/agent/model":
                 # Reading and setting which AI model to ask. The key is
@@ -2057,13 +2060,11 @@ def make_handler(
                 named = self._path_for(request.get("path"))
                 if named is None:
                     return
-                self._send_json(
-                    app_runtime.launch_existing_config(
-                        named,
-                        output=request.get("output"),
-                        dashboard_url=self.headers.get("Origin"),
-                    )
-                )
+                self._send_json(_with_its_study_key(app_runtime.launch_existing_config(
+                    named,
+                    output=request.get("output"),
+                    dashboard_url=self.headers.get("Origin"),
+                )))
                 return
             if path == "/api/check-config":
                 # A config that has been elsewhere -- edited by hand, carried

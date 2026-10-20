@@ -1318,8 +1318,11 @@
   /* What the note beside the box says: "kept" (could not be kept), "lost"
    * (files not attached again) or "moved" (words kept for another study). */
   var noteKind = "";
-  function unsentSaid(text, kind) {
+  /* The study a "moved" note is about: said no more once it is open. */
+  var noteAbout = "";
+  function unsentSaid(text, kind, about) {
     noteKind = text ? kind || "" : "";
+    noteAbout = text ? about || "" : "";
     var area = el("agent-request");
     var host = el("agent-unsent-note");
     if (!host && area) {
@@ -1450,6 +1453,11 @@
     if (key === unsentKey) {
       seenWhileLaunching = null;
       unsentTitle = title || unsentTitle;
+      if (!launching) {
+        /* Still on the study the words were typed in: they stay with it. */
+        wordsFollowRun = "";
+        if (study.past) runStudies = [];
+      }
       return;
     }
     if (launching) {
@@ -1457,6 +1465,18 @@
        * says where the run went. */
       seenWhileLaunching = { key: key, title: title };
       return;
+    }
+    /* Words typed after Run into the thread the run took with it: the run's
+     * study's, whatever other study is seen first (CI-774 reviews K6, L2
+     * and L4). */
+    var follow = wordsFollowRun;
+    wordsFollowRun = "";
+    if (follow === "next") follow = key;
+    if (follow && key !== follow && validStudyKey(unsentKey) && unsentKey !== follow) {
+      delete heldInPage[unsentKey];
+      try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+      unsentKey = follow;
+      unsentTitle = "the run's study";
     }
     var area = el("agent-request");
     var typed = boxNow();
@@ -1473,9 +1493,11 @@
      * and a run's never seen was kept for a study opened elsewhere later). */
     var now = Date.now();
     var at = lastRun(runStudies, key);
-    var runsThere = at >= 0 && now < runStudies[at].until;
+    var runsThere = (at >= 0 && now < runStudies[at].until) || follow === key;
     runStudies = runStudies.slice(at + 1).filter(function (r) { return now < r.until; });
-    if (at < 0 && !late) runStudies = [];
+    /* Read once every launch answered, the GUI is past every run's study
+     * (CI-774 review L3). */
+    if ((at < 0 && !late) || study.past) runStudies = [];
     if (begunElsewhere && runsThere) {
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
@@ -1494,9 +1516,16 @@
       if (area) { area.value = ""; area.dispatchEvent(new Event("input")); }
       pendingFiles = [];
       renderChips();
-      unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
-                 + "it is in the box again when " + forTitle + " is open"
-                 + (onlyHere ? " in this page, which this browser cannot keep it past." : "."), "moved");
+      var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
+      if (sendHeld) {
+        /* Held to be sent: it goes with its study, and is sent there. */
+        heldFor = was;
+        unsentSaid("The message held to be sent is kept for " + forTitle + ", not sent here: "
+                   + "it is sent once " + forTitle + " is open in this window" + last, "moved", was);
+      } else {
+        unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
+                   + "it is in the box again when " + forTitle + " is open" + last, "moved", was);
+      }
       putBack(key, "");
       return;
     }
@@ -1511,30 +1540,19 @@
   }
   /* A run whose launch took the thread on screen with it, words typed
    * into that thread after Run being in the box: the words are the run's
-   * study's, whatever study is seen first (CI-774 reviews K6 and L2). */
+   * study's, whatever study is seen first (`restoreUnsent`). */
   var wordsFollowRun = "";
   /* Every launch this page made has answered: the run's study, if one
    * started (`key`), is known, and a switch seen meanwhile is judged. */
   function launchAnswered(key, follows) {
     if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
-    if (validStudyKey(key) && follows) wordsFollowRun = key;
+    /* An answer not read (`key` null): the run's study is not known, and
+     * the first study seen other than the words' own is taken for it. */
+    if (follows) wordsFollowRun = validStudyKey(key) ? key : key === null ? "next" : "";
     if (launching) return;
     var seen = seenWhileLaunching;
-    var follow = wordsFollowRun;
     seenWhileLaunching = null;
-    wordsFollowRun = "";
-    if (seen) {
-      if (follow && seen.key !== follow && validStudyKey(unsentKey) && unsentKey !== follow) {
-        /* Seen first: another study. The words are kept for the run's,
-         * where the thread they were typed into went. */
-        delete heldInPage[unsentKey];
-        try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
-        unsentKey = follow;
-        unsentTitle = "the run's study";
-      }
-      restoreUnsent(seen, true);
-      return;
-    }
+    if (seen) { restoreUnsent(seen, true); return; }
     /* Already on the run's study (it was the study open, or the page
      * learnt which study it was on only then): nothing to take there. */
     var at = lastRun(runStudies, unsentKey);
@@ -1559,6 +1577,13 @@
     readFilesAgain(files.filter(function (f) { return mine.indexOf(f.path) < 0; }), key);
     restoring -= 1;
     keepUnsent();
+    /* Open now: a note that its words are kept for it says so no more. */
+    if (noteKind === "moved" && noteAbout === key) unsentSaid("");
+    if (sendHeld && heldFor === key) {
+      heldFor = "";
+      if (words.trim()) sayHeld();
+    }
+    wakeHeldSend();
   }
   function attachFile(path) {
     if (!path) return;
@@ -3925,11 +3950,10 @@
           dashboard.studyChangeAnswered(started === undefined ? null : runKey);
         }
         var took = started && started.conversation;
-        launchAnswered(runKey, Boolean(c === conv && took && took.ok && took.moved
-                                       && boxNow().trim() && boxNow() !== boxAtRun));
-        /* After the thread's move is taken in: a message held while the
-         * run started goes once the page knows its study. */
-        Promise.resolve().then(function () { sendHeldNow(true); });
+        launchAnswered(started === undefined ? null : runKey,
+                       Boolean(c === conv && boxNow().trim() && boxNow() !== boxAtRun
+                               && (started === undefined || (took && took.ok && took.moved))));
+        wakeHeldSend();
         startingRuns = startingRuns.filter(function (e) { return e !== entry; });
         /* Said where the person can see it: the reply it was asked in may
          * have been cut by a retry while it started. */
@@ -3968,6 +3992,7 @@
              * goes on showing another study (opened again elsewhere as the
              * run started) reads that study's own thread. */
             c.page = validStudyKey(started.study_key) ? started.study_key : "";
+            c.ranTo = c.page;
             if (c === conv) {
               convFor = c.page;
               var from = shownStudy();
@@ -4143,10 +4168,9 @@
   var convFor = "";
   var readAgain = false;
   /* The thread on screen as a run took it to its study (`key`), with the
-   * study the page showed then (`from`): kept until the page shows another.
-   * Still on `from` once the run's thread is read away, the page never saw
-   * the run's study (another window opened `from` again as it started),
-   * and says where the run's thread is (CI-774 review K6, M1). */
+   * study the page shows instead (`from`): kept until the page shows the
+   * run's study. Once `from`'s own thread is read in place of the run's,
+   * the page says where the run's thread is (CI-774 reviews K6 and L3). */
   var launchedAway = null;
   /* The page's own study's thread read in place of one a run took to a
    * study this page never showed: no word typed here goes there, nor is
@@ -4162,32 +4186,50 @@
     var host = el("agent-unsent-note");
     var before = noteKind === "moved" && host ? host.textContent : "";
     unsentSaid((before ? before + " " : "") + "The run's conversation is in the run's study, "
-               + "not this one: open the run's study to go on with it.", "moved");
-    sendHeldNow();
+               + "not this one: open the run's study to go on with it.", "moved", away.key);
   }
-  /* A message sent while a run starts, or before the page knows whether
-   * the thread on screen went with it to a study it does not show: held in
-   * the box, and sent once that is known, to the thread then on screen. A
-   * reply is never asked with one study open and kept in another's thread
-   * (CI-774 reviews L1 and L2). */
+  /* A message sent while it cannot yet be known where it would be answered
+   * and kept is held in the box, and sent once it can. The one rule: not
+   * while the page is going, a launch is unanswered, or a conversation is
+   * being read; not before the page has read where the GUI is once every
+   * launch answered; not while the thread on screen is one a run took to a
+   * study the page does not show; and, held for a study it was kept for,
+   * not until that study is shown. A reply is never asked with one study
+   * open and kept in another's thread (CI-774 reviews L1 to L4). */
   var sendHeld = false;
-  function sendWaits() { return launching > 0 || launchedAway !== null; }
+  var heldFor = "";
+  function sendWaits() {
+    if (leaving || launching > 0 || reading > 0) return true;
+    var dashboard = window.FastMDXDashboard;
+    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) return true;
+    var shown = shownStudy();
+    if (heldFor && heldFor !== shown) return true;
+    return Boolean(conv.ranTo && conv.ranTo !== shown);
+  }
+  function sayHeld() {
+    unsentSaid("Sent once this page has read which study is open and its conversation.", "held");
+  }
   function holdSend() {
     if (!sendHeld) {
       sendHeld = true;
-      unsentSaid("Sent once the run has started and this page has read which study is open.", "held");
+      sayHeld();
     }
     var dashboard = window.FastMDXDashboard;
-    if (launchedAway && dashboard && dashboard.readStatusNow) dashboard.readStatusNow();
-  }
-  function sendHeldNow(ask) {
-    if (!sendHeld) return;
-    if (sendWaits()) {
-      var dashboard = window.FastMDXDashboard;
-      if (ask && launchedAway && dashboard && dashboard.readStatusNow) dashboard.readStatusNow();
-      return;
+    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown() && dashboard.readStatusNow) {
+      dashboard.readStatusNow();
     }
+  }
+  /* Asked after whatever may end the wait: a status read (once every
+   * listener has heard it), a conversation read, a launch's answer. */
+  function wakeHeldSend() {
+    if (sendHeld) window.setTimeout(sendHeldNow, 0);
+  }
+  /* Every status applied, a study open or none. */
+  window.addEventListener("dashboard:status-updated", wakeHeldSend);
+  function sendHeldNow() {
+    if (!sendHeld || sendWaits()) return;
     sendHeld = false;
+    heldFor = "";
     if (noteKind === "held") unsentSaid("");
     draft();
   }
@@ -4228,7 +4270,12 @@
         if (!conv.page) conv.page = convFor;
       }
       replay(entries);
-    }).catch(function () {}).then(function () { reading -= 1; threadRead = true; readFirst(); });
+    }).catch(function () {}).then(function () {
+      reading -= 1;
+      threadRead = true;
+      readFirst();
+      wakeHeldSend();
+    });
   }
 
   function replay(entries) {
@@ -4739,8 +4786,14 @@
       window.FastMDXDashboard.on("study-addressed", function (study) {
         var key = study && study.key;
         if (!validStudyKey(key)) return;
-        if (launchedAway && key !== launchedAway.from) launchedAway = null;
-        sendHeldNow();
+        /* On the run's study, its thread is the page's. On any other, that
+         * study's own thread is read in its place, and where the run's is
+         * said (CI-774 review L3). */
+        if (launchedAway) {
+          if (key === launchedAway.key) launchedAway = null;
+          else launchedAway.from = key;
+        }
+        wakeHeldSend();
         if (launching || reading) return;
         /* A read refused as the GUI had gone on (a run's study, its
          * thread on screen): the page is on that study now. */
