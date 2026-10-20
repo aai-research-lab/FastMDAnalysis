@@ -1,0 +1,39 @@
+{
+  "analysis": "thermodynamics",
+  "class": "Thermodynamics",
+  "selection": null,
+  "options": {
+    "state_csv": null
+  },
+  "findings": {
+    "thermodynamics": {
+      "source": "/tmp/D/real/clean/simulation/energy.csv",
+      "samples": 2,
+      "ensemble": "constant pressure",
+      "density": {
+        "units": "g/mL",
+        "not_a_measurement": "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+      },
+      "potential_energy": {
+        "units": "kJ/mol",
+        "not_a_measurement": "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+      },
+      "kinetic_energy": {
+        "units": "kJ/mol",
+        "not_a_measurement": "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+      },
+      "total_energy": {
+        "units": "kJ/mol",
+        "not_a_measurement": "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+      },
+      "temperature": {
+        "units": "K",
+        "not_a_measurement": "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+      },
+      "volume": {
+        "units": "nm^3",
+        "not_a_measurement": "2 usable frame(s): there is nothing to average, and nothing to say about how it varies."
+      }
+    }
+  }
+}

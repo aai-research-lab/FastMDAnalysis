@@ -1,0 +1,32 @@
+{
+  "analysis": "rg",
+  "class": "Rg",
+  "selection": "protein",
+  "options": {
+    "by_chain": false,
+    "mass_weighted": true
+  },
+  "findings": {
+    "mean": {
+      "discard": 66,
+      "statistical_inefficiency": 66.95770375416248,
+      "effective_samples": 0.5077832436553107,
+      "mean": 0.3355473493921783,
+      "standard_error": NaN,
+      "standard_deviation": 0.005400586648110375,
+      "degrees_of_freedom": 2.3255813953488373,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 34 frames hold 0.5 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "shortfall": {
+        "target_independent": 25.0,
+        "independent": 0.5077832436553107,
+        "statistical_inefficiency": 66.95770375416248,
+        "more_frames": 1640,
+        "more_ns": 0.06559993743896483,
+        "lower_bound": true
+      },
+      "n_frames": 100,
+      "unit": "nm"
+    }
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "phase": "setup",
+  "input": {
+    "system": "/tmp/F/real/tri-ala.pdb",
+    "form": "pdb_file",
+    "structure": {
+      "form": "pdb_file",
+      "given": "/tmp/F/real/tri-ala.pdb",
+      "retrieved_at": "2026-10-18T04:55:32.559135+00:00",
+      "bytes": 1272,
+      "sha256": "e1c61caf90abc12ef9a03b9b747ed96198224af77436b5d5a463a48dfa5039d9",
+      "path": "/tmp/F/real/tri-ala.pdb",
+      "modified_at": "2026-10-18T04:55:30.364591+00:00"
+    },
+    "assembly": null
+  },
+  "parameters": {
+    "agent": null,
+    "ph": 7.0,
+    "heterogens": "auto",
+    "mutations": null,
+    "mutation_chain": null,
+    "protonation_margin": 1.0,
+    "residue_states": null,
+    "model": null,
+    "replace_nonstandard_residues": true,
+    "chains": null,
+    "build_missing_termini": false,
+    "keep_heterogens": false,
+    "keep_water": false,
+    "fixed_pdb": null,
+    "preparation_audit": false,
+    "forcefield": "auto",
+    "force_field": null,
+    "water_model": null,
+    "ligand": null,
+    "ligand_forcefield": null,
+    "ligand_name": "LIG",
+    "ligand_resname": null,
+    "ligand_net_charge": null,
+    "ligand_pose": "auto",
+    "check_ligand_clashes": true,
+    "ligand_clash_threshold_nm": 0.15,
+    "membrane": null,
+    "membrane_orient": false,
+    "membrane_orientation_checked": false,
+    "membrane_center_z_nm": null,
+    "solvent_padding_nm": 1.2,
+    "box_shape": "dodecahedron",
+    "ion_positive": "Na+",
+    "ion_negative": "Cl-",
+    "ion_concentration_M": 0.15,
+    "neutralize": true,
+    "random_seed": null,
+    "nonbonded_method": "PME",
+    "nonbonded_cutoff_nm": 0.9,
+    "ewald_error_tolerance": 0.0005,
+    "use_switching_function": null,
+    "switch_distance_nm": null,
+    "dispersion_correction": true,
+    "remove_cm_motion": true,
+    "constraints": "HBonds",
+    "rigid_water": true,
+    "hydrogen_mass_amu": null,
+    "temperature_K": 300.0,
+    "_random_seed": 1209068117,
+    "_random_seed_drawn": true,
+    "_heterogen_decisions": []
+  },
+  "n_atoms_solvated": 1403,
+  "random_seed": {
+    "seed": 1209068117,
+    "drawn": true
+  },
+  "box": {
+    "vectors_nm": [
+      [
+        2.8001428534987283,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.8001428534987283,
+        0.0
+      ],
+      [
+        1.4000714267493641,
+        1.4000714267493641,
+        1.9800000000000002
+      ]
+    ],
+    "perpendicular_widths_nm": [
+      2.8001428534987283,
+      2.8001428534987283,
+      1.9800000000000002
+    ],
+    "smallest_width_nm": 1.9800000000000002,
+    "volume_nm3": 15.524784000000002,
+    "largest_usable_cutoff_nm": 0.9900000000000001
+  },
+  "resolved_forcefield": {
+    "source": "named",
+    "name": "amber-openff",
+    "xmls": [
+      "amber14-all.xml",
+      "amber14/tip3p.xml"
+    ],
+    "water_model": "tip3p",
+    "supports_ligand": true,
+    "small_molecule_forcefield": "openff-2.2.1"
+  },
+  "heterogen_decisions": [],
+  "resolved": {
+    "solvent_padding_nm": 1.4001,
+    "use_switching_function": false,
+    "random_seed": 1209068117,
+    "force_field": [
+      "amber14-all.xml",
+      "amber14/tip3p.xml"
+    ],
+    "water_model": "tip3p",
+    "ligand_forcefield": "openff-2.2.1"
+  },
+  "artifacts_planned": {
+    "input_pdb": "input.pdb",
+    "prepared_pdb": "prepared.pdb",
+    "solvated_pdb": "solvated.pdb",
+    "topology_pdb": "topology.pdb",
+    "system_xml": "system.xml",
+    "state_xml": "state.xml"
+  },
+  "artifacts_written": [
+    "input.pdb",
+    "prepared.pdb",
+    "solvated.pdb",
+    "topology.pdb",
+    "system.xml",
+    "state.xml"
+  ],
+  "notes": []
+}

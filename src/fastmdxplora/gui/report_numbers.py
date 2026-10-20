@@ -444,7 +444,10 @@ def trace_number(said: str, unit: str, records: Any, *, counts: str = "",
         field = _field(key)
         analysis = _analysis_of(file)
         run = _run_of(file)
-        if runs and run and _named(run) not in runs:
+        # A run's record only for a number its row, section or words say
+        # is that run's: the mean of the replicas' means, or the error each
+        # run estimated on average, is no one run's.
+        if run and (not runs or _named(run) not in runs):
             continue
         own = any(s == analysis or _about(s, record) for s in explicit if s not in study.runs)
         said_of = any(s == analysis or _about(s, record) for s in spoken if s not in study.runs)

@@ -404,11 +404,26 @@ def test_a_study_of_runs_traces_each_run_s_numbers_to_that_run(tmp_path):
         assert number["traced"], number
         assert number["record"]["file"].startswith(
             "runs/" + run.replace("_k_", "-K-").replace("temperature_", "temperature-") + "/"), number
-    # Said of the change between them: each run's error, none picked.
-    error = _by_said(numbers)["0.00011 nm"][0]
-    assert error["traced"] is False
-    assert sorted(c["file"].split("/")[1] for c in error["candidates"]) == [
-        "s1__temperature-K-300", "s1__temperature-K-310"]
+    # Said of the change between them, naming no run: no run's record.
+    for said in ("0.16001", "0.16034 nm", "0.00011 nm", "1.20001 nm"):
+        number = _by_said(numbers)[said][0]
+        assert number["traced"] is False and not number.get("candidates"), number
+
+
+def test_a_number_across_the_replicas_is_no_one_run_s(tmp_path):
+    """A study of three replicas, as the pipeline compares them: the mean of
+    their means (0.008) and the error each run estimated on average (0.0011)
+    were traced to the one run whose own value rounds to them."""
+    numbers = _traced_in(_written(tmp_path, "seeds"), "comparison/comparison_report.md")
+    across = [n for n in numbers if n["subjects"] and not any(
+        s.startswith("s1__") for s in n["subjects"])]
+    assert {n["said"] for n in across} >= {"0.008", "0.0011", "0.6827", "0.0024"}
+    for number in across:
+        assert number["traced"] is False and not number.get("candidates"), number
+    # A run's row is still that run's.
+    row = [n for n in numbers if "s1__random_seed_2" in n["subjects"]]
+    assert [n["said"] for n in row] == ["0.0080", "0.0011"]
+    assert all(n["record"]["file"].startswith("runs/s1__random-seed-2/") for n in row)
 
 
 def test_a_record_the_run_writes_again_unchanged_is_not_said_changed(tmp_path):
