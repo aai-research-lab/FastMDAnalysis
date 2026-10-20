@@ -442,6 +442,32 @@ def _frames_planned(simulation: dict[str, Any]) -> tuple[int, bool]:
     return first // max(1, interval), False
 
 
+def _simulations_of(config: dict[str, Any], runs: int) -> list[dict[str, Any]]:
+    """The simulation settings of each run the study makes, as the batch
+    layer expands them (`batch.sweep.expand_runs`, as `_runs_of` does);
+    ``runs`` of them, any run past the expanded ones (the pull an umbrella
+    study seeds its windows from) as the study's own."""
+    import copy
+
+    study = config.get("simulation") or {}
+    found: list[dict[str, Any]] = []
+    if runs > 1:
+        try:
+            from fastmdxplora.batch.sweep import expand_runs, normalize_sweep, normalize_systems
+            from fastmdxplora.config import phase_options, validate_config
+
+            data = copy.deepcopy(config)
+            validate_config(data, require_systems=True)
+            specs = expand_runs(
+                systems=normalize_systems(data["systems"]),
+                sweep=normalize_sweep(data["sweep"]) if data.get("sweep") is not None else None,
+                base_options=phase_options(data))
+            found = [spec.options.get("simulation") or {} for spec in specs]
+        except Exception:  # noqa: BLE001 - each run as the study's own
+            found = []
+    return (found + [study] * runs)[:max(1, runs)]
+
+
 def _simulates(config: dict[str, Any]) -> bool:
     included = config.get("include_phase")
     excluded = config.get("exclude_phase") or []
@@ -515,22 +541,39 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
             + f", {int(time['steps']):,} steps in all, equilibration included")})
 
     # The trajectories: production frames of the atoms the run keeps.
-    frames, ceiling = _frames_planned(simulation)
-    kept = simulation.get("save_selection", "not water")
+    # Each run from its own settings: a sweep over the production length,
+    # the rule it stops by, the interval or what it keeps writes each run's
+    # trajectory as that run's settings say.
     waters = int(getattr(estimate, "waters", 0) or 0)
     sites = WATER_SITES.get(str(getattr(estimate, "water_model", "")).lower(), 3)
-    if kept in (None, "", "all"):
-        atoms, which = particles, "every atom"
-    elif str(kept).strip() == "not water":
-        atoms, which = max(0, particles - waters * sites), "the atoms but water"
+
+    def kept_atoms(run: dict[str, Any]) -> tuple[int, str]:
+        kept = run.get("save_selection", "not water")
+        if kept in (None, "", "all"):
+            return particles, "every atom"
+        if str(kept).strip() == "not water":
+            return max(0, particles - waters * sites), "the atoms but water"
+        return particles, f"at most every atom (`{kept}` is not worked out here)"
+
+    planned = []
+    for run in _simulations_of(config, max(1, runs)):
+        frames, ceiling = _frames_planned(run)
+        atoms, which = kept_atoms(run)
+        planned.append((frames, atoms, which, ceiling))
+    many = len(planned)
+    needed = sum(f * (DCD_BYTES_PER_ATOM * a + DCD_BYTES_PER_FRAME) for f, a, _w, _c in planned)
+    ceiling = any(c for *_rest, c in planned)
+    frames, atoms, which, _ = planned[0]
+    if len({(f, a, w) for f, a, w, _c in planned}) == 1:
+        said = (f"about {_size(needed)} of trajectory{' at most' if ceiling else ''}: "
+                f"{frames:,} frames of {atoms:,} atoms ({which})"
+                + (f" in each of {many} runs" if many > 1 else ""))
     else:
-        atoms, which = particles, f"at most every atom (`{kept}` is not worked out here)"
-    each = frames * (DCD_BYTES_PER_ATOM * atoms + DCD_BYTES_PER_FRAME)
-    many = max(1, runs)
-    needed = each * many
-    said = (f"about {_size(needed)} of trajectory{' at most' if ceiling else ''}: "
-            f"{frames:,} frames of {atoms:,} atoms ({which})"
-            + (f" in each of {many} runs" if many > 1 else ""))
+        counts = sorted(f for f, *_rest in planned)
+        kinds = sorted({f"{a:,} atoms ({w})" for _f, a, w, _c in planned})
+        said = (f"about {_size(needed)} of trajectory{' at most' if ceiling else ''} over "
+                f"{many} runs: {counts[0]:,} to {counts[-1]:,} frames a run, of "
+                + " or ".join(kinds))
     level = "note"
     where = _where_written(config, path_for)
     if where is not None:

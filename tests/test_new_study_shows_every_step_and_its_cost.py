@@ -277,3 +277,21 @@ def test_the_gpu_line_counts_the_gpus_runs_going_here_hold(tmp_path, monkeypatch
                         lambda config, folder, held, room=None: (asked.append(held), (None, []))[1])
     preview._gpu_line({"output": str(tmp_path / "new"), "simulation": {}}, None)
     assert [[(h.uuid, h.need_mb) for h in held] for held in asked] == [[("GPU-1", 6000)]]
+
+
+def test_each_run_of_a_sweep_is_counted_from_its_own_settings(tmp_path):
+    """Every run was counted as the study's base: a sweep over the
+    production length (0.04 and 1 ns) was said as two runs of 200 frames,
+    where the runner writes 200 and 2,000."""
+    from fastmdxplora.simulation.lengths import steps_in
+    from fastmdxplora.simulation.runner import trajectory_interval_for
+
+    config = {"output": str(tmp_path), "systems": [{"id": "s", "system": "1UBQ"}],
+              "sweep": {"simulation.duration_ns": [0.04, 1]},
+              "simulation": {"duration_ns": 0.04, "timestep_fs": 2}}
+    frames = [steps_in(ns, 2.0) // trajectory_interval_for(steps_in(ns, 2.0)) for ns in (0.04, 1)]
+    assert frames == [200, 2000]
+    said = _disk(config)
+    assert "over 2 runs: 200 to 2,000 frames a run, of 3,000 atoms (the atoms but water)" in said, said
+    size = sum(f * (DCD_BYTES_PER_ATOM * 3000 + DCD_BYTES_PER_FRAME) for f in frames)
+    assert said.startswith(f"about {preview._size(size)} of trajectory over 2 runs"), said
