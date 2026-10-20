@@ -25,6 +25,29 @@ def _shows(page, key, timeout=30000):
                            arg=key, timeout=timeout)
 
 
+def test_a_launched_draft_is_not_written_back_on_reload(browser, site):  # noqa: F811
+    """L1 3 and L2 L2: a study started from the Config Builder leaves no
+    draft of itself: leaving the page wrote the launched form back."""
+    page = _open(browser, site)
+    try:
+        _builder(page, site)
+        page.wait_for_timeout(800)
+        out = str(site["root"] / "launched")
+        page.route("**/api/run", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"ok": True, "output": out, "config_path": out + "/config.yml"})))
+        page.click("#run-start-button")
+        page.wait_for_function("() => /Running/.test(document.getElementById('run-note').textContent)")
+        page.reload()
+        page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+        page.wait_for_timeout(1000)
+        drafts = page.evaluate("""() => Object.keys(localStorage)
+            .filter((key) => key.startsWith('fmx.builderDraft'))""")
+    finally:
+        page.context.close()
+    assert drafts == []
+
+
 def test_a_study_with_no_manifest_is_not_named_by_the_study_before(browser, site):  # noqa: F811
     """A folder with no manifest (a run just started) opened after a study
     named by its system: it is named by its folder, as its tab and its
