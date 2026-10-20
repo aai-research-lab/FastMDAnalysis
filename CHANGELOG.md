@@ -57,6 +57,58 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   run can see, as the report of a study run until it knew now says. It
   lowers how often a wrong mean is given; it does not make the ones still
   given right.
+
+- A study is checked whole before it runs, as the weekly test of 10-20
+  found it was not:
+  - a system entry's phase blocks are checked as a top-level block is (a
+    misspelt setting there ran at the value it meant to change), and keys
+    other than `system`, `id` and the phases are refused;
+  - each swept value is checked against its setting (`setup.ph: [25]` was
+    prepared at pH 25), a value repeated on an axis is refused, and so is
+    an axis a system entry also sets;
+  - a setting given a number it cannot be is refused: a timestep of 0,
+    negative steps, an interval under 1 or longer than production, a
+    hydrogen mass at or under hydrogen's own, a negative pressure in atm or
+    friction, an analysis's `last` at or before its `first`, under one
+    worker, and NaN or infinity anywhere;
+  - a misspelt analysis option, `forcefield` beside `force_field`, and
+    `include` beside a different `include_phase` are refused with the
+    Config, not part-way through the run;
+  - an error OpenMM raises that is not about the numbers is said as it is,
+    not as an unstable simulation.
+- Your defaults fill only what the study leaves unset: a study's
+  `pressure_atm`, `*_duration_ns`, `force_field` or `keep_heterogens` is no
+  longer overridden by the other spelling in `fastmdx-defaults.yml`, and a
+  default a system's own value replaces is not recorded as the reason.
+- `fastmdx config` writes `agent`, `agent_model`, `budget_hours` and
+  `decisions` commented out: a study made from the full template was
+  recorded as drafted with an AI model, with a budget and a reason for its
+  pH that nobody gave. Its help lines start with `##`, and each of a pair of
+  settings says to use one or the other.
+- `--dry-run` refuses a system setup cannot read and a selection that does
+  not parse, and prints what is worth knowing before a run, as the GUI's
+  Check it does. A run whose asked-for analysis failed exits 1. Setup given
+  a sequence it cannot build fails, saying so. `fastmdx config -f` into a
+  folder that does not exist says so in one line.
+- A study with `budget_hours` runs its own phases in each stage and records
+  them; with a phase list of its own it was refused for setting both
+  `include` and `exclude`.
+- The Config Builder shows and runs the study your defaults make: its plan
+  and full config say 310 K where the run uses 310 K, and FastMDXplora's own
+  value typed over yours is kept. Full config ticked runs the full file.
+- `fastmdx gui` with no study open puts new studies in the folder it was
+  started in, reads your defaults and relative paths from it, as the
+  preview did.
+- Check it judges a Config as Run as it stands runs it (no systems, or a
+  stopping rule on an analysis that is not one, no longer "Runs."), and Run
+  as it stands writes to the Config's own `output:`.
+- The plan names the pressure the run is given when bar and atm are both
+  set, in the Builder and in `check_study`. `check_study` and `save_study`
+  say what is worth knowing.
+- The Builder asks for PDBFixer only where setup repairs a structure, takes
+  back the folder of a Run it refused, says "2 ns → 0.002 ns" for a length
+  changed, refuses a timestep of 0 on its box, and lets its verdict and
+  empty boxes be read whole at every width.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
