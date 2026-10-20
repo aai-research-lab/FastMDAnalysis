@@ -43,10 +43,23 @@ DEFAULTS_FILE = "fastmdx-defaults.yml"
 #: What the file may set: how a study is simulated, never what.
 _BLOCKS = ("setup", "simulation", "analysis", "report", "execution")
 
-#: Settings that answer one question between them: a config that gives one
-#: is not given another from the file (`analysis.include` filled beside the
-#: config's `analysis.exclude` was refused as setting both).
-_ONE_OF = ({"analysis.include", "analysis.exclude"},)
+def _one_of() -> tuple[frozenset[str], ...]:
+    """Settings that answer one question between them: a config that gives
+    one is not given another from the file. `analysis.include` filled beside
+    the config's `analysis.exclude` was refused as setting both, and the
+    file's `pressure_bar` beside a study's `pressure_atm` won, as bar does,
+    so the study ran at the lab's pressure and not its own; the same for a
+    stage's steps beside its duration."""
+    from fastmdxplora.config.loader import SAME_SETTING
+
+    return (frozenset({"analysis.include", "analysis.exclude"}), *SAME_SETTING)
+
+
+def _answers(name: str, given: set[str]) -> bool:
+    """Whether settings ``given`` (dotted names) already set ``name``."""
+    if name in given:
+        return True
+    return any(name in group and group & given for group in _one_of())
 
 
 @dataclass(frozen=True)
@@ -212,6 +225,13 @@ def with_defaults(config: dict[str, Any],
     out = dict(config)
     decisions = dict(out.get("decisions") or {}) if isinstance(
         out.get("decisions"), dict) else {}
+    # What each system entry sets of its own, by dotted name. A setting a
+    # system gives is that system's, as one the study gives is the study's.
+    entries = config.get("systems") if isinstance(config.get("systems"), list) else []
+    systems = [dict(entry) if isinstance(entry, dict) else entry for entry in entries]
+    own = [{f"{block}.{key}" for block in _BLOCKS
+            if isinstance(entry, dict) and isinstance(entry.get(block), dict)
+            for key in entry[block]} for entry in systems]
     filled: list[str] = []
     for block, settings in defaults.values.items():
         if block in skipped_blocks:
@@ -223,18 +243,47 @@ def with_defaults(config: dict[str, Any],
         answered = {f"{block}.{key}" for key in merged}
         for key, value in settings.items():
             name = f"{block}.{key}"
-            if key in merged or name in swept or any(
-                    name in group and group & answered for group in _ONE_OF):
+            if _answers(name, swept) or _answers(name, answered):
+                continue
+            set_by = [i for i, names in enumerate(own) if _answers(name, names)]
+            if set_by and len(set_by) == len(systems):
+                # Every system gives its own: the file's value would be
+                # used by no run, and recorded as the reason for values it
+                # did not give.
+                continue
+            why = defaults.whys.get(name) or f"Your usual value, from {DEFAULTS_FILE}."
+            if set_by:
+                # Some systems give their own: the file's value goes to the
+                # others, each in its own block, so it can neither win over a
+                # system's other spelling of it nor be said of a system that
+                # did not take it.
+                took = []
+                for i, entry in enumerate(systems):
+                    if i in set_by or not isinstance(entry, dict):
+                        continue
+                    entry_block = entry.get(block)
+                    if entry_block is not None and not isinstance(entry_block, dict):
+                        continue
+                    entry[block] = {**(entry_block or {}), key: value}
+                    took.append(str(entry.get("id") or f"systems[{i}]"))
+                if not took:
+                    continue
+                filled.append(name)
+                if name not in decisions:
+                    decisions[name] = {
+                        "why": f"{why.rstrip().rstrip('.')}. For "
+                               f"{', '.join(took)}; the other systems give "
+                               "their own.",
+                        "source": DEFAULTS_FILE}
                 continue
             merged[key] = value
             filled.append(name)
             if name not in decisions:
-                decisions[name] = {
-                    "why": defaults.whys.get(name)
-                    or f"Your usual value, from {DEFAULTS_FILE}.",
-                    "source": DEFAULTS_FILE}
+                decisions[name] = {"why": why, "source": DEFAULTS_FILE}
         if merged:
             out[block] = merged
+    if filled and systems:
+        out["systems"] = systems
     if filled:
         out["decisions"] = decisions
     return out, filled
