@@ -136,7 +136,9 @@
    *   onView(view) with {x: [lo, hi], y: [lo, hi]} (y where "xy"), onReset(),
    *   csv() -> rows, the first its head; name: the file's name;
    *   ownArrows: the plot's arrow keys are its own (a cursor along it);
-   *   least: {x, y}, the smallest span a key zooms to (a few points' worth).
+   *   least: {x, y}, the smallest span a key zooms to (a few points' worth);
+   *   full: {x: [lo, hi], y: [lo, hi]}, the data's extent: no zoom out or
+   *     move goes past it, and a view of all of it is Show all.
    * By the keyboard on a focused plot: + and - zoom about the middle of
    * what it shows, [ and ] move along it (and the arrows, where they are
    * not the plot's own), 0 or Escape shows all. */
@@ -201,6 +203,29 @@
       var view = { x: [now.x[0] + dx, now.x[1] + dx] };
       if (opts.zoom === "xy") view.y = [now.y[0] + dy, now.y[1] + dy];
       return view;
+    }
+
+    /* A view kept inside the data's extent: no wider than it, moved back
+     * inside it where it went past; null where it is all of it. */
+    function bounded(view) {
+      var full = opts.full || {}, whole = true;
+      ["x", "y"].forEach(function (axis) {
+        var v = view[axis], f = full[axis];
+        if (!v || !f || !(f[1] > f[0])) { if (v) whole = false; return; }
+        var span = Math.min(v[1] - v[0], f[1] - f[0]);
+        var lo = Math.min(Math.max(v[0], f[0]), f[1] - span);
+        view[axis] = [lo, lo + span];
+        if (span < (f[1] - f[0]) * (1 - 1e-9)) whole = false;
+      });
+      return whole ? null : view;
+    }
+
+    /* A view asked for: the page's range or the plot's own, or all of it. */
+    function apply(view) {
+      var kept = bounded(view);
+      if (!kept) { reset(); return; }
+      if (opts.shared) setRange(opts.shared, kept.x[0], kept.x[1]);
+      else if (opts.onView) opts.onView(kept);
     }
 
     function reset() {
@@ -280,8 +305,7 @@
             }
           }
         }
-        if (opts.shared) setRange(opts.shared, view.x[0], view.x[1]);
-        else if (opts.onView) opts.onView(view);
+        apply(view);
       });
       svg.addEventListener("pointercancel", function () {
         start = null;
@@ -317,10 +341,7 @@
           return;
         }
         event.preventDefault();
-        if (view) {
-          if (opts.shared) setRange(opts.shared, view.x[0], view.x[1]);
-          else if (opts.onView) opts.onView(view);
-        }
+        if (view) apply(view);
         // Drawn again: the keyboard stays on the plot.
         requestAnimationFrame(function () {
           var again = host.querySelector("svg.plot-zoomable");

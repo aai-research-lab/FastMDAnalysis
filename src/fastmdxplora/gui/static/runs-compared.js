@@ -313,6 +313,11 @@
       tools.attach(chart, {
         svg: svg, width: W, height: H, plot: { left: L, top: T, right: W - R, bottom: H - B },
         zoom: "x", shared: xLabel, zoomed: !!view,
+        full: { x: (function () {
+          var all = [];
+          drawn.forEach(function (d) { all = all.concat(d.series.x); });
+          return [Math.min.apply(null, all), Math.max.apply(null, all)];
+        }()) },
         least: { x: (function (x) {
           return x.length > 1 ? 3 * Math.abs(x[x.length - 1] - x[0]) / (x.length - 1) : 0;
         }(drawn[0].series.x)) },

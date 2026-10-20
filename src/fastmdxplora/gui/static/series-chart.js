@@ -342,6 +342,7 @@
       tools.attach(host, {
         svg: svg, width: width, height: HEIGHT, plot: plot, zoom: "x", ownArrows: true,
         // A key zooms in to four points (three steps between them) at the least.
+        full: { x: [Math.min.apply(null, data.x), Math.max.apply(null, data.x)] },
         least: { x: data.x.length > 1
           ? 3 * Math.abs(data.x[data.x.length - 1] - data.x[0]) / (data.x.length - 1) : 0 },
         shared: timed ? data.x_label : "",

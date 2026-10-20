@@ -870,6 +870,7 @@
       svg: f.svg, width: f.width, height: f.height, plot: f.plot,
       zoom: ZOOM[data.kind] || "", shared: clock, zoomed: !!f.view,
       least: leastOf(data, x, y),
+      full: { x: x.full || null, y: y.full || null },
       name: (data.figure || data.title || data.kind).replace(/^analysis\//, "").replace(/\.png$/, "") +
         (f.view ? "_range" : ""),
       invert: function (px, py) {

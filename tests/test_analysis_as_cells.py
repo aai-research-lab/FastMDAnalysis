@@ -587,3 +587,52 @@ def test_a_key_zooms_in_no_further_than_a_few_points(study):
     # Four points' worth of 100 points on a 10 by 10 grid: some in view.
     assert len(projection) >= 1, projection
     assert len(series) >= 3, series
+
+
+def test_a_key_or_a_drag_never_takes_a_plot_past_its_run(study):
+    """- and ] (and Shift with a drag) had no bound: a few presses gave every
+    plot, and the Viewer, a time range outside the run."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    rmsd = '.series-chart[data-analysis="rmsd"]'
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector(rmsd + " .plot-tools")
+
+            def press(selector, key, times=1):
+                for _ in range(times):
+                    page.locator(selector + " svg").focus()
+                    page.keyboard.press(key)
+                page.wait_for_timeout(200)
+
+            press(rmsd, "-")
+            whole = page.evaluate(f"() => document.querySelector('{rmsd}').dataset.view")
+            press(rmsd, "+", 2)
+            press(rmsd, "]", 20)
+            moved = page.evaluate("() => window.FastMDXPlotTools.range()")
+            press(rmsd, "[", 20)
+            back = page.evaluate("() => window.FastMDXPlotTools.range()")
+            press(rmsd, "-", 8)
+            out = page.evaluate(f"""() => [document.querySelector('{rmsd}').dataset.view,
+                window.FastMDXPlotTools.range()]""")
+            page.evaluate(PROJECTION)
+            press("#a-projection", "+", 3)
+            press("#a-projection", "ArrowRight", 20)
+            press("#a-projection", "ArrowUp", 20)
+            _, corner = _csv(page, "#a-projection")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    # Frames 0 to 5 (the run kept no clock).
+    assert whole == ""
+    assert moved and moved["to"] <= 5 + 1e-9 and moved["from"] >= 0, moved
+    assert back and back["from"] >= -1e-9, back
+    assert out == ["", None]
+    assert corner and max(r[0] for r in corner) == 9 and max(r[1] for r in corner) == 9
