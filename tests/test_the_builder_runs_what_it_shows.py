@@ -187,3 +187,67 @@ class TestFullConfigTicked:
         prepared = prepare_run({**_state(), "full": True}, tmp_path / "run", defaults=yours)
         written = yaml.safe_load(Path(prepared["config_path"]).read_text(encoding="utf-8"))
         assert written["simulation"]["temperature_K"] == 310
+
+
+class TestCheckIt:
+
+    def test_a_config_with_no_systems_does_not_run(self, home_gui) -> None:
+        _, studies, url = home_gui
+        path = studies / "no_systems.yml"
+        path.write_text("simulation:\n  duration_ns: 0.001\n", encoding="utf-8")
+        answer = _post(url + "/api/check-config", {"path": str(path)})
+        assert answer["ok"] is False
+        assert answer["refusal"]["code"] == "config.option.missing_companion"
+        # Opened in the form, it is a start to fill in, not refused.
+        from fastmdxplora.gui.config_builder import load_config_into_state
+
+        assert load_config_into_state(str(path))["ok"]
+        # Given a system, it runs.
+        path.write_text("systems:\n  - system: 1L2Y\n", encoding="utf-8")
+        answer = _post(url + "/api/check-config", {"path": str(path)})
+        assert answer["ok"] and answer["systems"] == 1, answer
+
+    def test_a_stopping_rule_on_an_analysis_that_is_not_one_does_not_run(self, home_gui) -> None:
+        _, studies, url = home_gui
+        path = studies / "stop.yml"
+        path.write_text(
+            "systems:\n  - system: 1L2Y\n"
+            "simulation:\n  stop_when:\n    measures: [{analysis: rmsdd, standard_error: 0.01}]\n",
+            encoding="utf-8")
+        answer = _post(url + "/api/check-config", {"path": str(path)})
+        assert answer["ok"] is False and "rmsdd" in answer["error"], answer
+
+
+class TestRunAsItStands:
+
+    def test_it_goes_to_the_config_s_own_output(self, home_gui, monkeypatch) -> None:
+        session, studies, url = home_gui
+        runtime = session.runtime
+        spawned: list = []
+
+        def spawn(command, output_dir, dashboard_url, *, config_path=None):
+            spawned.append((command, Path(output_dir)))
+            return {"ok": True}
+
+        monkeypatch.setattr(runtime, "_spawn", spawn)
+        path = studies / "asis.yml"
+        path.write_text("systems:\n  - system: 1L2Y\noutput: out\n", encoding="utf-8")
+        answer = _post(url + "/api/run-config", {"path": str(path)})
+        assert answer["ok"], answer
+        command, output_dir = spawned[0]
+        assert output_dir == (studies / "out").resolve()
+        assert command[command.index("--output") + 1] == str((studies / "out").resolve())
+
+    def test_without_one_it_goes_beside_the_config(self, home_gui) -> None:
+        session, studies, _ = home_gui
+        path = studies / "plain.yml"
+        path.write_text("systems:\n  - system: 1L2Y\n", encoding="utf-8")
+        assert session.runtime.output_of_existing_config(str(path)) == (
+            studies / "plain_output").resolve()
+
+    def test_a_folder_asked_for_still_wins(self, home_gui) -> None:
+        session, studies, _ = home_gui
+        path = studies / "asis.yml"
+        path.write_text("systems:\n  - system: 1L2Y\noutput: out\n", encoding="utf-8")
+        assert session.runtime.output_of_existing_config(str(path), "elsewhere") == (
+            studies / "elsewhere").resolve()

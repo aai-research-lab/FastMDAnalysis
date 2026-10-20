@@ -3594,8 +3594,11 @@ class TestAConfigYouAlreadyHave:
             "running it rewrote the file"
         )
 
-    def test_its_results_land_beside_it(self, tmp_path) -> None:
-        """A config kept with its data leaves its results there too."""
+    def test_its_results_land_where_it_says_else_beside_it(self, tmp_path) -> None:
+        """A config's own `output:` is where its results go, read as
+        `fastmdx explore` reads it from the folder runs start in (10-20: it
+        was ignored); a config naming none, kept with its data, leaves its
+        results there too."""
         import pathlib
 
         from fastmdxplora.gui.exploration import DashboardRuntime
@@ -3606,7 +3609,19 @@ class TestAConfigYouAlreadyHave:
             active_root=None)
         try:
             started = runtime.launch_existing_config(str(config))
-            assert pathlib.Path(started["output"]).name == "study_output"
+            assert pathlib.Path(started["output"]) == (tmp_path / "runs" / "x").resolve()
+        finally:
+            runtime.stop()
+        unnamed = tmp_path / "unnamed.yml"
+        unnamed.write_text("\n".join(line for line in config.read_text(encoding="utf-8")
+                                     .splitlines() if not line.startswith("output:")) + "\n",
+                           encoding="utf-8")
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None)
+        try:
+            started = runtime.launch_existing_config(str(unnamed))
+            assert pathlib.Path(started["output"]).name == "unnamed_output"
             assert pathlib.Path(started["output"]).parent == tmp_path
         finally:
             runtime.stop()

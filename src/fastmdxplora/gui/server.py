@@ -2043,7 +2043,15 @@ def make_handler(
                 named = self._path_for((payload or {}).get("path"))
                 if named is None:
                     return
-                self._send_json(check_config_file(named))
+                # As Run as it stands will judge it: systems required, and
+                # with the defaults the run will find where it writes. It
+                # said "Runs." of a config the run then refused.
+                from fastmdxplora.gui.exploration import _defaults_found_from
+
+                where = app_runtime.output_of_existing_config(named)
+                self._send_json(check_config_file(
+                    named, to_run=True,
+                    defaults=_defaults_found_from(where) if where is not None else None))
                 return
             if path == "/api/preview-system":
                 # What the form's study will build and cost, while the form

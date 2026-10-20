@@ -1495,21 +1495,18 @@ class DashboardRuntime:
         workspace's starting lock held."""
         from fastmdxplora.gui.config_builder import check_config_file
 
-        checked = check_config_file(config_path)
+        output_dir = self.output_of_existing_config(config_path, output)
+        if output_dir is None:
+            return {"ok": False,
+                    "error": "The output folder must be inside your workspace."}
+        # Judged as the run will judge it: systems required, and with the
+        # defaults the run will find where it writes.
+        checked = check_config_file(config_path, to_run=True,
+                                    defaults=_defaults_found_from(output_dir))
         if not checked["ok"]:
             return checked
 
         source = Path(checked["path"])
-        requested = (output or "").strip()
-        if requested:
-            output_dir = self._output_folder(requested)
-            if output_dir is None:
-                return {"ok": False,
-                        "error": "The output folder must be inside your workspace."}
-        else:
-            # Beside the config, under a name taken from it, so a config
-            # kept with its data leaves its results there too.
-            output_dir = (source.parent / f"{source.stem}_output").resolve()
         if output_dir.exists() and any(output_dir.iterdir()):
             detail = f"Output folder already exists and is not empty: {output_dir}. Choose a new output folder to start a new simulation."
             self.data_stale = True
@@ -1538,6 +1535,25 @@ class DashboardRuntime:
             "modified": False,
             **started,
         }
+
+    def output_of_existing_config(self, config_path: str,
+                                  output: str | None = None) -> Path | None:
+        """Where a config run as it stands writes: the folder asked for; else
+        the config's own `output:`, read as `fastmdx explore` reads it from
+        the folder runs start in; else beside the config, under a name taken
+        from it, so a config kept with its data leaves its results there too.
+        None for a folder outside a hosted workspace."""
+        requested = (output or "").strip()
+        if requested:
+            return self._output_folder(requested)
+        source = Path(config_path).expanduser()
+        own = _json_mapping_or_yaml(source).get("output")
+        if isinstance(own, str) and own.strip():
+            if self.hosting is not None:
+                return self.hosting.inside(own.strip())
+            named = Path(own.strip()).expanduser()
+            return (named if named.is_absolute() else self.exploration_root / named).resolve()
+        return (source.parent / f"{source.stem}_output").resolve()
 
     def _adopt_if_running(self, root: Path | None) -> bool:
         """If the study at root has a live run this server did not start,

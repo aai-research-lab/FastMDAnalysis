@@ -622,7 +622,8 @@ def render_config(config: dict[str, Any], *, full: bool = False,
     }
 
 
-def check_config_file(path: str) -> dict[str, Any]:
+def check_config_file(path: str, *, to_run: bool = False,
+                      defaults: Any = None) -> dict[str, Any]:
     """Read a config someone already has and say whether it will run.
 
     The point of writing a config is that it goes elsewhere -- edited by hand,
@@ -632,6 +633,11 @@ def check_config_file(path: str) -> dict[str, Any]:
 
     Reports the phases it names, so somebody can see at a glance whether the
     file does what they remember it doing.
+
+    ``to_run``: judged as `fastmdx explore --config` judges it, systems
+    required and the stopping rule checked against them, and with your
+    defaults (``defaults``) filled in. Without it, as a file to open in the
+    form, which may have no systems yet.
     """
     import yaml
 
@@ -658,7 +664,7 @@ def check_config_file(path: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {"ok": False, "error": "A config is a mapping of settings."}
 
-    return {**check_config(data), "path": str(target)}
+    return {**check_config(data, to_run=to_run, defaults=defaults), "path": str(target)}
 
 
 def _lists_as_lists(data: dict[str, Any]) -> dict[str, Any]:
@@ -699,7 +705,8 @@ def phases_it_runs(data: dict[str, Any], *, in_the_form: bool = False) -> list[s
     return running
 
 
-def check_config(data: dict[str, Any]) -> dict[str, Any]:
+def check_config(data: dict[str, Any], *, to_run: bool = False,
+                 defaults: Any = None) -> dict[str, Any]:
     """The same verdict, for a config that is not on disk.
 
     Split out of :func:`check_config_file` so a config that never had a
@@ -707,15 +714,28 @@ def check_config(data: dict[str, Any]) -> dict[str, Any]:
     checked and opened in the form by the same code that checks one from a
     file. The alternative was a second implementation in JavaScript of the
     mapping below, which is where the two would drift.
+
+    ``to_run`` and ``defaults`` as :func:`check_config_file` takes them: a
+    config with no systems said "Runs." here and was refused by the run.
     """
+    import copy
+
     # Validated in place: the validator settles the older spellings into
     # the current ones as it goes, and the summary below reads the settled
     # form. The analysis lists are given their shape first.
     data.update(_lists_as_lists(dict(data)))
+    as_given = copy.deepcopy(data)
     try:
-        validate_config(data)
+        validate_config(data, require_systems=to_run)
     except ConfigError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc), **refused(exc)}
+    if to_run and defaults is not None:
+        from fastmdxplora.config.defaults_file import refused_with, with_defaults
+
+        filled, _ = with_defaults(copy.deepcopy(as_given), defaults)
+        caused = refused_with(as_given, filled, defaults, require_systems=True)
+        if caused is not None:
+            return {"ok": False, "error": str(caused), **refused(caused)}
 
     # The phases it runs, as the form ticks them: "simulation" alone was
     # said of a config that runs all four, its blocks read for its phases.

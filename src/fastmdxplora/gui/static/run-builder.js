@@ -3688,7 +3688,9 @@
     try {
       const response = await fetch("/api/run-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, output: el("run-output").value.trim() }),
+        // No Results folder: it is hidden in this mode, and its old value sent
+        // the run elsewhere than the config's own `output:`.
+        body: JSON.stringify({ path }),
       });
       started = await response.json();
     } finally { launchesPending -= 1; }
