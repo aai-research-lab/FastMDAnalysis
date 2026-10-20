@@ -1331,10 +1331,16 @@ def _run(
     # on it. The name decides then, as it did the first time: it also
     # decides the cutoff and whether a ligand can be parameterized, which a
     # bare list cannot.
-    if (options.get("forcefield") is not None and options.get("force_field")
-            and _the_list_is_the_name(options["forcefield"], options["force_field"])):
+    # `forcefield: auto` is the default, and every record of a study that
+    # gave a list writes it beside the list: it names no force field, so the
+    # list is the study's and the record replays.
+    named = options.get("forcefield")
+    if (named is not None and options.get("force_field")
+            and _the_list_is_the_name(named, options["force_field"])):
         params["force_field"] = None
-    elif options.get("forcefield") is not None and options.get("force_field"):
+    elif named is not None and str(named).strip().lower() == "auto":
+        pass  # the default beside a list of other files: the list is the study's
+    elif named is not None and options.get("force_field"):
         raise StudyError(
             "Specify either `forcefield` (a named force field) or "
             "`force_field` (a raw list of OpenMM XML files), not both. "

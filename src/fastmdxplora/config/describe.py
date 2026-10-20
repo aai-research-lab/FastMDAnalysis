@@ -61,10 +61,12 @@ def _bounds(field: Field) -> str:
     Shown because a value outside it is refused, and a reader told the
     range does not propose one."""
     low, high = field.minimum, field.maximum
+    above = getattr(field, "exclusive_minimum", False)
     if low is not None and high is not None:
-        return f"from {low:g} to {high:g}"
+        return (f"more than {low:g} and at most {high:g}" if above
+                else f"from {low:g} to {high:g}")
     if low is not None:
-        return f"at least {low:g}"
+        return f"more than {low:g}" if above else f"at least {low:g}"
     if high is not None:
         return f"at most {high:g}"
     return ""
@@ -191,7 +193,9 @@ def schema_as_json(*, phases: Iterable[str] | None = None) -> dict[str, Any]:
                 entry["enum"] = list(field.choices)
             if field.default is not None:
                 entry["default"] = field.default
-            if field.minimum is not None:
+            if field.minimum is not None and getattr(field, "exclusive_minimum", False):
+                entry["exclusiveMinimum"] = field.minimum
+            elif field.minimum is not None:
                 entry["minimum"] = field.minimum
             if field.maximum is not None:
                 entry["maximum"] = field.maximum

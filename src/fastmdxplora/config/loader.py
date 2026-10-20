@@ -24,6 +24,7 @@ implement (2) beating (3) via their own ``DEFAULTS`` tables.
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import math
 from pathlib import Path
@@ -675,7 +676,7 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
         if isinstance(data.get("systems"), list):
             _check_system_entries(data["systems"])
         if isinstance(data.get("sweep"), dict):
-            _check_sweep_values(data["sweep"], data.get("systems"))
+            _check_sweep_values(data["sweep"], data.get("systems"), data)
 
     # Validate the execution block (parallelism settings)
     if data.get("execution") is not None:
@@ -774,6 +775,22 @@ SAME_SETTING: tuple[frozenset[str], ...] = (
 )
 
 
+#: The pairs of `SAME_SETTING` whose losing spelling a record writes as
+#: `null` when it was not given, so the other given beside it is a second
+#: value the run never reads. (`forcefield: auto` is written beside a
+#: `force_field` list, and `heterogens` beside `keep_heterogens`, by every
+#: record, so those two pairs are judged where they are read.)
+ONE_SPELLING_READ: tuple[frozenset[str], ...] = SAME_SETTING[:4]
+
+#: Of each pair the runner reads, the spelling it reads when both are given.
+SPELLING_READ = {
+    "simulation.pressure_bar": "simulation.pressure_atm",
+    "simulation.nvt_steps": "simulation.nvt_duration_ns",
+    "simulation.npt_steps": "simulation.npt_duration_ns",
+    "simulation.production_steps": "simulation.duration_ns",
+}
+
+
 def same_setting(name: str) -> frozenset[str]:
     """Every dotted name that sets what ``name`` sets, ``name`` among them."""
     for group in SAME_SETTING:
@@ -858,9 +875,31 @@ def _same_value(a: Any, b: Any) -> bool:
     return a == b
 
 
-def _check_sweep_values(sweep: dict[str, Any], systems: Any) -> None:
+def _check_sweep_values(sweep: dict[str, Any], systems: Any,
+                        data: dict[str, Any] | None = None) -> None:
     """Each value an axis takes held to its setting's type, choices and
-    bounds; no value given twice; no axis a system entry also sets."""
+    bounds; no value given twice; no axis a system entry also sets; no axis
+    whose other spelling the study also gives, which one of the two would
+    leave unread."""
+    for axis in sweep:
+        others = next((group - {str(axis)} for group in ONE_SPELLING_READ
+                       if str(axis) in group), frozenset())
+        for other in sorted(others):
+            block_name, _, key = other.partition(".")
+            block = (data or {}).get(block_name)
+            given_there = isinstance(block, dict) and block.get(key) is not None
+            if not given_there and other not in sweep:
+                continue
+            read = other if SPELLING_READ.get(other) == str(axis) else str(axis)
+            where = f"sweep.{other}" if other in sweep else other
+            raise ConfigError(
+                f"The study sweeps {axis} and also gives {where}; they set one "
+                f"thing, and given both a run reads only {read}, so "
+                + ("every run would be the same run under different names"
+                   if read != str(axis) else f"{where} would never be used")
+                + ". Sweep one of them and leave the other out.",
+                code="config.option.conflicting",
+                options=[f"sweep.{axis}", where], context="sweep")
     for axis, given in sweep.items():
         phase, _, option = str(axis).partition(".")
         fld = PHASE_SCHEMAS[phase].get(option)
@@ -869,12 +908,13 @@ def _check_sweep_values(sweep: dict[str, Any], systems: Any) -> None:
         for value in values:
             if value is None:
                 continue
-            _validate_block({option: value}, PHASE_SCHEMAS[phase], context=context)
-            _check_phase_values(phase, {option: value}, context=context)
-            if phase == "analysis" and option in ("include", "exclude"):
-                _check_analysis_names({option: _split_on_commas(value)})
-            if phase == "analysis" and option == "options":
-                _check_analysis_options({"options": value}, context=context)
+            with _named_as(f"sweep.{axis}"):
+                _validate_block({option: value}, PHASE_SCHEMAS[phase], context=context)
+                _check_phase_values(phase, {option: value}, context=context)
+                if phase == "analysis" and option in ("include", "exclude"):
+                    _check_analysis_names({option: _split_on_commas(value)})
+                if phase == "analysis" and option == "options":
+                    _check_analysis_options({"options": value}, context=context)
         for i, value in enumerate(values):
             if any(_same_value(value, earlier) for earlier in values[:i]):
                 raise ConfigError(
@@ -904,6 +944,21 @@ def _check_sweep_values(sweep: dict[str, Any], systems: Any) -> None:
                         code="config.option.conflicting",
                         options=[f"systems[{i}].{name}", f"sweep.{axis}"],
                         context="sweep")
+
+
+@contextlib.contextmanager
+def _named_as(path: str):
+    """A refusal of a swept value named by the place it was given, so its
+    fix says `sweep.setup.ph` rather than `ph`, which the study does not set."""
+    try:
+        yield
+    except ConfigError as exc:
+        refusal = getattr(exc, "refusal", None)
+        details = dict(refusal.details) if refusal is not None else {}
+        details.pop("options", None)
+        details.update(option=path, context="sweep")
+        raise ConfigError(str(exc), code=refusal.code if refusal is not None
+                          else "config.option.out_of_range", **details) from exc
 
 
 def _is_an_umbrella_window(entry: dict[str, Any]) -> bool:
@@ -953,6 +1008,8 @@ def _check_analysis_options(analysis: dict[str, Any], *, context: str) -> None:
             get_analysis_class(str(name)))
         for key in given:
             if key in accepted:
+                _refuse_non_finite(given[key], where=f"{context} options[{name!r}]",
+                                   key=str(key))
                 continue
             raise ConfigError(
                 f"{context} options[{name!r}] has no setting called {key!r}"
@@ -960,6 +1017,25 @@ def _check_analysis_options(analysis: dict[str, Any], *, context: str) -> None:
                 f"{', '.join(sorted(accepted))}.",
                 code="analysis.option.inapplicable", analysis=str(name),
                 option=str(key), applies_to=sorted(accepted))
+
+
+def _refuse_non_finite(value: Any, *, where: str, key: str) -> None:
+    """NaN and infinity are numbers to YAML, inside a list or a mapping too,
+    and no analysis setting is any of them."""
+    if isinstance(value, bool):
+        return
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ConfigError(
+            f"{where} sets {key!r} to {value}, which is not a value it can "
+            "have: give a finite number.",
+            code="config.option.out_of_range", option=key, context=where,
+            given=str(value))
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _refuse_non_finite(item, where=where, key=key)
+    elif isinstance(value, dict):
+        for name, item in value.items():
+            _refuse_non_finite(item, where=where, key=f"{key}.{name}")
 
 
 def _check_each_run(data: dict[str, Any]) -> None:
@@ -992,7 +1068,12 @@ def _check_each_run(data: dict[str, Any]) -> None:
 
 def _check_one_run(options: dict[str, dict[str, Any]], *, where: str) -> None:
     setup = options.get("setup") or {}
-    if setup.get("forcefield") is not None and setup.get("force_field"):
+    named = setup.get("forcefield")
+    if named is not None and str(named).strip().lower() == "auto":
+        # The default, written beside the list by every record of a study
+        # that gave one: it names no force field.
+        named = None
+    if named is not None and setup.get("force_field"):
         from fastmdxplora.setup.pipeline import _the_list_is_the_name
 
         if not _the_list_is_the_name(setup["forcefield"], setup["force_field"]):
@@ -1005,6 +1086,7 @@ def _check_one_run(options: dict[str, dict[str, Any]], *, where: str) -> None:
                 options=["setup.forcefield", "setup.force_field"])
 
     simulation = options.get("simulation") or {}
+    _check_lengths_agree(simulation, where=where)
     interval = simulation.get("trajectory_interval_steps")
     if (isinstance(interval, int) and not isinstance(interval, bool)
             and not simulation.get("resume_from")):
@@ -1035,6 +1117,8 @@ def _check_one_run(options: dict[str, dict[str, Any]], *, where: str) -> None:
 
     analysis = options.get("analysis") or {}
     first, last = analysis.get("first"), analysis.get("last")
+    if first is None:
+        first = 0  # the first frame, as the analysis reads an unset `first`
     if (isinstance(first, int) and isinstance(last, int)
             and not isinstance(first, bool) and not isinstance(last, bool)
             and last <= first):
@@ -1044,6 +1128,38 @@ def _check_one_run(options: dict[str, dict[str, Any]], *, where: str) -> None:
             "read, so it must be above `first`.",
             code="config.option.conflicting",
             options=["analysis.first", "analysis.last"])
+
+
+def _check_lengths_agree(simulation: dict[str, Any], *, where: str) -> None:
+    """Refuse a stage given as steps and as a duration that disagree.
+
+    Given both, the steps are run and the duration is read by nothing, so a
+    study that says `duration_ns: 10` beside `production_steps: 300` runs
+    300 steps. The two are accepted together where they say the same length,
+    as a record that states both does.
+    """
+    from fastmdxplora.simulation.lengths import DEFAULT_TIMESTEP_FS, steps_in
+
+    timestep = simulation.get("timestep_fs") or DEFAULT_TIMESTEP_FS
+    for steps_key, ns_key in (("production_steps", "duration_ns"),
+                              ("nvt_steps", "nvt_duration_ns"),
+                              ("npt_steps", "npt_duration_ns")):
+        steps, ns = simulation.get(steps_key), simulation.get(ns_key)
+        if steps is None or ns is None:
+            continue
+        try:
+            says = steps_in(ns, timestep)
+        except (TypeError, ValueError, ZeroDivisionError):  # refused above
+            continue
+        if int(steps) == says:
+            continue
+        raise ConfigError(
+            f"simulation gives '{steps_key}' ({int(steps):,} steps) and "
+            f"'{ns_key}' ({ns} ns, {says:,} steps at {timestep} fs){where}; "
+            f"given both, the run takes the steps and reads nothing of the "
+            f"duration. Give one of them.",
+            code="config.option.conflicting",
+            options=[f"simulation.{steps_key}", f"simulation.{ns_key}"])
 
 
 #: What a decision may say about the setting it is recorded for.

@@ -132,7 +132,7 @@ cube's volume, so about a third of the water a cube would need is saved.
 | `force_field` | list | — | Raw OpenMM XML file(s), in place of `forcefield`: give one or the other, or the list the name resolves to beside it (as `resolved_config.yml` records them) |
 | `constraints` | str | `HBonds` | `None`, `HBonds`, `AllBonds` or `HAngles` |
 | `rigid_water` | bool | `true` | Constrain water bond lengths and angles |
-| `hydrogen_mass_amu` | int or float | off | Hydrogen-mass repartitioning, which allows a longer timestep |
+| `hydrogen_mass_amu` | int or float | off | Hydrogen-mass repartitioning, which allows a longer timestep: more than 1.008 and at most 4.0 amu |
 | `temperature_K` | int or float | `300.0` | Temperature for **initial velocity assignment** — not the production temperature, which is `simulation.temperature_K` |
 
 Only a ligand-capable force field accepts `setup.ligand`; `amber-openff` is the
@@ -182,9 +182,9 @@ is a time, so the number of steps follows the timestep: at 4 fs, 1.5 ns is
 | `duration_ns` | int or float | 2 ns | Production length; 0 equilibrates and stops |
 | `nvt_duration_ns` | int or float | 500 ps | NVT equilibration |
 | `npt_duration_ns` | int or float | 1 ns | NPT equilibration |
-| `production_steps` | int | what 2 ns is at the timestep | Overrides `duration_ns` |
-| `nvt_steps` | int | what 500 ps is at the timestep | Overrides `nvt_duration_ns` |
-| `npt_steps` | int | what 1 ns is at the timestep | Overrides `npt_duration_ns` |
+| `production_steps` | int | what 2 ns is at the timestep | In place of `duration_ns`; both are refused unless they say the same length |
+| `nvt_steps` | int | what 500 ps is at the timestep | In place of `nvt_duration_ns`; both are refused unless they say the same length |
+| `npt_steps` | int | what 1 ns is at the timestep | In place of `npt_duration_ns`; both are refused unless they say the same length |
 | `ensemble` | str | from `npt_steps` | `npt` or `nvt` production. Set `nvt` to equilibrate at constant pressure and then produce at constant volume |
 | `stop_when` | map | — | Run until what the study is for is known, rather than for a fixed length. See below |
 

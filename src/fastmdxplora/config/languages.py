@@ -178,7 +178,9 @@ def cli_command(config: dict[str, Any]) -> str:
 
     Raises :class:`UntranslatableSetting` for a config the command line cannot
     express, naming the setting -- the config file is the fallback spelling,
-    and it always works.
+    and it always works -- and the loader's ``ConfigError`` (a ``ValueError``)
+    for one that gives two spellings of its phases that disagree, which no
+    command would run either.
     """
     # The dict arrives from a caller rather than through the loader, so a
     # study written with the earlier `include` is settled before the

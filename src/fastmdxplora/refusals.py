@@ -566,6 +566,11 @@ CODES: tuple[Code, ...] = (
          "The chosen force field cannot describe what the study contains.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("forcefield", "needs")),
+    Code("setup.system.mass_not_positive",
+         "The system built gives an atom a mass at or below zero, as a "
+         "repartitioned hydrogen mass too large for its heavy atom does.",
+         Kind.SEMANTIC, Disclosure.NOTHING, since="2.7",
+         detail_keys=("atoms", "hydrogen_mass_amu")),
     Code("setup.membrane.orientation_unchecked",
          "A bilayer was asked for and the protein's orientation relative to "
          "the membrane normal has not been established.",

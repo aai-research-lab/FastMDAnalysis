@@ -1197,9 +1197,14 @@ def phases_asked(project_root: str | Path) -> list[str]:
             continue
         # Canonicalised here because the timeline reads the config file directly, not through the loader, so a study
         # written with the earlier `include` is read the same way.
-        from fastmdxplora.config.loader import canonical_phase_keys
+        from fastmdxplora.config.loader import ConfigError, canonical_phase_keys
 
-        canonical_phase_keys(data)
+        try:
+            canonical_phase_keys(data)
+        except ConfigError:
+            # Two spellings that disagree: the file says no one list of
+            # phases, and the run refuses it, so none is read from it.
+            continue
         included = data.get("include_phase")
         if isinstance(included, list) and included:
             return [str(phase) for phase in included]

@@ -996,6 +996,7 @@ def prepare_system(
         system = ff.createSystem(modeller.topology, **create_system_kwargs)
     except ValueError as exc:
         raise _explain_unparameterized(exc, ff, modeller.topology) from exc
+    _refuse_masses_not_positive(system, modeller.topology, hydrogen_mass_amu)
 
     # ----- 5. Capture initial State -----
     # Use a no-op integrator just to obtain a Context for State serialization.
@@ -1685,3 +1686,42 @@ def _resolve_constraints(omm: dict, constraints: str):
             f"None, HBonds, AllBonds, HAngles."
         , code="config.option.not_permitted")
     return mapping[key]
+
+
+def _refuse_masses_not_positive(system: Any, topology: Any,
+                                hydrogen_mass_amu: float | None) -> None:
+    """Refuse a system that gives a real atom a mass at or below zero.
+
+    Repartitioning takes each hydrogen's added mass from the heavy atom it
+    is bonded to, so a hydrogen mass of 6 amu left a methyl carbon at
+    -2.966 amu: setup said "ok" and the run then failed on a NaN called an
+    instability. A virtual site has a mass of zero by design and is not
+    counted.
+    """
+    from openmm import unit
+
+    virtual = {i for i in range(system.getNumParticles())
+               if system.isVirtualSite(i)}
+    atoms = list(topology.atoms())
+    wrong = []
+    for i in range(system.getNumParticles()):
+        if i in virtual:
+            continue
+        mass = system.getParticleMass(i).value_in_unit(unit.dalton)
+        if mass <= 0:
+            atom = atoms[i] if i < len(atoms) else None
+            wrong.append(f"{atom.residue.name}{atom.residue.id}:{atom.name} "
+                         f"({mass:.3f} amu)" if atom is not None
+                         else f"particle {i} ({mass:.3f} amu)")
+    if not wrong:
+        return
+    shown = ", ".join(wrong[:5]) + (f" and {len(wrong) - 5} more" if len(wrong) > 5 else "")
+    raise StudyError(
+        f"The system built gives {len(wrong)} atom(s) a mass at or below "
+        f"zero: {shown}. "
+        + (f"setup.hydrogen_mass_amu {hydrogen_mass_amu} takes more mass from "
+           "the heavy atoms than they have; give 4.0 or less."
+           if hydrogen_mass_amu is not None else
+           "Check the force field's masses."),
+        code="setup.system.mass_not_positive",
+        atoms=len(wrong), hydrogen_mass_amu=hydrogen_mass_amu)

@@ -55,10 +55,12 @@ def _type_text(field: Any) -> str:
 
 def _bounds(field: Any) -> str:
     low, high = getattr(field, "minimum", None), getattr(field, "maximum", None)
+    above = getattr(field, "exclusive_minimum", False)
     if low is not None and high is not None:
-        return f", from {low} to {high}"
+        return (f", more than {low} and at most {high}" if above
+                else f", from {low} to {high}")
     if low is not None:
-        return f", at least {low}"
+        return f", more than {low}" if above else f", at least {low}"
     if high is not None:
         return f", at most {high}"
     return ""

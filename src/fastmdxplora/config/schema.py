@@ -566,9 +566,11 @@ SETUP = PhaseSchema(
               "Constrain water bond lengths and angles."),
         Field("hydrogen_mass_amu", (int, float), None,
               "Hydrogen-mass-repartitioning mass in amu (enables longer "
-              "timesteps). Default: off.",
+              "timesteps): more than hydrogen's own 1.008 and at most 4.0, "
+              "as the mass is taken from the heavy atom each hydrogen is "
+              "bonded to, which a larger one leaves negative. Default: off.",
               example=4.0,
-              minimum=1.0),
+              minimum=1.008, exclusive_minimum=True, maximum=4.0),
         Field("temperature_K", (int, float), 300.0,
               "Temperature in K for initial velocity assignment.",
                     minimum=0.0),
@@ -613,7 +615,8 @@ SIMULATION = PhaseSchema(
               example=2.0,
                     minimum=0.0),
         Field("nvt_steps", int, None,
-              "NVT step count (overrides nvt_duration_ns). Default: the steps "
+              "NVT step count (in place of nvt_duration_ns; both only where "
+              "they say the same length). Default: the steps "
               "500 ps takes at the timestep, 250,000 at 2 fs.",
               example=250000,
               minimum=0),
@@ -638,12 +641,14 @@ SIMULATION = PhaseSchema(
               choices=("npt", "nvt"),
               example="nvt"),
         Field("npt_steps", int, None,
-              "NPT step count (overrides npt_duration_ns). Default: the steps "
+              "NPT step count (in place of npt_duration_ns; both only where "
+              "they say the same length). Default: the steps "
               "1 ns takes at the timestep, 500,000 at 2 fs.",
               example=500000,
               minimum=0),
         Field("production_steps", int, None,
-              "Production step count (overrides duration_ns). Default: the "
+              "Production step count (in place of duration_ns; both only where "
+              "they say the same length). Default: the "
               "steps 2 ns takes at the timestep, 1,000,000 at 2 fs.",
               example=1000000,
               minimum=0),

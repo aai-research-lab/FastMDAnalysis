@@ -162,5 +162,83 @@ class TheRestOfTheConfig(unittest.TestCase):
                             require_systems=True)
 
 
+class RoundTwo(unittest.TestCase):
+    """What the reviews of the first fixes found still let through, or broke."""
+
+    def test_an_axis_whose_other_spelling_the_study_gives_is_refused(self):
+        for given, axis in ((("simulation", "pressure_bar", 1.0), "simulation.pressure_atm"),
+                            (("simulation", "pressure_atm", 1.0), "simulation.pressure_bar"),
+                            (("simulation", "production_steps", 300), "simulation.duration_ns"),
+                            (("simulation", "nvt_duration_ns", 0.1), "simulation.nvt_steps")):
+            block, key, value = given
+            values = [1, 2] if "steps" in axis else [0.001, 0.002]
+            exc = refusal({"systems": ONE, block: {key: value}, "sweep": {axis: values}})
+            self.assertEqual(exc.code, "config.option.conflicting", axis)
+            self.assertIn(key, str(exc))
+        exc = refusal({"systems": ONE, "sweep": {"simulation.pressure_bar": [1, 2],
+                                                 "simulation.pressure_atm": [1, 2]}})
+        self.assertEqual(exc.code, "config.option.conflicting")
+        validate_config({"systems": ONE, "sweep": {"simulation.pressure_atm": [1, 2]}},
+                        require_systems=True)
+
+    def test_a_swept_value_refused_is_named_by_its_place_in_the_sweep(self):
+        from fastmdxplora.remedies import remedy_for
+
+        exc = refusal({"systems": ONE, "sweep": {"setup.ph": [7, 25]}})
+        self.assertEqual(exc.refusal.details["option"], "sweep.setup.ph")
+        fix = remedy_for(exc.refusal, price=False)
+        self.assertIn("`sweep.setup.ph`", str(getattr(fix, "fix", fix)))
+
+    def test_a_record_of_a_study_given_a_force_field_list_replays(self):
+        import tempfile
+        from pathlib import Path
+
+        from fastmdxplora.cli.main import main
+        from fastmdxplora.config import load_config_file, write_resolved_config
+
+        where = Path(tempfile.mkdtemp())
+        structure = where / "protein.pdb"
+        structure.write_text("ATOM      1  N   ALA A   1       0.000   0.000   0.000"
+                             "  1.00  0.00           N\nEND\n", encoding="utf-8")
+        recorded = write_resolved_config({
+            "system": str(structure), "output": str(where / "study"),
+            "options": {"setup": {"force_field": ["charmm36.xml", "charmm36/water.xml"]}},
+        }, where / "study")
+        loaded = load_config_file(recorded)
+        self.assertEqual(loaded["setup"]["forcefield"], "auto")  # as every record writes it
+        validate_config(loaded, require_systems=True)
+        self.assertEqual(main(["explore", "-c", str(recorded), "--include-phase",
+                               "analysis", "report", "--dry-run"]), 0)
+
+
+def test_setup_reads_the_default_beside_a_list_of_other_files_as_unset(tmp_path) -> None:
+    """Setup refused such a record whenever it ran setup again, as a resume
+    that has to start a run over does."""
+    from unittest.mock import MagicMock, patch
+
+    from fastmdxplora.setup import prepare
+    from fastmdxplora.setup.pipeline import run as setup_run
+
+    pdb = tmp_path / "mini.pdb"
+    pdb.write_text("ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00"
+                   "           N\nEND\n", encoding="utf-8")
+    orchestrator = MagicMock()
+    orchestrator.system = str(pdb)
+    orchestrator.output_dir = tmp_path / "proj"
+    orchestrator.output_dir.mkdir()
+    orchestrator._presenter = None
+    out = orchestrator.output_dir / "setup"
+    out.mkdir()
+    listed = ["charmm36.xml", "charmm36/water.xml"]
+    with patch.object(prepare, "prepare_system", return_value={}) as prepared:
+        try:
+            setup_run(orchestrator=orchestrator, output_dir=out,
+                      forcefield="auto", force_field=listed)
+        except Exception as exc:  # noqa: BLE001 - only the pair's refusal is the defect
+            assert "not both" not in str(exc), exc
+    if prepared.called:  # not reached without PDBFixer
+        assert prepared.call_args.kwargs["force_field"] == listed
+
+
 if __name__ == "__main__":
     unittest.main()

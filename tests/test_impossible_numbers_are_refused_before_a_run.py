@@ -155,3 +155,122 @@ def test_one_worker_is_said_as_one(tmp_path, capsys) -> None:
     }).dry_run()
     said = capsys.readouterr().out
     assert "parallel (1 worker)" in said, said
+
+
+class RoundTwo(unittest.TestCase):
+    """What the reviews of the first fixes found still let through."""
+
+    def test_a_hydrogen_mass_at_hydrogen_s_or_over_4_amu_is_refused(self):
+        for value in (1.0, 1.008, 4.5, 6):
+            exc = refusal({"setup": {"hydrogen_mass_amu": value}})
+            self.assertEqual(exc.code, "config.option.out_of_range", value)
+        for value in (1.5, 3, 4.0):
+            validate_config({"setup": {"hydrogen_mass_amu": value}})
+
+    def test_a_setting_not_finite_inside_an_analysis_option_is_refused(self):
+        exc = refusal({"analysis": {"options": {"hbonds": {"distance_cutoff": math.nan}}}})
+        self.assertEqual(exc.code, "config.option.out_of_range")
+        self.assertIn("finite", str(exc))
+
+    def test_last_at_the_first_frame_with_no_first_is_refused(self):
+        exc = refusal({"analysis": {"last": 0}})
+        self.assertEqual(exc.code, "config.option.conflicting")
+        validate_config({"analysis": {"last": 5}})
+
+    def test_a_stage_given_as_steps_and_a_duration_that_disagree_is_refused(self):
+        for steps, ns in (("production_steps", "duration_ns"),
+                          ("nvt_steps", "nvt_duration_ns"),
+                          ("npt_steps", "npt_duration_ns")):
+            exc = refusal({"simulation": {steps: 300, ns: 10}})
+            self.assertEqual(exc.code, "config.option.conflicting")
+            self.assertIn(steps, str(exc))
+            # The same length said twice is one length.
+            validate_config({"simulation": {steps: 500, ns: 0.001}})
+        exc = refusal({"systems": [{"system": "1L2Y",
+                                    "simulation": {"duration_ns": 0.002}}],
+                       "simulation": {"production_steps": 300}})
+        self.assertEqual(exc.code, "config.option.conflicting")
+
+    def test_an_exclusive_minimum_is_said_as_more_than(self):
+        from fastmdxplora.config.describe import describe_field, schema_as_json
+        from fastmdxplora.config.phase_settings import _bounds
+        from fastmdxplora.config.schema import SIMULATION
+
+        field = SIMULATION.get("timestep_fs")
+        said = describe_field(field)
+        self.assertIn("more than 0", said)
+        self.assertNotIn("at least 0", said)
+        self.assertIn("more than", _bounds(field))
+        entry = schema_as_json(phases=["simulation"])["simulation"]["timestep_fs"]
+        self.assertEqual(entry.get("exclusiveMinimum"), 0.0)
+        self.assertNotIn("minimum", entry)
+
+
+
+def _system_of(masses):
+    """A system and topology whose atoms carry these masses, as setup's
+    `createSystem` hands them over: a methyl carbon at -2.966 amu is what a
+    hydrogen mass of 6 built."""
+    import pytest
+
+    pytest.importorskip("openmm")
+    import openmm
+    from openmm import app
+
+    topology = app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue("ALA", chain)
+    system = openmm.System()
+    for i, mass in enumerate(masses):
+        topology.addAtom(f"A{i}", app.element.carbon, residue)
+        system.addParticle(mass)
+    return system, topology
+
+
+def test_setup_refuses_a_system_built_with_a_mass_at_or_below_zero() -> None:
+    """The validator's bound is the first guard; setup's holds whatever
+    reaches it."""
+    import pytest
+
+    from fastmdxplora.refusals import StudyError
+    from fastmdxplora.setup import prepare
+
+    system, topology = _system_of([12.011 - 3 * 5.0, 6.0, 14.007])
+    with pytest.raises(StudyError) as caught:
+        prepare._refuse_masses_not_positive(system, topology, 6.0)
+    assert caught.value.code == "setup.system.mass_not_positive"
+    assert "ALA1:A0" in str(caught.value) and "4.0 or less" in str(caught.value)
+    system, topology = _system_of([3.011, 4.0, 14.007, 0.0])
+    with pytest.raises(StudyError):
+        prepare._refuse_masses_not_positive(system, topology, None)
+    # A virtual site has no mass by design.
+    import openmm
+
+    system.setVirtualSite(3, openmm.TwoParticleAverageSite(0, 1, 0.5, 0.5))
+    prepare._refuse_masses_not_positive(system, topology, None)
+
+
+def test_an_interval_that_does_not_divide_production_is_worth_knowing() -> None:
+    from fastmdxplora.advisories import advise
+
+    said = [a for a in advise({}, {"production_steps": 500,
+                                   "trajectory_interval_steps": 300})
+            if a.setting == "trajectory_interval_steps"]
+    assert len(said) == 1, said
+    text = said[0].as_text()
+    assert "1 frame will be written" in text and "last 200 steps" in text, text
+    assert "such as 250" in text, text
+    assert not [a for a in advise({}, {"production_steps": 1000,
+                                       "trajectory_interval_steps": 100})
+                if a.setting == "trajectory_interval_steps"]
+
+
+def test_a_study_whose_phase_spellings_disagree_is_read_as_naming_none(tmp_path) -> None:
+    """The timeline read the config's phases through the loader's settling,
+    which now refuses two spellings that disagree; it raised in the GUI."""
+    from fastmdxplora.gui.telemetry import phases_asked
+
+    (tmp_path / "exploration.yml").write_text(
+        "systems: [{system: 1L2Y}]\ninclude: [setup]\n"
+        "include_phase: [setup, simulation]\n", encoding="utf-8")
+    assert phases_asked(tmp_path) == []
