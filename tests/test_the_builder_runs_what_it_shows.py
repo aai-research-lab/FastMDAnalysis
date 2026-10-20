@@ -304,3 +304,140 @@ class TestWithoutPDBFixer:
         assert first["refusal"]["code"] == "environment.backend.missing"
         second = runtime.launch_from_config(state)
         assert "not empty" not in second["error"] and "PDBFixer" in second["error"]
+
+
+# ---------------------------------------------------------------- in a browser
+
+@pytest.fixture(scope="module")
+def browser():
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        launched = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        yield launched
+        launched.close()
+
+
+def _builder(browser, url: str, width: int = 1440, scheme: str = "light",
+             system: str | None = "1L2Y"):
+    context = browser.new_context(viewport={"width": width, "height": 900 if width > 600 else 844})
+    context.add_init_script(f"localStorage.setItem('fmx.theme', '{scheme}');")
+    page = context.new_page()
+    page.set_default_timeout(60000)
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(url + "/#run", wait_until="domcontentloaded")
+    page.wait_for_selector("#run-start [data-start='structure']", state="attached")
+    page.evaluate("() => window.FastMDXRun.setStart('structure')")
+    if system:
+        _system(page, system)
+    page.errors = errors
+    return page
+
+
+def _system(page, system: str) -> None:
+    page.fill("#run-system", system)
+    page.evaluate("() => document.getElementById('run-system')"
+                  ".dispatchEvent(new Event('change', {bubbles: true}))")
+
+
+def _type(page, selector: str, value: str) -> None:
+    page.evaluate("""([selector, value]) => {
+        const box = document.querySelector(selector);
+        box.value = value;
+        box.dispatchEvent(new Event('input', {bubbles: true}));
+        box.dispatchEvent(new Event('change', {bubbles: true}));
+    }""", [selector, value])
+
+
+class TestInTheBuilder:
+
+    def test_a_length_changed_says_what_it_was(self, browser, home_gui) -> None:
+        _, _, url = home_gui
+        page = _builder(browser, url)
+        _type(page, "#set-simulation-duration_ns", "0.002")
+        page.wait_for_function(
+            "() => document.getElementById('run-changed').textContent.includes('0.002')")
+        said = page.text_content("#run-changed")
+        assert "2 ns → 0.002 ns" in said, said
+        assert "not set" not in said
+        assert not page.errors
+        page.context.close()
+
+    @pytest.mark.parametrize("width", [1440, 390])
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_the_verdict_and_the_empty_boxes_are_read_whole(
+            self, browser, home_gui, width, scheme) -> None:
+        _, _, url = home_gui
+        page = _builder(browser, url, width, scheme, system=None)
+
+        def cut() -> list:
+            page.wait_for_timeout(300)
+            shown = page.evaluate("""() => ['run-status', 'run-phone-status'].map(id => {
+                const chip = document.getElementById(id);
+                if (!chip || !chip.offsetParent) return null;
+                const box = chip.getBoundingClientRect();
+                return {id, text: chip.textContent, cut: chip.scrollWidth > chip.clientWidth + 1,
+                        off: box.right > document.documentElement.clientWidth + 1};
+            }).filter(Boolean)""")
+            assert shown, "a verdict is shown"
+            return [chip for chip in shown if chip["cut"] or chip["off"]]
+
+        # The two longest verdicts the form says: what to give first, and
+        # checks passed with something worth knowing (a 4 fs step with no
+        # constraints).
+        page.wait_for_function("() => document.getElementById('run-status')"
+                               ".textContent.startsWith('Choose a structure')")
+        assert not cut()
+        page.evaluate("""() => {
+            const s = window.FastMDXRun.state;
+            s.values.simulation = Object.assign({}, s.values.simulation,
+                {timestep_fs: 4, constraints: 'None'});
+        }""")
+        _system(page, "1L2Y")
+        _type(page, "#set-simulation-duration_ns", "0.002")
+        page.wait_for_function("() => document.getElementById('run-status')"
+                               ".textContent.includes('worth knowing')")
+        assert not cut()
+        # Each number box, empty, says its whole placeholder.
+        short = page.evaluate("""() => {
+            const canvas = document.createElement('canvas').getContext('2d');
+            return [...document.querySelectorAll('#run-settings input[type=number]')]
+              .filter(box => box.placeholder && box.offsetParent).map(box => {
+                const style = getComputedStyle(box);
+                canvas.font = style.font;
+                const room = box.clientWidth - parseFloat(style.paddingLeft)
+                             - parseFloat(style.paddingRight);
+                return {said: box.placeholder, room, needs: canvas.measureText(box.placeholder).width};
+              }).filter(box => box.needs > box.room + 1);
+        }""")
+        assert not short, short
+        assert page.evaluate(
+            "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+        assert not page.errors
+        page.context.close()
+
+    def test_run_as_it_stands_sends_no_results_folder(self, browser, home_gui, tmp_path) -> None:
+        _, studies, url = home_gui
+        path = studies / "asis.yml"
+        path.write_text("systems:\n  - system: 1L2Y\noutput: out\n", encoding="utf-8")
+        page = _builder(browser, url)
+        _type(page, "#run-output", "stale_box")
+        sent: list[dict] = []
+
+        def run_config(route):
+            sent.append(json.loads(route.request.post_data or "{}"))
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"ok": False, "error": "held by the test"}))
+
+        page.route("**/api/run-config", run_config)
+        page.evaluate("path => { window.FastMDXRun.setStart('config'); "
+                      "const box = document.getElementById('run-config-path'); "
+                      "box.value = path; box.dispatchEvent(new Event('change')); }", str(path))
+        page.wait_for_function("() => !document.getElementById('run-as-is').disabled")
+        page.click("#run-as-is")
+        page.wait_for_function("() => document.getElementById('run-note').textContent"
+                               ".includes('held by the test')")
+        assert sent == [{"path": str(path)}], sent
+        page.context.close()

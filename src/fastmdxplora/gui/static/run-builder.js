@@ -786,6 +786,9 @@
         input.placeholder = "e.g. " + (Array.isArray(field.example)
           ? field.example.join(", ") : String(field.example));
       }
+      // A number's box is as wide as what it says when empty, so "Not set:
+      // read from the chemistry file" is read whole, not cut at 180px.
+      if (input.placeholder) input.style.setProperty("--placeholder-ch", String(input.placeholder.length));
     }
     return input;
   }
@@ -2679,8 +2682,10 @@
         if (!isChanged(phase, name)) return;
         const field = fieldOf(phase, name);
         if (!field || field.role === "provenance") return;
+        // Unset, a setting takes what its `unset` says (production "2 ns"):
+        // that is what it was changed from, not "not set".
         const before = field.default === null || field.default === undefined
-          ? (field.unset ? "not set" : "") : said(field.default, field.unit);
+          ? (field.unset || "") : said(field.default, field.unit);
         const now = said(valueOf(phase, name), field.control === "number" ? field.unit : "");
         add(field.label || name, before ? `${before} → ${now}` : now, () => revertSetting(phase, name));
       });
