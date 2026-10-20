@@ -281,7 +281,12 @@ def _traced(html: str, rendered: str, base: Path, source: Path, *,
     records = records_of(base, not_read)
     marked, numbers = traced_html(html, base, not_read, records=records)
     unread = sorted(set(not_read) | set(listed_unread))
-    numbers, changed = _changed_since(base, html, numbers, records, unread)
+    try:
+        written = _records.stat(source)
+        written_as = f"{written.st_mtime_ns}:{written.st_size}"
+    except OSError:
+        written_as = ""
+    numbers, changed = _changed_since(base, html, numbers, records, unread, written_as)
     said: dict[str, Any] = {"html": html, "marked": marked, "numbers": numbers,
                             "records_changed": changed}
     if unread:
@@ -303,8 +308,32 @@ def _first_read_file(key: str) -> Path:
     return root / "report_traces" / f"{key}.json"
 
 
+#: The first reads kept, at most, and for at most so many days: one a
+#: report read, the oldest let go.
+_FIRST_READS_KEPT = 500
+_FIRST_READ_DAYS = 90
+
+
+def _prune(folder: Path) -> None:
+    """The first reads kept in ``folder`` held to the newest
+    `_FIRST_READS_KEPT`, none older than `_FIRST_READ_DAYS` days."""
+    import time
+
+    try:
+        kept = sorted(((p.stat().st_mtime, p) for p in folder.glob("*.json")), reverse=True)
+    except OSError:
+        return
+    oldest = time.time() - _FIRST_READ_DAYS * 86400
+    for index, (when, path) in enumerate(kept):
+        if index >= _FIRST_READS_KEPT or when < oldest:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
 def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
-                   records: list[dict[str, Any]], unread: list[str]
+                   records: list[dict[str, Any]], unread: list[str], written_as: str = ""
                    ) -> tuple[list[dict[str, Any]], list[str]]:
     """The records changed since this report was first read here, by
     content: each number traced then is looked up again by its file and
@@ -313,10 +342,14 @@ def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
     its resolved Config) is not one; a file's time says nothing. Kept
     outside the study (the user's cache folder), as the GUI writes nothing
     into a study it reads. Each number whose record changed is given
-    ``changed``: the file, the key, and the value then and now."""
+    ``changed``: the file, the key, and the value then and now.
+
+    ``written_as`` is the report file as written (its time and size): a
+    report written again starts a first read of its own, though its words
+    came out the same, so Write it again clears what it was asked to."""
     import hashlib
 
-    key = hashlib.sha256(f"{base.resolve()}\0{html}".encode()).hexdigest()[:32]
+    key = hashlib.sha256(f"{base.resolve()}\0{written_as}\0{html}".encode()).hexdigest()[:32]
     first = _FIRST_READ.get(key)
     if first is None:
         try:
@@ -332,10 +365,13 @@ def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
             path = _first_read_file(key)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(first), encoding="utf-8")
+            _prune(path.parent)
         except OSError:
             pass
         return numbers, []
     _FIRST_READ[key] = first
+    while len(_FIRST_READ) > _FIRST_READS_KEPT:
+        _FIRST_READ.pop(next(iter(_FIRST_READ)))
     now = {(r["file"], r["key"]): r["value"] for r in records}
     said = [dict(n) for n in numbers]
     changed: set[str] = set()

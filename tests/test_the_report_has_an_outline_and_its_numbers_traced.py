@@ -574,3 +574,42 @@ def test_a_temperature_s_error_in_degrees_c_is_its_error_in_kelvin():
     error = trace_number("2.4", "°C", records, subjects=("thermodynamics",), error=True)
     assert mean["traced"] and mean["record"]["key"].endswith("temperature.mean")
     assert error["traced"] and error["record"]["key"].endswith("standard_error")
+
+
+def test_write_it_again_clears_a_change_even_where_the_report_reads_the_same(tmp_path):
+    """The first read was kept by the report's words: a record changed by
+    less than the report prints, and the report written again the same,
+    was said changed until the cache was deleted."""
+    from fastmdxplora.gui.report_page import report_payload
+
+    root = _written(tmp_path, "tri")
+    if report_payload(root).get("rendered") != "html":
+        pytest.skip("the Markdown library is not installed")
+    options = root / "analysis" / "rmsd" / "options.json"
+    record = json.loads(options.read_text(encoding="utf-8"))
+    record["findings"]["mean"]["mean"] += 1e-9
+    options.write_text(json.dumps(record), encoding="utf-8")
+    assert report_payload(root)["records_changed"] == ["analysis/rmsd/options.json"]
+    # Written again: the same words, a new file.
+    report = root / "report" / "report.md"
+    report.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
+    later = report.stat().st_mtime + 5
+    os.utime(report, (later, later))
+    assert report_payload(root)["records_changed"] == []
+
+
+def test_the_first_reads_kept_are_bounded(tmp_path, monkeypatch):
+    from fastmdxplora.gui import report_page
+
+    folder = tmp_path / "cache" / "report_traces"
+    folder.mkdir(parents=True)
+    for k in range(report_page._FIRST_READS_KEPT + 20):
+        path = folder / f"{k:032d}.json"
+        path.write_text("{}", encoding="utf-8")
+        os.utime(path, (1_000_000 + k, 1_000_000 + k) if k < 10 else None)
+    root = _written(tmp_path, "tri")
+    report_page.report_payload(root)
+    left = list(folder.glob("*.json"))
+    assert len(left) <= report_page._FIRST_READS_KEPT
+    # The oldest (long past the days kept) gone first.
+    assert not any(p.name == f"{0:032d}.json" for p in left)
