@@ -567,3 +567,48 @@ claim that holds for it above holds there too: the stated precision for
 `slow_one_run` and `transient_three_replicas`. The transient's precision,
 which fails above with and without the remedy, does not decide it. Both
 results are reported, whichever way they go.
+
+### Result on the third held-out set
+
+**Counted 2026-10-20**, after the section above was committed, with that
+code (`5ed474d`; the commit after it reads a withheld mean in the report and
+computes the trend in one pass, with the same numbers to rounding): study
+indices 3000 to 3999 (1500 to 1999 for the cases of 500 studies), 1000 to
+1999 for the two slow transients and 1000 to 1499 for the check. Every study
+is in
+[`stopping-calibration-trend-heldout.json`](stopping-calibration-trend-heldout.json).
+**Every claim the remedy was to show holds, so it is adopted.**
+
+What fails, first:
+
+- **The slow transient is not seen**, as on the registered set: one run,
+  995 of 1000 determined at a median 39.5 ns with the truth within two
+  errors in 1.2%; three replicas, 959 at 56.6 ns, 2.9%.
+- **Two states.** 40 of 500 studies started together (8.0%) and 27 of 500
+  with drawn starts (5.4%) looked determined while trapped, every one with
+  the truth outside two errors.
+- **Slow replicas reach the ceiling** in 232 of 500 studies (53.6% end
+  determined).
+
+| Case | Determined | At the ceiling | Median production | Within 1 error | Within 2 | Floors | Holds | Fixed length, within 1 / 2 |
+|---|---|---|---|---|---|---|---|---|
+| `fast_one_run` | 1000 of 1000 (100.0%) | 0 | 25.3 ns | 66.9% | 93.5% | 62.4%, 92.8% | yes | 68.2% / 93.0% (932 given at 25.3 ns) |
+| `fast_three_replicas` | 982 of 1000 (98.2%) | 18 | 28.2 ns | 68.1% | 94.0% | 62.3%, 92.8% | yes | 70.7% / 96.2% (832 given at 28.2 ns) |
+| `slow_one_run` | 471 of 500 (94.2%) | 29 | 249.6 ns | 64.1% | 94.3% | 59.7%, 91.6% | yes | 65.1% / 92.4% (476 given at 249.6 ns) |
+| `slow_three_replicas` | 268 of 500 (53.6%) | 232 | 200.0 ns | 67.2% | 96.6% | 56.9%, 90.4% | yes | 67.4% / 95.8% (261 given at 200.0 ns) |
+| `transient_three_replicas` | 984 of 1000 (98.4%) | 16 | 49.3 ns | 69.3% | 94.7% | 62.3%, 92.8% | yes | 72.7% / 96.5% (805 given at 49.3 ns) |
+| `two_states_one_start` | 40 of 500 (8.0%) | 460 | 20.0 ns | 0.0% | 0.0% | 38.8%, 82.3% | no | 55.8% / 61.5% (52 given at 20.0 ns) |
+| `two_states_drawn_starts` | 27 of 500 (5.4%) | 473 | 26.2 ns | 0.0% | 0.0% | 32.4%, 79.4% | no | 72.4% / 75.0% (76 given at 26.2 ns) |
+| `slow_transient_one_run` | 995 of 1000 (99.5%) | 5 | 39.5 ns | 0.2% | 1.2% | 62.4%, 92.8% | no | 0.0% / 0.0% (860 given at 39.5 ns) |
+| `slow_transient_three_replicas` | 959 of 1000 (95.9%) | 41 | 56.6 ns | 0.4% | 2.9% | 62.3%, 92.8% | no | 0.0% / 0.0% (816 given at 56.6 ns) |
+
+What holds: the stated precision for `fast_one_run` (66.9% and 93.5%),
+`fast_three_replicas` (68.1% and 94.0%), `slow_one_run` (64.1% and 94.3%)
+and `slow_three_replicas` (67.2% and 96.6%), and usability for
+`fast_three_replicas` (98.2%), `slow_one_run` (94.2%) and
+`transient_three_replicas` (98.4%). The transient's precision, which did not
+decide it, holds here (69.3% and 94.7%).
+
+**The check.** A stationary series is withheld for any reason: the fast at
+50, 100 and 250 times its inefficiency in 77, 9 and 2 of 500 (77, 8 and 0
+said unresolved), the slow in 71, 8 and 3 (70, 5 and 0).

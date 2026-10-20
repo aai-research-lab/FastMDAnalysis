@@ -42,11 +42,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   not tighten as a run grew: on frames 500 inefficiencies long under a
   decay of one spread over half the run, every mean was called determined,
   a median five errors from where the decay was heading; about two in five
-  are now withheld, a stationary series in under one in a hundred. Counted
+  are now withheld, a stationary series in about one in a hundred. Counted
   as the stopping rule's third remedy in
-  `preregistration/stopping-calibration.md`, with two cases relaxing over
-  30 ns that no test within a run can see, as the report of a study run
-  until it knew now says.
+  `preregistration/stopping-calibration.md` and adopted on its third
+  held-out set, with two cases relaxing over 30 ns that no test within a
+  run can see, as the report of a study run until it knew now says. It
+  lowers how often a wrong mean is given; it does not make the ones still
+  given right.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
