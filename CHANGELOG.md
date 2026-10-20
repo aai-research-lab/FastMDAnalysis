@@ -17,6 +17,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   stay on their frames, in the report as well. (Three or four segments
   still cannot be called drifting by this test; that is being worked on.)
 
+- An umbrella study's barrier is a peak standing above the curve on both
+  sides by 2.5 kJ/mol and by twice the error of that rise, not the curve's highest
+  point: along a distance a plain well 20 kJ/mol deep reported its plateau,
+  or the wall at the first window, as a barrier. The highest point is still
+  given, and whether it is an end. On a full turn tiled by the windows, and
+  sampled in every bin, the ends are neighbours, for barriers and for wells (a torsion's trans well
+  at +-180 degrees); a partial arc whose windows' tails wrap is not read as
+  a turn.
 - An umbrella study's binding free energy is no longer refused on sound
   data. The curve ran past the outermost windows into bins only one
   window's tail reached, and WHAM treated the density as flat across a

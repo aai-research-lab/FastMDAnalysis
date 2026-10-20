@@ -102,14 +102,25 @@ class PMF(Analysis):
         # grid spans wherever the coordinate went and the windows covered a
         # part of it, so a minimum taken across the whole grid references a
         # region nothing visited.
+        # A summary written before a barrier was a peak (no `highest_kjmol`
+        # in it) is read again by today's rule, so one curve has one barrier.
         summary = record.get("summary")
-        if not summary or recomputed:
-            from fastmdxplora.simulation.umbrella import describe_pmf
+        if not summary or recomputed or "highest_kjmol" not in summary:
+            from fastmdxplora.simulation.umbrella import (
+                PERIODIC_VARIABLES, describe_pmf, turn_is_tiled)
 
             covered = record.get("covered")
+            plan = record.get("plan") or {}
+            periodic = plan.get("collective_variable") in PERIODIC_VARIABLES
+            # The windows that had samples, as the recombination counted.
+            count = record.get("n_windows") or plan.get("n_windows")
             summary = describe_pmf(
                 coordinate, energy if mean_force is None else mean_force,
-                tuple(covered) if covered else None)
+                tuple(covered) if covered else None,
+                periodic=periodic,
+                errors=(curve.get("uncertainty") or {}).get("standard_error"),
+                closed=bool(periodic and covered and isinstance(count, int)
+                            and turn_is_tiled(covered[0], covered[1], count)))
         self._summary = summary
         self._mean_force = mean_force is not None
         return {"coordinate": coordinate, "free_energy_kjmol": energy,

@@ -1819,6 +1819,12 @@ PERIODIC_VARIABLES = frozenset({"torsion"})
 #: under a cone, whose cap's room still goes as r^2.
 SHELL_COORDINATES = frozenset({"ligand_distance", "distance"})
 
+#: The least a peak must stand above the curve's lowest point on each side
+#: to be a barrier, where its error does not ask for more: about kT at room
+#: temperature, more than a plateau's bin-to-bin noise, less than any
+#: barrier worth naming.
+BARRIER_PROMINENCE_KJMOL = 2.5
+
 
 
 def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
@@ -1837,11 +1843,7 @@ def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
     centres = sorted(w.centre for w in plan.windows)
     covered = centres[-1] - centres[0]
     gap = 2.0 * np.pi - covered
-    if gap <= 0:
-        return None
-    spacing = covered / (len(centres) - 1)
-    if gap <= 1.5 * spacing:
-        # Closed to within a window's spacing: the circle is tiled.
+    if turn_is_tiled(centres[0], centres[-1], len(centres), centres):
         return None
     return (
         f"The windows cover {np.degrees(covered):.0f} degrees of a "
@@ -1850,6 +1852,30 @@ def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
         "not a boundary: the free energy across it is not sampled, and the "
         "barrier between the minima either side of it is unknown. Tile the "
         "full turn, or read the result as the one path it covers.")
+
+
+def turn_is_tiled(lowest: float, highest: float, count: int,
+                  centres: "list[float] | None" = None) -> bool:
+    """Whether ``count`` windows from ``lowest`` to ``highest`` (radians)
+    close a full turn: the widest arc between neighbouring centres, the way
+    round included, is no more than one and a half of their mean spacing.
+    The windows decide it, not where their samples happened to reach.
+    ``centres``, where given, are the windows' own; an arc listed across
+    +-pi (centres at 150 and -150 degrees and nothing between -150 and 150)
+    then reads as the arc it is, where the lowest and highest alone said it
+    closed the turn."""
+    if count < 2:
+        return False
+    if centres is not None and len(centres) >= 2:
+        ordered = np.sort(np.remainder(np.asarray(centres, dtype=float) + np.pi,
+                                       2.0 * np.pi) - np.pi)
+        gaps = np.diff(np.concatenate([ordered, [ordered[0] + 2.0 * np.pi]]))
+        return bool(np.max(gaps) <= 1.5 * (2.0 * np.pi / len(ordered)))
+    covered = float(highest) - float(lowest)
+    gap = 2.0 * np.pi - covered
+    if gap <= 0:
+        return True
+    return gap <= 1.5 * covered / (count - 1)
 
 
 def closure_gap(coordinate: Any, energy: Any) -> float | None:
@@ -1884,7 +1910,9 @@ def closure_gap(coordinate: Any, energy: Any) -> float | None:
 
 def describe_pmf(coordinate: Any, energy: Any,
                  covered: tuple[float, float] | None = None,
-                 *, periodic: bool = False) -> dict[str, Any]:
+                 *, periodic: bool = False,
+                 errors: Any = None,
+                 closed: bool | None = None) -> dict[str, Any]:
     """The numbers a reader wants from a curve, computed once, here.
 
     Reading these by hand is how the curve gets misread. The grid spans
@@ -1893,33 +1921,122 @@ def describe_pmf(coordinate: Any, energy: Any,
     reference in a region no window visited -- a real study looked to have a
     164 kJ/mol barrier that way, against 11 measured where the windows
     actually were.
+
+    **A barrier is a peak**, a bin higher than its neighbours that stands
+    above the curve's lowest point on each side by at least
+    :data:`BARRIER_PROMINENCE_KJMOL` and by twice the error of that rise
+    (``errors``, the bins' standard errors, where the study measured them).
+    Not the curve's highest point: along a distance that is the wall at the
+    first window, which moves with where the window was put (22.2 kJ/mol on
+    a well 20 deep, 23.4 with the windows begun 0.05 nm closer); nor a bin a
+    few samples reached, whose spike a soft window leaves in a plain well.
+    The highest point is still given (``highest_kjmol``), and whether it is
+    an end of the curve. At the 200 samples a window must hold by default
+    (``minimum_samples``) a plateau's spike still passes, because the lowest
+    of many noisy bins sits below the plateau: in 2 to 4 studies in a
+    hundred under stiff windows (1000 kJ/mol/nm^2), 18 to 43 under soft
+    ones (200 to 300), and 0 and 2 to 4 at 500 samples. A real hump lower
+    than 2.5 kJ/mol is reported or not by its noise.
+
+    **On a full turn the ends are neighbours** (``closed``): windows tiled
+    round a circle stop at their outermost centres, short of meeting, and a
+    barrier at +-pi between them was lost when the turn was judged on the
+    slice they covered. The caller says whether the turn is closed, from
+    the windows (:func:`turn_is_tiled`) and a curve with no bin unsampled:
+    judged from where the samples reached, a partial arc whose outer tails
+    wrapped read as a full turn, and its minimum moved into the arc no
+    window held. Left out, the turn is closed only where the slice covered
+    (or the whole curve, with nothing covered named) spans it.
     """
     coordinate = np.asarray(coordinate, dtype=float)
     energy = np.asarray([np.nan if v is None else float(v) for v in energy],
                         dtype=float)
+    try:
+        error = np.asarray([np.nan if v is None else float(v)
+                            for v in (errors if errors is not None else [])],
+                           dtype=float)
+    except TypeError:
+        error = np.asarray([], dtype=float)
+    if error.shape != energy.shape:
+        error = np.full(energy.shape, np.nan)
+    empty = {"barrier_kjmol": None, "barrier_at": None, "covered": None,
+             "minima": [], "highest_kjmol": None, "highest_at": None,
+             "highest_is_an_end": None}
     if coordinate.size == 0 or not np.any(np.isfinite(energy)):
-        return {"barrier_kjmol": None, "covered": None, "minima": []}
+        return empty
 
-    inside = np.isfinite(energy)
-    if covered is not None:
+    finite = np.isfinite(energy)
+    if not periodic:
+        closed = False
+    elif closed is None:
+        judged = finite.copy()
+        if covered is not None:
+            judged &= (coordinate >= covered[0]) & (coordinate <= covered[1])
+        closed = bool(judged.sum() > 2
+                      and closure_gap(coordinate[judged], energy[judged]) is not None)
+    else:
+        closed = bool(closed) and bool(finite.all()) and finite.sum() > 2
+    inside = finite.copy()
+    if covered is not None and not closed:
         inside &= (coordinate >= covered[0]) & (coordinate <= covered[1])
     if not np.any(inside):
-        return {"barrier_kjmol": None, "covered": None, "minima": []}
+        return empty
 
-    where, values = coordinate[inside], energy[inside]
+    where, values, spread = coordinate[inside], energy[inside], error[inside]
     values = values - float(np.min(values))
     top = int(np.argmax(values))
+    n = values.size
+
+    def neighbours(i: int) -> "tuple[float, float] | None":
+        if 0 < i < n - 1:
+            return values[i - 1], values[i + 1]
+        if closed and n > 2:
+            return values[(i - 1) % n], values[(i + 1) % n]
+        return None
 
     # A minimum is a bin lower than both its neighbours. Endpoints are left
-    # out: the profile does not stop there, the windows do.
+    # out where the profile does not stop there but the windows do; on a
+    # closed turn they have neighbours, and the trans well of a torsion
+    # sits at its ends.
     minima = [
         {"coordinate": float(where[i]), "free_energy_kjmol": float(values[i])}
-        for i in range(1, values.size - 1)
-        if values[i] < values[i - 1] and values[i] < values[i + 1]
+        for i in range(n)
+        if neighbours(i) is not None
+        and values[i] < neighbours(i)[0] and values[i] <= neighbours(i)[1]
+        # A flat bottom of two bins counts once; on an open curve, as before,
+        # it is a bin lower than both its neighbours.
+        and (closed or values[i] < neighbours(i)[1])
     ]
+
+    def stands(i: int) -> bool:
+        """Whether peak ``i`` stands above the lowest point on each side by
+        the fixed margin and by twice the error of the difference."""
+        if closed:
+            low = int(np.argmin(values))
+            sides = [low]
+        else:
+            sides = [int(np.argmin(values[:i])), i + 1 + int(np.argmin(values[i + 1:]))]
+        for side in sides:
+            rise = float(values[i] - values[side])
+            # An error not measured counts as none, not as the other's.
+            noise = float(np.hypot(np.nan_to_num(spread[i]),
+                                   np.nan_to_num(spread[side])))
+            needed = max(BARRIER_PROMINENCE_KJMOL, 2.0 * noise)
+            if rise < needed:
+                return False
+        return True
+
+    peaks = [i for i in range(n)
+             if neighbours(i) is not None
+             and values[i] > neighbours(i)[0] and values[i] >= neighbours(i)[1]
+             and stands(i)]
+    barrier = max(peaks, key=lambda i: values[i]) if peaks else None
     return {
-        "barrier_kjmol": float(values[top]),
-        "barrier_at": float(where[top]),
+        "barrier_kjmol": None if barrier is None else float(values[barrier]),
+        "barrier_at": None if barrier is None else float(where[barrier]),
+        "highest_kjmol": float(values[top]),
+        "highest_at": float(where[top]),
+        "highest_is_an_end": bool(not closed and top in (0, n - 1)),
         "covered": [float(where.min()), float(where.max())],
         "minima": sorted(minima, key=lambda m: m["free_energy_kjmol"]),
         # Only where the coordinate is a circle. `closure_gap` decides "is
@@ -2431,7 +2548,10 @@ def compute_pmf(
         # carry the shell's entropy.
         "summary": describe_pmf(
             centres, free_energy if mean_force is None else mean_force,
-            covered, periodic=periodic),
+            covered, periodic=periodic,
+            errors=None if uncertainty is None else uncertainty.get("standard_error"),
+            closed=periodic and turn_is_tiled(covered[0], covered[1], len(ordered),
+                                              [w.centre for w in ordered])),
         "unsampled_bins": unsampled,
         "overlaps": overlaps,
         # Both carried whether or not they refused anything. A reader asking

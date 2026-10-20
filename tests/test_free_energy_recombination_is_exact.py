@@ -218,9 +218,142 @@ class TestTheAnalysisDrawsW:
         result = analysis.compute(None)
         w = result["potential_of_mean_force_kjmol"]
         assert w is not None and np.ptp(w[x > 1.2]) < 0.2
-        # Its summary read off W: the plateau, the well's depth, is its
-        # highest point, not the 22.2 kJ/mol of A's wall at the first window.
-        assert result["summary"]["barrier_kjmol"] == pytest.approx(20.0, abs=0.3)
+        # Its summary read again off W: a plain well has no barrier, and its
+        # highest point, the plateau, is the well's depth, not the 22.2
+        # kJ/mol of A's wall at the first window.
+        assert result["summary"]["barrier_kjmol"] is None
+        assert result["summary"]["highest_kjmol"] == pytest.approx(20.0, abs=0.3)
         assert analysis.default_ylabel().startswith("W(r)")
         written = analysis.save_data(result, tmp_path / "pmf.dat").read_text()
         assert "potential_of_mean_force_kjmol" in written.splitlines()[0]
+
+
+class TestABarrierIsAPeak:
+    """The barrier was the curve's highest point: along a distance the wall
+    at the first window, on a full turn tiled the usual way nothing at
+    +-pi, and in a plain well under soft windows a bin few samples reached."""
+
+    def test_a_plain_well_recombined_has_none(self, recombined) -> None:
+        for payload in recombined:
+            assert payload["summary"]["barrier_kjmol"] is None
+            assert 19.0 < payload["summary"]["highest_kjmol"] < 20.6
+
+    def test_a_hump_inside_is_one(self) -> None:
+        x = np.linspace(0.0, 1.0, 41)
+        e = 30.0 * (1.0 - x) + 8.0 * np.exp(-((x - 0.6) / 0.05) ** 2)
+        got = describe_pmf(x, list(e))
+        assert got["barrier_at"] == pytest.approx(0.6, abs=0.03)
+        assert got["highest_is_an_end"] is True
+
+    def test_a_spike_within_its_error_is_not(self) -> None:
+        x = np.linspace(0.3, 2.0, 60)
+        e = np.where(x > 0.7, 20.0, 0.0) + 0.0 * x
+        e[20] += 4.0
+        quiet = describe_pmf(x, list(e))
+        assert quiet["barrier_kjmol"] is not None
+        errors = np.full(x.size, 0.2)
+        errors[20] = 3.0
+        assert describe_pmf(x, list(e), errors=list(errors))["barrier_kjmol"] is None
+
+    @pytest.mark.parametrize("first", [-np.pi, -np.pi + np.pi / 24])
+    def test_one_at_the_turn_s_ends_is_found(self, first) -> None:
+        # 24 windows round the turn, none of them on +pi: the slice they
+        # cover falls short of a full turn, and a peak rule judging closure
+        # on that slice lost the barrier at +-pi.
+        centres = first + np.arange(24) * (2.0 * np.pi / 24)
+        plan = _plan("torsion", centres=centres, force=200.0)
+        grid = np.linspace(-np.pi, np.pi, 20001)
+        truth = 7.5 * (1.0 - np.cos(grid))  # the barrier at +-pi
+        rng = np.random.default_rng(11)
+        drawn = {}
+        for window in plan.windows:
+            d = np.remainder(grid - window.centre + np.pi, 2.0 * np.pi) - np.pi
+            weight = np.exp(-(truth + 0.5 * window.force_constant * d ** 2) / KT)
+            drawn[window.index] = rng.choice(grid, size=3000, p=weight / weight.sum())
+        logging.disable(logging.WARNING)
+        try:
+            payload = compute_pmf(drawn, plan, temperature_K=TEMPERATURE,
+                                  bootstrap_resamples=0)
+        finally:
+            logging.disable(logging.NOTSET)
+        summary = payload["summary"]
+        assert summary["barrier_kjmol"] == pytest.approx(15.0, abs=1.0)
+        assert abs(abs(summary["barrier_at"]) - np.pi) < 0.3
+
+
+def _torsion_windows(centres, force, samples, truth_of, seed):
+    plan = _plan("torsion", centres=np.asarray(centres), force=force)
+    grid = np.linspace(-np.pi, np.pi, 20001)
+    truth = truth_of(grid)
+    rng = np.random.default_rng(seed)
+    drawn = {}
+    for window in plan.windows:
+        d = np.remainder(grid - window.centre + np.pi, 2.0 * np.pi) - np.pi
+        weight = np.exp(-(truth + 0.5 * window.force_constant * d ** 2) / KT)
+        drawn[window.index] = rng.choice(grid, size=samples, p=weight / weight.sum())
+    logging.disable(logging.WARNING)
+    try:
+        return compute_pmf(drawn, plan, temperature_K=TEMPERATURE,
+                           bootstrap_resamples=0)
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+class TestAPartialArcIsNotATurn:
+    def test_tails_that_wrap_do_not_close_it(self) -> None:
+        # Nine windows from -30 to 165 degrees: their tails reached round to
+        # +-pi, and judged from the samples the arc read as a full turn, its
+        # minimum moved into the arc no window held.
+        payload = _torsion_windows(np.radians(np.linspace(-30, 165, 9)), 200.0,
+                                   3000, lambda x: 9.0 * (1.0 - np.cos(3 * x)) / 2.0,
+                                   seed=5)
+        low, high = np.degrees(payload["summary"]["covered"])
+        assert -31 < low and high < 166
+
+
+class TestAnOlderRecordIsReadAgain:
+    def test_its_barrier_is_a_peak(self, tmp_path) -> None:
+        from fastmdxplora.analysis.pmf import PMF
+
+        x = np.linspace(-np.pi, np.pi, 60)
+        a = 7.5 * (1.0 - np.cos(x))
+        (tmp_path / "pmf.json").write_text(json.dumps({
+            "pmf": {"coordinate": list(x), "free_energy_kjmol": list(a),
+                    "uncertainty": {"standard_error": [0.2] * 60}},
+            "plan": {"collective_variable": "torsion", "n_windows": 24},
+            "temperature_K": TEMPERATURE,
+            "covered": [-np.pi, np.pi - 2.0 * np.pi / 24],
+            # Written by the earlier rule: the highest point within covered.
+            "summary": {"barrier_kjmol": 14.8, "covered": [-3.1, 2.9],
+                        "minima": []},
+            "refused": None, "unsampled_bins": 0, "n_windows": 24,
+        }), encoding="utf-8")
+        result = PMF(output_dir=tmp_path / "analysis").compute(None)
+        assert result["summary"]["barrier_kjmol"] == pytest.approx(15.0, abs=0.1)
+        assert abs(abs(result["summary"]["barrier_at"]) - np.pi) < 0.1
+
+
+class TestATurnKeepsItsEndsAsWells:
+    def test_the_trans_well_at_the_ends_is_a_minimum(self) -> None:
+        x = np.linspace(-np.pi, np.pi, 72, endpoint=False) + np.pi / 72
+        e = 6.0 * (1.0 + np.cos(x)) + 3.0 * (1.0 + np.cos(3.0 * x))
+        got = describe_pmf(x, list(e), periodic=True, closed=True)
+        deepest = got["minima"][0]
+        assert deepest["free_energy_kjmol"] == pytest.approx(0.0, abs=0.1)
+        assert abs(abs(deepest["coordinate"]) - np.pi) < 0.1
+        assert got["barrier_kjmol"] == pytest.approx(18.0, abs=0.5)
+
+
+class TestAnArcAcrossTheSeamIsAnArc:
+    def test_the_widest_gap_decides(self) -> None:
+        from fastmdxplora.simulation.umbrella import turn_is_tiled
+
+        # 120 to 240 degrees, listed across +-180: not a turn.
+        across = list(np.radians(np.r_[np.arange(120, 181, 15), np.arange(-165, -119, 15)]))
+        assert not turn_is_tiled(min(across), max(across), len(across), across)
+        # 24 windows round the turn: a turn.
+        whole = list(np.radians(np.arange(-180, 180, 15)))
+        assert turn_is_tiled(min(whole), max(whole), len(whole), whole)
+        # A ring with a 90 degree hole about 0: not a turn.
+        holed = [c for c in whole if abs(np.degrees(c)) >= 45]
+        assert not turn_is_tiled(min(holed), max(holed), len(holed), holed)
