@@ -81,6 +81,71 @@ SUPPORTED_INTEGRATORS = (
     *VARIABLE_STEP_INTEGRATORS,
 )
 
+#: The integrators with no thermostat. Every stage this runner has holds a
+#: temperature (the NVT stage, NPT, and production in either ensemble), and
+#: nothing else in the system keeps one, so with these each of them is
+#: constant-energy dynamics instead: a "300 K" run from a minimised structure
+#: settles near 175 K as the kinetic energy it starts with fills the
+#: potential, and a Monte Carlo barostat over it samples no defined ensemble.
+WITHOUT_A_THERMOSTAT = ("verlet", "variable_verlet")
+
+#: How far a hydrogen's random displacement in one Brownian step may go,
+#: in nm. The step is sqrt(2 kT dt / (m gamma)) and the dynamics has no
+#: inertia to soften it, so the friction must grow with the timestep. On a
+#: water box at 300 K this bound separated every case that ran from every
+#: case that went to NaN (0.5, 2 and 4 fs, frictions 12 to 200 per ps): the
+#: least friction it allows ran and half of it did not. It is a floor below
+#: which the run fails, not a promise above it.
+BROWNIAN_LARGEST_STEP_NM = 0.01
+_HYDROGEN_AMU = 1.008
+_GAS_CONSTANT_KJMOL_PER_K = 0.0083144626
+
+
+def least_brownian_friction(temperature_K: float, timestep_fs: float) -> float:
+    """The friction, per ps, below which a Brownian step moves a hydrogen
+    more than :data:`BROWNIAN_LARGEST_STEP_NM`: 2 kT dt / (m s^2)."""
+    kT = _GAS_CONSTANT_KJMOL_PER_K * float(temperature_K)
+    return 2.0 * kT * (float(timestep_fs) / 1000.0) / (
+        _HYDROGEN_AMU * BROWNIAN_LARGEST_STEP_NM ** 2)
+
+
+def check_integrator(name: str, *, temperature_K: float, friction_per_ps: float,
+                     timestep_fs: float) -> None:
+    """Refuse an integrator that cannot do what every stage asks of it.
+
+    Raised before anything runs, from the config check and again where the
+    integrator is built, so a direct call is held to the same rule.
+    """
+    key = str(name).lower()
+    if key in WITHOUT_A_THERMOSTAT:
+        raise StudyError(
+            f"The {key} integrator has no thermostat, and every stage of a run "
+            "holds a temperature: the NVT stage, NPT, and production in either "
+            "ensemble. With it each would be constant-energy dynamics, settling "
+            "well below the temperature asked for, and a barostat over it "
+            "samples no defined ensemble. Use `langevin_middle`.",
+            code="config.option.not_permitted", option="integrator",
+            context="simulation", given=key,
+            # The suggestion first; brownian left out, as it needs a friction
+            # the default does not have.
+            permitted=["langevin_middle", "langevin", "variable_langevin"],
+            suggestion="langevin_middle")
+    if key == "brownian":
+        least = least_brownian_friction(temperature_K, timestep_fs)
+        if float(friction_per_ps) < least:
+            raise StudyError(
+                f"Brownian dynamics at {float(timestep_fs):g} fs and "
+                f"{float(temperature_K):g} K needs a friction of at least "
+                f"{math.ceil(least)} per ps; {float(friction_per_ps):g} was given. "
+                "Its random step is sqrt(2 kT dt / (m gamma)), with no inertia "
+                f"to soften it, and below that a hydrogen moves more than "
+                f"{BROWNIAN_LARGEST_STEP_NM:g} nm a step and the run goes to "
+                "NaN within a few hundred steps. Raise `friction_per_ps` or "
+                "shorten `timestep_fs`, or use `langevin_middle`.",
+                code="config.option.conflicting",
+                options=["simulation.integrator", "simulation.friction_per_ps",
+                         "simulation.timestep_fs"])
+
 
 def chose_its_own_step(simulation_dir: str | Path) -> bool:
     """Whether the run in ``simulation_dir`` had an integrator that chose its
@@ -432,18 +497,24 @@ def _make_integrator(
         configurational sampling, the modern recommendation)
       - ``langevin``        -- LangevinIntegrator (legacy)
       - ``brownian``        -- BrownianIntegrator (overdamped)
-      - ``verlet``          -- VerletIntegrator (NVE; no thermostat)
+      - ``verlet``          -- VerletIntegrator (constant energy)
       - ``variable_langevin`` -- VariableLangevinIntegrator (adaptive dt)
       - ``variable_verlet``   -- VariableVerletIntegrator (adaptive dt)
 
     The fixed-timestep integrators take ``timestep_fs``; the variable
     ones take ``error_tolerance`` instead. The thermostatted integrators
-    take ``temperature_K`` and ``friction_per_ps``; Verlet variants don't
-    (a thermostat must come from a separate force / barostat coupling).
+    take ``temperature_K`` and ``friction_per_ps``. The Verlet variants
+    have no thermostat and nothing here adds one, so
+    :func:`check_integrator` refuses them while every stage holds a
+    temperature. Their branches below are kept for constant-energy
+    production after a thermostatted equilibration, which needs the
+    integrator swapped between stages and is not offered yet.
     """
     unit = omm["unit"]
     openmm = omm["openmm"]
     key = str(name).lower()
+    check_integrator(key, temperature_K=temperature_K,
+                     friction_per_ps=friction_per_ps, timestep_fs=timestep_fs)
 
     T = temperature_K * unit.kelvin
     gamma = friction_per_ps / unit.picoseconds

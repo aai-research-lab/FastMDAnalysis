@@ -125,6 +125,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   changed, refuses a timestep of 0 on its box, shows the Mode a Config's
   workers give, tells a person what to add to a Config with no system, and
   lets its verdict and empty boxes be read whole at every width.
+
+- `verlet` and `variable_verlet` are refused: they have no thermostat, and
+  every stage of a run holds a temperature, so the NVT stage and production
+  were constant-energy dynamics (a "300 K" peptide in water ran at 169-181 K)
+  with a barostat over them, while the methods said "at 300 K with a friction
+  coefficient". Checked per run (a sweep or a system's own settings, the run
+  named) wherever a config is checked and the simulation runs; an older
+  study's record is still read and reported, and its Methods say the stages
+  ran at constant energy with no temperature held.
+- `brownian` is refused below the friction its step needs, 2 kT dt / (m s^2)
+  with a hydrogen's random step s held to 0.01 nm (about 100 per ps at 2 fs
+  and 300 K): at the default 1 per ps it went to NaN within 50 steps.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

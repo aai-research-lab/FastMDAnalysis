@@ -1843,7 +1843,7 @@ def _the_study_s_config(args: argparse.Namespace) -> dict[str, Any] | None:
             # Said as the record's, not as something typed: a record an
             # older release wrote, or one edited by hand, is fixed there.
             try:
-                validate_config(config)
+                validate_config(config, as_record=True)
             except ConfigError as exc:
                 raise ConfigError(
                     f"the settings {study / RECORDED} recorded cannot be used: {exc} "

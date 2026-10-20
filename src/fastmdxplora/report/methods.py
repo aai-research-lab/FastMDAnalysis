@@ -37,7 +37,6 @@ _INTEGRATOR_NAMES = {
     "langevin": "Langevin",
     "verlet": "Verlet",
     "brownian": "Brownian",
-    "nose_hoover": "Nose-Hoover",
     "variable_langevin": "variable-timestep Langevin",
     "variable_verlet": "variable-timestep Verlet",
 }
@@ -514,9 +513,13 @@ def methods_paragraphs(
     if sim:
         timestep = _get(sim, "timestep_fs")
         integrator = _get(sim, "integrator")
+        # A Verlet run has no thermostat, so it had neither a temperature it
+        # was held at nor a friction; a record from before such runs were
+        # refused is described as what it was.
+        unthermostatted = str(integrator).lower() in ("verlet", "variable_verlet")
         integrator = _INTEGRATOR_NAMES.get(str(integrator).lower(), integrator)
         temperature = _get(sim, "temperature_K")
-        friction = _get(sim, "friction_per_ps")
+        friction = None if unthermostatted else _get(sim, "friction_per_ps")
         # What ran, then what was asked for. Unset means one bar, and the
         # runner is the only place that knew.
         pressure = _get(sim, "pressure_bar_used", "pressure_bar")
@@ -647,11 +650,22 @@ def methods_paragraphs(
                 # section reading "a friction coefficient of None" is worse
                 # than one that omits it: the reader cannot tell whether the
                 # run had no friction or the software lost the number.
-                + (f", at {temperature} K" if temperature is not None else "")
+                + (", with no thermostat" if unthermostatted
+                   else f", at {temperature} K" if temperature is not None else "")
                 + (f" with a friction coefficient of {friction} ps⁻¹"
                    if friction is not None else "")
                 + "."
             )
+            if unthermostatted:
+                # The ensembles named above are what the stages were called,
+                # not what they sampled.
+                protocol.append(
+                    "With no thermostat, no stage was held at a temperature: "
+                    "those named NVT ran at constant energy, and where a "
+                    "barostat acted (those named NPT) it did so over "
+                    "unthermostatted dynamics, which sample no defined "
+                    "ensemble."
+                )
         # The runner records a pressure whatever the ensemble, and a barostat
         # acts only where there is one: through production at constant
         # pressure, or through the NPT stage before constant-volume

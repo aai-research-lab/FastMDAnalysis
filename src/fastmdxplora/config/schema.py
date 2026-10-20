@@ -729,7 +729,11 @@ SIMULATION = PhaseSchema(
               "Run energy minimization before equilibration."),
         Field("integrator", str, "langevin_middle",
               "Integrator: langevin_middle, langevin, brownian, verlet, "
-              "variable_langevin, or variable_verlet.",
+              "variable_langevin, or variable_verlet. verlet and "
+              "variable_verlet have no thermostat while every stage holds a "
+              "temperature, so they are refused; brownian needs a friction of "
+              "about 100 per ps at 2 fs and 300 K (it scales with the "
+              "timestep and temperature) and is refused below it.",
               choices=("langevin_middle", "langevin", "brownian", "verlet",
                        "variable_langevin", "variable_verlet")),
         Field("integrator_error_tolerance", float, 0.001,

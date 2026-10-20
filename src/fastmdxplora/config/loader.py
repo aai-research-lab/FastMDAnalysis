@@ -580,7 +580,8 @@ def normalise_config(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> None:
+def validate_config(data: dict[str, Any], *, require_systems: bool = False,
+                    as_record: bool = False) -> None:
     """Strictly validate a parsed config dict against the schema.
 
     Parameters
@@ -591,6 +592,10 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
         If True, the config must define a non-empty ``systems`` list.
         The full pipeline (CLI / BatchExplorer) sets this; unit tests that
         validate fragments leave it False.
+    as_record : bool, default False
+        The config is a study's record, read to report or analyse what ran
+        rather than to run it: a choice refused since (an integrator with no
+        thermostat) describes the study and is not refused again.
 
     Raises
     ------
@@ -717,6 +722,13 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
     # went unchecked: `minimum_ovelap: 0.15` was accepted, ignored, and the
     # study stitched at the default while its author believed otherwise.
     simulation = data.get("simulation")
+    # An integrator that cannot hold the temperature every stage asks for,
+    # or Brownian dynamics too weakly damped for its step, refused with the
+    # config rather than at the first step of a run: for each run the study
+    # expands to, and only where the simulation phase runs, so a record of
+    # an older study can still be read and reported.
+    if not as_record:
+        _check_integrators(data)
     if isinstance(simulation, dict) and isinstance(simulation.get("umbrella"), dict):
         from fastmdxplora.simulation.umbrella import check_umbrella_keys
 
@@ -1160,6 +1172,57 @@ def _check_lengths_agree(simulation: dict[str, Any], *, where: str) -> None:
             f"duration. Give one of them.",
             code="config.option.conflicting",
             options=[f"simulation.{steps_key}", f"simulation.{ns_key}"])
+
+
+def _check_integrators(data: dict[str, Any]) -> None:
+    """`check_integrator` on every run's simulation settings, defaults filled."""
+    from fastmdxplora.config.schema import SIMULATION
+    from fastmdxplora.refusals import StudyError
+    from fastmdxplora.simulation.runner import check_integrator
+    from fastmdxplora.simulation.stopping import phases_of
+
+    if "simulation" not in phases_of(data):
+        return
+    top = data.get("simulation") if isinstance(data.get("simulation"), dict) else {}
+    blocks: list[tuple[str | None, dict[str, Any]]] = []
+    if data.get("systems"):
+        from fastmdxplora.batch.sweep import expand_runs, normalize_sweep, normalize_systems
+
+        try:
+            specs = expand_runs(
+                systems=normalize_systems(data["systems"]),
+                sweep=normalize_sweep(data["sweep"]) if data.get("sweep") else None,
+                base_options=phase_options(data))
+        except Exception:  # noqa: BLE001 - the batch check above says what is wrong
+            specs = []
+        blocks = [(spec.run_id, dict(spec.options.get("simulation") or {}))
+                  for spec in specs]
+    if not blocks:
+        blocks = [(None, dict(top))]
+    defaults = SIMULATION.defaults()
+    for run_id, block in blocks:
+        if block.get("integrator") is None:
+            continue
+        given = {name: defaults.get(name) if block.get(name) is None else block[name]
+                 for name in ("temperature_K", "friction_per_ps", "timestep_fs")}
+        try:
+            check_integrator(str(block["integrator"]),
+                             temperature_K=float(given["temperature_K"]),
+                             friction_per_ps=float(given["friction_per_ps"]),
+                             timestep_fs=float(given["timestep_fs"]))
+        except (TypeError, ValueError) as exc:
+            if not isinstance(exc, StudyError):
+                continue  # a value of the wrong type is refused by its own check
+            # The run is named where the settings the refusal rests on are
+            # its own rather than the top-level ones: the integrator alone for
+            # one with no thermostat, all four for Brownian dynamics.
+            rests_on = (("integrator",) if exc.refusal.code == "config.option.not_permitted"
+                        else ("integrator", "friction_per_ps", "timestep_fs",
+                              "temperature_K"))
+            own = run_id is not None and any(block.get(k) != top.get(k) for k in rests_on)
+            where = (f"Run {run_id} (its own settings, from `systems` or "
+                     f"`sweep`): ") if own else ""
+            raise ConfigError(where + str(exc), **_rewrapped(exc)) from exc
 
 
 #: What a decision may say about the setting it is recorded for.
