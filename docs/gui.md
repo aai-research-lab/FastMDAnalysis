@@ -451,8 +451,8 @@ config, as `setup.residue_states`, once its state is chosen.
 Four buttons at the bottom of the page:
 
 - **Download config** writes the YAML for exactly what is on screen, as
-  `fastmdxplora.yml`. Take it to a cluster and `fastmdx explore --config` runs
-  the same study.
+  `fastmdxplora_config.yml`. Take it to a cluster and `fastmdx explore --config`
+  runs the same study.
 - **Copy the command** puts the equivalent `fastmdx explore` invocation on the
   clipboard — only the settings that differ from their defaults, so it stays
   readable. A study the command line cannot express — more than one system, a
@@ -476,8 +476,10 @@ field takes the refusal away. See
 [What would fix it](refusals.md#what-would-fix-it-and-what-it-costs).
 
 And in the other direction: choose **A config I already have** and the GUI will
-**check it** (syntax and every setting, without running anything), **run it
-as-is**, or **open it for editing**. It never rewrites the file you gave it.
+**check it** (syntax and every setting, without running anything, judged as
+`fastmdx explore --config` judges it: a config with no systems does not run,
+and your `fastmdx-defaults.yml` is filled in), **run it as-is**, or **open it
+for editing**. It never rewrites the file you gave it.
 
 In the Agent workspace, a Config version the Agent proposes lists each
 changed setting, old value to new value, with **Accept** and **Reject**
@@ -512,16 +514,24 @@ use the reviewed version. Agent exports retain chosen settings and reasons
 for inactive phases too; the full export adds the defaults for the phases
 currently running.
 
-**Open for editing** fills the page in from the file, but only with what the
-page can hold: the first system, `output`, `include`, the four phase blocks and
-the per-analysis options. A `sweep`, an `execution` block, any system after the
-first, and the `agent`/`agent_model` provenance are dropped, so re-saving a
-campaign from the form gives you a single-system study. **Run it as-is** leaves
-the file untouched and is the route for those.
+**Open for editing** fills the page in from the file: every system with its
+name and its own settings, `output`, the phases it runs, the four phase blocks,
+the per-analysis options, the `sweep`, the `execution` block and the
+`agent`/`agent_model`/`budget_hours`/`decisions` provenance. A config with no
+systems yet opens too, to be given one. **Run it as-is** leaves the file
+untouched.
+
+With a `fastmdx-defaults.yml` where the study will run, each setting it gives
+is marked **Your default** on its field, and the review's plan says the value
+the run will take with it, marked as yours. A value set back to FastMDXplora's
+own over yours is kept in the file, so the run uses it.
 
 When you press **Run**, the Config is written into the output directory as
-`exploration.yml` before anything starts, so the run is repeatable from its own
-output. **Run as-is** writes nothing and runs the file you named, unmodified.
+`exploration.yml` before anything starts (the full one where **Full config** is
+ticked, your defaults named in it), so the run is repeatable from its own
+output. **Run as-is** writes nothing and runs the file you named, unmodified,
+into its own `output:` (a relative one read from the folder new studies go
+in), or, where it names none, beside it as `<its name>_output`.
 
 ---
 
@@ -762,7 +772,7 @@ than one release are said to be. See
 
 | Flag | What it does | Default |
 |---|---|---|
-| `--output DIR` | The run to watch or read. Without it, the GUI opens in "design a new study" mode | current directory, home mode |
+| `--output DIR` | The run to watch or read; new studies go beside it. Without it, the GUI opens in "design a new study" mode, and the folder it was started in is where new studies go, where a relative path is read from and where your `fastmdx-defaults.yml` is looked for | current directory, home mode |
 | `--host` | What to bind to | `127.0.0.1` |
 | `--port` | Which port. If it is busy, the next free one is used and reported | `8765` |
 | `--no-browser` | Print the URL instead of opening a tab | opens a tab |
