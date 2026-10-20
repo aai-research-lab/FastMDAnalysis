@@ -725,6 +725,11 @@ CODES: tuple[Code, ...] = (
          "The integration produced a non-finite state.",
          Kind.SEMANTIC, Disclosure.NOTHING,
          detail_keys=("step", "diagnosis")),
+    Code("simulation.run.engine_failed",
+         "A step stopped on an error that is not a non-finite state: a "
+         "reporter's setting, or the engine's own error.",
+         Kind.SEMANTIC, Disclosure.NOTHING, since="2.7",
+         detail_keys=("stage", "error")),
 
     # -- analysis -----------------------------------------------------------
     Code("analysis.unknown",

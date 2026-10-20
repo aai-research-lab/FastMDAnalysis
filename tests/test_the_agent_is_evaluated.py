@@ -1062,8 +1062,10 @@ RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-1
 #: recorded. Set again by `agent-looks` (`read_study` takes the analysis
 #: asked about, and an analysis named with @ says to pass it), and by
 #: `agent-one-list` (the looks from one list with `fastmdx mcp`'s, three
-#: more of them, the arguments said from their schemas).
-ASKED_NOW = "b60d00f3184e815070b2d7e23d051227abc951b5dd5e9b21e0c81784d8051313"
+#: more of them, the arguments said from their schemas). Set again by
+#: `tester-area2` (the bounds a setting cannot pass, in the schema's
+#: structure); no verdict changed.
+ASKED_NOW = "0efa4db1fdb774ad4faf05c22b6882f5bb2b4cae39c276c5b0283731c0198db5"
 
 
 def _asked_in_own_words(monkeypatch) -> list[str]:
@@ -1424,8 +1426,8 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 #: cases resolve what is named from the folders here, where the study the
 #: run was asked against is not.
 CONTEXT_ASKED_NOW = {
-    True: "6699431e303954e707f3dd2427faf5670ee949044c4c8e2238a47412a55586da",
-    False: "800cfdde527993d94875f0b22b2e2d2daf2a5790d43727890a3a56395c9c0fc8"}
+    True: "18ad442ce594b3eab6049f0f1b3b351955b087546868404233e2b6eb80a019aa",
+    False: "6e47ed9e981f8e9bbd20a75af384d2c005f47bf9eee8abb8650a6c8c844b13ae"}
 
 
 def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:
