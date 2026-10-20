@@ -125,9 +125,12 @@ def plan_of(config: dict[str, Any]) -> list[dict[str, Any]]:
 
     if "simulation" in phases:
         temperature, t = _value(simulation, "simulation", "temperature_K")
+        # The pressure the barostat is given: bar where the config gives it,
+        # even beside atm, as the runner reads them; else atm; else the
+        # default. Atm won here, so the plan said 2 atm of a run at 1.5 bar.
         pressure, p = _value(simulation, "simulation", "pressure_bar")
-        if simulation.get("pressure_atm") is not None:
-            pressure, p = f"{simulation['pressure_atm']} atm", True
+        if simulation.get("pressure_bar") is None and simulation.get("pressure_atm") is not None:
+            pressure, p = f"{_number(simulation['pressure_atm'])} atm", True
         else:
             pressure = f"{_number(pressure)} bar"
         line("Conditions", f"{_number(temperature)} K, {pressure}", default=not (t or p))

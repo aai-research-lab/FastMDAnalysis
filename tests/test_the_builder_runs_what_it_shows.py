@@ -251,3 +251,16 @@ class TestRunAsItStands:
         path.write_text("systems:\n  - system: 1L2Y\noutput: out\n", encoding="utf-8")
         assert session.runtime.output_of_existing_config(str(path), "elsewhere") == (
             studies / "elsewhere").resolve()
+
+
+class TestThePressure:
+
+    def test_bar_given_beside_atm_is_the_pressure_said(self) -> None:
+        from fastmdxplora.gui.plan import plan_of
+
+        plan = plan_of({"systems": [{"system": "1L2Y"}],
+                        "simulation": {"pressure_bar": 1.5, "pressure_atm": 2}})
+        line = next(x for x in plan if x["label"] == "Conditions")
+        assert line["value"] == "300 K, 1.5 bar", line
+        plan = plan_of({"systems": [{"system": "1L2Y"}], "simulation": {"pressure_atm": 2}})
+        assert next(x for x in plan if x["label"] == "Conditions")["value"] == "300 K, 2 atm"
