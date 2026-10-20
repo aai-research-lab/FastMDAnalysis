@@ -663,6 +663,19 @@ def _taken_back(config_path: Path | None, folder: Path, made: Path | None) -> No
             return
 
 
+def _defaults_found_from(output_dir: Path) -> Any:
+    """Your fastmdx-defaults.yml as `fastmdx explore --output` finds it for
+    a run written into ``output_dir``; None where there is none, or where
+    it is wrong (the run says so, naming it)."""
+    from fastmdxplora.config.defaults_file import defaults_for
+    from fastmdxplora.config.loader import ConfigError
+
+    try:
+        return defaults_for(output_dir)
+    except ConfigError:
+        return None
+
+
 @dataclass
 class DashboardRuntime:
     """Mutable state shared by all request-handler threads."""
@@ -1323,7 +1336,8 @@ class DashboardRuntime:
 
         made = _made_by(output_dir)
         prepared = prepare_run(dict(state) if state else None, output_dir,
-                               config=dict(config) if config is not None else None)
+                               config=dict(config) if config is not None else None,
+                               defaults=_defaults_found_from(output_dir))
         if not prepared["ok"]:
             return prepared
         # Refused here, before a process is spawned, when the chemistry

@@ -2324,8 +2324,13 @@
       const lines = (state.built && state.built.ok && state.built.plan) || [];
       lines.filter((line) => line.label !== "Checked after").forEach((line) => {
         plan.appendChild(node("dt", null, line.label));
-        const value = node("dd", line.default ? "is-default" : null, line.value);
-        if (line.default) value.appendChild(node("span", "builder-default-mark", "default"));
+        // A value your fastmdx-defaults.yml gives is marked as yours, as its
+        // field is: the plan said FastMDXplora's own value there, which the
+        // run did not use.
+        const yours = line.source === "yours";
+        const value = node("dd", line.default || yours ? "is-default" : null, line.value);
+        if (yours) value.appendChild(node("span", "builder-default-mark", "your default"));
+        else if (line.default) value.appendChild(node("span", "builder-default-mark", "default"));
         plan.appendChild(value);
       });
       if (!lines.length) plan.appendChild(node("dd", "muted", whyNotReady() || "Being worked out…"));

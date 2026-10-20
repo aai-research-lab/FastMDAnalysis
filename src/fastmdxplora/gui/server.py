@@ -2087,8 +2087,20 @@ def make_handler(
                 if isinstance(request.get("config"), dict):
                     self._send_json(export_config(request["config"], full=bool(request.get("full"))))
                     return
+                # With your defaults, as Run will be given them: the plan
+                # says the values the run takes, and a value set back to
+                # FastMDXplora's own over yours is kept in the file. A
+                # defaults file that is wrong is said by the schema's route,
+                # and the file is written without it meanwhile.
+                from fastmdxplora.config.loader import ConfigError
+                from fastmdxplora.gui.agent_panel import your_defaults
+
+                try:
+                    yours = your_defaults(app_runtime)
+                except ConfigError:
+                    yours = None
                 self._send_json(
-                    config_yaml(request, full=bool(request.get("full")))
+                    config_yaml(request, full=bool(request.get("full")), defaults=yours)
                 )
                 return
             if path == "/api/explore/stop":

@@ -32,19 +32,26 @@ CONFIG_FILENAME = "exploration.yml"
 
 
 def prepare_run(state: dict[str, Any] | None, output_dir: str | Path, *,
-                config: dict[str, Any] | None = None) -> dict[str, Any]:
+                config: dict[str, Any] | None = None,
+                defaults: Any = None) -> dict[str, Any]:
     """Write the config for a run and give back the command that runs it.
 
     Nothing is launched here. Writing the file and starting the process are
     separate so that the file can be checked -- and so a test can confirm that
     what would run locally is the same thing the download hands over.
+
+    ``defaults`` is your fastmdx-defaults.yml that the run will find, so the
+    file written is the one the Builder showed with them.
     """
     # A config, or the form state to build one from. Never both, and the
     # config wins: it is the thing itself, not a description of it.
+    full = bool((state or {}).get("full"))
     if config is not None:
-        built = render_config(dict(config), full=bool((state or {}).get("full")))
+        built = render_config(dict(config), full=full, defaults=defaults)
     else:
-        built = config_yaml(state or {})
+        # Full when the form asked for it, as its preview was: the short file
+        # was written whatever was ticked.
+        built = config_yaml(state or {}, full=full, defaults=defaults)
     if not built["ok"]:
         return {
             "ok": False,

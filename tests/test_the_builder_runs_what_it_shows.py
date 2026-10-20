@@ -21,6 +21,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+import yaml
 
 ATOM = "ATOM  {:5d}  {:<3s} {:>3s} {}{:4d}    {:8.3f}{:8.3f}{:8.3f}  1.00  0.00          {:>2s}\n"
 
@@ -100,3 +101,89 @@ class TestTheFolderItWasStartedIn:
                        {"system": "only_here.pdb", "include_phase": ["setup", "simulation"]})
         assert answer["ok"], answer
         assert answer["estimate"]["residues"] == 3
+
+
+def _yours(folder: Path, text: str):
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE, read_defaults
+
+    path = folder / DEFAULTS_FILE
+    path.write_text(text, encoding="utf-8")
+    return read_defaults(path)
+
+
+_LAB = ("simulation:\n  temperature_K: 310\n"
+        "decisions:\n  simulation.temperature_K:\n    why: Our assays run at body temperature.\n")
+
+
+def _state(**simulation) -> dict:
+    state = {"system": "1L2Y", "include_phase": ["setup", "simulation"]}
+    if simulation:
+        state["simulation"] = simulation
+    return state
+
+
+class TestWithYourDefaults:
+
+    def test_fastmdxplora_s_own_value_chosen_over_yours_is_kept(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        built = config_yaml(_state(temperature_K="300"), defaults=_yours(tmp_path, _LAB))
+        assert built["ok"], built
+        written = yaml.safe_load(built["yaml"])
+        assert written["simulation"]["temperature_K"] == 300
+
+    def test_a_value_left_at_yours_is_left_to_your_file(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        built = config_yaml(_state(temperature_K="310"), defaults=_yours(tmp_path, _LAB))
+        assert "temperature_K" not in (yaml.safe_load(built["yaml"]).get("simulation") or {})
+
+    def test_the_plan_says_the_value_the_run_takes_marked_as_yours(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        built = config_yaml(_state(), defaults=_yours(tmp_path, _LAB))
+        line = next(x for x in built["plan"] if x["label"] == "Conditions")
+        assert line["value"].startswith("310 K"), line
+        assert line.get("source") == "yours"
+
+    def test_the_full_config_names_yours_and_where_it_came_from(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        built = config_yaml(_state(), full=True, defaults=_yours(tmp_path, _LAB))
+        written = yaml.safe_load(built["yaml"])
+        assert written["simulation"]["temperature_K"] == 310
+        decision = written["decisions"]["simulation.temperature_K"]
+        assert decision["source"] == "fastmdx-defaults.yml"
+        assert decision["why"] == "Our assays run at body temperature."
+
+    def test_the_builder_s_route_reads_the_workspace_s_defaults(self, home_gui) -> None:
+        _, studies, url = home_gui
+        (studies / "fastmdx-defaults.yml").write_text(_LAB, encoding="utf-8")
+        built = _post(url + "/api/config", _state())
+        line = next(x for x in built["plan"] if x["label"] == "Conditions")
+        assert line["value"].startswith("310 K"), line
+        built = _post(url + "/api/config", _state(temperature_K="300"))
+        assert yaml.safe_load(built["yaml"])["simulation"]["temperature_K"] == 300
+
+
+class TestFullConfigTicked:
+
+    def test_run_writes_the_full_file_the_preview_showed(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        state = {**_state(duration_ns="0.002"), "full": True}
+        prepared = prepare_run(state, tmp_path / "run")
+        assert prepared["ok"], prepared
+        written = yaml.safe_load(Path(prepared["config_path"]).read_text(encoding="utf-8"))
+        preview = yaml.safe_load(config_yaml(state, full=True)["yaml"])
+        assert written == preview
+        assert written["simulation"]["timestep_fs"] == 2.0
+
+    def test_a_run_given_your_defaults_writes_them_into_the_full_file(self, tmp_path) -> None:
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        yours = _yours(tmp_path, _LAB)
+        prepared = prepare_run({**_state(), "full": True}, tmp_path / "run", defaults=yours)
+        written = yaml.safe_load(Path(prepared["config_path"]).read_text(encoding="utf-8"))
+        assert written["simulation"]["temperature_K"] == 310
