@@ -148,9 +148,12 @@ MEAN_RULES = 3
 #: one spread over half the run, every mean was determined and its median
 #: five errors from the value the decay was heading to. Judged against the
 #: trend's error it is withheld in about two of five such runs, and a
-#: stationary series in fewer than one in a hundred; a run extended until
-#: it is determined is asked again at each look (counted in
-#: ``preregistration/stopping-calibration.md``, the third remedy).
+#: stationary series in about one in a hundred (P(|z| >= 2.5) is 1.2% for a
+#: long one; fewer for a short one, whose error is read wide); a run
+#: extended until it is determined is asked again at each look (counted in
+#: ``preregistration/stopping-calibration.md``, the third remedy). It
+#: lowers how often a wrong mean is given; it does not make the ones still
+#: given right, and a relaxation much slower than the run it does not see.
 DRIFT_IN_ERRORS = 2.5
 
 #: The error of a mean after a discard is taken from the whole run, scaled to
@@ -514,44 +517,47 @@ def drift_in_spread(values: Any) -> float:
     return float((last.mean() - first.mean()) / noise)
 
 
-def _trend_error(values: np.ndarray, inefficiency: float) -> float:
-    """The error of the least-squares slope of ``values`` against frame
-    number, its residuals' variance taken as correlated over
-    ``inefficiency`` frames: ``sqrt(g var(r) / sum (t - t_bar)^2)``."""
-    t = np.arange(values.size, dtype=float)
-    t -= t.mean()
-    spread = float((t * t).sum())
-    if values.size < 3 or spread <= 0.0:
-        return float("nan")
-    slope = float((t * (values - values.mean())).sum() / spread)
-    left = values - values.mean() - slope * t
-    variance = float((left ** 2).sum()) / (values.size - 2)
-    return float(np.sqrt(max(float(inefficiency), 1.0) * variance / spread))
+def _trend(values: np.ndarray, inefficiency: float) -> "tuple[float, float]":
+    """The least-squares slope of ``values`` against frame number, and its
+    error with the residuals taken as correlated over ``inefficiency``
+    frames: ``sqrt(g var(r) / sum (t - t_bar)^2)``. In closed form, from
+    the sums the slope needs, so it costs one pass over the series. NaN for
+    the error where there are fewer than three values or none vary."""
+    n = values.size
+    if n < 3:
+        return 0.0, float("nan")
+    t = np.arange(n, dtype=float) - 0.5 * (n - 1)
+    spread = n * (n * n - 1.0) / 12.0
+    centred = values - values.mean()
+    slope = float(np.dot(t, centred)) / spread
+    # Residual sum of squares: sum c^2 - slope^2 sum t^2.
+    left = max(float(np.dot(centred, centred)) - slope * slope * spread, 0.0)
+    variance = left / (n - 2)
+    return slope, float(np.sqrt(max(float(inefficiency), 1.0) * variance / spread))
 
 
 def trend_in_errors(values: Any, inefficiency: float) -> float:
     """How steadily a series moves, against the error of that movement: the
     least-squares slope over frame number divided by its error, the frames
     taken as correlated over ``inefficiency`` frames (the series' own, as
-    the mean's error takes it; the trend's residuals decorrelate no slower,
-    so the error is if anything wide). Zero for a series too short, or one
-    that does not vary.
+    the mean's error takes it before any discard is weighed; the trend's
+    residuals decorrelate no slower than the series, so the error is if
+    anything wide). Zero for a series too short, or one that does not vary.
 
     Unlike :func:`drift_in_spread` it tightens as a run grows, as the
     mean's error does: a run long enough to give a mean an error of a
     hundredth of its spread can show a trend of a tenth of a spread, and
-    that trend is the mean's bias.
+    that trend is the mean's bias. What it cannot see is curvature: a
+    relaxation much slower than the run, or a slow oscillation, shows as a
+    trend only in part, and a mean left after it can still be biased.
     """
     series = np.asarray(values, dtype=np.float64)
     series = series[np.isfinite(series)]
     if series.size < DRIFT_FRAMES:
         return 0.0
-    error = _trend_error(series, inefficiency)
+    slope, error = _trend(series, inefficiency)
     if not np.isfinite(error) or error <= 0.0:
         return 0.0
-    t = np.arange(series.size, dtype=float)
-    t -= t.mean()
-    slope = float((t * (series - series.mean())).sum() / (t * t).sum())
     return float(slope / error)
 
 
@@ -664,7 +670,7 @@ def _summary(
             and abs(drift) < DRIFT_IN_SPREAD:
         import dataclasses
 
-        change = trend * _trend_error(kept, g) * (kept.size - 1)
+        change = _trend(kept, g)[0] * (kept.size - 1)
         return dataclasses.replace(equilibrated, standard_error=float("nan")), Withholding(
             f"Still drifting after its equilibration: over the {kept.size} frames "
             f"averaged the series moves steadily, by {change:+.4g} from first to "

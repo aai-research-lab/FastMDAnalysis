@@ -146,6 +146,11 @@ class Assessment:
         reported as equilibrated is a claim from no evidence, and it appeared
         beside "too few independent samples" about the same numbers.
         """
+        # Withheld for its trend, a mean has not equilibrated whatever the
+        # thirds say: the trend is judged against its own error, which the
+        # thirds' test is not, and the one series has one verdict.
+        if str(self.withheld or "").startswith("Still drifting"):
+            return False
         if not self.drift_is_measurable:
             return None
         return abs(self.drift_in_noise) < 2.0

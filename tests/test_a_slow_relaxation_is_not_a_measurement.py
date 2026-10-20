@@ -92,3 +92,24 @@ class TestTheTrendItself:
     def test_a_short_or_constant_series_reads_as_zero(self) -> None:
         assert trend_in_errors([1.0, 2.0, 3.0], 1.0) == 0.0
         assert trend_in_errors(np.ones(100), 1.0) == 0.0
+
+
+class TestTheReportGivesItOneVerdict:
+    def test_a_mean_withheld_for_its_trend_has_not_equilibrated(self) -> None:
+        # The report's own test of the thirds still passed it, and the report
+        # called the mean equilibrated beside its refusal for drifting.
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.default_rng(7)
+        n = int(500 * INEFFICIENCY)
+        for _ in range(40):
+            series = _relaxing(n, rng, amplitude=1.5)
+            _mean, why = summarise(series)
+            if why is not None and refusal_of(why).code == \
+                    "analysis.sampling.still_drifting":
+                break
+        else:
+            pytest.fail("no relaxation was withheld")
+        assessment = assess_series("rmsd", series)
+        assert assessment.has_equilibrated is False
+        assert not assessment.is_determined

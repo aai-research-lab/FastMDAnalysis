@@ -459,7 +459,11 @@ withholds the mean, beside the spread's test. `MEAN_RULES` becomes 3.
 424242, 777, 99 and 31337, before either set was run with it. At 2.5 a
 stationary series 25 to 500 inefficiencies long is withheld for its trend
 in 0.2% to 0.8% of cases, and the decay above in about two of five at 500
-inefficiencies, about one in thirty at 100. A threshold of 2.0 was tried
+inefficiencies, about one in thirty at 100. *(Corrected 2026-10-20, after
+review: for long series the rate tends to P(|z| >= 2.5) = 1.2%, and a
+reviewer measured 1.4% to 1.7% on AR(1) series 250 to 1000 inefficiencies
+long; the 0.2% to 0.8% holds for the lengths first tried, whose trend error
+reads wide.)* A threshold of 2.0 was tried
 first and not taken: it withheld 3% to 7% of stationary series, and a study
 of ten analyses or a run joined from ten segments would then have one
 withheld falsely in about one case in five.
@@ -512,7 +516,7 @@ What fails, first:
 | Case | Determined | At the ceiling | Median production | Within 1 error | Within 2 | Floors | Holds | Fixed length, within 1 / 2 |
 |---|---|---|---|---|---|---|---|---|
 | `fast_one_run` | 1000 of 1000 (100.0%) | 0 | 25.4 ns | 65.0% | 93.0% | 62.4%, 92.8% | yes | 69.0% / 94.8% (930 given at 25.4 ns) |
-| `fast_three_replicas` | 988 of 1000 (98.8%) | 12 | 28.6 ns | 72.0% | 95.5% | 62.4%, 92.8% | yes | 74.7% / 97.5% (856 given at 28.6 ns) |
+| `fast_three_replicas` | 988 of 1000 (98.8%) | 12 | 28.6 ns | 72.0% | 95.4% | 62.4%, 92.8% | yes | 74.7% / 97.5% (856 given at 28.6 ns) |
 | `slow_one_run` | 459 of 500 (91.8%) | 41 | 255.1 ns | 68.0% | 92.6% | 59.6%, 91.6% | yes | 69.3% / 94.7% (472 given at 255.1 ns) |
 | `slow_three_replicas` | 273 of 500 (54.6%) | 227 | 200.0 ns | 67.8% | 93.0% | 57.0%, 90.4% | yes | 71.7% / 97.6% (290 given at 200.0 ns) |
 | `transient_three_replicas` | 980 of 1000 (98.0%) | 20 | 48.5 ns | 66.9% | 92.7% | 62.3%, 92.8% | no | 72.5% / 96.3% (814 given at 48.5 ns) |
@@ -522,9 +526,11 @@ What fails, first:
 | `slow_transient_three_replicas` | 945 of 1000 (94.5%) | 55 | 58.6 ns | 0.3% | 1.6% | 62.2%, 92.7% | no | 0.0% / 0.0% (827 given at 58.6 ns) |
 
 Against today's `main` on the same seeds, study by study, the remedy changed
-how 3 of 1000 `fast_one_run` studies ended, 13 of `fast_three_replicas`, 1
-of 500 `slow_one_run`, 4 of `slow_three_replicas`, 23 of
-`transient_three_replicas`, none of either two-state case, 100 of
+how (outcome or production) 3 of 1000 `fast_one_run` studies ended, 13 of
+`fast_three_replicas`, 1 of 500 `slow_one_run`, 4 of `slow_three_replicas`,
+23 of `transient_three_replicas`, none of either two-state case (one
+`two_states_drawn_starts` study took 5 rounds rather than 7 to the same
+end), 100 of
 `slow_transient_one_run` and 74 of `slow_transient_three_replicas` (among
 those that ended determined either way, the truth within two errors in 0%
 before and 4% after, and 2% and 8%).
@@ -533,6 +539,16 @@ What holds: the stated precision for `fast_one_run`, `fast_three_replicas`,
 `slow_one_run` and `slow_three_replicas`, and usability for
 `fast_three_replicas` (98.8%), `slow_one_run` (91.8%) and
 `transient_three_replicas` (98.0%).
+
+**What it does not do** (found in review, 2026-10-20, on synthetic series
+outside both sets): it lowers how often a wrong mean is given, and the means
+still given are hardly better centred (a decay of one spread over half a run
+500 inefficiencies long: 38.5% withheld, the median distance of the rest
+from the asymptote 5.1 errors before and 4.6 after). A slow oscillation, or
+a slow stationary mode carrying a few percent of the variance, also trends
+across one window, and is withheld under the same code in 7% to 37% of
+runs; withholding is right there (the errors given were not), the label
+"still drifting" less so.
 
 **The check.** A stationary series is withheld for any reason, with the
 remedy against today's `main`: the fast series at 50, 100 and 250 times its

@@ -809,7 +809,7 @@ CODES: tuple[Code, ...] = (
     Code("analysis.sampling.still_drifting",
          "The frames averaged still move in one direction: their last third's "
          "mean differs from their first third's by at least twice their spread, "
-         "or they trend steadily by at least twice the trend's own error.",
+         "or they trend steadily by at least 2.5 times the trend's own error.",
          Kind.INSUFFICIENT, Disclosure.FIELD_ONLY,
          detail_keys=("frames", "drift_in_spread", "trend_in_errors", "needed")),
     Code("analysis.sampling.drifting",
