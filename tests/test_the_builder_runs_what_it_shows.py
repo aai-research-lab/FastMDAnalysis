@@ -615,3 +615,34 @@ class TestInTheBuilder:
         assert "default" not in box["said"], box
         assert not page.errors
         page.context.close()
+
+
+class TestCheckItReadsWhereTheRunReads:
+    """Check it read a relative structure from the process's own folder,
+    and Run as it stands from the folder the GUI was started in."""
+
+    def test_a_relative_structure_is_read_from_the_studies(self, home_gui) -> None:
+        _, studies, url = home_gui
+        Path("only_there.pdb").write_text(_peptide(), encoding="utf-8")
+        path = studies / "rel2.yml"
+        path.write_text("systems:\n  - system: only_there.pdb\n", encoding="utf-8")
+        answer = _post(url + "/api/check-config", {"path": str(path)})
+        assert answer["ok"] is False, answer
+        assert answer["refusal"]["code"] == "environment.path.not_found"
+        # One beside the studies, which the run reads, is found, the
+        # Config being kept in a folder of its own.
+        (studies / "only_here.pdb").write_text(_peptide(), encoding="utf-8")
+        (studies / "configs").mkdir()
+        path = studies / "configs" / "rel.yml"
+        path.write_text("systems:\n  - system: only_here.pdb\n", encoding="utf-8")
+        answer = _post(url + "/api/check-config", {"path": str(path)})
+        assert answer["ok"], answer
+
+    def test_a_config_with_no_systems_is_told_what_to_add(self, home_gui) -> None:
+        _, studies, url = home_gui
+        path = studies / "none.yml"
+        path.write_text("simulation:\n  duration_ns: 0.001\n", encoding="utf-8")
+        answer = _post(url + "/api/check-config", {"path": str(path)})
+        assert answer["ok"] is False
+        assert "Add one under `systems:`" in answer["error"], answer["error"]
+        assert "not invented" not in answer["error"]

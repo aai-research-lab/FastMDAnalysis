@@ -775,7 +775,17 @@ def check_config(data: dict[str, Any], *, to_run: bool = False,
     try:
         validate_config(data, require_systems=to_run)
     except ConfigError as exc:
-        return {"ok": False, "error": str(exc), **refused(exc)}
+        said = refused(exc)
+        if (said["refusal"].get("code") == "config.option.missing_companion"
+                and not data.get("systems")):
+            # The validator's words are written for the Agent, which takes a
+            # structure from a request; a person is told what to add.
+            return {"ok": False, **said,
+                    "error": ("This Config names no system, so there is no "
+                              "structure to run. Add one under `systems:`, "
+                              "a PDB id or a structure file:\n"
+                              "  systems:\n    - {system: 1L2Y}")}
+        return {"ok": False, "error": str(exc), **said}
     if to_run and defaults is not None:
         from fastmdxplora.config.defaults_file import refused_with, with_defaults
 

@@ -1529,7 +1529,8 @@ class DashboardRuntime:
         # Judged as the run will judge it: systems required, and with the
         # defaults the run will find where it writes.
         checked = check_config_file(config_path, to_run=True,
-                                    defaults=_defaults_found_from(output_dir))
+                                    defaults=_defaults_found_from(output_dir),
+                                    base=self.exploration_root)
         if not checked["ok"]:
             return checked
 

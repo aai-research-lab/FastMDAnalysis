@@ -2051,7 +2051,8 @@ def make_handler(
                 where = app_runtime.output_of_existing_config(named)
                 self._send_json(check_config_file(
                     named, to_run=True,
-                    defaults=_defaults_found_from(where) if where is not None else None))
+                    defaults=_defaults_found_from(where) if where is not None else None,
+                    base=app_runtime.exploration_root))
                 return
             if path == "/api/preview-system":
                 # What the form's study will build and cost, while the form
