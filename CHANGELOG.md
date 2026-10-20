@@ -68,7 +68,7 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
     an axis a system entry also sets;
   - a setting given a number it cannot be is refused: a timestep of 0,
     negative steps, an interval under 1 or longer than production, a
-    hydrogen mass at or under hydrogen's own or over 4 amu, a negative
+    hydrogen mass at or under hydrogen's own or over four times it, a negative
     pressure in atm or friction, an analysis's `last` at or before its
     `first`, under one worker, and NaN or infinity anywhere, analysis
     options included; setup refuses a system it built with a mass at or
@@ -92,7 +92,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - A system setup cannot read and a selection that does not parse are
   refused before a run by `fastmdx explore`, its `--dry-run`, the GUI's
   Check it and `check_study` alike, where setup reads the system (not from a
-  prepared one). `--dry-run` prints what is worth knowing before a run, as
+  prepared one), and `save_study` saves none of them.
+  `refuse_what_can_be_seen` is given beside `validate_config` for a script.
+  `--dry-run` prints what is worth knowing before a run, as
   Check it does, and says an interval that leaves production's last steps
   unsaved. A run fails (exit 1) when an analysis its Config names failed,
   never for too few frames. Setup given
@@ -104,7 +106,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - The Config Builder shows and runs the study your defaults make: its plan
   says each system's value where systems differ, its file holds what your
   defaults give, so it runs the same study where there are none, and
-  FastMDXplora's own value typed over yours is kept. A default some systems
+  FastMDXplora's own value typed over yours is kept; its header says your
+  defaults are written in, and its command leaves their reasons to the
+  file. A default some systems
   took is recorded as the reason in their runs only. Full config ticked runs
   the full file.
 - `fastmdx gui` with no study open puts new studies in the folder it was

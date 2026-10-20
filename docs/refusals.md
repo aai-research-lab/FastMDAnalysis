@@ -315,7 +315,7 @@ A few you are likely to meet, and what each means.
 | `environment.share.unsafe` | A shared study's archive names a path outside itself, a link or a device, or unpacks to more than the limit; nothing is opened |
 | `environment.share.too_large` | A shared study's archive is over the download limit; `--open-most-gb` allows more |
 | `environment.share.unverified` | A file of a shared study is missing, not listed, or not the size or SHA-256 its packing list gives, or the archive is not the one Zenodo recorded; nothing is opened |
-| `setup.system.mass_not_positive` | The system built gives an atom a mass at or below zero, as a repartitioned hydrogen mass too large for its heavy atom does. The atoms are named; `setup.hydrogen_mass_amu` of 4.0 or less |
+| `setup.system.mass_not_positive` | The system built gives an atom a mass at or below zero, as a repartitioned hydrogen mass too large for its heavy atom does. The atoms are named; `setup.hydrogen_mass_amu` of 4.032 or less |
 | `setup.membrane.no_belt` | A bilayer was asked for and the structure does not look like a membrane protein: no slab buries enough apolar surface. Check `chains`, or give an OPM file |
 | `setup.membrane.orientation_unchecked` | A bilayer was asked for and the structure lies at an angle to z. The tilt is stated; `membrane_orient: true` rotates it |
 | `setup.membrane.packing_failed` | OpenMM's packing of the bilayer ran away to a NaN in each of three packings, each from its own seed. The seeds are stated; another `setup.random_seed` packs from other random numbers, and a structure not oriented across the slab fails every time |

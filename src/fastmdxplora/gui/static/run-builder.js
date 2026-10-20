@@ -2253,6 +2253,7 @@
       if (!field.essential) wrap.classList.add("is-more");
       grid.appendChild(wrap);
     });
+    sayMode(grid);
     (state.schema.run_options || []).filter((field) => field.role !== "provenance").forEach((field) => {
       const wrap = control(RUN_OPTIONS_KEY, field);
       if (!field.essential) wrap.classList.add("is-more");
@@ -2614,12 +2615,16 @@
   /* The Mode box says the mode the run will take. Workers or devices given
    * with no mode run in parallel (the explorer's rule), and the box said
    * "sequential (default)" of a study opened with `workers: 2`. */
-  function sayMode() {
+  function sayMode(drawn) {
     // Scheduling's one setting of choices, as the schema gives it.
     const field = ((state.schema && state.schema.execution_options) || [])
       .find((each) => Array.isArray(each.choices) && each.choices.length > 1);
     if (!field) return;
-    const box = el(`set-${EXECUTION_KEY.replace(/_/g, "")}-${field.name}`);
+    // The box as it is drawn, before it is on the page: the review's boxes
+    // are drawn again after a study is opened, and the new one said
+    // "sequential (default)" of a study given workers.
+    const box = (drawn && drawn.querySelector(`#set-${EXECUTION_KEY.replace(/_/g, "")}-${field.name}`))
+      || el(`set-${EXECUTION_KEY.replace(/_/g, "")}-${field.name}`);
     if (!box || box.tagName !== "SELECT") return;
     // The choices are the schema's: its default, and the other one, which
     // workers or devices given ask for.
@@ -2643,7 +2648,9 @@
     const chain = el("run-summary");
     if (state.start === "config") {
       const verdict = state.configVerdict;
-      text(chain, verdict && verdict.ok ? verdict.phases.join(" → ") : "No config checked yet");
+      // A config checked and refused was said as never checked.
+      text(chain, !verdict ? "No config checked yet"
+        : verdict.ok ? verdict.phases.join(" → ") : "Refused: the check says why");
     } else {
       const doing = PHASES.filter((p) => state.phases.has(p.name)).map((p) => p.label);
       const systems = state.start === "structure" ? state.systems.filter((row) => row.system).length : 1;

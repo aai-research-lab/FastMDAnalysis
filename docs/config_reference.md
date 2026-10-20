@@ -132,7 +132,7 @@ cube's volume, so about a third of the water a cube would need is saved.
 | `force_field` | list | — | Raw OpenMM XML file(s), in place of `forcefield`: give one or the other, or the list the name resolves to beside it (as `resolved_config.yml` records them) |
 | `constraints` | str | `HBonds` | `None`, `HBonds`, `AllBonds` or `HAngles` |
 | `rigid_water` | bool | `true` | Constrain water bond lengths and angles |
-| `hydrogen_mass_amu` | int or float | off | Hydrogen-mass repartitioning, which allows a longer timestep: more than 1.008 and at most 4.0 amu |
+| `hydrogen_mass_amu` | int or float | off | Hydrogen-mass repartitioning, which allows a longer timestep: more than 1.008 and at most 4.032 amu (four times hydrogen's) |
 | `temperature_K` | int or float | `300.0` | Temperature for **initial velocity assignment** — not the production temperature, which is `simulation.temperature_K` |
 
 Only a ligand-capable force field accepts `setup.ligand`; `amber-openff` is the

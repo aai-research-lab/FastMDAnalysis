@@ -646,3 +646,58 @@ class TestCheckItReadsWhereTheRunReads:
         assert answer["ok"] is False
         assert "Add one under `systems:`" in answer["error"], answer["error"]
         assert "not invented" not in answer["error"]
+
+
+class TestTheThirdRound:
+    """What the second review of these fixes found."""
+
+    def test_a_full_config_of_a_swept_atm_runs(self, tmp_path) -> None:
+        """Full config wrote FastMDXplora's `pressure_bar` beside a swept
+        `pressure_atm`, and the study was refused as giving both."""
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        state = {**_state(), "full": True,
+                 "sweep": [{"axis": "simulation.pressure_atm", "values": "1, 2"}]}
+        made = config_yaml(state, full=True)
+        assert made["ok"], made
+        written = yaml.safe_load(made["yaml"])
+        assert "pressure_bar" not in (written.get("simulation") or {})
+
+    def test_your_defaults_written_in_are_said_and_kept_out_of_the_command(
+            self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        yours = _yours(tmp_path, "simulation:\n  temperature_K: 310\n"
+                                 "decisions:\n  simulation.temperature_K:\n"
+                                 "    why: Our assays run at body temperature.\n")
+        made = config_yaml(_state(), defaults=yours)
+        assert made["ok"], made
+        assert "fastmdx-defaults.yml gives written in" in made["yaml"]
+        assert "--decisions" not in (made.get("command") or ""), made.get("command")
+        assert "--temperature" in (made.get("command") or "") or "310" in (made.get("command") or "")
+
+    def test_the_mode_box_says_parallel_for_a_study_opened_with_workers(
+            self, browser, home_gui) -> None:
+        _, studies, url = home_gui
+        path = studies / "par.yml"
+        path.write_text("systems:\n  - system: 1L2Y\nexecution:\n  workers: 2\n",
+                        encoding="utf-8")
+        # Opened as Open for editing opens it, on a page that has drawn
+        # nothing else first: the review's boxes are drawn again after the
+        # study arrives, and the new Mode box said "sequential (default)".
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        page = context.new_page()
+        page.errors = []
+        page.on("pageerror", lambda error: page.errors.append(str(error)))
+        page.goto(url + "/#run", wait_until="domcontentloaded")
+        page.wait_for_selector("#run-start [data-start='structure']", state="attached")
+        loaded = _post(url + "/api/load-config", {"path": str(path)})
+        page.evaluate("from => window.FastMDXRun.applyLoadedState(from)",
+                      loaded.get("state", loaded))
+        page.wait_for_timeout(1500)
+        said = page.evaluate("() => { const box = document.getElementById('set-execution-mode');"
+                             " return [box.value, box.options[box.selectedIndex].text]; }")
+        assert said[0] == "parallel", said
+        assert "default" not in said[1], said
+        assert not page.errors
+        page.context.close()

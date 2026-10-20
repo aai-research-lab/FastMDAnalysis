@@ -219,3 +219,43 @@ def test_an_analysis_s_own_default_is_not_read_as_a_selection():
               "analysis": {"options": {"coordination_number": {"selection_a": BAD}}}}
     with pytest.raises(Exception, match="selection_a"):
         refuse_what_can_be_seen(config)
+
+
+# ------------------------------------------- the second review's leftovers
+
+@pytest.mark.parametrize("config, says, code", CASES, ids=IDS)
+def test_an_ai_app_s_save_refuses_it_and_saves_nothing(wire, config, says, code):
+    """save_study saved what check_study refused, and gave it a plan id."""
+    wire, root = wire
+    result = wire.request("tools/call", {"name": "save_study", "arguments": {
+        "config": yaml.safe_dump(config), "name": "bad"}})["result"]
+    said = result["content"][0]["text"]
+    assert result["isError"], said
+    assert says in said and code in said
+    assert not (root / "bad.yml").exists()
+
+
+def test_python_is_given_the_same_check():
+    """`validate_config` judges the settings; the check a run makes before
+    it starts is named beside it for a script to call."""
+    from fastmdxplora.config import ConfigError, refuse_what_can_be_seen
+
+    with pytest.raises(ConfigError) as caught:
+        refuse_what_can_be_seen({"systems": [{"system": "1L2YA"}]})
+    assert caught.value.code == "setup.input.unrecognised"
+
+
+def test_check_it_judges_the_study_your_defaults_make(tmp_path):
+    """Check it judged the Config without your defaults, where the run and
+    check_study judge it with them: a selection your file gives that does
+    not parse was "Runs." here."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE, read_defaults
+    from fastmdxplora.gui.config_builder import check_config_file
+
+    yours = tmp_path / DEFAULTS_FILE
+    yours.write_text(f"analysis:\n  select_atoms: '{BAD}'\n", encoding="utf-8")
+    path = _write(tmp_path / "s.yml", {"systems": [{"id": "a", "system": "1L2Y"}]})
+    checked = check_config_file(str(path), to_run=True, base=tmp_path,
+                                defaults=read_defaults(yours))
+    assert checked["ok"] is False, checked
+    assert checked["refusal"]["code"] == SELECTION[1]

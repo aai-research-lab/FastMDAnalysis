@@ -83,13 +83,22 @@ when a script is assembling studies, and it is what the CLI and the
 To check one before running it:
 
 ```python
-from fastmdxplora.config import validate_config, ConfigError
+from pathlib import Path
+
+from fastmdxplora.config import validate_config, refuse_what_can_be_seen, ConfigError
 
 try:
     validate_config(study, require_systems=True)
+    refuse_what_can_be_seen(study, base=Path("."))
 except ConfigError as exc:
     print(exc.code, exc)
 ```
+
+`validate_config` judges the settings; `refuse_what_can_be_seen` then refuses
+what `fastmdx explore`, the GUI's Check it and `check_study` refuse before a
+run that the settings alone cannot show: a system setup cannot read (a file
+not there, read from `base`, an identifier that is not a PDB ID, a
+sequence) and a selection that does not parse.
 
 ---
 
@@ -301,6 +310,7 @@ Writing one is in [Developing FastMDXplora](developers.md).
 from fastmdxplora.config import (
     load_config_file,     # (path) -> dict
     validate_config,      # (data, *, require_systems=False) -> None; raises ConfigError
+    refuse_what_can_be_seen,  # (data, *, base=None) -> None; raises ConfigError
     phase_options,        # (data) -> dict[str, dict]
     generate_template,    # (*, minimal=False) -> str
     write_resolved_config,# (merged, output_dir, *, filename="resolved_config.yml") -> Path

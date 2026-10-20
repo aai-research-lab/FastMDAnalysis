@@ -566,11 +566,12 @@ SETUP = PhaseSchema(
               "Constrain water bond lengths and angles."),
         Field("hydrogen_mass_amu", (int, float), None,
               "Hydrogen-mass-repartitioning mass in amu (enables longer "
-              "timesteps): more than hydrogen's own 1.008 and at most 4.0, "
+              "timesteps): more than hydrogen's own 1.008 and at most 4.032, "
+              "four times it, "
               "as the mass is taken from the heavy atom each hydrogen is "
               "bonded to, which a larger one leaves negative. Default: off.",
               example=4.0,
-              minimum=1.008, exclusive_minimum=True, maximum=4.0),
+              minimum=1.008, exclusive_minimum=True, maximum=4.032),
         Field("temperature_K", (int, float), 300.0,
               "Temperature in K for initial velocity assignment.",
                     minimum=0.0),

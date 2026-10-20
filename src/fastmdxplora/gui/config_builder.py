@@ -370,13 +370,17 @@ def build_config(state: dict[str, Any], *, full: bool = False,
             # the pressure the run would take).
             from fastmdxplora.config.loader import same_setting
 
+            swept = set(config.get("sweep") or ())
             spelled = {f"{phase}.{name}" for name in chosen} | {
                 f"{phase}.{key}" for entry in config.get("systems") or ()
                 if isinstance(entry, dict) and isinstance(entry.get(phase), dict)
-                for key in entry[phase]}
+                for key in entry[phase]} | swept
             for name, value in defaults_here.items():
                 dotted = f"{phase}.{name}"
-                if value is None or name in chosen or (
+                # A swept setting, or one whose other spelling is swept, is
+                # the sweep's: a written `pressure_bar` beside a swept
+                # `pressure_atm` was refused as both given.
+                if value is None or name in chosen or dotted in swept or (
                         (same_setting(dotted) - {dotted}) & spelled):
                     continue
                 kept[name] = value
@@ -527,6 +531,34 @@ def export_config(config: dict[str, Any], *, full: bool = False) -> dict[str, An
     return render_config(filled, full=full, short=chosen, keep_choices=True)
 
 
+def _names_yours(config: dict[str, Any]) -> bool:
+    """Whether the file holds a value your defaults gave, said by the reason
+    recorded for it."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE
+
+    said = config.get("decisions")
+    return isinstance(said, dict) and any(
+        isinstance(one, dict) and one.get("source") == DEFAULTS_FILE
+        for one in said.values())
+
+
+def _without_yours_reasons(config: dict[str, Any]) -> dict[str, Any]:
+    """The study for its command: the values your defaults gave stay, their
+    reasons are left to the file, so the command stays one a person reads
+    (it carried a `--decisions` argument of JSON for each)."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE
+
+    said = config.get("decisions")
+    if not isinstance(said, dict):
+        return config
+    kept = {name: one for name, one in said.items()
+            if not (isinstance(one, dict) and one.get("source") == DEFAULTS_FILE)}
+    trimmed = {key: value for key, value in config.items() if key != "decisions"}
+    if kept:
+        trimmed["decisions"] = kept
+    return trimmed
+
+
 def render_config(config: dict[str, Any], *, full: bool = False,
                   short: dict[str, Any] | None = None,
                   keep_choices: bool = False,
@@ -588,6 +620,12 @@ def render_config(config: dict[str, Any], *, full: bool = False,
             "# config to record every value the run will use.\n"
             if keep_choices
             else
+            ("# Only settings that differ from FastMDXplora's defaults appear\n"
+             "# here, with what your fastmdx-defaults.yml gives written in, so\n"
+             "# the file runs the same study where that file is not. Ask for\n"
+             "# the full config to record every value the run will use.\n")
+            if _names_yours(config)
+            else
             "# Only settings that differ from the defaults appear here, so\n"
             "# what this file says is what was decided. Ask for the full\n"
             "# config to record every value the run will use.\n"
@@ -628,7 +666,7 @@ def render_config(config: dict[str, Any], *, full: bool = False,
         if caused is not None:
             return refusal(caused)
     try:
-        command = cli_command(decided)
+        command = cli_command(_without_yours_reasons(decided))
         header += (
             "# Or, without this file:\n"
             "#\n"
@@ -786,6 +824,7 @@ def check_config(data: dict[str, Any], *, to_run: bool = False,
                               "a PDB id or a structure file:\n"
                               "  systems:\n    - {system: 1L2Y}")}
         return {"ok": False, "error": str(exc), **said}
+    judged = data
     if to_run and defaults is not None:
         from fastmdxplora.config.defaults_file import refused_with, with_defaults
 
@@ -793,13 +832,16 @@ def check_config(data: dict[str, Any], *, to_run: bool = False,
         caused = refused_with(as_given, filled, defaults, require_systems=True)
         if caused is not None:
             return {"ok": False, "error": str(caused), **refused(caused)}
+        # Judged as the run is given it, your defaults filled, as
+        # `fastmdx explore` and check_study judge it.
+        judged = filled
     if to_run:
         from pathlib import Path
 
         from fastmdxplora.config.before_run import refuse_what_can_be_seen
 
         try:
-            refuse_what_can_be_seen(data, base=Path(base) if base is not None else None)
+            refuse_what_can_be_seen(judged, base=Path(base) if base is not None else None)
         except ConfigError as exc:
             return {"ok": False, "error": str(exc), **refused(exc)}
 

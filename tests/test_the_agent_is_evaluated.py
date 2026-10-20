@@ -1066,7 +1066,7 @@ RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-1
 #: `tester-area2` (the bounds a setting cannot pass, in the schema's
 #: structure; then the hydrogen mass's ceiling and the help of each step
 #: count beside its duration); no verdict changed.
-ASKED_NOW = "8465ffc67c10387ee310372142714c1acaf46dce1c9975a4246c21d9daab655e"
+ASKED_NOW = "801a897595fa1e9fc2f2c7a3bfc52e73485accddf619fafe159fcb376b675bd7"
 
 
 def _asked_in_own_words(monkeypatch) -> list[str]:
@@ -1427,8 +1427,8 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 #: cases resolve what is named from the folders here, where the study the
 #: run was asked against is not.
 CONTEXT_ASKED_NOW = {
-    True: "cb5b95f3ecdb2c6491aaae701868b6cc7cc26d468da7c1a21a5596ec362a82e8",
-    False: "36042fd4ef4f71053fe429513a2fd8030f529bbe27b041546e660f98773a40eb"}
+    True: "da972e32035e295f54d51bf703dedd985e0ae3f6c0720fd3676bcc0590b9a0f1",
+    False: "ed31ad5cee49214b96deabe4c45bf65ec22aa5b383bf792fb6755fcddc234de9"}
 
 
 def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:

@@ -236,6 +236,21 @@ def _accepted(ctx: Context, config: dict[str, Any]) -> Path | None:
     return continuing
 
 
+def _seen_before_a_run(ctx: Context, config: dict[str, Any]) -> None:
+    """Refuse what can be seen wrong before a run, as check_study does: a
+    system setup cannot read, a selection that does not parse. Relative
+    paths are read from the workspace, where a study from here starts."""
+    from fastmdxplora.config.before_run import refuse_what_can_be_seen
+    from fastmdxplora.config.loader import ConfigError
+
+    try:
+        refuse_what_can_be_seen(config, base=Path(ctx.workspace.root))
+    except ConfigError as exc:
+        from fastmdxplora.agent.tools import refused_said
+
+        raise ToolError(refused_said(exc), code=exc.code) from None
+
+
 def _plan_lines(config: dict[str, Any]) -> list[str]:
     from fastmdxplora.agent.tools import plan_lines
 
@@ -583,7 +598,7 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
     if _is_a_path(text):
         raise ToolError("Give the config itself as YAML; save_study writes a new file.")
     config, _ = _config_from(ctx, text)
-    _accepted(ctx, config)
+    continuing = _accepted(ctx, config)
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", args["name"].strip()).strip("._-")
     stem = re.sub(r"\.(ya?ml)$", "", stem, flags=re.IGNORECASE)[:96]
     if not stem:
@@ -604,6 +619,10 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
     if filled:
         _accepted(ctx, config)
         text = _with_lines_for(text, before, config, filled)
+    if continuing is None:
+        # What check_study refuses before a run is not saved as a study that
+        # will run: a structure that is not there was saved and given a plan.
+        _seen_before_a_run(ctx, config)
     target = ctx.workspace.root / f"{stem}.yml"
     try:
         with target.open("x", encoding="utf-8") as out:

@@ -167,6 +167,13 @@ class RoundTwo(unittest.TestCase):
         for value in (1.5, 3, 4.0):
             validate_config({"setup": {"hydrogen_mass_amu": value}})
 
+    def test_four_times_hydrogen_s_mass_is_taken(self):
+        """4.032 amu, four times hydrogen's, is the usual heavy hydrogen; the
+        round-two ceiling of 4.0 refused it."""
+        validate_config({"setup": {"hydrogen_mass_amu": 4.032}})
+        exc = refusal({"setup": {"hydrogen_mass_amu": 4.04}})
+        self.assertEqual(exc.code, "config.option.out_of_range")
+
     def test_a_setting_not_finite_inside_an_analysis_option_is_refused(self):
         exc = refusal({"analysis": {"options": {"hbonds": {"distance_cutoff": math.nan}}}})
         self.assertEqual(exc.code, "config.option.out_of_range")
