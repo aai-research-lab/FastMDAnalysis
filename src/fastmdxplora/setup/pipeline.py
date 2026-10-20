@@ -1442,15 +1442,15 @@ def _run(
             )
             presenter.step(f"Loaded input: {label}")
     except NotImplementedError as exc:
-        # Sequence input — manifest-only fallback
+        # Sequence input: the sequence and the manifest are kept, and setup
+        # fails. It returned here as a success with nothing prepared, so the
+        # study was recorded "ok" and exited 0 with no structure in it.
         (setup_dir / "input.sequence").write_text(f"{orchestrator.system}\n", encoding="utf-8")
         artifacts.append("input.sequence")
         notes.append(str(exc))
-        if presenter:
-            presenter.step(str(exc), status="warning")
         _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
-        artifacts.append("setup_parameters.json")
-        return artifacts
+        raise StudyError(str(exc), code="environment.backend.missing",
+                         given=str(orchestrator.system)) from exc
     except Exception as exc:  # noqa: BLE001 -- network, IO, refusals
         # The manifest is written first, so whatever was learned before the
         # failure survives for diagnosis. Then the failure is raised.
