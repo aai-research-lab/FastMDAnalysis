@@ -295,3 +295,70 @@ def test_each_run_of_a_sweep_is_counted_from_its_own_settings(tmp_path):
     assert "over 2 runs: 200 to 2,000 frames a run, of 3,000 atoms (the atoms but water)" in said, said
     size = sum(f * (DCD_BYTES_PER_ATOM * 3000 + DCD_BYTES_PER_FRAME) for f in frames)
     assert said.startswith(f"about {preview._size(size)} of trajectory over 2 runs"), said
+
+
+def _lines_of(answer) -> dict:
+    return {line["kind"]: line["said"] for line in answer["cost"]}
+
+
+def test_several_systems_are_each_costed_from_their_own_atoms(tmp_path):
+    """Each run was priced at the first system's atoms: a small peptide
+    first and a larger one second said a different time and disk than the
+    same study in the other order. A system whose structure is not read
+    here is said not worked out, never priced as the first."""
+    from fastmdxplora.cost import calibrate
+
+    calibrate(particles=30_000, steps=5_000, seconds=42.0, platform_name="CPU", precision="mixed")
+    small, large = tmp_path / "small.pdb", tmp_path / "large.pdb"
+    small.write_text(_peptide(4) + "END\n", encoding="utf-8")
+    large.write_text(_peptide(20) + "END\n", encoding="utf-8")
+
+    def study(*systems):
+        return {"systems": [{"id": f"p{i}", "system": str(s)} for i, s in enumerate(systems)],
+                "output": str(tmp_path / "out"), "include_phase": ["setup", "simulation", "analysis"],
+                "simulation": {"duration_ns": 1, "platform": "CPU"}}
+
+    one = _lines_of(preview.system_preview(study(small, large)))
+    other = _lines_of(preview.system_preview(study(large, small)))
+    alone_small = preview.system_preview(study(small))
+    alone_large = preview.system_preview(study(large))
+    assert one["disk"].split(", with")[0] == other["disk"].split(", with")[0], (one, other)
+    assert one["time"] == other["time"]
+    # The time is the two runs' own: more than twice the small one's.
+    seconds = [a["time"]["seconds"] for a in (alone_small, alone_large)]
+    both = preview.system_preview(study(small, large))["time"]["seconds"]
+    assert both == pytest.approx(sum(seconds), rel=1e-6)
+    # One not read here: its runs are left out, and said so.
+    unread = _lines_of(preview.system_preview(
+        {**study(small), "systems": [{"id": "p0", "system": str(small)},
+                                     {"id": "p1", "system": "9ZZZ"}]}))
+    assert "the runs of p1 not worked out here: its structure is not read yet" in unread["disk"]
+    assert "the runs of p1 not worked out here" in unread["time"]
+    assert unread["disk"].split(":")[1].startswith(" 2,000 frames") and "in each of" not in unread["disk"]
+
+
+def test_a_sweep_of_one_value_is_priced_at_that_value(tmp_path):
+    """A one-run sweep was priced at the study's base: 1 ns swept to 10 ns
+    counted 1 ns of steps."""
+    from fastmdxplora.cost import calibrate, total_steps
+
+    calibrate(particles=30_000, steps=5_000, seconds=42.0, platform_name="CPU", precision="mixed")
+    path = tmp_path / "peptide.pdb"
+    path.write_text(_peptide(6) + "END\n", encoding="utf-8")
+    config = {"systems": [{"id": "s", "system": str(path)}], "output": str(tmp_path / "out"),
+              "include_phase": ["setup", "simulation", "analysis"],
+              "sweep": {"simulation.duration_ns": [10]},
+              "simulation": {"duration_ns": 1, "platform": "CPU"}}
+    answer = preview.system_preview(config)
+    steps = total_steps({"duration_ns": 10})
+    assert answer["time"]["steps"] == steps
+    assert f"{steps:,} steps in all" in _lines_of(answer)["time"]
+
+
+def test_one_count_of_frames_is_said_once(tmp_path):
+    """A sweep over what the runs keep read "2,000 to 2,000 frames a run"."""
+    config = {"output": str(tmp_path), "systems": [{"id": "s", "system": "1UBQ"}],
+              "sweep": {"simulation.save_selection": ["all", "not water"]},
+              "simulation": {"duration_ns": 1, "timestep_fs": 2}}
+    said = _disk(config)
+    assert "over 2 runs: 2,000 frames a run, of 3,000 atoms" in said and "2,000 to 2,000" not in said

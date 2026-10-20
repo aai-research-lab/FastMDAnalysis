@@ -78,7 +78,11 @@ def preview_of_config(config: dict[str, Any], *,
     settings = dict(setup)
     settings.update(config.get("simulation") or {})
     counted = count_structure(structure)
-    time = _time(config, estimate.particles)
+    # Each system's own atoms, where its structure can be read here
+    # without fetching it: a study of several systems is not priced as its
+    # first in every run.
+    estimates = _estimates_of(config, estimate, path_for)
+    time = _time(config, estimate.particles, estimates=estimates)
     advisories = [
         {"setting": a.setting, "summary": a.summary, "detail": a.detail, "remedy": a.remedy}
         for a in advise(_as_given(counted, given), settings)
@@ -99,7 +103,7 @@ def preview_of_config(config: dict[str, Any], *,
         "time": time,
         # What it costs, as a compiler's diagnostics: its speed, time, disk
         # and GPU memory here, each a note, a warning or an error.
-        "cost": study_cost(config, estimate, time, path_for=path_for),
+        "cost": study_cost(config, estimate, time, path_for=path_for, estimates=estimates),
         "advisories": advisories,
         # What the file holds before anything is chosen or discarded: the
         # chains to choose among, its models, its heterogens.
@@ -303,13 +307,19 @@ def _as_pdb(cif: Path) -> Path:
     return target
 
 
-def _time(config: dict[str, Any], particles: int) -> dict[str, Any]:
+def _time(config: dict[str, Any], particles: int, *,
+          estimates: dict[str, Any] | None = None) -> dict[str, Any]:
     """How long the study would take on this machine, every run of it, or
-    why that cannot be said."""
-    from fastmdxplora.agent.staged import _runs_of
-    from fastmdxplora.cost import estimate_runs, load_calibration
+    why that cannot be said. Each run at its own system's particles
+    (``estimates``, by system; one not known leaves its runs out, and they
+    are named in ``not_worked_out``) and its own settings."""
+    from fastmdxplora.cost import estimate_runs, load_calibration, total_steps
 
-    runs, _ = _runs_of(config, Path("."))
+    plan = _run_plan(config)
+    known = [(_particles_of(system, particles, estimates), total_steps(simulation))
+             for system, simulation in plan]
+    missing = _missing(plan, estimates)
+    runs = [(p, steps) for p, steps in known if p is not None]
     simulation = config.get("simulation") or {}
     precision = str(simulation.get("precision") or "mixed")
     platform = ""
@@ -321,8 +331,10 @@ def _time(config: dict[str, Any], particles: int) -> dict[str, Any]:
             raise StudyError("This machine has not been measured.",
                              code="environment.calibration.absent")
         platform, precision = _platform(str(simulation.get("platform") or "auto"), precision)
-        estimate = estimate_runs([(particles, steps) for _, _, steps in runs],
-                                 platform_name=platform, precision=precision)
+        if not runs:
+            return {"ok": False, "reason": "No system of the study is read here yet.",
+                    "not_worked_out": missing}
+        estimate = estimate_runs(runs, platform_name=platform, precision=precision)
     except StudyError as exc:
         reasons = {
             "environment.calibration.absent": (
@@ -334,10 +346,103 @@ def _time(config: dict[str, Any], particles: int) -> dict[str, Any]:
                 f"{platform or 'this study'} {precision}; a study given a budget "
                 "times it again."),
         }
-        return {"ok": False, "code": exc.code, "reason": reasons.get(exc.code, str(exc))}
+        return {"ok": False, "code": exc.code, "reason": reasons.get(exc.code, str(exc)),
+                "not_worked_out": missing}
     return {"ok": True, "seconds": estimate.seconds, "runs": estimate.runs,
             "steps": estimate.steps, "platform": platform, "precision": precision,
-            "text": str(estimate)}
+            "text": str(estimate), "not_worked_out": missing}
+
+
+def _run_plan(config: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Each run the study makes, by its system and its own simulation
+    settings, expanded exactly as the batch layer expands them
+    (`batch.sweep.expand_runs`, base under system under sweep), a sweep of
+    one value included; an umbrella study's pull, where it seeds the
+    windows, a run of its own (as `agent.staged._runs_of` counts it)."""
+    import copy
+
+    study = config.get("simulation") or {}
+    first = (_system_ids(config) or [""])[0]
+    try:
+        from fastmdxplora.batch.sweep import expand_runs, normalize_sweep, normalize_systems
+        from fastmdxplora.config import phase_options, validate_config
+        from fastmdxplora.simulation.umbrella import plan_from_expanded
+
+        data = copy.deepcopy(config)
+        validate_config(data, require_systems=True)
+        specs = expand_runs(
+            systems=normalize_systems(data["systems"]),
+            sweep=normalize_sweep(data["sweep"]) if data.get("sweep") is not None else None,
+            base_options=phase_options(data))
+        plan = [(str(spec.system_id), spec.options.get("simulation") or {}) for spec in specs]
+        if plan and plan_from_expanded(data) is not None:
+            seeded = (plan[0][1].get("umbrella") or {}).get("seed_from")
+            if study.get("steered") and not seeded:
+                plan.append((plan[0][0], {k: v for k, v in study.items()
+                                          if k not in ("umbrella", "steered")}))
+        if plan:
+            return plan
+    except Exception:  # noqa: BLE001 - the study as one run, as setup reads it
+        pass
+    return [(first, study)]
+
+
+def _system_ids(config: dict[str, Any]) -> list[str]:
+    """Each system's id as the batch layer names it (`normalize_systems`):
+    its own, or `s1`, `s2` by its place."""
+    from fastmdxplora.batch.sweep import default_system_id
+
+    systems = [s for s in (config.get("systems") or []) if isinstance(s, dict)]
+    return [str(s.get("id") or default_system_id(i)) for i, s in enumerate(systems)]
+
+
+def _particles_of(system: str, particles: int, estimates: dict[str, Any] | None) -> int | None:
+    if estimates is None or system not in estimates:
+        return particles if estimates is None or not estimates else None
+    found = estimates[system]
+    return int(found.particles) if found is not None else None
+
+
+def _missing(plan: list[tuple[str, dict[str, Any]]],
+             estimates: dict[str, Any] | None) -> list[str]:
+    """The systems whose runs are not worked out: their atoms not known."""
+    if not estimates:
+        return []
+    return list(dict.fromkeys(system for system, _ in plan
+                              if system in estimates and estimates[system] is None))
+
+
+def _estimates_of(config: dict[str, Any], first: Any,
+                  path_for: Callable[[Any], str | None] | None) -> dict[str, Any]:
+    """What setup builds of each system of the study, by its id: the first's
+    as worked out already, each other's from its own structure and setup
+    settings, or None where its structure is not read here (an identifier
+    not yet fetched, a file not there): its runs are then said not worked
+    out, never priced as the first's."""
+    from fastmdxplora.setup.estimate import estimate_system
+
+    systems = [s for s in (config.get("systems") or []) if isinstance(s, dict)]
+    found: dict[str, Any] = {}
+    for index, (name, system) in enumerate(zip(_system_ids(config), systems)):
+        if index == 0:
+            found[name] = first
+            continue
+        if name in found:
+            continue
+        given = str(system.get("system") or "").strip()
+        setup = dict(config.get("setup") or {})
+        if isinstance(system.get("setup"), dict):
+            setup.update(system["setup"])
+        entry = given_by_identifier(given)
+        if entry is not None and not (_cache() / f"{entry}.pdb").is_file():
+            # An identifier not fetched yet: not fetched here for a cost.
+            found[name] = None
+            continue
+        try:
+            found[name] = estimate_system(structure_file(given, path_for), setup)
+        except Exception:  # noqa: BLE001 - not worked out, and said so
+            found[name] = None
+    return found
 
 
 @functools.lru_cache(maxsize=8)
@@ -442,32 +547,6 @@ def _frames_planned(simulation: dict[str, Any]) -> tuple[int, bool]:
     return first // max(1, interval), False
 
 
-def _simulations_of(config: dict[str, Any], runs: int) -> list[dict[str, Any]]:
-    """The simulation settings of each run the study makes, as the batch
-    layer expands them (`batch.sweep.expand_runs`, as `_runs_of` does);
-    ``runs`` of them, any run past the expanded ones (the pull an umbrella
-    study seeds its windows from) as the study's own."""
-    import copy
-
-    study = config.get("simulation") or {}
-    found: list[dict[str, Any]] = []
-    if runs > 1:
-        try:
-            from fastmdxplora.batch.sweep import expand_runs, normalize_sweep, normalize_systems
-            from fastmdxplora.config import phase_options, validate_config
-
-            data = copy.deepcopy(config)
-            validate_config(data, require_systems=True)
-            specs = expand_runs(
-                systems=normalize_systems(data["systems"]),
-                sweep=normalize_sweep(data["sweep"]) if data.get("sweep") is not None else None,
-                base_options=phase_options(data))
-            found = [spec.options.get("simulation") or {} for spec in specs]
-        except Exception:  # noqa: BLE001 - each run as the study's own
-            found = []
-    return (found + [study] * runs)[:max(1, runs)]
-
-
 def _simulates(config: dict[str, Any]) -> bool:
     included = config.get("include_phase")
     excluded = config.get("exclude_phase") or []
@@ -495,7 +574,8 @@ def _where_written(config: dict[str, Any],
 
 
 def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
-               path_for: Callable[[Any], str | None] | None = None) -> list[dict[str, str]]:
+               path_for: Callable[[Any], str | None] | None = None,
+               estimates: dict[str, Any] | None = None) -> list[dict[str, str]]:
     """What the study costs here, as the builder shows it beside its summary:
     the speed one run makes, the time every run takes, the disk its
     trajectories take against what is free where it is written, and the GPU
@@ -510,11 +590,11 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
                  "said": "Nothing is simulated, so no time, trajectory or GPU memory is counted."}]
     simulation = config.get("simulation") or {}
     particles = int(estimate.particles)
-    # Every run the study makes, timed or not: the disk does not wait on
-    # the calibration.
-    from fastmdxplora.agent.staged import _runs_of
-
-    runs = len(_runs_of(config, Path("."))[0])
+    # Every run the study makes, timed or not, each from its own system and
+    # settings: the disk does not wait on the calibration.
+    plan = _run_plan(config)
+    missing = _missing(plan, estimates)
+    runs = len(plan)
     lines: list[dict[str, str]] = []
 
     # The speed of one run, from the timing the time is worked out from.
@@ -528,38 +608,49 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
                      and platform not in ("CPU", "Reference", "this machine") else "")
         lines.append({"kind": "speed", "level": "note", "said": (
             f"about {_three_figures(per_day)} ns/day on {platform}{precision}, for about {particles:,} "
-            f"particles, from this machine's timing of {str(calibration.measured_at)[:10]}")})
+            f"particles" + (f" ({plan[0][0]}, the first system)" if len(estimates or {}) > 1 else "")
+            + f", from this machine's timing of {str(calibration.measured_at)[:10]}")})
     else:
         why = str(time.get("reason") or "this machine has not been timed").rstrip(".")
         lines.append({"kind": "speed", "level": "note",
                       "said": "ns/day not known: " + why[:1].lower() + why[1:] + "."})
 
+    unread = _not_worked_out(missing)
     if time.get("ok"):
+        counted = int(time.get("runs") or runs)
         lines.append({"kind": "time", "level": "note", "said": (
             f"about {_duration(float(time['seconds']))}"
-            + (f" for {runs} runs" if runs > 1 else "")
-            + f", {int(time['steps']):,} steps in all, equilibration included")})
+            + (f" for {counted} runs" if counted > 1 else "")
+            + f", {int(time['steps']):,} steps in all, equilibration included" + unread)})
 
     # The trajectories: production frames of the atoms the run keeps.
     # Each run from its own settings: a sweep over the production length,
     # the rule it stops by, the interval or what it keeps writes each run's
     # trajectory as that run's settings say.
-    waters = int(getattr(estimate, "waters", 0) or 0)
-    sites = WATER_SITES.get(str(getattr(estimate, "water_model", "")).lower(), 3)
-
-    def kept_atoms(run: dict[str, Any]) -> tuple[int, str]:
+    def kept_atoms(run: dict[str, Any], built: Any) -> tuple[int, str]:
+        everything = int(built.particles)
+        waters = int(getattr(built, "waters", 0) or 0)
+        sites = WATER_SITES.get(str(getattr(built, "water_model", "")).lower(), 3)
         kept = run.get("save_selection", "not water")
         if kept in (None, "", "all"):
-            return particles, "every atom"
+            return everything, "every atom"
         if str(kept).strip() == "not water":
-            return max(0, particles - waters * sites), "the atoms but water"
-        return particles, f"at most every atom (`{kept}` is not worked out here)"
+            return max(0, everything - waters * sites), "the atoms but water"
+        return everything, f"at most every atom (`{kept}` is not worked out here)"
 
     planned = []
-    for run in _simulations_of(config, max(1, runs)):
+    for system, run in plan:
+        built = estimate if estimates is None or not estimates else estimates.get(system, estimate)
+        if built is None:
+            continue
         frames, ceiling = _frames_planned(run)
-        atoms, which = kept_atoms(run)
+        atoms, which = kept_atoms(run, built)
         planned.append((frames, atoms, which, ceiling))
+    if not planned:
+        lines.append({"kind": "disk", "level": "note",
+                      "said": "not worked out: no system's structure is read here yet."})
+        lines.append(_gpu_line(config, path_for))
+        return lines
     many = len(planned)
     needed = sum(f * (DCD_BYTES_PER_ATOM * a + DCD_BYTES_PER_FRAME) for f, a, _w, _c in planned)
     ceiling = any(c for *_rest, c in planned)
@@ -571,9 +662,11 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
     else:
         counts = sorted(f for f, *_rest in planned)
         kinds = sorted({f"{a:,} atoms ({w})" for _f, a, w, _c in planned})
+        frames_said = (f"{counts[0]:,} frames" if counts[0] == counts[-1]
+                       else f"{counts[0]:,} to {counts[-1]:,} frames")
         said = (f"about {_size(needed)} of trajectory{' at most' if ceiling else ''} over "
-                f"{many} runs: {counts[0]:,} to {counts[-1]:,} frames a run, of "
-                + " or ".join(kinds))
+                f"{many} runs: {frames_said} a run, of " + " or ".join(kinds))
+    said += unread
     level = "note"
     where = _where_written(config, path_for)
     if where is not None:
@@ -593,6 +686,16 @@ def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
 
     lines.append(_gpu_line(config, path_for))
     return lines
+
+
+def _not_worked_out(missing: list[str]) -> str:
+    """The systems left out of a line, said after it."""
+    if not missing:
+        return ""
+    named = ", ".join(missing)
+    return (f"; the runs of {named} not worked out here: "
+            + ("its structure is" if len(missing) == 1 else "their structures are")
+            + " not read yet")
 
 
 def _gpu_line(config: dict[str, Any],

@@ -129,7 +129,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   there is a study to run. Beside the summary, What it costs here: the
   ns/day a run makes on this machine's timing, the time, the trajectories'
   disk against what is free, and the GPU memory a run needs against what
-  is free, each a note, a warning or an error.
+  is free, each a note, a warning or an error. Each run is costed from its
+  own system and settings, a system whose structure is not read yet said
+  not worked out; an error there is said apart from the Config's checks.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
