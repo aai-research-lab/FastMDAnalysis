@@ -564,14 +564,39 @@ def exploration_environment_error(config: Mapping[str, Any]) -> str | None:
     installations, but it is misleading for the dashboard's *Run Simulation*
     action: the child exits successfully without producing a simulation.
     """
-    # Analysis is in the plan unless the phase list leaves it out.
-    phases = config.get("include_phase")
-    runs_analysis = not isinstance(phases, list) or "analysis" in phases
-    missing = missing_dependencies(include_analysis=runs_analysis)
-
+    missing = _missing_for(config, missing_dependencies)
     if not missing:
         return None
     return dependency_error_message(missing)
+
+
+def _missing_for(config: Mapping[str, Any], missing_dependencies: Any) -> list[Any]:
+    """The backends the config's plan needs and this Python lacks. Analysis
+    is in the plan unless the phase list leaves it out; OpenMM where setup
+    or simulation runs; PDBFixer where setup repairs a structure, which it
+    does not for one given as `setup.fixed_pdb` (every system's). A Run of
+    a structure already fixed was refused for PDBFixer, which the command
+    line skips for it."""
+    from fastmdxplora.gui.config_builder import phases_it_runs
+
+    phases = config.get("include_phase")
+    runs_analysis = not isinstance(phases, list) or "analysis" in phases
+    missing = missing_dependencies(include_analysis=runs_analysis)
+    if not missing:
+        return []
+    running = set(phases_it_runs(dict(config)))
+    setup = config.get("setup") if isinstance(config.get("setup"), dict) else {}
+    systems = [s for s in config.get("systems") or () if isinstance(s, dict)]
+
+    def fixed(system: Mapping[str, Any]) -> bool:
+        own = system.get("setup") if isinstance(system.get("setup"), dict) else {}
+        return bool(own.get("fixed_pdb") or setup.get("fixed_pdb"))
+
+    repairs = "setup" in running and not (
+        (systems and all(fixed(s) for s in systems)) or (not systems and setup.get("fixed_pdb")))
+    needed = {"openmm.app": bool(running & {"setup", "simulation"}),
+              "pdbfixer": repairs}
+    return [item for item in missing if needed.get(item.module, True)]
 
 
 def _backend_refusal(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -581,9 +606,7 @@ def _backend_refusal(config: Mapping[str, Any]) -> dict[str, Any]:
     from fastmdxplora.dependencies import MissingBackendError, missing_dependencies
     from fastmdxplora.gui.config_builder import refused
 
-    phases = config.get("include_phase")
-    runs_analysis = not isinstance(phases, list) or "analysis" in phases
-    missing = missing_dependencies(include_analysis=runs_analysis)
+    missing = _missing_for(config, missing_dependencies)
     if not missing:
         return {}
     said = refused(MissingBackendError(missing))
@@ -1346,9 +1369,13 @@ class DashboardRuntime:
         written = _json_mapping_or_yaml(Path(prepared["config_path"]))
         environment_error = exploration_environment_error(written)
         if environment_error:
+            # What this launch wrote taken back, so the same folder can be
+            # given again once the backend is there: it was left, and the
+            # next Run of that name was refused as a folder not empty.
+            refusal = _backend_refusal(written)
+            _taken_back(Path(prepared["config_path"]), output_dir, made)
             return {"ok": False, "error": environment_error,
-                    "config_path": prepared["config_path"], "command": None,
-                    **_backend_refusal(written)}
+                    "config_path": None, "command": None, **refusal}
 
         # A previous rejected launch may have hidden its old telemetry.
         # This is a new process and must become the current run even when

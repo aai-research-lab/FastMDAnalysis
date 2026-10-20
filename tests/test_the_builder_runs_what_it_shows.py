@@ -264,3 +264,43 @@ class TestThePressure:
         assert line["value"] == "300 K, 1.5 bar", line
         plan = plan_of({"systems": [{"system": "1L2Y"}], "simulation": {"pressure_atm": 2}})
         assert next(x for x in plan if x["label"] == "Conditions")["value"] == "300 K, 2 atm"
+
+
+def _no_pdbfixer(monkeypatch) -> None:
+    from fastmdxplora.dependencies import CHEMISTRY_DEPENDENCIES
+
+    pdbfixer = next(d for d in CHEMISTRY_DEPENDENCIES if d.module == "pdbfixer")
+    for where in ("fastmdxplora.gui.exploration.missing_dependencies",
+                  "fastmdxplora.dependencies.missing_dependencies"):
+        monkeypatch.setattr(where, lambda include_analysis: [pdbfixer])
+
+
+class TestWithoutPDBFixer:
+
+    def test_a_structure_already_fixed_runs(self, monkeypatch) -> None:
+        from fastmdxplora.gui.exploration import exploration_environment_error
+
+        _no_pdbfixer(monkeypatch)
+        assert exploration_environment_error(
+            {"systems": [{"system": "a.pdb"}], "setup": {"fixed_pdb": "a_fixed.pdb"}}) is None
+        assert exploration_environment_error(
+            {"systems": [{"system": "a.pdb", "setup": {"fixed_pdb": "a_fixed.pdb"}},
+                         {"system": "b.pdb", "setup": {"fixed_pdb": "b_fixed.pdb"}}]}) is None
+        # One system still to repair needs it.
+        assert "PDBFixer" in exploration_environment_error(
+            {"systems": [{"system": "a.pdb", "setup": {"fixed_pdb": "a_fixed.pdb"}},
+                         {"system": "b.pdb"}]})
+
+    def test_a_refused_run_leaves_its_folder_free(self, tmp_path, monkeypatch) -> None:
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        _no_pdbfixer(monkeypatch)
+        runtime = DashboardRuntime(workspace_root=tmp_path / "workspace",
+                                   exploration_root=tmp_path / "runs")
+        state = {**_state(), "output": "trial"}
+        first = runtime.launch_from_config(state)
+        assert first["ok"] is False and "PDBFixer" in first["error"]
+        assert not (tmp_path / "runs" / "trial").exists()
+        assert first["refusal"]["code"] == "environment.backend.missing"
+        second = runtime.launch_from_config(state)
+        assert "not empty" not in second["error"] and "PDBFixer" in second["error"]
