@@ -375,6 +375,22 @@ def _quantity(record: dict[str, Any]) -> str:
     return ""
 
 
+#: What a record adds to a setting's name to say it as used: the pressure
+#: asked (`pressure_bar`) and used (`pressure_bar_used`) are one setting
+#: where they hold one value.
+_AS_USED = ("_used", "_actual", "_resolved")
+
+
+def _setting(record: dict[str, Any]) -> str:
+    field = _field(record["key"])
+    if _analysis_of(record["file"]):
+        return field
+    for ending in _AS_USED:
+        if field.endswith(ending):
+            return field[: -len(ending)]
+    return field
+
+
 def _field(key: str) -> str:
     return key.lower().split(".")[-1]
 
@@ -513,12 +529,13 @@ def trace_number(said: str, unit: str, records: Any, *, counts: str = "",
     values: dict[tuple[str, str, str, str, float], list[dict[str, Any]]] = {}
     for record in kept:
         place = (_run_of(record["file"]), _analysis_of(record["file"]), _quantity(record),
-                 _field(record["key"]), record["value"])
+                 _setting(record), record["value"])
         values.setdefault(place, []).append(record)
     if len(values) == 1:
         same = next(iter(values.values()))
         return {"traced": True, "record": _said_record(same[0], said_unit),
-                "also": [r["file"] for r in same[1:] if r["file"] != same[0]["file"]]}
+                "also": list(dict.fromkeys(r["file"] for r in same[1:]
+                                           if r["file"] != same[0]["file"]))}
     return {"traced": False,
             "candidates": [_said_record(group[0], said_unit) for group in values.values()][:8],
             "candidates_count": len(values)}

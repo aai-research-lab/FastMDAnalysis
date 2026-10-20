@@ -373,8 +373,12 @@ def test_a_written_report_s_numbers_are_traced_only_to_records_that_hold_them(tm
     assert [_where(n)[0] for n in tri["66"]][:2] == ["analysis/rmsd/options.json",
                                                      "analysis/rg/options.json"]
     # Where more than one record holds it, each is said and none picked.
+    frames = tri["100"][1]
+    assert frames["traced"] is False and len(frames["candidates"]) == 2
+    # One setting kept as asked and as used is one record.
     pressure = tri["1.0 bar"][0]
-    assert pressure["traced"] is False and len(pressure["candidates"]) == 2
+    assert pressure["traced"] and _where(pressure)[1].endswith("pressure_bar"), pressure
+    assert pressure["also"] == ["simulation/simulation_parameters.json"]
     clean = _by_said(_traced_in(_written(tmp_path, "clean-tri-alanine")))
     assert _where(clean["40 ps"][0])[1] == "duration_ns_actual"
     assert _where(clean["2 ps"][0]) == ("analysis/thermodynamics/options.json",
