@@ -1218,8 +1218,15 @@ class BatchExplorer:
         # run of one config shares them: they describe the study.
         study = study_options(raw)
         if study:
+            from fastmdxplora.config.defaults_file import decisions_for_system
+
             for spec in specs:
                 spec.study = dict(study)
+                if "decisions" in study:
+                    # A default only some systems took is the reason only in
+                    # their runs' records.
+                    spec.study["decisions"] = decisions_for_system(
+                        study["decisions"], spec.system_id)
         return specs
 
     # ------------------------------------------------------------------

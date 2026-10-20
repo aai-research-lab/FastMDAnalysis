@@ -215,6 +215,8 @@ def with_defaults(config: dict[str, Any],
     recorded in `decisions` with the file as its source, unless the config
     already says why it has its value.
     """
+    from fastmdxplora.naming import default_system_id
+
     if defaults is None or not defaults.values:
         return config, []
     simulation = config.get("simulation") if isinstance(config.get("simulation"), dict) else {}
@@ -265,15 +267,16 @@ def with_defaults(config: dict[str, Any],
                     if entry_block is not None and not isinstance(entry_block, dict):
                         continue
                     entry[block] = {**(entry_block or {}), key: value}
-                    took.append(str(entry.get("id") or f"systems[{i}]"))
+                    # Named as the run folders are, so each run can tell
+                    # whether the reason is its own (`decisions_for_system`).
+                    took.append(str(entry.get("id") or default_system_id(i)))
                 if not took:
                     continue
                 filled.append(name)
                 if name not in decisions:
                     decisions[name] = {
-                        "why": f"{why.rstrip().rstrip('.')}. For "
-                               f"{', '.join(took)}; the other systems give "
-                               "their own.",
+                        "why": f"{why.rstrip().rstrip('.')}{_FOR}"
+                               f"{', '.join(took)}{_THE_OTHERS}",
                         "source": DEFAULTS_FILE}
                 continue
             merged[key] = value
@@ -287,6 +290,36 @@ def with_defaults(config: dict[str, Any],
     if filled:
         out["decisions"] = decisions
     return out, filled
+
+
+#: How a reason filled for some systems only says which: written by
+#: `with_defaults`, read back per run by `decisions_for_system`.
+_FOR = ". For "
+_THE_OTHERS = "; the other systems give their own."
+
+
+def decisions_for_system(decisions: Any, system_id: str) -> Any:
+    """A study's ``decisions`` as one of its systems' runs records them.
+
+    A default that only some systems took is recorded study-wide as "For
+    plain; the other systems give their own." A run of a system that gave
+    its own value recorded that reason for it, so the report of a run at
+    320 K said the lab's 310 K was why. Here the reason stays only in the
+    runs of the systems that took it, said as the file says it.
+    """
+    if not isinstance(decisions, dict):
+        return decisions
+    kept: dict[str, Any] = {}
+    for name, said in decisions.items():
+        why = said.get("why") if isinstance(said, dict) else None
+        if (isinstance(why, str) and said.get("source") == DEFAULTS_FILE
+                and why.endswith(_THE_OTHERS) and _FOR in why):
+            reason, _, names = why[:-len(_THE_OTHERS)].rpartition(_FOR)
+            if system_id not in [part.strip() for part in names.split(",")]:
+                continue
+            said = {**said, "why": f"{reason}."}
+        kept[name] = said
+    return kept
 
 
 def refused_with(config: dict[str, Any], filled: dict[str, Any],

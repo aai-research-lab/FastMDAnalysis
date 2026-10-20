@@ -100,5 +100,41 @@ class ASystemsOwnValueIsItsOwn(unittest.TestCase):
         self.assertEqual(out["systems"][1]["simulation"], {"pressure_bar": 1.0})
 
 
+class EachRunRecordsOnlyItsOwnReason(unittest.TestCase):
+    """The study-wide reason "For plain; the other systems give their own."
+    was copied into every run's record, so warm's report, at 320 K of its
+    own, named the lab's 310 K as why."""
+
+    def _specs(self, systems):
+        import tempfile
+
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        folder = Path(tempfile.mkdtemp())
+        pdb = folder / "p.pdb"
+        pdb.write_text("ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00"
+                       "           N\nEND\n", encoding="utf-8")
+        study = {"output": str(folder / "out"),
+                 "systems": [{**entry, "system": str(pdb)} for entry in systems]}
+        out, _ = with_defaults(study, lab(temperature_K=310))
+        return {spec.system_id: spec for spec in BatchExplorer(config_data=out).run_specs}
+
+    def test_the_system_that_took_it_records_it_and_the_other_does_not(self):
+        specs = self._specs([{"id": "plain"},
+                             {"id": "warm", "simulation": {"temperature_K": 320}}])
+        plain = specs["plain"].study["decisions"]["simulation.temperature_K"]
+        self.assertEqual(plain, {"why": f"{WHY}.", "source": "fastmdx-defaults.yml"})
+        self.assertNotIn("simulation.temperature_K",
+                         specs["warm"].study.get("decisions") or {})
+        self.assertEqual(specs["plain"].options["simulation"]["temperature_K"], 310)
+        self.assertEqual(specs["warm"].options["simulation"]["temperature_K"], 320)
+
+    def test_systems_with_no_id_are_told_apart_as_their_folders_are(self):
+        specs = self._specs([{}, {"simulation": {"temperature_K": 320}}])
+        took, own = sorted(specs)
+        self.assertIn("simulation.temperature_K", specs[took].study["decisions"])
+        self.assertNotIn("simulation.temperature_K", specs[own].study.get("decisions") or {})
+
+
 if __name__ == "__main__":
     unittest.main()
