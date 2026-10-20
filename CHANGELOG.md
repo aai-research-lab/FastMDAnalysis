@@ -137,6 +137,33 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - `brownian` is refused below the friction its step needs, 2 kT dt / (m s^2)
   with a hydrogen's random step s held to 0.01 nm (about 100 per ps at 2 fs
   and 300 K): at the default 1 per ps it went to NaN within 50 steps.
+
+- Each restraint is held at its own force constant. The release ladder was
+  written into every restraint as it stood, so a position restraint asked for
+  at 200, a distance at 500 and a torsion at 50 kJ/mol/rad² all ran at 1000,
+  500, 100, 0; now each is stepped down in the ladder's proportions, and one
+  given no constant runs at the ladder's values as before. With
+  `restrain_production` they are held at full strength throughout instead of
+  being let go during equilibration and taken up again at 1000 when
+  production began (a ladder other than the default is refused beside it, as
+  it would not be used); without it production is free whatever the last
+  step.
+- A distance, angle or torsion restraint given no `target` is held where it
+  is in the prepared structure (it was held at zero: two atoms pulled onto
+  each other), measured as the nearest image in a periodic box, and the value
+  is recorded; the distance, angle and torsion forces measure the nearest
+  image too (a ligand wrapped a box away was pulled through it). A target
+  outside its coordinate's range (an angle in degrees) is refused. An angle's or torsion's atoms are
+  taken in the order an `index` selection writes them (they were sorted).
+- One force constant is one spring: every kind is E = k x² with no half, and
+  the torsion is 2k(1 − cos x), which was k(1 − cos x), half as stiff as an
+  angle given the same number. Said in the docs, the schema and the methods,
+  with GROMACS's and PLUMED's ½ k x² beside it.
+- The long form of `restrain` documented in the guide is accepted in a study
+  file (it was refused as "should be string") and read when the config is
+  checked: a key a restraint does not take, a negative force constant, a
+  target on a position restraint and a ladder rising above its first step
+  are refused.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

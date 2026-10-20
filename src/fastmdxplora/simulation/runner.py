@@ -2181,43 +2181,93 @@ def run_simulation(
     # schedule below can weaken them without rebuilding anything.
     #
     # The reference positions come from the state the setup phase wrote --
-    # the minimised structure -- rather than from wherever the run has got
-    # to, so "hold it where it is" means where it started rather than where
-    # it drifted.
+    # the prepared structure, before minimisation, which runs with the
+    # restraints on and so relaxes toward it -- rather than from wherever the
+    # run has got to, so "hold it where it is" means where it started rather
+    # than where it drifted.
+    from dataclasses import replace as _with
+
     from fastmdxplora.simulation.restraints import (
         ReleaseSchedule,
-        build_restraint_forces,
+        build_resolved_restraint_forces,
         parse_restraints,
     )
-
-    wanted_restraints = parse_restraints(restrain)
-    restraint_parameters: list[str] = []
-    if wanted_restraints:
-        reference = state.getPositions(asNumpy=True)
-        for force, parameter in build_restraint_forces(
-                omm["openmm"], topology, reference, wanted_restraints):
-            system.addForce(force)
-            restraint_parameters.append(parameter)
-        logger.info(
-            "Restraints: %s",
-            "; ".join(f"{r.kind} on {r.selection} at {r.force_constant:g} "
-                      f"{r.units}" for r in wanted_restraints),
-        )
 
     release = ReleaseSchedule(
         steps=tuple(float(x) for x in restraint_release)
         if restraint_release else ReleaseSchedule().steps
     )
+    wanted_restraints = parse_restraints(restrain)
+    # Each restraint's parameter and the force constant it holds at full
+    # strength. The ladder used to be written into every parameter as it
+    # stood, so a torsion asked for at 50 kJ/mol/rad^2 ran at 1000, 500, 100
+    # and a position restraint asked for at 200 at 1000: each restraint's
+    # own constant was never applied. The ladder now steps each down in its
+    # proportions, and one with no constant of its own starts at its first
+    # step, which is what a ladder written in kJ/mol/nm^2 always meant.
+    restraint_parameters: list[str] = []
+    restraint_constants: dict[str, float] = {}
+    resolved_restraints: list[dict[str, Any]] = []
+    if wanted_restraints and restrain_production and restraint_release \
+            and release.steps != ReleaseSchedule().steps:
+        # Kept through production, the restraints are never stepped down, so
+        # a ladder would be ignored; a study giving both meant something
+        # neither reading of them does.
+        raise StudyError(
+            "`restraint_release` and `restrain_production` were both given. "
+            "Restraints kept through production are held at their full force "
+            "constants from the first step, so the ladder would not be used. "
+            "To hold production at a weaker restraint, give that restraint "
+            "the force constant wanted and leave out `restraint_release`.",
+            code="config.option.conflicting",
+            options=["simulation.restraint_release", "simulation.restrain_production"])
+    if wanted_restraints:
+        release.check()
+        wanted_restraints = [
+            r if r.stated else _with(r, force_constant=float(release.steps[0]))
+            for r in wanted_restraints]
+        reference = state.getPositions(asNumpy=True)
+        # Each molecule is written wrapped into the box, so a separation
+        # between two of them is the nearest image, as the forces measure it.
+        box = (state.getPeriodicBoxVectors(asNumpy=True)
+               if system.usesPeriodicBoundaryConditions() else None)
+        for force, parameter, restraint, atoms in build_resolved_restraint_forces(
+                omm["openmm"], topology, reference, wanted_restraints, box=box):
+            system.addForce(force)
+            restraint_parameters.append(parameter)
+            restraint_constants[parameter] = float(restraint.force_constant)
+            resolved_restraints.append({
+                **restraint.as_record(),
+                # The atoms in the order that defines the restraint; a count
+                # for a position restraint, which may hold thousands.
+                "atoms": len(atoms) if restraint.kind == "position"
+                else [int(a) for a in atoms]})
+        logger.info(
+            "Restraints: %s",
+            "; ".join(f"{r['kind']} on {r['selection']} at "
+                      f"{r['force_constant']:g} {r['units']}"
+                      + (f", target {r['target']:.4g}" if r["target"] is not None
+                         else "")
+                      for r in resolved_restraints),
+        )
 
     def _hold_at(fraction: float) -> float:
-        """Set every restraint to the strength this point in equilibration
-        calls for, and report it."""
+        """Set every restraint to the share of its own force constant this
+        point in equilibration calls for, and return that share. With the
+        restraints kept through production nothing is released at all:
+        letting go during equilibration only to take hold again at full
+        strength when production starts is the sudden change a ladder is
+        there to avoid."""
         if not restraint_parameters:
             return 0.0
-        strength = release.force_at(fraction)
+        share = 1.0 if restrain_production else release.fraction_at(fraction)
+        _hold_by(share)
+        return share
+
+    def _hold_by(share: float) -> None:
         for parameter in restraint_parameters:
-            simulation.context.setParameter(parameter, strength)
-        return strength
+            simulation.context.setParameter(
+                parameter, restraint_constants[parameter] * share)
 
     if umbrella:
         # One window. The set of them is expanded above, so what arrives here
@@ -2763,10 +2813,15 @@ def run_simulation(
         # not be moving while it does.
         _hold_at(0.0)
         if restraint_parameters and plan["nvt_steps"] + plan["npt_steps"] > 0:
-            _log_step("The solute is held by its restraints while the "
-                      "water equilibrates")
-            if on_explain:
-                on_explain("restraints")
+            if restrain_production:
+                # Not let go in stages, which is what the explanation says.
+                _log_step("The solute is held by its restraints, through "
+                          "production as asked")
+            else:
+                _log_step("The solute is held by its restraints while the "
+                          "water equilibrates")
+                if on_explain:
+                    on_explain("restraints")
 
         # The ladder was sampled at two points -- once before NVT and once
         # before NPT -- so a four-rung ladder reached 1000 and 100 and never
@@ -2789,12 +2844,13 @@ def run_simulation(
             def _hook(fraction_of_stage: float) -> None:
                 through = (already_done + fraction_of_stage * stage_steps) / (
                     _equilibration_steps)
-                strength = _hold_at(min(1.0, through))
-                if not last_reported or last_reported[-1] != strength:
-                    last_reported.append(strength)
+                share = _hold_at(min(1.0, through))
+                if not last_reported or last_reported[-1] != share:
+                    last_reported.append(share)
                     logger.info(
-                        "Restraints now %g kJ/mol/nm^2 (%.0f%% through "
-                        "equilibration).", strength, 100.0 * through)
+                        "Restraints now at %.0f%% of their force constants "
+                        "(%.0f%% through equilibration).", 100.0 * share,
+                        100.0 * through)
 
             return _hook
 
@@ -3001,16 +3057,21 @@ def run_simulation(
         # no way to know.
         if restraint_parameters:
             if restrain_production:
-                held = _hold_at(0.0)
+                _hold_by(1.0)
                 logger.warning(
-                    "Restraints are still applied during production at %g. "
-                    "The trajectory is biased and flexibility analyses "
-                    "run on it -- RMSF, clustering, dimensionality "
-                    "reduction -- describe the restraint as much as the "
-                    "system.", held,
+                    "Restraints are still applied during production, at "
+                    "their full force constants (%s), and were not released "
+                    "during equilibration. The trajectory is biased and "
+                    "flexibility analyses run on it -- RMSF, clustering, "
+                    "dimensionality reduction -- describe the restraint as "
+                    "much as the system.",
+                    ", ".join(f"{r['kind']} {r['force_constant']:g} {r['units']}"
+                              for r in resolved_restraints),
                 )
             else:
-                _hold_at(1.0)
+                # Zero, not the ladder's last step: a ladder ending above
+                # zero ended equilibration there, and production is free.
+                _hold_by(0.0)
                 logger.info("Restraints released for production.")
 
         # ---- The clock starts here ------------------------------------
@@ -3367,7 +3428,12 @@ def run_simulation(
             # restrained nothing has no schedule to record -- writing one
             # would put a setting into the config of a study that never
             # used it.
-            **({"restraint_release": [float(s) for s in release.steps]}
+            **({**({} if restrain_production else
+                   {"restraint_release": [float(s) for s in release.steps]}),
+                # What was held, at what full strength, toward what target
+                # and in which energy form: the targets a restraint given
+                # none was held at are found here and nowhere else.
+                "restraints_resolved": resolved_restraints}
                if restraint_parameters else {}),
         },
     )

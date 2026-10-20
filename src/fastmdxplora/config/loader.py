@@ -729,6 +729,49 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False,
     # an older study can still be read and reported.
     if not as_record:
         _check_integrators(data)
+    if isinstance(simulation, dict) and simulation.get("restrain") not in (None, ""):
+        # The long form is read here as the run will read it, so a block
+        # with an unknown kind or no force constant is refused with the
+        # config rather than after setup has run.
+        from fastmdxplora.refusals import StudyError
+        from fastmdxplora.simulation.restraints import ReleaseSchedule, parse_restraints
+
+        try:
+            parse_restraints(simulation["restrain"])
+        except StudyError as exc:
+            raise ConfigError(str(exc), **_rewrapped(exc)) from exc
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ConfigError(
+                f"simulation option 'restrain' could not be read: {exc}",
+                code="config.option.wrong_type", option="restrain",
+                context="simulation") from exc
+        if simulation.get("restraint_release"):
+            try:
+                steps = tuple(float(x) for x in simulation["restraint_release"])
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(
+                    f"simulation option 'restraint_release' could not be read as "
+                    f"force constants: {exc}",
+                    code="config.option.wrong_type", option="restraint_release",
+                    context="simulation") from exc
+            # The default ladder, written out, asks for nothing the kept
+            # restraints would not do; any other is a ladder that would be
+            # ignored.
+            if simulation.get("restrain_production") and steps != ReleaseSchedule().steps:
+                raise ConfigError(
+                    "`restraint_release` and `restrain_production` were both "
+                    "given. Restraints kept through production are held at "
+                    "their full force constants from the first step, so the "
+                    "ladder would not be used. To hold production at a weaker "
+                    "restraint, give that restraint the force constant wanted "
+                    "and leave out `restraint_release`.",
+                    code="config.option.conflicting",
+                    options=["simulation.restraint_release",
+                             "simulation.restrain_production"])
+            try:
+                ReleaseSchedule(steps=steps).check()
+            except StudyError as exc:
+                raise ConfigError(str(exc), **_rewrapped(exc)) from exc
     if isinstance(simulation, dict) and isinstance(simulation.get("umbrella"), dict):
         from fastmdxplora.simulation.umbrella import check_umbrella_keys
 

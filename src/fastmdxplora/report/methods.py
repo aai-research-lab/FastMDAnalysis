@@ -24,6 +24,7 @@ nobody chose is worse than one with a gap in it: the gap is visible.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -109,6 +110,28 @@ def _file_named(source: Any) -> Any:
     if not isinstance(source, str) or not re.search(r"[\\/]", source):
         return source
     return PureWindowsPath(source).name if "\\" in source else PurePosixPath(source).name
+
+
+def _restraint_phrase(record: dict[str, Any]) -> str:
+    """One restraint as a methods clause: what, toward what, how firmly."""
+    kind = record.get("kind")
+    selection = record.get("selection")
+    k = record.get("force_constant")
+    units = str(record.get("units") or "").replace("^2", "²")
+    firm = f"k = {float(k):g} {units}" if k is not None else "k not recorded"
+    target = record.get("target")
+    if kind == "position":
+        return (f"atoms matching `{selection}` held at their positions in the "
+                f"starting structure, {firm}")
+    if target is None:
+        toward = "at a target not recorded"
+    elif kind == "distance":
+        toward = f"at {float(target):.3f} nm"
+    else:
+        toward = f"at {math.degrees(float(target)):.1f}°"
+    what = {"distance": "the distance", "angle": "the angle",
+            "torsion": "the dihedral"}.get(str(kind), str(kind))
+    return f"{what} between atoms `{selection}` held {toward}, {firm}"
 
 
 def _get(params: dict[str, Any], *names: str, default: Any = None) -> Any:
@@ -552,16 +575,36 @@ def methods_paragraphs(
         # protein at a thousand kilojoules and released it in four steps
         # unless the paragraph says so.
         held = _get(sim, "restrain")
+        each = _get(sim, "restraints_resolved")
         if held:
             release = _get(sim, "restraint_release") or [1000.0, 500.0, 100.0, 0.0]
             steps = ", ".join(f"{float(k):g}" for k in release)
-            protocol.append(
-                f"Atoms matching `{held}` were harmonically restrained to "
-                f"their minimized positions during equilibration, with the "
-                f"force constant stepped through {steps} kJ/mol/nm² as "
-                "equilibration proceeded."
-            )
-            if _get(sim, "restrain_production", default=False):
+            kept = _get(sim, "restrain_production", default=False)
+            if isinstance(each, list) and each:
+                # What each held, toward what and how firmly, in the form the
+                # energy was written in: another program's k for the same
+                # spring is often twice this one.
+                protocol.append(
+                    "Restraints were applied as E = k x² (no factor of one "
+                    "half; a torsion as 2k(1 − cos x)): "
+                    + "; ".join(_restraint_phrase(r) for r in each) + "."
+                    + ("" if kept else
+                       f" During equilibration each was stepped down in the "
+                       f"proportions of {steps} kJ/mol/nm².")
+                )
+            elif isinstance(held, str):
+                protocol.append(
+                    f"Atoms matching `{held}` were restrained to "
+                    f"their starting positions during equilibration (E = k d², "
+                    f"no factor of one half), with the force constant stepped "
+                    f"through {steps} kJ/mol/nm² as equilibration proceeded."
+                )
+            else:
+                protocol.append(
+                    "Restraints were applied during equilibration, stepped "
+                    f"through {steps} kJ/mol/nm²; the record does not say "
+                    "what each held.")
+            if kept:
                 protocol.append(
                     "**The restraints were retained during production**, so "
                     "the trajectory is biased: flexibility analyses run "

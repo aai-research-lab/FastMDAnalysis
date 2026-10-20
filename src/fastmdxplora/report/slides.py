@@ -434,7 +434,9 @@ def _simulation_bullets(project_root: Path) -> list[str]:
     if r.get("constraints"):
         bullets.append(f"Constraints: {r['constraints']}")
     if r.get("restrain"):
-        bullets.append("Restraints applied during equilibration and released")
+        bullets.append("Restraints kept through production: the trajectory is biased"
+                       if r.get("restrain_production")
+                       else "Restraints applied during equilibration and released")
     for method in ("umbrella", "steered", "metadynamics"):
         if r.get(method):
             bullets.append(f"Enhanced sampling: {method}")

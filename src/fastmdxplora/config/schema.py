@@ -838,25 +838,36 @@ SIMULATION = PhaseSchema(
               "is sent fewer, ten million atoms times frames at most.",
               example=2000,
               minimum=1),
-        Field("restrain", str, None,
+        Field("restrain", (str, list, dict), None,
               "What to hold still during equilibration, as an atom selection "
-              "-- 'protein and not element H' is the usual choice. A "
-              "structure that has just been minimised is not at equilibrium, "
-              "and heating it lets the solute move as well as the solvent: "
-              "side chains relax into the space crystal packing left, and a "
-              "ligand drifts out of the experimental pose. Restraints "
-              "are released in stages and are off for production."),
+              "-- 'protein and not element H' is the usual choice -- or a "
+              "list of blocks with `kind` (position, distance, angle, "
+              "torsion), `selection`, `force_constant` and `target`. Every "
+              "kind is E = k x^2 with no half (a torsion 2k(1 - cos x)); with "
+              "no `target` a restraint is held where it is in the prepared "
+              "structure (before minimisation, which runs restrained), and an "
+              "angle or torsion takes its atoms in the "
+              "order an `index` selection writes them. A structure that has "
+              "just been minimised is not at equilibrium, and heating it lets "
+              "the solute move as well as the solvent: side chains relax into "
+              "the space crystal packing left, and a ligand drifts out of the "
+              "experimental pose. Restraints are released in stages and are "
+              "off for production."),
         Field("restraint_release", list, None,
               "Force constants in kJ/mol/nm^2 stepped through during "
-              "equilibration, ending at zero. Defaults to 1000, 500, 100, 0, "
-              "which is the shape standard protocols use. Letting go all at "
-              "once releases the solute into a solvent arrangement that "
-              "formed around a rigid structure."),
+              "equilibration. Defaults to 1000, 500, 100, 0, which is the "
+              "shape standard protocols use. A restraint with no force "
+              "constant of its own runs at these; one with its own is stepped "
+              "down in the same proportions. Production is free whatever the "
+              "last step. Letting go all at once releases the solute into a "
+              "solvent arrangement that formed around a rigid structure."),
         Field("restrain_production", bool, False,
-              "Keep the restraints on during production. Off, because a "
-              "biased production run samples the bias: RMSF, clustering and "
-              "dimensionality reduction would describe the restraint as much "
-              "as the system. Turning it on is recorded with the results."),
+              "Keep the restraints on during production, at their full force "
+              "constants, and do not release them during equilibration. Off, "
+              "because a biased production run samples the bias: RMSF, "
+              "clustering and dimensionality reduction would describe the "
+              "restraint as much as the system. Turning it on is recorded "
+              "with the results."),
         Field("umbrella", dict, None,
               "Umbrella sampling: a free energy along a coordinate, from "
               "equilibrium sampling at a series of positions. A block with "
