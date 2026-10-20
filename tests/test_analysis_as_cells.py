@@ -687,3 +687,52 @@ def test_the_backbone_order_parameters_are_a_plot_with_its_tools(study, tmp_path
     assert errors == []
     assert rows[0] == "residue,order_parameters" and len(rows) == 11 and rows[1].startswith("2,")
     assert focusable == "0"
+
+
+def test_a_zoomed_map_has_its_scale_and_escape_puts_a_cell_s_question_away(study):
+    """Zoomed by keys to its floor, the Ramachandran map kept its ticks every
+    90 degrees and showed one, 0, on each axis; and the Analyze again
+    question asked from a cell did not close on Escape."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"] .cell-again')
+            page.evaluate("""() => {
+                const host = document.createElement('div');
+                host.id = 'a-rama';
+                host.style.width = '600px';
+                document.querySelector('.page[data-page="analysis"]').appendChild(host);
+                const n = 72, edges = [...Array(n + 1).keys()].map((i) => -180 + 5 * i);
+                const values = [...Array(n).keys()].map((j) => [...Array(n).keys()].map(
+                    (i) => Math.log(1 + ((i * 7 + j * 3) % 11))));
+                window.FastMDXFigures.plot(host, {ok: true, kind: 'density', title: 'Ramachandran',
+                    values: values, edges_x: edges, edges_y: edges, ticks: [-180, -90, 0, 90, 180],
+                    axes: ['φ (degrees)', 'ψ (degrees)'], label: 'log(1 + count)', unit: ''});
+                host.scrollIntoView();
+            }""")
+            for _ in range(12):
+                page.locator("#a-rama svg").focus()
+                page.keyboard.press("+")
+            page.wait_for_timeout(300)
+            # The ψ axis's ticks (the colour bar's are not anchored at their end).
+            words = page.evaluate("""() => [...document.querySelectorAll(
+                '#a-rama svg text[text-anchor="end"]')].map((t) => t.textContent)""")
+            cell = '.analysis-cell-head[data-analysis="rmsd"] .cell-again'
+            page.click(cell)
+            page.wait_for_selector("#analysis-again-ask .again-choices")
+            page.keyboard.press("Escape")
+            put = page.evaluate(f"""() => [document.getElementById('analysis-again-ask').hidden,
+                document.activeElement === document.querySelector('{cell}')]""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert len(set(words)) >= 3, words
+    assert put == [True, True]

@@ -94,10 +94,15 @@
   /* `only`: the analyses to tick, all the others left unticked (an
    * analysis's cell asks for itself alone); every one it ran last where
    * none are named. */
+  /* Where the question was asked from (the page's button or a cell's),
+   * for the keyboard to go back to when Escape puts it away. */
+  var askedFrom = null;
+
   function ask(only) {
     var box = panel();
     var analysis = offered && offered.analysis;
     if (!box || !analysis) return;
+    askedFrom = document.activeElement;
     if (!analysis.can) { say(analysis.why || "This study cannot be analyzed again here."); return; }
     box.innerHTML = "";
     var said = node("p", "again-said", "");
@@ -215,6 +220,15 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    var box = panel();
+    if (box) {
+      box.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape" || box.hidden) return;
+        event.preventDefault();
+        close();
+        if (askedFrom && askedFrom.isConnected) askedFrom.focus();
+      });
+    }
     var button = el("analysis-again");
     if (!button) return;
     button.addEventListener("click", function () { open(); });

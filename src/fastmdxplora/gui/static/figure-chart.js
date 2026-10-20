@@ -193,6 +193,14 @@
     y.full = [y.low, y.high];
     if (f.view && f.view.x) { x.low = f.view.x[0]; x.high = f.view.x[1]; }
     if (f.view && f.view.y) { y.low = f.view.y[0]; y.high = f.view.y[1]; }
+    // Fixed ticks (the dihedrals' every 90 degrees) that leave fewer than
+    // three in what is shown give way to ticks for the view.
+    [[x, "x"], [y, "y"]].forEach(function (pair) {
+      var axis = pair[0];
+      if (!Array.isArray(axis.ticks) || !f.view || !f.view[pair[1]]) return;
+      var inside = axis.ticks.filter(function (v) { return v >= axis.low && v <= axis.high; });
+      if (inside.length < 3) axis.ticks = undefined;
+    });
     if (x.label === "Time (ns)" && Math.max(Math.abs(x.low), Math.abs(x.high)) < 1) {
       f.clock = { factor: 1000, unit: "ps" };
     }
