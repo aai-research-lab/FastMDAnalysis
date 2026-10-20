@@ -68,12 +68,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
     an axis a system entry also sets;
   - a setting given a number it cannot be is refused: a timestep of 0,
     negative steps, an interval under 1 or longer than production, a
-    hydrogen mass at or under hydrogen's own, a negative pressure in atm or
-    friction, an analysis's `last` at or before its `first`, under one
-    worker, and NaN or infinity anywhere;
-  - a misspelt analysis option, `forcefield` beside `force_field`, and
-    `include` beside a different `include_phase` are refused with the
-    Config, not part-way through the run;
+    hydrogen mass at or under hydrogen's own or over 4 amu, a negative
+    pressure in atm or friction, an analysis's `last` at or before its
+    `first`, under one worker, and NaN or infinity anywhere, analysis
+    options included; setup refuses a system it built with a mass at or
+    under zero;
+  - a misspelt analysis option, `forcefield` beside `force_field`,
+    `include` beside a different `include_phase`, a length given in steps
+    and in ns that disagree, and a sweep of one spelling where the study
+    sets the other are refused with the Config, not part-way through the
+    run; a recorded `forcefield: auto` beside a list replays;
   - an error OpenMM raises that is not about the numbers is said as it is,
     not as an unstable simulation.
 - Your defaults fill only what the study leaves unset: a study's
@@ -85,17 +89,24 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   recorded as drafted with an AI model, with a budget and a reason for its
   pH that nobody gave. Its help lines start with `##`, and each of a pair of
   settings says to use one or the other.
-- `--dry-run` refuses a system setup cannot read and a selection that does
-  not parse, and prints what is worth knowing before a run, as the GUI's
-  Check it does. A run whose asked-for analysis failed exits 1. Setup given
+- A system setup cannot read and a selection that does not parse are
+  refused before a run by `fastmdx explore`, its `--dry-run`, the GUI's
+  Check it and `check_study` alike, where setup reads the system (not from a
+  prepared one). `--dry-run` prints what is worth knowing before a run, as
+  Check it does, and says an interval that leaves production's last steps
+  unsaved. A run fails (exit 1) when an analysis its Config names failed,
+  never for too few frames. Setup given
   a sequence it cannot build fails, saying so. `fastmdx config -f` into a
   folder that does not exist says so in one line.
 - A study with `budget_hours` runs its own phases in each stage and records
   them; with a phase list of its own it was refused for setting both
   `include` and `exclude`.
 - The Config Builder shows and runs the study your defaults make: its plan
-  and full config say 310 K where the run uses 310 K, and FastMDXplora's own
-  value typed over yours is kept. Full config ticked runs the full file.
+  says each system's value where systems differ, its file holds what your
+  defaults give, so it runs the same study where there are none, and
+  FastMDXplora's own value typed over yours is kept. A default some systems
+  took is recorded as the reason in their runs only. Full config ticked runs
+  the full file.
 - `fastmdx gui` with no study open puts new studies in the folder it was
   started in, reads your defaults and relative paths from it, as the
   preview did.
@@ -107,8 +118,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   say what is worth knowing.
 - The Builder asks for PDBFixer only where setup repairs a structure, takes
   back the folder of a Run it refused, says "2 ns → 0.002 ns" for a length
-  changed, refuses a timestep of 0 on its box, and lets its verdict and
-  empty boxes be read whole at every width.
+  changed, refuses a timestep of 0 on its box, shows the Mode a Config's
+  workers give, tells a person what to add to a Config with no system, and
+  lets its verdict and empty boxes be read whole at every width.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
