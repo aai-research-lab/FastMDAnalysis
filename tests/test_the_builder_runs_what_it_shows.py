@@ -132,11 +132,29 @@ class TestWithYourDefaults:
         written = yaml.safe_load(built["yaml"])
         assert written["simulation"]["temperature_K"] == 300
 
-    def test_a_value_left_at_yours_is_left_to_your_file(self, tmp_path) -> None:
+    def test_a_value_typed_at_yours_is_kept_so_the_file_runs_alone(self, tmp_path) -> None:
+        """Download config and Copy the command left out 310 K typed where
+        your defaults say 310 K: taken to a machine with no defaults file,
+        the file ran at 300 K. The file names what the run takes from your
+        defaults; only FastMDXplora's own value, where yours say nothing
+        else, goes without saying."""
         from fastmdxplora.gui.config_builder import config_yaml
 
-        built = config_yaml(_state(temperature_K="310"), defaults=_yours(tmp_path, _LAB))
-        assert "temperature_K" not in (yaml.safe_load(built["yaml"]).get("simulation") or {})
+        lab = _LAB.replace("simulation:\n", "setup:\n  ph: 7.0\nsimulation:\n")
+        built = config_yaml({**_state(temperature_K="310", timestep_fs="2"),
+                             "setup": {"ph": "7.0", "box_shape": "cube"}},
+                            defaults=_yours(tmp_path, lab))
+        assert built["ok"], built
+        written = yaml.safe_load(built["yaml"])
+        assert written["simulation"] == {"temperature_K": 310}, written
+        assert written["setup"]["ph"] == 7.0
+        assert "--simulate-temperature-K 310" in built["command"], built["command"]
+        # Left at yours, not typed: still the value the file gives, with
+        # where it came from.
+        built = config_yaml(_state(), defaults=_yours(tmp_path, _LAB))
+        written = yaml.safe_load(built["yaml"])
+        assert written["simulation"] == {"temperature_K": 310}, written
+        assert written["decisions"]["simulation.temperature_K"]["source"] == "fastmdx-defaults.yml"
 
     def test_the_plan_says_the_value_the_run_takes_marked_as_yours(self, tmp_path) -> None:
         from fastmdxplora.gui.config_builder import config_yaml
@@ -164,6 +182,64 @@ class TestWithYourDefaults:
         assert line["value"].startswith("310 K"), line
         built = _post(url + "/api/config", _state(temperature_K="300"))
         assert yaml.safe_load(built["yaml"])["simulation"]["temperature_K"] == 300
+
+
+_TWO = {"systems": [{"id": "plain", "system": "1L2Y"},
+                    {"id": "warm", "system": "1L2Y", "simulation": {"temperature_K": 320}}],
+        "include_phase": ["setup", "simulation"]}
+
+
+class TestTwoSystemsWithYourDefaults:
+    """Your defaults 310 K, one system at 320 K of its own and one with none:
+    the runs are at 310 K (plain) and 320 K (warm)."""
+
+    def test_the_plan_names_each_system_s_temperature(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        built = config_yaml(dict(_TWO), defaults=_yours(tmp_path, _LAB))
+        assert built["ok"], built
+        line = next(x for x in built["plan"] if x["label"] == "Conditions")
+        assert line["value"] == "310 K, 1 bar (plain); 320 K, 1 bar (warm)", line
+        assert "300 K" not in json.dumps(built["plan"])
+
+    def test_the_full_config_gives_yours_only_to_the_system_that_takes_it(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        built = config_yaml(dict(_TWO), full=True, defaults=_yours(tmp_path, _LAB))
+        assert built["ok"], built
+        written = yaml.safe_load(built["yaml"])
+        plain, warm = written["systems"]
+        assert plain["simulation"]["temperature_K"] == 310
+        assert warm["simulation"]["temperature_K"] == 320
+        # The study's own block is not your 310 K: no run would take it
+        # there, and warm's record would name your reason for its 320 K.
+        assert written["simulation"]["temperature_K"] == 300
+        why = written["decisions"]["simulation.temperature_K"]["why"]
+        assert "For plain" in why and "warm" not in why, why
+
+    def test_the_full_config_names_no_pressure_beside_the_one_a_system_gives(
+            self, tmp_path) -> None:
+        """A full config wrote the default `pressure_bar: 1.0` beside a
+        system's `pressure_atm: 2`, and bar is the one the run takes."""
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        state = {"systems": [{"id": "a", "system": "1L2Y",
+                              "simulation": {"pressure_atm": 2}}],
+                 "include_phase": ["setup", "simulation"]}
+        built = config_yaml(state, full=True)
+        assert built["ok"], built
+        written = yaml.safe_load(built["yaml"])
+        assert "pressure_bar" not in written["simulation"], written["simulation"]
+        line = next(x for x in built["plan"] if x["label"] == "Conditions")
+        assert "2 atm" in line["value"], line
+
+    def test_phase_lists_given_twice_and_differing_are_a_refusal_not_a_failure(
+            self, home_gui) -> None:
+        _, _, url = home_gui
+        built = _post(url + "/api/config", {**_state(), "include": ["setup"],
+                                              "include_phase": ["setup", "simulation"]})
+        assert built["ok"] is False
+        assert built["refusal"]["code"] == "config.option.conflicting", built
 
 
 class TestFullConfigTicked:
@@ -336,6 +412,46 @@ def _builder(browser, url: str, width: int = 1440, scheme: str = "light",
     return page
 
 
+def _placeholders_cut(page) -> list[dict]:
+    """The boxes whose placeholder is drawn short of its end, read from the
+    pixels as a person sees them. Measuring the text against the box's width
+    passed while Chromium kept the right of a number box for its step
+    arrows, and the last word was cut there; and fields in a closed section
+    were never measured."""
+    import io
+
+    from PIL import Image
+
+    page.evaluate("() => document.querySelectorAll('#run-settings details')"
+                  ".forEach(d => { d.open = true; })")
+    page.evaluate("() => document.querySelectorAll('#run-settings [aria-expanded=false]')"
+                  ".forEach(b => b.click())")
+    page.wait_for_timeout(500)
+    cut = []
+    for box in page.query_selector_all("#run-settings input[placeholder]"):
+        said = page.evaluate("""box => {
+            if (!box.placeholder || !box.offsetParent || box.value) return null;
+            const style = getComputedStyle(box);
+            const canvas = document.createElement('canvas').getContext('2d');
+            canvas.font = style.font;
+            return {id: box.id, text: box.placeholder,
+                    ends: parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth)
+                          + canvas.measureText(box.placeholder).width};
+        }""", box)
+        if not said:
+            continue
+        box.scroll_into_view_if_needed()
+        shot = Image.open(io.BytesIO(box.screenshot())).convert("L")
+        width, height = shot.size
+        ground = shot.getpixel((width - 3, height // 2))
+        inked = [x for x in range(width) for y in range(4, height - 4)
+                 if abs(shot.getpixel((x, y)) - ground) > 40]
+        drawn_to = max(inked) if inked else 0
+        if drawn_to < said["ends"] - 4:
+            cut.append({**said, "drawn_to": drawn_to})
+    return cut
+
+
 def _system(page, system: str) -> None:
     page.fill("#run-system", system)
     page.evaluate("() => document.getElementById('run-system')"
@@ -400,18 +516,8 @@ class TestInTheBuilder:
         page.wait_for_function("() => document.getElementById('run-status')"
                                ".textContent.includes('worth knowing')")
         assert not cut()
-        # Each number box, empty, says its whole placeholder.
-        short = page.evaluate("""() => {
-            const canvas = document.createElement('canvas').getContext('2d');
-            return [...document.querySelectorAll('#run-settings input[type=number]')]
-              .filter(box => box.placeholder && box.offsetParent).map(box => {
-                const style = getComputedStyle(box);
-                canvas.font = style.font;
-                const room = box.clientWidth - parseFloat(style.paddingLeft)
-                             - parseFloat(style.paddingRight);
-                return {said: box.placeholder, room, needs: canvas.measureText(box.placeholder).width};
-              }).filter(box => box.needs > box.room + 1);
-        }""")
+        # Each box, empty, says its whole placeholder, every section open.
+        short = _placeholders_cut(page)
         assert not short, short
         assert page.evaluate(
             "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
@@ -453,10 +559,59 @@ class TestInTheBuilder:
         said = page.evaluate(
             "() => document.querySelector('#set-simulation-timestep_fs')"
             ".closest('.builder-field, label, div').querySelector('.builder-limit').textContent")
-        assert "more than 0" in said, said
+        assert "must be more than 0" in said, said
         _type(page, "#set-simulation-timestep_fs", "2")
         page.wait_for_function(
             "() => document.querySelector('#set-simulation-timestep_fs')"
             ".closest('.builder-field, label, div').querySelector('.builder-limit').hidden")
+        assert not page.errors
+        page.context.close()
+
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_a_long_verdict_at_the_foot_of_a_phone_is_three_lines_and_leads_to_the_rest(
+            self, browser, home_gui, scheme) -> None:
+        """A long refusal grew the bar at a phone's foot to half the screen."""
+        _, _, url = home_gui
+        page = _builder(browser, url, 390, scheme)
+        _type(page, "#set-simulation-temperature_K", "-5")
+        page.wait_for_function(
+            "() => document.getElementById('run-phone-status').textContent.includes('at least 0')")
+        # The longest a refusal says: one naming every setting it could be.
+        page.evaluate("""() => { const chip = document.getElementById('run-phone-status');
+            chip.textContent += ' Valid options: '
+              + Array.from({length: 45}, (_, i) => 'option_' + i).join(', '); }""")
+        held = page.evaluate("""() => {
+            const chip = document.getElementById('run-phone-status');
+            const bar = document.getElementById('run-phone-bar');
+            return {chip: chip.getBoundingClientRect().height,
+                    line: parseFloat(getComputedStyle(chip).lineHeight),
+                    bar: bar.getBoundingClientRect().height,
+                    run: document.getElementById('run-phone-start').getBoundingClientRect().height};
+        }""")
+        assert held["chip"] <= 3 * held["line"] + 12, held
+        assert held["bar"] < 844 / 6, held
+        assert held["run"] < 50, held
+        page.click("#run-phone-status")
+        top = page.evaluate("() => document.getElementById('run-status').getBoundingClientRect().top")
+        assert 0 <= top < 844, top
+        assert not page.errors
+        page.context.close()
+
+    def test_a_study_opened_with_workers_says_the_mode_it_runs_in(
+            self, browser, home_gui) -> None:
+        """Opened with `execution: {workers: 2}`, the Mode box said "sequential
+        (default)" of a study that runs in parallel."""
+        _, studies, url = home_gui
+        path = studies / "two.yml"
+        path.write_text("systems:\n  - system: 1L2Y\n  - system: 1UBQ\n"
+                        "execution:\n  workers: 2\n", encoding="utf-8")
+        loaded = _post(url + "/api/load-config", {"path": str(path)})
+        page = _builder(browser, url)
+        page.evaluate("from => window.FastMDXRun.applyLoadedState(from)", loaded.get("state", loaded))
+        page.wait_for_selector("#set-execution-mode", state="attached")
+        box = page.evaluate("""() => { const box = document.getElementById('set-execution-mode');
+            return {value: box.value, said: box.options[box.selectedIndex].textContent}; }""")
+        assert box["value"] == "parallel", box
+        assert "default" not in box["said"], box
         assert not page.errors
         page.context.close()

@@ -6518,8 +6518,20 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 }
 .page[data-page="run"] .builder-field input[type="number"] {
     /* At least 180px, and as wide as its placeholder (in the box's own
-       monospace), never past the field. */
-    max-width: max(180px, calc(var(--placeholder-ch, 0) * 1ch + 20px)); font-family: var(--font-mono);
+       monospace), never past the field: its padding and border (20px), and
+       the room Chromium keeps at the right for the step arrows, where the
+       text stops (about 16px; without it the last word was cut). */
+    max-width: max(180px, calc(var(--placeholder-ch, 0) * 1ch + 40px)); font-family: var(--font-mono);
+}
+/* Where the form is as narrow as a phone's, a number box gives its step
+   arrows' room to its text: a phone has no pointer to press them with, and
+   "Not set: a seed is drawn and recorded" was cut there at 390px. */
+@container builderform (width < 680px) {
+    .page[data-page="run"] .builder-field input[type="number"] { appearance: textfield; }
+    .page[data-page="run"] .builder-field input[type="number"]::-webkit-inner-spin-button,
+    .page[data-page="run"] .builder-field input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none; margin: 0;
+    }
 }
 .page[data-page="run"] .builder-field .mono,
 .page[data-page="run"] .builder-system-row input.mono { font-family: var(--font-mono); }
@@ -6713,6 +6725,15 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
     font-size: var(--text-xs); font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
 }
 .page[data-page="run"] .builder-phone-bar .builder-status { flex: 1 1 auto; max-width: none; }
+/* Three lines at most at the page's foot, the rest in the summary, which a
+   press on it scrolls to: a long refusal grew the bar to half the screen. */
+.page[data-page="run"] .builder-phone-bar #run-phone-status {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+    overflow: hidden; position: relative; padding-left: 23px; cursor: pointer;
+}
+.page[data-page="run"] .builder-phone-bar #run-phone-status::before { position: absolute; left: 10px; top: 3px; }
+/* Run keeps its one line beside a verdict of three. */
+.page[data-page="run"] .builder-phone-bar .primary-btn { flex: none; white-space: nowrap; }
 .page[data-page="run"] .builder-status:empty,
 .page[data-page="run"] .builder-status[data-state="none"] { display: none; }
 .page[data-page="run"] .builder-status::before { content: ""; flex: none; width: 7px; height: 7px; margin-top: 0.38em; border-radius: 50%; background: currentColor; }

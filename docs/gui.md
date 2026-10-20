@@ -523,8 +523,13 @@ untouched.
 
 With a `fastmdx-defaults.yml` where the study will run, each setting it gives
 is marked **Your default** on its field, and the review's plan says the value
-the run will take with it, marked as yours. A value set back to FastMDXplora's
-own over yours is kept in the file, so the run uses it.
+the run will take with it, marked as yours; where systems give their own
+value, the plan names each with its systems ("310 K, 1 bar (plain); 320 K,
+1 bar (warm)"). Every value typed into the form is kept in the file, yours
+too, so the file run where there is no defaults file runs the study shown;
+only FastMDXplora's own value, where yours say nothing else, goes unsaid. A
+full config gives your default only to the systems that take it, and each
+run records your reason only where it took your value.
 
 When you press **Run**, the Config is written into the output directory as
 `exploration.yml` before anything starts (the full one where **Full config** is

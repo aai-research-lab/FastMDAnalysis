@@ -53,7 +53,55 @@ _SOURCES = (("person", "asked"), ("fastmdx-defaults.yml", "yours"), ("agent", "a
 def plan_of(config: dict[str, Any]) -> list[dict[str, Any]]:
     """Lines of ``{"label", "value", "default", "settings"}``, in the order a
     study runs; ``settings`` the dotted names a line says, so where each
-    value came from can be read from the config's ``decisions``."""
+    value came from can be read from the config's ``decisions``.
+
+    Where systems give settings of their own, each line is read for each
+    system, as its runs will be given it (the study's blocks under the
+    system's), and a line the systems differ on names each value with its
+    systems: "310 K, 1 bar (plain); 320 K, 1 bar (warm)". The study's own
+    block alone named 300 K of a study whose runs were at 310 and 320 K.
+    """
+    systems = [s for s in (config.get("systems") or []) if isinstance(s, dict)]
+    phases = ("setup", "simulation", "analysis")
+    if len(systems) < 2 and not any(isinstance(s.get(p), dict) for s in systems
+                                    for p in phases):
+        return _plan_of_one(config)
+    from fastmdxplora.naming import default_system_id
+
+    variants: list[tuple[str, list[dict[str, Any]]]] = []
+    for i, entry in enumerate(systems):
+        variant = dict(config)
+        for phase in phases:
+            if isinstance(entry.get(phase), dict):
+                variant[phase] = {**_block(config, phase), **entry[phase]}
+        name = str(entry.get("id") or entry.get("system") or default_system_id(i))
+        variants.append((name, _plan_of_one(variant)))
+    if len(variants) == 1:
+        return variants[0][1]
+    order: list[str] = []
+    by_label: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for name, lines in variants:
+        for line in lines:
+            if line["label"] not in by_label:
+                order.append(line["label"])
+                by_label[line["label"]] = []
+            by_label[line["label"]].append((name, line))
+    merged: list[dict[str, Any]] = []
+    for label in order:
+        said = by_label[label]
+        values = list(dict.fromkeys(line["value"] for _, line in said))
+        first = dict(said[0][1])
+        if len(values) > 1 or len(said) < len(variants):
+            first["value"] = "; ".join(
+                f"{value} ({', '.join(n for n, line in said if line['value'] == value)})"
+                for value in values)
+        first["default"] = all(line["default"] for _, line in said)
+        merged.append(first)
+    return merged
+
+
+def _plan_of_one(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """The plan's lines read from the study's own blocks."""
     lines: list[dict[str, Any]] = []
     setup = _block(config, "setup")
     simulation = _block(config, "simulation")

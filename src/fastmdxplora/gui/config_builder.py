@@ -181,7 +181,7 @@ def _analysis_option_defaults(names: Any) -> dict[str, dict[str, Any]]:
 
 
 def build_config(state: dict[str, Any], *, full: bool = False,
-                 defaults: Any = None) -> dict[str, Any]:
+                 defaults: Any = None, _yours_written: bool = True) -> dict[str, Any]:
     """A config dict from the page's state.
 
     ``state`` holds a block per phase, plus the top-level keys the run needs
@@ -192,11 +192,12 @@ def build_config(state: dict[str, Any], *, full: bool = False,
     With ``full``, every setting is named at whatever value it would take,
     default or chosen. Without it, only what differs from the default.
 
-    ``defaults`` is your fastmdx-defaults.yml where one applies. A setting
-    it gives has that as its default: FastMDXplora's own value chosen over
-    yours is kept in the file (it was left out, and the run took yours), and
-    a full config names yours where nothing chose otherwise, each recorded
-    in ``decisions`` as the run would record it.
+    ``defaults`` is your fastmdx-defaults.yml where one applies. The file
+    names what the run takes from it, as `fastmdx explore` fills it (a
+    system's own value kept, a default some systems take given to those),
+    each recorded in ``decisions``: a file taken where there is no defaults
+    file runs the study shown here. FastMDXplora's own value chosen over
+    yours is kept (it was left out, and the run took yours).
     """
     # The state arrives from the browser, not through the loader, so a
     # study written with the earlier `include` is settled before anything
@@ -207,8 +208,29 @@ def build_config(state: dict[str, Any], *, full: bool = False,
 
     state = canonical_phase_keys(dict(state))
     config: dict[str, Any] = {}
-    yours = _yours_for(state, defaults)
-    filled: list[str] = []
+    # Your defaults as the run is given them: `with_defaults` on what the
+    # form chose, so a system's own value keeps that system's and a default
+    # only some systems take goes to those. Read for a full config, which
+    # names what the run will use; a short one names what was chosen.
+    yours: dict[str, dict[str, Any]] = {}
+    given_yours: dict[str, Any] = {}
+    if full and _yours_for(state, defaults):
+        from fastmdxplora.config.defaults_file import with_defaults
+
+        chosen_only = build_config(state, full=False, defaults=defaults,
+                                   _yours_written=False)
+        given_yours, names = with_defaults(chosen_only, defaults)
+        for name in names:
+            phase, _, key = name.partition(".")
+            block = given_yours.get(phase)
+            if isinstance(block, dict) and key in block and not (
+                    isinstance(chosen_only.get(phase), dict) and key in chosen_only[phase]):
+                yours.setdefault(phase, {})[key] = block[key]
+    # What each setting is left at when the form gives nothing: yours where
+    # your defaults give it. A value chosen is left out of a short file only
+    # where it is FastMDXplora's own and yours say nothing else, so a file
+    # taken where no defaults file is runs the study shown here.
+    left_at = _yours_for(state, defaults)
 
     # Who wrote the study, carried through rather than dropped. The form
     # loads `agent` and `agent_model` into `study` and then, building the
@@ -318,16 +340,12 @@ def build_config(state: dict[str, Any], *, full: bool = False,
             if not (full and phase in running):
                 continue
             block = {}
-        # The default a setting has here: yours where your defaults give it,
+        own = _defaults_for(phase)
+        # The default a setting has here: yours where the run takes yours,
         # else FastMDXplora's own.
-        defaults_here = {**_defaults_for(phase), **yours.get(phase, {})}
+        defaults_here = {**own, **yours.get(phase, {})}
         fields = {f.name: f for f in group.fields}
         kept: dict[str, Any] = {}
-        if full:
-            # Start from what the run would use, then let the page's choices
-            # land on top. A setting nobody touched still appears, at the
-            # value it will actually take.
-            kept.update({k: v for k, v in defaults_here.items() if v is not None})
         chosen: set[str] = set()
         for name, raw in block.items():
             field = fields.get(name)
@@ -339,28 +357,48 @@ def build_config(state: dict[str, Any], *, full: bool = False,
             # Restating a default tells a reader nothing and buries the
             # settings that were actually chosen -- unless the whole point of
             # this file is to record every value the run used.
-            if not full and value == defaults_here.get(name):
+            if not full and value == own.get(name) and value == left_at.get(
+                    phase, {}).get(name, value):
                 continue
             kept[name] = value
             chosen.add(name)
         if full:
-            filled.extend(f"{phase}.{name}" for name in yours.get(phase, {})
-                          if name not in chosen and name in kept)
+            # What the run would use under the page's choices. A setting
+            # nobody touched still appears, at the value it will take; one
+            # whose other spelling is chosen, here or by a system, is left to
+            # it (a default `pressure_bar` beside a chosen `pressure_atm` is
+            # the pressure the run would take).
+            from fastmdxplora.config.loader import same_setting
+
+            spelled = {f"{phase}.{name}" for name in chosen} | {
+                f"{phase}.{key}" for entry in config.get("systems") or ()
+                if isinstance(entry, dict) and isinstance(entry.get(phase), dict)
+                for key in entry[phase]}
+            for name, value in defaults_here.items():
+                dotted = f"{phase}.{name}"
+                if value is None or name in chosen or (
+                        (same_setting(dotted) - {dotted}) & spelled):
+                    continue
+                kept[name] = value
         if kept:
             config[phase] = kept
 
-    if filled:
-        # Recorded as the run records what your defaults fill, so a full
-        # config that names them says where they came from.
-        from fastmdxplora.config.defaults_file import DEFAULTS_FILE
+    if given_yours:
+        # The systems as your defaults leave them (a default some systems
+        # take is in their blocks), and the reasons as the run records them,
+        # so a full config that names yours says where they came from.
+        if isinstance(given_yours.get("systems"), list):
+            config["systems"] = given_yours["systems"]
+        if isinstance(given_yours.get("decisions"), dict):
+            config["decisions"] = given_yours["decisions"]
 
-        decisions = dict(config.get("decisions") or {}) if isinstance(
-            config.get("decisions"), dict) else {}
-        for name in filled:
-            decisions.setdefault(name, {
-                "why": defaults.whys.get(name) or f"Your usual value, from {DEFAULTS_FILE}.",
-                "source": DEFAULTS_FILE})
-        config["decisions"] = decisions
+    if not full and _yours_written and _yours_for(state, defaults):
+        # Your defaults written in, as the run will be given them: Download
+        # config and Copy the command left them to a file that is not taken
+        # with the study, and the study ran at 300 K elsewhere.
+        from fastmdxplora.config.defaults_file import with_defaults
+
+        config, _ = with_defaults(config, defaults)
 
     if full and "analysis" in running:
         # The nested settings, which is where the decisions that change a
@@ -423,10 +461,14 @@ def config_yaml(state: dict[str, Any], *, full: bool = False,
     will run, for :func:`build_config` and the plan."""
     from fastmdxplora.batch.sweep import SweepError
 
+    from fastmdxplora.config.loader import ConfigError
+
     try:
         config = build_config(state, full=full, defaults=defaults)
         short = build_config(state, full=False, defaults=defaults) if full else None
-    except SweepError as exc:
+    except (SweepError, ConfigError) as exc:
+        # A row that cannot be read, or the phase lists given in both
+        # spellings and differing: said under the form, not a failed request.
         return {"ok": False, "error": str(exc), "yaml": "", **refused(exc)}
     answer = render_config(config, full=full, short=short, defaults=defaults)
     if answer.get("ok"):

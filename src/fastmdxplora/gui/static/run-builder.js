@@ -828,7 +828,7 @@
       const unit = field.unit ? " " + field.unit : "";
       const above = field.exclusive_minimum && low !== null && low !== undefined;
       if (isNaN(number) || !isFinite(number)) problem = `${field.label} is a number.`;
-      else if (above && number <= low) problem = `${field.label} is more than ${low}${unit}.`;
+      else if (above && number <= low) problem = `${field.label} must be more than ${low}${unit}.`;
       else if (low !== null && low !== undefined && high !== null && high !== undefined
                && (number < low || number > high)) problem = `${field.label} runs from ${low} to ${high}${unit}.`;
       else if (low !== null && low !== undefined && number < low) problem = `${field.label} is at least ${low}${unit}.`;
@@ -2611,7 +2611,35 @@
     saveDraft();
   }
 
+  /* The Mode box says the mode the run will take. Workers or devices given
+   * with no mode run in parallel (the explorer's rule), and the box said
+   * "sequential (default)" of a study opened with `workers: 2`. */
+  function sayMode() {
+    // Scheduling's one setting of choices, as the schema gives it.
+    const field = ((state.schema && state.schema.execution_options) || [])
+      .find((each) => Array.isArray(each.choices) && each.choices.length > 1);
+    if (!field) return;
+    const box = el(`set-${EXECUTION_KEY.replace(/_/g, "")}-${field.name}`);
+    if (!box || box.tagName !== "SELECT") return;
+    // The choices are the schema's: its default, and the other one, which
+    // workers or devices given ask for.
+    const usual = field.default;
+    const asked = field.choices.find((choice) => choice !== usual);
+    const given = state.values[EXECUTION_KEY] || {};
+    const implied = !given[field.name] && Boolean(given.workers || (Array.isArray(given.devices)
+      ? given.devices.length : given.devices));
+    Array.from(box.options).forEach((option) => {
+      if (option.value === asked) {
+        option.textContent = implied ? `${asked} (the workers or devices given ask for it)` : asked;
+      } else if (option.value === usual) {
+        option.textContent = implied ? usual : `${usual} (default)`;
+      }
+    });
+    if (!given[field.name]) box.value = implied ? asked : usual;
+  }
+
   function updateSummary() {
+    sayMode();
     const chain = el("run-summary");
     if (state.start === "config") {
       const verdict = state.configVerdict;
@@ -2656,7 +2684,28 @@
       "), said under What it costs here"];
   }
 
+  /* At phone width the bar at the foot says the verdict in three lines at
+   * most; pressed, it takes the page to the verdict in full, in the summary
+   * under the form. A long refusal filled half the screen. */
+  function wirePhoneStatus() {
+    const chip = el("run-phone-status");
+    if (!chip || chip.dataset.wired) return;
+    chip.dataset.wired = "1";
+    chip.tabIndex = 0;
+    chip.setAttribute("role", "button");
+    chip.setAttribute("aria-label", "Show the whole verdict");
+    const reach = () => {
+      const whole = el("run-status");
+      if (whole) whole.scrollIntoView({ block: "center" });
+    };
+    chip.addEventListener("click", reach);
+    chip.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); reach(); }
+    });
+  }
+
   function setStatus(kind, said) {
+    wirePhoneStatus();
     ["run-status", "run-phone-status"].forEach((id) => {
       const target = el(id);
       if (!target) return;
