@@ -168,14 +168,24 @@ def run_in_stages(
     staged = StagedRun(output_dir=out)
     runner = explore or _explore
 
-    setup_only = dict(config)
-    setup_only["include_phase"] = ["setup"]
+    # The phases the study asks for, in whichever spelling it gave them. Each
+    # stage replaces the study's phase keys with its own one list: setting
+    # `include_phase` beside a study's `exclude_phase` (or the reverse) made
+    # a conflict the person never wrote, refused after setup had run.
+    asked = _phases_asked(config)
+    setup_only = _with_phases(config, ["setup"])
     try:
         runner(config=setup_only, output_dir=str(out))
     except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
         staged.refusal = refusal_of(exc)
         return staged
     staged.setup_done = True
+
+    after_setup = [phase for phase in asked if phase != "setup"]
+    if not after_setup:
+        staged.notes.append(
+            "The study asks for setup alone, so there is nothing after it to price.")
+        return staged
 
     runs, simulate_from = _runs_of(config, out)
     counted = [(name, particles_after_setup(where), steps)
@@ -255,8 +265,7 @@ def run_in_stages(
         )
         return staged
 
-    rest = dict(config)
-    rest["exclude_phase"] = ["setup"]
+    rest = _with_phases(config, after_setup)
     # `setup_from` is a simulation setting, not a top-level one. Put at the
     # top level the loader refused it and named the right place, which is
     # the guardrail working on the code that was written to use it.
@@ -264,17 +273,91 @@ def run_in_stages(
     # A system the study named stays named: the first stage prepared nothing
     # when it had one, so its own `setup/` holds nothing to simulate. A study
     # of several systems names none: each run simulates the one it prepared.
+    injected = None
     if simulate_from is not None and not (
             simulation.get("setup_from") or simulation.get("prepared_from")):
-        simulation["setup_from"] = str(simulate_from)
+        simulation["setup_from"] = injected = str(simulate_from)
     rest["simulation"] = simulation
     try:
         runner(config=rest, output_dir=str(out))
     except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
         staged.refusal = refusal_of(exc)
         return staged
+    finally:
+        # The record is of the study, not of the second stage: it was
+        # written as `exclude_phase: [setup]` with the stage's `setup_from`,
+        # so replaying it skipped the setup the study asked for.
+        _record_the_study_s_phases(out, config, after_setup, injected)
     staged.simulated = True
     return staged
+
+
+def _phases_asked(config: dict[str, Any]) -> list[str]:
+    """The phases the study runs, in their order: its `include_phase` (or
+    the earlier `include`), else every phase but its `exclude_phase` (or
+    `exclude`), else every phase."""
+    from fastmdxplora.orchestrator import PHASES
+
+    include = config.get("include_phase", config.get("include"))
+    exclude = config.get("exclude_phase", config.get("exclude"))
+    if include:
+        named = {str(phase) for phase in include}
+        return [phase for phase in PHASES if phase in named]
+    left_out = {str(phase) for phase in exclude or []}
+    return [phase for phase in PHASES if phase not in left_out]
+
+
+def _with_phases(config: dict[str, Any], phases: list[str]) -> dict[str, Any]:
+    """The config with its phase selection replaced by ``phases`` alone."""
+    staged = {key: value for key, value in config.items()
+              if key not in ("include_phase", "exclude_phase", "include", "exclude")}
+    staged["include_phase"] = list(phases)
+    return staged
+
+
+def _record_the_study_s_phases(out: Path, config: dict[str, Any],
+                               sent: list[str], injected: Any) -> None:
+    """Write the study's own phase selection into each resolved config the
+    second stage wrote, and take out the `setup_from` this module gave it.
+
+    Only a file that records exactly the stage's phases is changed: any
+    other was written by something else, and is left as it is.
+    """
+    import yaml
+
+    include = config.get("include_phase", config.get("include"))
+    exclude = config.get("exclude_phase", config.get("exclude"))
+    for path in sorted(out.rglob("resolved_config.yml")):
+        try:
+            text = path.read_text(encoding="utf-8")
+            data = yaml.safe_load(text)
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict) or data.get("exclude_phase") or \
+                list(data.get("include_phase") or []) != list(sent):
+            continue
+        rewritten: dict[str, Any] = {}
+        for key, value in data.items():
+            if key == "include_phase":
+                if include:
+                    rewritten["include_phase"] = list(include)
+                elif exclude:
+                    rewritten["exclude_phase"] = list(exclude)
+                continue
+            rewritten[key] = value
+        simulation = rewritten.get("simulation")
+        if injected is not None and isinstance(simulation, dict):
+            for key in ("setup_from", "prepared_from"):
+                if simulation.get(key) == str(injected):
+                    simulation[key] = None
+        header = "".join(line for line in text.splitlines(keepends=True)
+                         if line.startswith("#"))
+        try:
+            with path.open("w", encoding="utf-8") as fh:
+                fh.write(header)
+                yaml.safe_dump(rewritten, fh, sort_keys=False, default_flow_style=False)
+        except OSError:
+            continue
 
 
 def _runs_of(config: dict[str, Any], out: Path
