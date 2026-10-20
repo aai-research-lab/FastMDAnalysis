@@ -271,6 +271,7 @@ FastMDXplora/
 │       ├── config/
 │       │   ├── schema.py          # Config schema (single source of truth for options)
 │       │   ├── loader.py          # YAML load, merge, strict validation
+│       │   ├── before_run.py      # What is refused before anything is built: a system setup cannot read, a selection that does not parse
 │       │   ├── generate.py        # `fastmdx config` templates
 │       │   ├── describe.py        # The config language, described for an AI model
 │       │   ├── languages.py       # One study as a config file, a command and a script

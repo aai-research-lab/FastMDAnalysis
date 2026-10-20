@@ -720,8 +720,8 @@ not `fastmdx setup --config study.yml`.
 | Code | Means |
 |---|---|
 | **0** | Success. Also `--version`, `--cite`, `info`, a written template, a matched selection, a completed dry run |
-| **1** | The work ran and failed: a phase errored, an analysis the study asked for failed (named in `analysis.include` or `analysis.options`, or reading the atoms `analysis.select_atoms` names), a selection matched nothing, the Agent gave up or exceeded its budget |
-| **2** | A usage or Config error: an unknown setting, a bad value, `--include` with `--exclude`, no system given, a refusal to overwrite |
+| **1** | The work ran and failed: a phase errored, an analysis the study asked for failed (named in `analysis.include` or `analysis.options`, the study's own or a system's; not one the run had too few frames for), a selection matched nothing, the Agent gave up or exceeded its budget |
+| **2** | A usage or Config error: an unknown setting, a bad value, `--include` with `--exclude`, no system given, a system setup cannot read or a selection that does not parse (refused before anything is written, a run and a dry run alike), a refusal to overwrite |
 | **130** | Interrupted with Ctrl-C; the study records where it stopped, and `fastmdx resume` carries it on |
 
 Failures print `fastmdx: <message>` on stderr **without a traceback** — the

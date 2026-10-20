@@ -78,11 +78,14 @@ class TestFailuresAreReported:
         assert "resolve input" in output.lower() or "failed" in output.lower()
 
     def test_a_missing_file_fails(self, tmp_path) -> None:
+        # Refused as the Config is, before anything is written: setup would
+        # only have found the file missing.
         code, _ = _run([
             "setup", "--system", str(tmp_path / "absent.pdb"),
             "--output", str(tmp_path / "run"),
         ])
-        assert code == 1
+        assert code == 2
+        assert not (tmp_path / "run").exists()
 
     def test_the_manifest_survives_a_failure(self, tmp_path) -> None:
         """Reporting the failure must not discard what was learned first."""

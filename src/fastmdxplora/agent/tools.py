@@ -826,6 +826,19 @@ def checked_config(box: Toolbox, config: dict[str, Any],
     Raises the refusal and what would fix it."""
     continuing = validated(box, config)
     filled, names, defaults = with_your_defaults(box, config, file)
+    if continuing is None:
+        # What can be seen wrong before anything is built, said as
+        # `fastmdx explore` and the GUI's Check it say it: a system setup
+        # cannot read, a selection that does not parse. Relative paths are
+        # read from the folder of studies, where a study from here starts.
+        from fastmdxplora.config.before_run import refuse_what_can_be_seen
+        from fastmdxplora.config.loader import ConfigError
+
+        base = box.workspace.root if box.workspace is not None else Path.cwd()
+        try:
+            refuse_what_can_be_seen(filled, base=Path(base))
+        except ConfigError as exc:
+            raise _Refused(refused_said(exc)) from None
     lines = ["Accepted by the validator. The plan:", *plan_lines(filled)]
     if names:
         lines.append(f"Your defaults ({defaults.path.name}) fill what it leaves unset: "

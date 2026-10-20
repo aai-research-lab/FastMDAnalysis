@@ -43,14 +43,19 @@ def _analysis_study(tmp_path: Path, analysis: dict, n_frames: int = 30) -> Path:
                    output=str(root), include_phase=["analysis"], analysis=analysis)
 
 
+NONE = "resname ZZZ"
+
+
 def test_an_analysis_asked_for_that_fails_is_a_failed_run(tmp_path, capsys):
+    # A selection that parses and matches nothing is found only as the
+    # analysis reads the trajectory.
     config = _analysis_study(tmp_path / "bad", {"include": ["rmsd", "rg"],
-                                                "select_atoms": BAD})
+                                                "options": {"rmsd": {"selection": NONE}}})
     assert main(["explore", "--config", str(config)]) == 1
     said = capsys.readouterr().err
     assert "the study asked for failed" in said and "rmsd" in said
-    assert "Cannot use literals as truth" in said
-    # The same study with a selection that parses succeeds.
+    assert "matched zero atoms" in said
+    # The same study with a selection that matches succeeds.
     config = _analysis_study(tmp_path / "good", {"include": ["rmsd", "rg"]})
     assert main(["explore", "--config", str(config)]) == 0
     assert "asked for failed" not in capsys.readouterr().err
@@ -63,20 +68,70 @@ def test_an_analysis_asked_for_that_fails_is_a_failed_run(tmp_path, capsys):
     assert any(r["status"] == "error" for r in record["results"].values())
 
 
-def test_a_selection_the_study_set_counts_without_include(tmp_path, capsys):
+def test_only_an_analysis_named_is_asked_for(tmp_path, capsys):
+    """A selection for the analyses (`select_atoms`) asks for none of them:
+    a short run's clustering, of the default plan, failing on too few frames
+    failed the run once `select_atoms` was set."""
+    config = _analysis_study(tmp_path / "selected", {"select_atoms": "name CA"}, n_frames=3)
+    assert main(["explore", "--config", str(config)]) == 0
+    assert "asked for failed" not in capsys.readouterr().err
+    record = json.loads((tmp_path / "selected" / "study" / "analysis"
+                         / "analysis_manifest.json").read_text(encoding="utf-8"))
+    assert record["results"]["cluster"]["status"] == "error"
+
+
+def test_too_few_frames_never_fails_the_run(tmp_path, capsys):
+    """Named, and the run too short for it: the run did what it was asked."""
+    config = _analysis_study(tmp_path / "named", {"include": ["rmsd", "cluster"]}, n_frames=3)
+    assert main(["explore", "--config", str(config)]) == 0
+    assert "asked for failed" not in capsys.readouterr().err
+
+
+def test_an_analysis_a_system_names_is_asked_for(tmp_path, capsys):
+    from fastmdxplora.cli.main import _analyses_asked_for_that_failed
+
+    class Run:
+        run_id = "s1"
+
+        def __init__(self, folder):
+            self.output_dir = folder
+
+    folder = tmp_path / "run"
+    (folder / "analysis").mkdir(parents=True)
+    (folder / "analysis" / "analysis_manifest.json").write_text(json.dumps(
+        {"results": {"rmsd": {"status": "error", "message": "rmsd: matched zero atoms"}}}))
+    config = {"systems": [{"id": "s1", "system": "x.pdb",
+                           "analysis": {"include": ["rmsd"]}}]}
+    assert _analyses_asked_for_that_failed(config, [Run(folder)]) == [
+        "rmsd (matched zero atoms)"]
+    assert _analyses_asked_for_that_failed({"systems": [{"system": "x.pdb"}]},
+                                           [Run(folder)]) == []
+
+
+def test_a_bad_selection_is_refused_before_a_run_writes_anything(tmp_path, capsys):
     config = _analysis_study(tmp_path, {"select_atoms": BAD})
-    assert main(["explore", "--config", str(config)]) == 1
-    assert "rmsd" in capsys.readouterr().err
+    before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
+    assert main(["explore", "--config", str(config)]) == 2
+    assert "is not an MDTraj selection" in capsys.readouterr().err
+    assert sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*")) == before
 
 
 def test_a_sequence_is_a_setup_that_failed(tmp_path, capsys):
+    from fastmdxplora import FastMDXplora
+
     out = tmp_path / "seq"
-    rc = main(["explore", "--system", "MKTAYIAKQRQISFVKSHFSRQ", "--output", str(out),
-               "--include-phase", "setup"])
-    assert rc == 1
-    said = capsys.readouterr()
-    assert "structure predictor" in said.out + said.err
+    results = FastMDXplora(system="MKTAYIAKQRQISFVKSHFSRQ", output_dir=out).explore(
+        include_phase=["setup"])
+    assert results[0].status != "ok"
+    assert "structure predictor" in (results[0].message or "") + " ".join(
+        str(getattr(p, "message", "") or "") for p in results[0].phases)
     assert (out / "setup" / "input.sequence").is_file()
+    # Given to the command line, it is refused before anything is written.
+    rc = main(["explore", "--system", "MKTAYIAKQRQISFVKSHFSRQ", "--output",
+               str(tmp_path / "cli"), "--include-phase", "setup"])
+    assert rc == 2
+    assert "structure predictor" in capsys.readouterr().err
+    assert not (tmp_path / "cli").exists()
 
 
 @pytest.mark.parametrize("system, says", [
