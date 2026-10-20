@@ -524,10 +524,17 @@ def _box(radius: float, padding: float, shape: str, setup: dict[str, Any]
 def _cutoff(setup: dict[str, Any]) -> float | None:
     if setup.get("nonbonded_cutoff_nm") is not None:
         return float(setup["nonbonded_cutoff_nm"])
-    from fastmdxplora.setup.forcefields import FALLBACK_CUTOFF_NM, resolve_forcefield
+    from fastmdxplora.setup.forcefields import (
+        FALLBACK_CUTOFF_NM,
+        nonbonded_scheme,
+        resolve_forcefield,
+    )
 
     if setup.get("force_field"):
-        return FALLBACK_CUTOFF_NM
+        # As setup reads the list: a CHARMM36 family's 1.2 nm, else 1.0.
+        return float(nonbonded_scheme(list(setup["force_field"]), cutoff_nm=None,
+                                      use_switching_function=None,
+                                      switch_distance_nm=None)[0])
     try:
         return float(resolve_forcefield(setup.get("forcefield")).nonbonded[0])
     except Exception:  # noqa: BLE001 - an unknown name is setup's to refuse

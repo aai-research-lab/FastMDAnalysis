@@ -446,6 +446,15 @@ def methods_paragraphs(
                 + (f" with the {water} water model" if water else "")
                 + "."
             )
+            # Which release a file is, where its name does not say: OpenMM's
+            # `charmm36.xml` is an older CHARMM36 (its sources are
+            # toppar_c36_aug15, its protein par_all36_prot), before CHARMM36m's
+            # protein corrections, and "CHARMM36" alone reads as the current one.
+            if xmls and any(str(x) == "charmm36.xml" for x in xmls):
+                parameterisation.append(
+                    "`charmm36.xml` is OpenMM's port of an older CHARMM36 "
+                    "release (toppar_c36_aug15), without the CHARMM36m protein "
+                    "parameters.")
         if parameterised and ligand_name and ligand_ff:
             charge = _get(setup, "ligand_net_charge")
             parameterisation.append(
@@ -522,6 +531,28 @@ def methods_paragraphs(
                 f"Long-range electrostatics were treated with {method} and a "
                 f"real-space cutoff of {_nm(cutoff)}."
             )
+            # The Lennard-Jones treatment, which is what differs between a
+            # CHARMM36 run (switched from 1.0 nm, no tail correction) and an
+            # AMBER one (truncated, with it), and was not said at all.
+            switching = _get(setup, "use_switching_function")
+            switch_at = _get(setup, "switch_distance_nm")
+            # The tail correction is applied under periodic boundaries alone,
+            # and with no cutoff there is nothing to switch or correct.
+            periodic = str(method) in ("CutoffPeriodic", "PME", "Ewald")
+            tail = _get(setup, "dispersion_correction") if periodic else None
+            if str(method) != "NoCutoff" and (switching is not None or tail is not None):
+                lj = f"Lennard-Jones interactions were cut off at {_nm(cutoff)}"
+                if switching is True and switch_at is not None:
+                    lj += f", switched from {_nm(switch_at)} (OpenMM's potential switch)"
+                elif switching is True:
+                    lj += ", with a switching function"
+                elif switching is False:
+                    lj += " with no switching function"
+                if tail is True:
+                    lj += ", with the isotropic long-range dispersion correction"
+                elif tail is False:
+                    lj += ", with no long-range dispersion correction"
+                interactions.append(lj + ".")
         if constraints:
             interactions.append(
                 f"Bonds were constrained with `{constraints}`"

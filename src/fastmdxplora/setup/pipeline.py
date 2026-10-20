@@ -1714,7 +1714,8 @@ def _run(
             use_switching_function=(None if params.get("use_switching_function") is None
                                     else bool(params["use_switching_function"])),
             switch_distance_nm=params["switch_distance_nm"],
-            dispersion_correction=bool(params["dispersion_correction"]),
+            dispersion_correction=(None if params.get("dispersion_correction") is None
+                                   else bool(params["dispersion_correction"])),
             remove_cm_motion=bool(params["remove_cm_motion"]),
             constraints=str(params["constraints"]),
             rigid_water=bool(params["rigid_water"]),

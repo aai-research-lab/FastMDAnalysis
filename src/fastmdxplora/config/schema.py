@@ -537,7 +537,9 @@ SETUP = PhaseSchema(
         Field("nonbonded_cutoff_nm", float, None,
               "Real-space nonbonded cutoff in nm (cutoff/PME/Ewald methods). "
               "Default: the force field's own, 1.0 nm for AMBER and 1.2 nm "
-              "for CHARMM36; 1.0 nm for an explicit `force_field` list.",
+              "for CHARMM36; for an explicit `force_field` list, its files' "
+              "family's (1.2 nm for CHARMM36 files), otherwise 1.0 nm "
+              "(OpenMM's default).",
               example=1.0,
                     minimum=0.0),
         Field("ewald_error_tolerance", float, 0.0005,
@@ -546,8 +548,9 @@ SETUP = PhaseSchema(
         Field("use_switching_function", bool, None,
               "Apply a switching function near the cutoff (cutoff methods). "
               "Default: as the force field is developed, none for AMBER and "
-              "from 1.0 nm for CHARMM36; on for an explicit `force_field` "
-              "list.",
+              "from 1.0 nm for CHARMM36; for an explicit `force_field` list, "
+              "as its files' family is developed where they name one, and "
+              "otherwise none (OpenMM's own default).",
               example=False),
         Field("switch_distance_nm", (int, float), None,
               "Switching-function turn-on distance in nm. "
@@ -555,8 +558,13 @@ SETUP = PhaseSchema(
               "0.9 × cutoff.",
               example=0.9,
               minimum=0.0, exclusive_minimum=True),
-        Field("dispersion_correction", bool, True,
-              "Apply the long-range dispersion (vdW tail) correction."),
+        Field("dispersion_correction", bool, None,
+              "Apply the long-range dispersion (vdW tail) correction. "
+              "Default: as the force field is developed, off for CHARMM36 "
+              "(its lipids were fitted without one), and otherwise as its "
+              "files leave it: OpenMM turns it on where a file says nothing, "
+              "as the AMBER files do. The value used is recorded.",
+              example=True),
         Field("remove_cm_motion", bool, True,
               "Add a center-of-mass motion remover. Matches OpenMM's own "
               "default; without it the system is free to drift as a whole."),

@@ -164,6 +164,23 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   checked: a key a restraint does not take, a negative force constant, a
   target on a position restraint and a ladder rising above its first step
   are refused.
+
+- CHARMM36 runs without the long-range dispersion correction its file turns
+  off. Every run passed the correction on, OpenMM takes that over
+  `charmm36.xml`'s `useDispersionCorrection="False"`, and CHARMM36 systems,
+  bilayers among them, ran with an isotropic tail their lipids were fitted
+  without (-75 bar in CHARMM water at 1.2 nm). `dispersion_correction` now
+  defaults to the force field's scheme: off for CHARMM36, `charmm36_2024.xml`
+  included (it says nothing, which OpenMM reads as on), and otherwise as the
+  files leave it, on for AMBER (OpenMM's default). A stated value wins, and
+  the value used is recorded.
+- An explicit `force_field` list takes the cutoff scheme of the family its
+  files belong to: AMBER files listed by hand were switched at 0.9 nm, which
+  `amber14` by name is not, and CHARMM36 files ran at 1.0 nm rather than 1.2.
+  A list of no one family takes OpenMM's own default, no switch, and says so.
+- The Methods state the Lennard-Jones treatment (switch and tail correction),
+  and that `charmm36.xml` is an older CHARMM36 release, without the
+  CHARMM36m protein parameters.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

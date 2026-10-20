@@ -152,7 +152,7 @@ Defaults suit a solvated protein. Changing one changes the physics.
 | `ewald_error_tolerance` | float | `0.0005` | Ewald/PME error tolerance |
 | `use_switching_function` | bool | the force field's | Apply a switching function near the cutoff |
 | `switch_distance_nm` | int or float | the force field's, else 0.9 × cutoff | Where the switching function turns on |
-| `dispersion_correction` | bool | `true` | Long-range dispersion (vdW tail) correction |
+| `dispersion_correction` | bool | the force field's | Long-range dispersion (vdW tail) correction: off for CHARMM36, otherwise as its files leave it (on for AMBER, OpenMM's default) |
 | `remove_cm_motion` | bool | `true` | Add a centre-of-mass motion remover |
 
 The cutoff and the switch are taken from the force field when you do not set
