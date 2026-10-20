@@ -39,3 +39,8 @@
     .builder-cost-line { grid-template-columns: auto minmax(0, 1fr); }
     .builder-cost-said { grid-column: 1 / -1; }
 }
+
+/* The Config's checks pass, but what it costs here has an error. */
+.page[data-page="run"] .builder-status[data-state="costed"] {
+    color: var(--accent-orange); background: color-mix(in srgb, var(--accent-orange) 13%, transparent);
+}

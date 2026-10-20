@@ -2334,7 +2334,9 @@
     const knowing = el("run-worth-knowing");
     // The estimate, which carries the advice, can arrive after the checks.
     const status = el("run-status");
-    if (status && status.dataset.state === "ok") setStatus("ok", checksPass());
+    if (status && (status.dataset.state === "ok" || status.dataset.state === "costed")) {
+      setStatus(...checksPass());
+    }
     if (knowing) {
       knowing.replaceChildren();
       const advice = (state.estimate && state.estimate.ok && state.estimate.advisories) || [];
@@ -2629,9 +2631,19 @@
    * long for its constraints. */
   function checksPass() {
     const advice = (state.estimate && state.estimate.ok && state.estimate.advisories) || [];
-    return advice.length
+    const said = advice.length
       ? `Checks pass; ${advice.length === 1 ? "one thing" : advice.length + " things"} worth knowing`
       : "Checks pass";
+    // A cost that does not fit (What it costs here) is not a check of the
+    // Config passing: said apart, in its own colour. Run stays as it is.
+    const cost = (state.estimate && state.estimate.ok && Array.isArray(state.estimate.cost))
+      ? state.estimate.cost : [];
+    const errors = cost.filter((line) => line.level === "error");
+    if (!errors.length) return ["ok", said];
+    const kinds = errors.map((line) => (COST_KINDS[line.kind] || line.kind || "").toLowerCase());
+    return ["costed", "The Config's checks pass" + said.slice("Checks pass".length) + "; what it costs here has " +
+      (errors.length === 1 ? "an error" : errors.length + " errors") + " (" + kinds.join(", ") +
+      "), said under What it costs here"];
   }
 
   function setStatus(kind, said) {
@@ -2739,7 +2751,7 @@
         && !(state.estimate && state.estimate.ok)) redrawAnalyses();
     if (!ready()) return;
     if (built.ok) {
-      setStatus("ok", checksPass());
+      setStatus(...checksPass());
       const note = el("run-note");
       if (note && note.dataset.ok === "") note.textContent = "";
     } else {

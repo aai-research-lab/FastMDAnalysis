@@ -362,3 +362,48 @@ def test_one_count_of_frames_is_said_once(tmp_path):
               "simulation": {"duration_ns": 1, "timestep_fs": 2}}
     said = _disk(config)
     assert "over 2 runs: 2,000 frames a run, of 3,000 atoms" in said and "2,000 to 2,000" not in said
+
+
+def test_a_cost_error_is_not_said_as_checks_passing(tmp_path, monkeypatch):
+    """"Checks pass" stood beside "1 error" when the trajectory did not fit
+    the disk: the Config's checks and the cost's error are said apart.
+    Whether such an error holds Run is not decided here: Run is left as
+    the checks leave it."""
+    pytest.importorskip("playwright.sync_api")
+    import shutil as shutil_module
+    from collections import namedtuple
+
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.cost import calibrate
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    calibrate(particles=30_000, steps=5_000, seconds=42.0, platform_name="CPU", precision="mixed")
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil_module, "disk_usage", lambda where: usage(10_000, 9_000, 1_000))
+    path = tmp_path / "peptide.pdb"
+    path.write_text(_peptide(6) + "END\n", encoding="utf-8")
+    session = start_dashboard_session(output=str(tmp_path), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#run", wait_until="domcontentloaded")
+            page.wait_for_selector("#run-protocol-body .builder-field", state="attached")
+            page.click('#run-start .builder-start-card >> nth=0')
+            page.fill("#run-systems .builder-system-structure", str(path))
+            page.wait_for_function("() => document.querySelector("
+                                   "'#run-cost-lines .builder-cost-line[data-level=\"error\"]')")
+            page.wait_for_function("() => document.getElementById('run-status').dataset.state === 'costed'")
+            status = page.evaluate("""() => { const s = document.getElementById('run-status');
+                return [s.textContent, document.getElementById('run-start-button').disabled]; }""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert status[0].startswith("The Config's checks pass") and "has an error (disk)" in status[0], status
+    assert not status[0].startswith("Checks pass")
+    assert status[1] is False
