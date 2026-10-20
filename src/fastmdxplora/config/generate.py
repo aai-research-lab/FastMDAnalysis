@@ -52,8 +52,27 @@ def _format_value_for_yaml(value: Any) -> str:
     return str(value)
 
 
+#: Settings that say the same thing as another, or that cannot be given
+#: beside it, keyed by the one shown second. Each is written with a note
+#: naming the first, so a template uncommented line by line never offers two
+#: live choices for one setting: `include` and `exclude` uncommented
+#: together are refused, and `pressure_atm` beside `pressure_bar` loses to
+#: it without a word.
+_ONE_OR_THE_OTHER: dict[tuple[str, str], str] = {
+    ("(top-level)", "exclude_phase"): "include_phase",
+    ("setup", "force_field"): "forcefield",
+    ("setup", "keep_heterogens"): "heterogens",
+    ("simulation", "pressure_atm"): "pressure_bar",
+    ("simulation", "nvt_steps"): "nvt_duration_ns",
+    ("simulation", "npt_steps"): "npt_duration_ns",
+    ("simulation", "production_steps"): "duration_ns",
+    ("analysis", "exclude"): "include",
+    ("analysis", "selection"): "select_atoms",
+}
+
+
 def _field_template_lines(
-    fld: Field, *, commented: bool, indent: int = 2
+    fld: Field, *, commented: bool, indent: int = 2, phase: str = "(top-level)",
 ) -> list[str]:
     """Render one field as YAML lines: a help comment + the key.
 
@@ -66,20 +85,33 @@ def _field_template_lines(
     indent : int
         Number of leading spaces. Top-level fields use 0; fields inside a
         phase block use 2.
+    phase : str
+        The block the field is in, for the settings it is one of a pair in.
+
+    The help is written after ``## ``, so taking one ``# `` off a block to
+    use it leaves the help a comment: written after ``# ``, a help line such
+    as "Integrator: langevin_middle, ..." became a key of its own.
     """
     pad = " " * indent
-    lines = [f"{pad}# {fld.help}"]
+    lines = [f"{pad}## {fld.help}"]
 
     # The value shown: prefer the real default; fall back to the example
-    # when the default is None (so the line is illustrative).
+    # when the default is None (so the line is illustrative, and says so).
     shown = fld.default if fld.default is not None else fld.example
     value_str = _format_value_for_yaml(shown)
 
-    if fld.default is None and fld.example is not None:
-        lines[-1] += "  (default: phase default)"
+    notes: list[str] = []
+    if commented and fld.default is None and fld.example is not None:
+        notes.append("an example; unset by default")
+    other = _ONE_OR_THE_OTHER.get((phase, fld.name))
+    if other is not None:
+        notes.append(f"instead of {other}, not beside it")
 
     prefix = f"{pad}# " if commented else pad
-    lines.append(f"{prefix}{fld.name}: {value_str}")
+    line = f"{prefix}{fld.name}: {value_str}"
+    if notes:
+        line += "   # " + "; ".join(notes)
+    lines.append(line)
     return lines
 
 
@@ -104,7 +136,8 @@ def _phase_template_block(
         f"{header_prefix}{schema.name}:",
     ]
     for fld in schema.fields:
-        lines.extend(_field_template_lines(fld, commented=commented, indent=2))
+        lines.extend(_field_template_lines(fld, commented=commented, indent=2,
+                                           phase=schema.name))
     return lines
 
 
@@ -129,6 +162,7 @@ def generate_template(*, minimal: bool = False) -> str:
         "# default value and a one-line description. Options under each phase",
         "# block are commented out — uncomment the phase header and the options",
         "# you want to change; anything left commented uses the built-in default.",
+        "# A line after `## ` is help, and stays a comment when one `# ` is taken off.",
         "#",
         "# Run with:  fastmdx explore --config this_file.yml",
         "#",
@@ -152,10 +186,15 @@ def generate_template(*, minimal: bool = False) -> str:
         "# Project-level settings",
         "# ----------------------------------------------------------------------",
     ]
-    # Top-level scalars (output, verbose, include, exclude) at column 0.
+    # Top-level settings at column 0. Only `output` and the ones with a
+    # default are live; every other is commented out, so a template given a
+    # system and run states nothing nobody asked for. The provenance, the
+    # budget and the decisions were live with their examples: a study run
+    # from the template was recorded as drafted by an AI model, ran in
+    # stages under a 40 hour ceiling, and its report gave a reason for a pH
+    # it never set.
     for fld in TOP_LEVEL.fields:
-        # `exclude` stays commented because include/exclude are exclusive
-        commented = fld.name in ("exclude_phase",)
+        commented = fld.default is None and fld.name != "output"
         lines.extend(_field_template_lines(fld, commented=commented, indent=0))
 
     # Per-phase blocks: fully commented so the file is valid as-is
@@ -201,7 +240,7 @@ def _minimal_template() -> str:
         "\n"
         "systems:\n"
         "  - id: protein1\n"
-        "    system: protein.pdb      # PDB/CIF path, 4-char PDB ID, or sequence\n"
+        "    system: protein.pdb      # PDB/CIF path, or a 4-char PDB ID\n"
         "\n"
         "output: ./my_study\n"
         "\n"
