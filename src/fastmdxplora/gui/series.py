@@ -35,6 +35,8 @@ SERIES: dict[str, tuple[str, str]] = {
     "qvalue": ("Fraction of native contacts", "time"),
     "ligand_rmsd": ("Ligand RMSD", "time"),
     "rmsf": ("RMSF", "residue"),
+    # Backbone N-H generalised order parameters, one a residue (unitless).
+    "order_parameters": ("Order parameter S\u00b2", "residue"),
 }
 
 #: More points than a line on a page can show; a longer series is thinned

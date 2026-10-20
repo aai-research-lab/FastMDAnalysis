@@ -636,3 +636,54 @@ def test_a_key_or_a_drag_never_takes_a_plot_past_its_run(study):
     assert back and back["from"] >= -1e-9, back
     assert out == ["", None]
     assert corner and max(r[0] for r in corner) == 9 and max(r[1] for r in corner) == 9
+
+
+def test_the_backbone_order_parameters_are_a_plot_with_its_tools(study, tmp_path):
+    """Of an analysed study's figures, the backbone order parameters were
+    the one picture without zoom, SVG, PNG or CSV: its table is one value a
+    residue, as RMSF's, and it is drawn as RMSF is."""
+    pytest.importorskip("playwright.sync_api")
+    import json
+    import shutil
+
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    root = tmp_path / "study"
+    shutil.copytree(study, root)
+    folder = root / "analysis" / "order_parameters"
+    folder.mkdir()
+    (folder / "order_parameters.dat").write_text(
+        "# order_parameters: whitespace-delimited, no column header.\n"
+        + "".join(f"{r:.8e} {0.6 + 0.01 * r:.8e}\n" for r in range(2, 12)), encoding="utf-8")
+    (folder / "order_parameters.png").write_bytes((root / "analysis" / "rmsd" / "rmsd.png").read_bytes())
+    (folder / "options.json").write_text(json.dumps(
+        {"analysis": "order_parameters", "findings": {"order_parameters": {"vectors": 10}}}),
+        encoding="utf-8")
+    manifest = json.loads((root / "analysis" / "analysis_manifest.json").read_text(encoding="utf-8"))
+    manifest["plan"] = list(manifest.get("plan") or []) + ["order_parameters"]
+    manifest.setdefault("results", {})["order_parameters"] = {
+        "name": "order_parameters", "status": "ok", "output_dir": str(folder),
+        "figure_path": str(folder / "order_parameters.png"),
+        "data_path": str(folder / "order_parameters.dat"),
+        "options_path": str(folder / "options.json")}
+    (root / "analysis" / "analysis_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    chart = '.series-chart[data-analysis="order_parameters"]'
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector(chart + " .plot-tools")
+            page.locator(chart + " svg").scroll_into_view_if_needed()
+            with page.expect_download() as got:
+                page.click(chart + ' .plot-tool:text("CSV")')
+            rows = Path(got.value.path()).read_text(encoding="utf-8").splitlines()
+            focusable = page.evaluate(f"() => document.querySelector('{chart} svg').getAttribute('tabindex')")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert rows[0] == "residue,order_parameters" and len(rows) == 11 and rows[1].startswith("2,")
+    assert focusable == "0"
