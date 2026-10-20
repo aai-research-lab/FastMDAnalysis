@@ -580,7 +580,8 @@ class TestASegmentStillMovingIsSaidToBe:
         refusal = refusal_of(why)
         assert refusal.code == "analysis.sampling.still_drifting"
         assert "(numbered 1 from zero)" in str(why)
-        assert set(refusal.details) <= {"frames", "drift_in_spread", "needed"}
+        assert set(refusal.details) <= {"frames", "drift_in_spread",
+                                        "trend_in_errors", "needed"}
 
 
 class TestTheReportKeepsTheJoinsOnTheirFrames:

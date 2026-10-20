@@ -148,8 +148,9 @@ MEAN_RULES = 3
 #: one spread over half the run, every mean was determined and its median
 #: five errors from the value the decay was heading to. Judged against the
 #: trend's error it is withheld in about two of five such runs, and a
-#: stationary series in about one in a hundred (P(|z| >= 2.5) is 1.2% for a
-#: long one; fewer for a short one, whose error is read wide); a run
+#: stationary series in about one in a hundred (measured 0.1% to 1.7%,
+#: fewer for a short series, whose trend's error is read wide; P(|z| >=
+#: 2.5) is 1.2%); a run
 #: extended until it is determined is asked again at each look (counted in
 #: ``preregistration/stopping-calibration.md``, the third remedy). It
 #: lowers how often a wrong mean is given; it does not make the ones still
@@ -521,17 +522,19 @@ def _trend(values: np.ndarray, inefficiency: float) -> "tuple[float, float]":
     """The least-squares slope of ``values`` against frame number, and its
     error with the residuals taken as correlated over ``inefficiency``
     frames: ``sqrt(g var(r) / sum (t - t_bar)^2)``. In closed form, from
-    the sums the slope needs, so it costs one pass over the series. NaN for
-    the error where there are fewer than three values or none vary."""
+    the sums the slope needs, so it costs one pass over the series. The
+    error is NaN for fewer than three values, and zero where none vary."""
     n = values.size
     if n < 3:
         return 0.0, float("nan")
     t = np.arange(n, dtype=float) - 0.5 * (n - 1)
     spread = n * (n * n - 1.0) / 12.0
     centred = values - values.mean()
-    slope = float(np.dot(t, centred)) / spread
+    # Sums rather than dot products: a dot product runs on every BLAS thread,
+    # and the convergence view asks this for fifty prefixes of a series.
+    slope = float(np.sum(t * centred)) / spread
     # Residual sum of squares: sum c^2 - slope^2 sum t^2.
-    left = max(float(np.dot(centred, centred)) - slope * slope * spread, 0.0)
+    left = max(float(np.sum(centred * centred)) - slope * slope * spread, 0.0)
     variance = left / (n - 2)
     return slope, float(np.sqrt(max(float(inefficiency), 1.0) * variance / spread))
 
@@ -665,12 +668,14 @@ def _summary(
         )
 
     drift = drift_in_spread(kept)
-    trend = trend_in_errors(kept, g)
+    slope, slope_error = _trend(kept, g) if kept.size >= DRIFT_FRAMES else (0.0, float("nan"))
+    trend = (slope / slope_error
+             if np.isfinite(slope_error) and slope_error > 0.0 else 0.0)
     if kept.size >= DRIFT_FRAMES and abs(trend) >= DRIFT_IN_ERRORS \
             and abs(drift) < DRIFT_IN_SPREAD:
         import dataclasses
 
-        change = _trend(kept, g)[0] * (kept.size - 1)
+        change = slope * (kept.size - 1)
         return dataclasses.replace(equilibrated, standard_error=float("nan")), Withholding(
             f"Still drifting after its equilibration: over the {kept.size} frames "
             f"averaged the series moves steadily, by {change:+.4g} from first to "
@@ -1166,20 +1171,29 @@ def summarise_segments(
     moving = [(index, why) for index, ok, why in zip(kept_at, resolved, reasons)
               if not ok and _code_of(why) == "analysis.sampling.still_drifting"]
     if moving:
-        drift = max((abs(float(why.refusal.details.get("drift_in_spread", 0.0)))
-                     for _index, why in moving), default=0.0)
+        details = [why.refusal.details for _index, why in moving]
+        drift = max(abs(float(d.get("drift_in_spread", 0.0))) for d in details)
+        trends = [abs(float(d["trend_in_errors"])) for d in details
+                  if "trend_in_errors" in d]
+        by_spread = drift >= DRIFT_IN_SPREAD
+        how = (f"the last third of one differs from its first by "
+               f"{drift:.1f} times their spread" if by_spread else
+               f"one trends by {max(trends):.1f} times the trend's own error"
+               if trends else "their frames still move one way")
         return None, Withholding(
             f"{len(moving)} of {len(pieces)} segments of this joined run are "
             f"still drifting within themselves (numbered "
-            f"{', '.join(str(i) for i, _why in moving)} from zero): the last third "
-            f"of each differs from its first third by at least "
-            f"{DRIFT_IN_SPREAD:g} times their spread. A mean of a quantity "
+            f"{', '.join(str(i) for i, _why in moving)} from zero): {how}. Each "
+            "segment is judged on its own, so a run of many stationary ones is "
+            "now and then withheld for one of them. A mean of a quantity "
             "still moving describes where the run happened to stop, not a "
             "state, and pooling such segments would give that a confident "
             "error. The remedy is a longer run.",
             code="analysis.sampling.still_drifting",
             frames=int(values.size), drift_in_spread=round(drift, 2),
-            needed=DRIFT_IN_SPREAD,
+            **({} if by_spread or not trends
+               else {"trend_in_errors": round(max(trends), 2)}),
+            needed=DRIFT_IN_SPREAD if by_spread else DRIFT_IN_ERRORS,
         )
 
     if not resolved.all():

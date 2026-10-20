@@ -113,3 +113,32 @@ class TestTheReportGivesItOneVerdict:
         assessment = assess_series("rmsd", series)
         assert assessment.has_equilibrated is False
         assert not assessment.is_determined
+
+
+class TestAJoinedRunSaysItToo:
+    def test_a_segment_withheld_for_its_trend_is_said_to_drift(self) -> None:
+        # Its NaN error read as an unresolved correlation, "longer segments"
+        # its remedy, and the report called the run equilibrated.
+        from fastmdxplora.report.convergence import assess_series
+        from fastmdxplora.statistics import summarise_segments
+
+        rng = np.random.default_rng(7)
+        n = int(500 * INEFFICIENCY)
+        for _ in range(40):
+            moving = _relaxing(n, rng, amplitude=1.5)
+            _mean, why = summarise(moving)
+            if why is not None and refusal_of(why).code == \
+                    "analysis.sampling.still_drifting":
+                break
+        else:
+            pytest.fail("no relaxation was withheld")
+        series = np.concatenate([_ar1(n, rng), moving, _ar1(n, rng)])
+        joins = [n, 2 * n]
+        pooled, why = summarise_segments(series, joins)
+        assert pooled is None
+        refusal = refusal_of(why)
+        assert refusal.code == "analysis.sampling.still_drifting"
+        # Its details say the cause: a trend against its error.
+        assert refusal.details["needed"] == DRIFT_IN_ERRORS
+        assert refusal.details["trend_in_errors"] >= DRIFT_IN_ERRORS
+        assert assess_series("rmsd", series, joins=joins).has_equilibrated is False

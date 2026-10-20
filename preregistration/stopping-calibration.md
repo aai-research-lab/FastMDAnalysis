@@ -484,9 +484,17 @@ the two cases were added to measure that, not to show the remedy works.
 ### Counted on the registered set
 
 Study indices 0 to 999 (0 to 499 for the cases of 500 studies) and 0 to 499
-for the check, with the remedy, and with today's `main` (`edc75f8e`, before
-it) on the same seeds, because the counts of 2026-10-01 above predate other
-changes and are not the same code. Every study is in
+for the check, with the remedy, and with `main` as it was on 2026-10-18
+(`edc75f8e`, before it) on the same seeds, because the counts of 2026-10-01
+above predate other changes and are not the same code. *(Noted 2026-10-20:
+this section and the remedy were committed on 2026-10-18 as `5ed474d` on
+`edc75f8e`, in the Physics session's copy, and the held-out set was counted
+with that commit. It reaches GitHub carried onto later commits by rebase,
+which changed its hash and nothing on the path counted: the commits
+between touch none of `simulation/stopping.py`,
+`validation/stopping_calibration.py` or `refusals.py`, and in
+`statistics.py` only the reading of joined runs (`summarise_segments` and
+its drift test), which neither the stopping rule nor the check calls.)* Every study is in
 [`stopping-calibration-trend-registered.json`](stopping-calibration-trend-registered.json)
 (the remedy) and
 [`stopping-calibration-trend-baseline.json`](stopping-calibration-trend-baseline.json)
@@ -548,7 +556,14 @@ from the asymptote 5.1 errors before and 4.6 after). A slow oscillation, or
 a slow stationary mode carrying a few percent of the variance, also trends
 across one window, and is withheld under the same code in 7% to 37% of
 runs; withholding is right there (the errors given were not), the label
-"still drifting" less so.
+"still drifting" less so. For a slow oscillation the means still given are
+worse centred than before (half a period over a run 500 inefficiencies
+long: 40.7% withheld, the truth within two errors of the rest in 4.0%, from
+13.8% of all before), because the runs withheld are those whose window
+crossed the middle of the swing. A run read as joined segments
+(`summarise_segments`) has each segment judged on its own, and is withheld
+when one is: stationary runs of 3 to 10 segments were withheld for a
+segment's trend in 1.3% to 7% of cases in review, against none before.
 
 **The check.** A stationary series is withheld for any reason, with the
 remedy against today's `main`: the fast series at 50, 100 and 250 times its
@@ -571,8 +586,9 @@ results are reported, whichever way they go.
 ### Result on the third held-out set
 
 **Counted 2026-10-20**, after the section above was committed, with that
-code (`5ed474d`; the commit after it reads a withheld mean in the report and
-computes the trend in one pass, with the same numbers to rounding): study
+code (`5ed474d`, see the note above; the commit after it reads a withheld
+mean in the report and computes the trend in one pass, with the same numbers
+to rounding): study
 indices 3000 to 3999 (1500 to 1999 for the cases of 500 studies), 1000 to
 1999 for the two slow transients and 1000 to 1499 for the check. Every study
 is in

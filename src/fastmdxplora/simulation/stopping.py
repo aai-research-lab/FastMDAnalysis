@@ -818,7 +818,7 @@ def stopping_section(root: str | Path) -> list[str]:
             "in the error, and neither is a relaxation slower than the runs that they all "
             "began from: on series relaxing over 30 ns from 3 standard deviations away, "
             "studies stopped near 40-60 ns with the truth inside two of their errors in "
-            "fewer than 2 in 100, alone or as replicas from one structure. Runs from "
+            "fewer than 3 in 100, alone or as replicas from one structure. Runs from "
             "different structures are what show it.", ""]
     return lines
 
