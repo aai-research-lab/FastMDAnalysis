@@ -646,3 +646,56 @@ def test_a_first_read_in_use_is_kept_however_old(tmp_path):
     for k in range(report_page._FIRST_READS_KEPT + 5):
         report_page._kept(f"k{k}", {"numbers": {}})
     assert len(report_page._FIRST_READ) == report_page._FIRST_READS_KEPT
+
+
+def test_a_section_and_a_record_opened_by_the_keyboard_are_in_sight(tmp_path):
+    """A heading gone to from the outline sat under the page's title bar; a
+    card's Open the record left the card open, cut by the panel it opened;
+    Tab past the card's last button left it open over the report."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    root = _written(tmp_path, "tri")
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#report", wait_until="domcontentloaded")
+            page.wait_for_selector("#report-outline .outline-item", state="attached")
+            page.evaluate("() => window.FastMDXFrame.setCollapsed(true)")
+            page.wait_for_function("() => getComputedStyle(document.getElementById("
+                                   "'report-layout')).display === 'grid'")
+            page.locator('#report-outline .outline-item:has-text("Thermodynamics")').focus()
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(300)
+            sight = page.evaluate("""() => {
+                const h = document.activeElement, bar = document.querySelector(
+                    '.page[data-page="report"] .page-header');
+                return [h.tagName, h.getBoundingClientRect().top, bar.getBoundingClientRect().bottom];
+            }""")
+            number = page.locator('#report-document .report-number:text-is("1,409")').first
+            number.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".report-number-card")
+            for _ in range(4):
+                page.keyboard.press("Tab")
+            tabbed = page.evaluate("() => !!document.querySelector('.report-number-card')")
+            number.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".report-number-card")
+            page.click('.report-number-card .plot-tool:text("Open the record")')
+            opened = page.evaluate("""() => [!!document.querySelector('.report-number-card'),
+                document.activeElement.textContent]""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert sight[0] == "H3" and sight[1] >= sight[2] - 1, sight
+    assert tabbed is False
+    assert opened == [False, "1,409"]

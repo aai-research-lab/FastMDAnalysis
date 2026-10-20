@@ -44,8 +44,24 @@
    * is in sight, though the report's end cannot scroll it to the top. */
   var chosen = null;
 
+  /* The bars held at the top of what scrolls (the page's title bar) are
+   * not where a heading gone to may sit: it stops below them. */
+  function scroller(node) {
+    for (var n = node.parentElement; n; n = n.parentElement) {
+      var y = getComputedStyle(n).overflowY;
+      if ((y === "auto" || y === "scroll") && n.scrollHeight > n.clientHeight) return n;
+    }
+    return null;
+  }
+
   function go(heading) {
     chosen = heading;
+    var header = document.querySelector('.page[data-page="report"] .page-header');
+    var box = scroller(heading);
+    if (header && getComputedStyle(header).position === "sticky") {
+      var top = box ? box.getBoundingClientRect().top : 0;
+      heading.style.scrollMarginTop = Math.max(0, header.getBoundingClientRect().bottom - top + 8) + "px";
+    }
     heading.scrollIntoView({ block: "start" });
     mark(heading);
   }
@@ -264,11 +280,17 @@
     return line;
   }
 
-  function opener(file, words) {
+  /* The record opened in the side panel; the card closes, its number
+   * keeping the keyboard, as the panel it opens narrows the report. */
+  function opener(file, words, span) {
     if (!(window.FastMDXFrame && window.FastMDXFrame.previewPath)) return null;
     var show = make("button", "plot-tool", words);
     show.type = "button";
-    show.addEventListener("click", function () { window.FastMDXFrame.previewPath(file); });
+    show.addEventListener("click", function () {
+      close();
+      span.focus({ preventScroll: true });
+      window.FastMDXFrame.previewPath(file);
+    });
     return show;
   }
 
@@ -305,7 +327,7 @@
       if (found.also && found.also.length) {
         card.appendChild(make("p", "muted", "The same setting is kept in " + found.also.join(", ") + "."));
       }
-      var one = opener(record.file, "Open the record");
+      var one = opener(record.file, "Open the record", span);
       if (one) card.appendChild(one);
     } else if (state === "several") {
       var many = found.candidates_count || found.candidates.length;
@@ -313,7 +335,7 @@
         "said, so none is picked:"));
       found.candidates.forEach(function (candidate) {
         card.appendChild(where(candidate));
-        var each = opener(candidate.file, "Open " + candidate.file.split("/").slice(-3).join("/"));
+        var each = opener(candidate.file, "Open " + candidate.file.split("/").slice(-3).join("/"), span);
         if (each) card.appendChild(each);
       });
     } else if (state === "unread") {
@@ -345,6 +367,11 @@
     span.setAttribute("aria-expanded", "true");
     card.scrollIntoView({ block: "nearest", behavior: "instant" });
     card.focus({ preventScroll: true });
+    // Tab past its last button closes it, as a menu closes.
+    card.addEventListener("focusout", function (event) {
+      var to = event.relatedTarget;
+      if (to && card && !card.contains(to)) close();
+    });
   }
 
   document.addEventListener("click", function (event) {
