@@ -2042,6 +2042,12 @@ def _cmd_explore(args: argparse.Namespace) -> int:
             return 2
         return 0
 
+    if getattr(args, "dry_run", False):
+        # What a dry run can say without building anything: a system setup
+        # could not read, and a selection MDTraj could not parse. Both passed
+        # it before and were found only when setup or analysis reached them.
+        _refuse_what_a_dry_run_can_see(config)
+
     fmdx = FastMDXplora(
         config_data=config,
         output_dir=args.output_dir,
@@ -2069,8 +2075,15 @@ def _cmd_explore(args: argparse.Namespace) -> int:
             session.stop()
         raise
 
-    # Dry run: the plan was printed; nothing executed.
+    # Dry run: the plan was printed; nothing executed. What the GUI's Check
+    # it says is worth knowing is said here too.
     if getattr(args, "dry_run", False):
+        knowing = _worth_knowing(config)
+        if knowing:
+            print()
+            print("Worth knowing before it runs:")
+            for line in knowing:
+                print(f"  {line}")
         return 0
 
     # Some of a study's phases ran again: its record still runs it whole.
@@ -2086,6 +2099,16 @@ def _cmd_explore(args: argparse.Namespace) -> int:
         # Stopped at the terminal: the study wrote where it stopped and
         # what carries it on, and the shell is told it was interrupted.
         rc = 130
+    failed = _analyses_asked_for_that_failed(config, results)
+    if failed:
+        # The analysis phase finishes when one of its analyses fails, and
+        # the run did, with exit 0: a study whose RMSD selection could not be
+        # parsed said "analysis complete" and succeeded with no RMSD in it.
+        print("fastmdx: " + ("an analysis" if len(failed) == 1 else
+                             f"{len(failed)} analyses")
+              + " the study asked for failed: " + "; ".join(failed) + ".",
+              file=sys.stderr)
+        rc = rc or 1
     if len(results) == 1:
         if rc and not results[0].phases and results[0].message:
             # Stopped before any phase ran, which no phase has said.
@@ -2105,6 +2128,166 @@ def _cmd_explore(args: argparse.Namespace) -> int:
         print(f"Manifest:       {fmdx.output_dir / 'manifest.json'}")
     _finish_dashboard_for_command(session, args)
     return rc
+
+
+def _phases_planned(config: dict[str, Any]) -> list[str]:
+    """The phases a config runs, as the orchestrator reads its lists."""
+    every = ["setup", "simulation", "analysis", "report"]
+    include = config.get("include_phase") or config.get("include")
+    if include:
+        return [str(p) for p in include]
+    exclude = {str(p) for p in (config.get("exclude_phase") or config.get("exclude") or [])}
+    return [p for p in every if p not in exclude]
+
+
+def _selections_in(config: dict[str, Any]) -> list[tuple[str, str]]:
+    """Every MDTraj selection a config writes, with the setting it is in:
+    the analyses' own, each analysis's in `analysis.options`, the atoms the
+    trajectory keeps, the same in each system entry's blocks."""
+    found: list[tuple[str, str]] = []
+
+    def blocks(where: str, holder: dict[str, Any]) -> None:
+        analysis = holder.get("analysis")
+        if isinstance(analysis, dict):
+            for key in ("select_atoms", "selection"):
+                if isinstance(analysis.get(key), str):
+                    found.append((f"{where}analysis.{key}", analysis[key]))
+            options = analysis.get("options")
+            if isinstance(options, dict):
+                for name, given in options.items():
+                    if not isinstance(given, dict):
+                        continue
+                    for key, value in given.items():
+                        if (isinstance(value, str)
+                                and (key.startswith("select") or key.endswith("selection"))):
+                            found.append(
+                                (f"{where}analysis.options.{name}.{key}", value))
+        simulation = holder.get("simulation")
+        if isinstance(simulation, dict) and isinstance(
+                simulation.get("save_selection"), str):
+            found.append((f"{where}simulation.save_selection",
+                          simulation["save_selection"]))
+
+    blocks("", config)
+    for entry in config.get("systems") or []:
+        if isinstance(entry, dict):
+            blocks(f"systems[{entry.get('id') or entry.get('system')}].", entry)
+    return found
+
+
+def _refuse_what_a_dry_run_can_see(config: dict[str, Any]) -> None:
+    """Raise, as a Config error, what a dry run can find without building
+    anything: a system setup cannot read, and a selection MDTraj cannot
+    parse. Each was said only when setup or the analysis reached it."""
+    from fastmdxplora.config import ConfigError
+
+    if "setup" in _phases_planned(config):
+        from fastmdxplora.refusals import CodedError
+        from fastmdxplora.setup.pipeline import _classify_input
+
+        for entry in config.get("systems") or []:
+            system = entry.get("system") if isinstance(entry, dict) else entry
+            if system is None:
+                continue
+            try:
+                form = _classify_input(str(system))
+            except CodedError as exc:
+                raise ConfigError(str(exc), code=exc.code or "setup.input.unrecognised",
+                                  given=str(system)) from exc
+            if form == "sequence":
+                raise ConfigError(
+                    f"System {system!r} reads as an amino-acid sequence, and a "
+                    "structure cannot be built from a sequence here: that needs a "
+                    "structure predictor, which this software does not carry. "
+                    "Predict the structure first and give its file, or give a "
+                    "4-character PDB ID for a deposited structure.",
+                    code="environment.backend.missing", given=str(system))
+
+    import mdtraj as md
+
+    empty = md.Topology()
+    for setting, selection in _selections_in(config):
+        try:
+            empty.select(selection)
+        except Exception as exc:  # noqa: BLE001 - MDTraj's parser says why
+            raise ConfigError(
+                f"{setting}: {selection!r} is not an MDTraj selection ({exc}). "
+                "Write it in MDTraj's selection language, for example "
+                "'protein and name CA'; `fastmdx select` shows what one matches.",
+                code="config.option.not_permitted", option=setting,
+                given=selection) from exc
+
+
+def _worth_knowing(config: dict[str, Any]) -> list[str]:
+    """What the GUI's Check it says is worth knowing about a config, each
+    with what to do about it, read from the same function."""
+    from fastmdxplora.advisories import advise
+
+    holders = [config] + [e for e in config.get("systems") or [] if isinstance(e, dict)]
+    said: list[str] = []
+    for holder in holders:
+        settings: dict[str, Any] = {}
+        for source in (config, holder):
+            for phase in ("setup", "simulation"):
+                block = source.get(phase)
+                if isinstance(block, dict):
+                    settings.update(block)
+        try:
+            found = advise({}, settings)
+        except Exception:  # noqa: BLE001 - advice, never a verdict
+            continue
+        for advisory in found:
+            line = " ".join(str(part).strip() for part in
+                            (f"({advisory.setting})", advisory.summary, advisory.remedy)
+                            if part)
+            if line not in said:
+                said.append(line)
+    return said
+
+
+def _analyses_asked_for_that_failed(config: dict[str, Any],
+                                    results: list[Any]) -> list[str]:
+    """Each analysis the study asked for that ran and failed, with why.
+
+    Asked for: named in `analysis.include`, given options in
+    `analysis.options`, or reading the atoms `analysis.select_atoms` names.
+    An analysis of the default plan that a short run cannot support (too few
+    frames to cluster) is said in its own row and is not a failure of the
+    run; one the study chose and could not have is.
+    """
+    import json
+
+    analysis = config.get("analysis") if isinstance(config.get("analysis"), dict) else {}
+    named = {str(n) for n in (analysis.get("include") or [])}
+    named |= {str(n) for n in (analysis.get("options") or {})}
+    selected = bool(analysis.get("select_atoms") or analysis.get("selection"))
+
+    def honours_selection(name: str) -> bool:
+        try:
+            from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+            return bool(getattr(get_analysis_class(name), "honours_selection", True))
+        except Exception:  # noqa: BLE001 - an analysis this version lacks
+            return False
+
+    failed: list[str] = []
+    for run in results:
+        folder = getattr(run, "output_dir", None)
+        if folder is None:
+            continue
+        try:
+            record = json.loads((Path(folder) / "analysis" / "analysis_manifest.json")
+                                .read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for name, result in (record.get("results") or {}).items():
+            if not isinstance(result, dict) or result.get("status") != "error":
+                continue
+            if name in named or (selected and honours_selection(name)):
+                why = str(result.get("message") or "").removeprefix(f"{name}: ").strip()
+                where = f" in {run.run_id}" if len(results) > 1 else ""
+                failed.append(f"{name}{where} ({why})" if why else f"{name}{where}")
+    return failed
 
 
 def _stopped_by_ctrl_c(results: list[Any]) -> bool:
@@ -2963,7 +3146,17 @@ def _cmd_config(args: argparse.Namespace) -> int:
         return 2
 
     text = generate_template(minimal=args.minimal)
-    out_path.write_text(text, encoding="utf-8")
+    try:
+        out_path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        # A folder that is not there, one that cannot be written, a name
+        # that is a folder: said in one line, as a file that exists is.
+        print(
+            f"fastmdx: cannot write {out_path}: {exc.strerror or type(exc).__name__}. "
+            f"Choose a file in a folder that exists with -f.",
+            file=sys.stderr,
+        )
+        return 2
     kind = "minimal" if args.minimal else "comprehensive"
     print(f"Wrote {kind} config template to {out_path}")
     print(f"Edit it, then run:  fastmdx explore --config {out_path}")
