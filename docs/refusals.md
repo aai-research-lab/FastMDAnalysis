@@ -300,8 +300,10 @@ A few you are likely to meet, and what each means.
 | `config.option.unknown` | A setting name the schema does not have. The message names the nearest match |
 | `config.option.not_permitted` | A value outside a setting's choices. The full legal set is in the message |
 | `config.option.out_of_range` | A number the quantity cannot be — a pH of 25, salt at 150 M |
-| `config.option.conflicting` | Two settings that cannot both be given — `include` with `exclude`, `forcefield` with `force_field` |
+| `config.option.conflicting` | Two settings that cannot both be given: `include_phase` with `exclude_phase`, `forcefield` with `force_field`, `include` with an `include_phase` that says otherwise, a system's own value of a setting the study sweeps, a trajectory interval longer than production, `last` at or before `first`, two systems with one `id` |
 | `config.option.missing_companion` | A setting that needs another one. Most often: no `systems:` list |
+| `batch.sweep.invalid` | A sweep that does not describe a set of runs, such as an axis giving one value twice. The message names the axis |
+| `simulation.run.engine_failed` | A step stopped on an error that is not an unstable state, such as a reporter's setting. The error is quoted as OpenMM or Python gave it |
 | `setup.structure.undetermined` | The structure does not determine what to simulate. Usually a ligand whose chemistry could not be looked up — supply an SDF |
 | `setup.chemistry.protonation_undetermined` | A ligand's pKa sits inside the pH margin. A decision about the science |
 | `environment.path.exists` | The output directory already holds results: `--force-overwrite` if you mean to, or another output. Sending to a machine, `--force-overwrite` is itself refused while the job of that name is still waiting or running (here, on another machine, or in a cluster's queue), or while a process works in its folder: wait for it or cancel it, or give another `--output`. See [Remote machines](remote.md#sending-a-study) |

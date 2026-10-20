@@ -20,24 +20,26 @@ For the flag spelling of any setting below, see
 
 ---
 
-## Top level — 7 settings
+## Top level — 9 settings
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `output` | str | `./fastmdxplora_<system>_study_<UTC timestamp>` | Where everything goes |
-| `include` | list | all four | Phases to run: `setup`, `simulation`, `analysis`, `report` |
-| `exclude` | list | — | Phases to skip. Mutually exclusive with `include` |
+| `include_phase` | list | all four | Phases to run: `setup`, `simulation`, `analysis`, `report`. Written earlier as `include`, still read |
+| `exclude_phase` | list | — | Phases to skip. Mutually exclusive with `include_phase`; written earlier as `exclude`, still read |
 | `explain` | bool | `true` | Say why each step is happening, as it happens |
 | `verbose` | bool | `false` | Stream debug logging to the terminal |
 | `agent` | str | — | `assisted`, `autonomous`, `unvalidated` — see [the Agent](agent.md) |
 | `agent_model` | str | — | Which AI model wrote it, as `provider/model` |
+| `budget_hours` | float | — | A ceiling on GPU hours for the whole study, checked after setup; required for `agent: autonomous` |
+| `decisions` | mapping | — | Why a setting has its value, by its dotted name: `why`, and optionally `source` and `alternatives`. A record; no run reads it |
 
 `systems`, `sweep` and `execution` are also top-level; they are described in
 [The FastMDXplora Config](config.md).
 
 ---
 
-## `setup` — 47 settings
+## `setup` — 48 settings
 
 ### How this phase was written
 
@@ -127,7 +129,7 @@ cube's volume, so about a third of the water a cube would need is saved.
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `forcefield` | str | `auto` | `auto`, `amber-fb15`, `amber-openff`, `amber14`, `charmm36` |
-| `force_field` | list | — | Raw OpenMM XML file(s). Overrides `forcefield` |
+| `force_field` | list | — | Raw OpenMM XML file(s), in place of `forcefield`: give one or the other, or the list the name resolves to beside it (as `resolved_config.yml` records them) |
 | `constraints` | str | `HBonds` | `None`, `HBonds`, `AllBonds` or `HAngles` |
 | `rigid_water` | bool | `true` | Constrain water bond lengths and angles |
 | `hydrogen_mass_amu` | int or float | off | Hydrogen-mass repartitioning, which allows a longer timestep |
@@ -339,7 +341,7 @@ Nothing leaves the machine: these are files in the run directory that the
 
 ---
 
-## `analysis` — 13 settings
+## `analysis` — 14 settings
 
 ### How this phase was written
 
