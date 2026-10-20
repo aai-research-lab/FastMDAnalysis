@@ -441,3 +441,22 @@ class TestInTheBuilder:
                                ".includes('held by the test')")
         assert sent == [{"path": str(path)}], sent
         page.context.close()
+
+    def test_a_timestep_of_zero_is_refused_on_its_box(self, browser, home_gui) -> None:
+        """The schema refuses a timestep of 0; the box let it through to the server."""
+        _, _, url = home_gui
+        page = _builder(browser, url)
+        _type(page, "#set-simulation-timestep_fs", "0")
+        page.wait_for_function(
+            "() => !document.querySelector('#set-simulation-timestep_fs')"
+            ".closest('.builder-field, label, div').querySelector('.builder-limit').hidden")
+        said = page.evaluate(
+            "() => document.querySelector('#set-simulation-timestep_fs')"
+            ".closest('.builder-field, label, div').querySelector('.builder-limit').textContent")
+        assert "more than 0" in said, said
+        _type(page, "#set-simulation-timestep_fs", "2")
+        page.wait_for_function(
+            "() => document.querySelector('#set-simulation-timestep_fs')"
+            ".closest('.builder-field, label, div').querySelector('.builder-limit').hidden")
+        assert not page.errors
+        page.context.close()

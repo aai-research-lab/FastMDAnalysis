@@ -826,7 +826,9 @@
       const number = Number(value);
       const low = field.minimum, high = field.maximum;
       const unit = field.unit ? " " + field.unit : "";
-      if (isNaN(number)) problem = `${field.label} is a number.`;
+      const above = field.exclusive_minimum && low !== null && low !== undefined;
+      if (isNaN(number) || !isFinite(number)) problem = `${field.label} is a number.`;
+      else if (above && number <= low) problem = `${field.label} is more than ${low}${unit}.`;
       else if (low !== null && low !== undefined && high !== null && high !== undefined
                && (number < low || number > high)) problem = `${field.label} runs from ${low} to ${high}${unit}.`;
       else if (low !== null && low !== undefined && number < low) problem = `${field.label} is at least ${low}${unit}.`;

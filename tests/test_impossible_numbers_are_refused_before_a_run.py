@@ -137,3 +137,21 @@ class AnErrorThatIsNotInstabilityIsNotCalledOne(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_one_worker_is_said_as_one(tmp_path, capsys) -> None:
+    """The dry run said "parallel (1 workers)"."""
+    from fastmdxplora.batch.explorer import BatchExplorer
+
+    structure = tmp_path / "protein.pdb"
+    structure.write_text(
+        "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+        "END\n", encoding="utf-8")
+    BatchExplorer(config_data={
+        "output": str(tmp_path / "out"),
+        "systems": [{"id": "a", "system": str(structure)}],
+        "sweep": {"simulation.random_seed": [1, 2]},
+        "execution": {"mode": "parallel", "workers": 1},
+    }).dry_run()
+    said = capsys.readouterr().out
+    assert "parallel (1 worker)" in said, said

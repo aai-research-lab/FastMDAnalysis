@@ -2560,7 +2560,8 @@ class BatchExplorer:
             if setups and setups[0][1]:
                 print(f"  setup:   {setups[0][1]}")
         if self.mode == "parallel":
-            print(f"  mode:    parallel ({self._resolve_workers()} workers"
+            workers = self._resolve_workers()
+            print(f"  mode:    parallel ({workers} worker{'' if workers == 1 else 's'}"
                   + (f", devices={self.devices}" if self.devices else "") + ")")
             shared = self._devices_shared()
             if shared:
