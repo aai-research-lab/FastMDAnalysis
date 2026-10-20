@@ -49,11 +49,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - A running study is named in the tab's title and its end notice from its
   first status, even where its results are not read with it; the name is
   read from the study's own manifest, and one linked out of it is not read:
-  the study is named by its folder, as its results name it. A study started from the Config Builder leaves no draft of
-  itself for the page opened next. A conversation a run took to its study
-  is not the one written in by a page still on the study it was started
-  from (opened there again elsewhere as the run started): that page shows
-  its own study's conversation.
+  the study is named by its folder, as its results name it. A study with no
+  manifest yet (a run just started) is named by its folder, not by the
+  system of the study shown before it. A study started from the Config
+  Builder leaves no draft of itself for the page opened next. A conversation
+  a run took to its study is not the one written in by a page still on the
+  study it was started from (opened there again elsewhere as the run
+  started): that page shows its own study's conversation.
 
 ### Added
 

@@ -744,6 +744,9 @@
 
   function resetRunDependentState() {
     state.outputDir = "";
+    // The study's system: another study's named a folder with no manifest
+    // (a run just started) by that study's system.
+    state.runId = "";
     // Another study's cards can have the same paths as this one's.
     state.analysisSectionsKey = "";
     state.status = {};
