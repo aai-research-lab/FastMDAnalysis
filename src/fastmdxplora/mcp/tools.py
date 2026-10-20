@@ -546,12 +546,26 @@ def _check_study(ctx: Context, args: dict[str, Any]) -> str:
     # Every path the config names held to the workspace before anything it
     # names (the defaults beside its output) is read.
     _accepted(ctx, config)
-    lines, _ = _as_tool_error(lambda: checked_config(_box(ctx), config, file))
+    lines, filled = _as_tool_error(lambda: checked_config(_box(ctx), config, file))
+    lines += _worth_knowing(filled)
     if file is not None:
         lines += ["", _plan_id_line(ctx, file)]
     else:
         lines += ["", "To run it, save it first with save_study."]
     return "\n".join(lines)
+
+
+def _worth_knowing(config: dict[str, Any]) -> list[str]:
+    """What the GUI's Check it says under Worth knowing for the same config,
+    by the same function: a 4 fs timestep with no constraints was warned of
+    there and not here, so an AI app passed on a study that fails in NVT."""
+    from fastmdxplora.gui.config_builder import check_config
+
+    try:
+        knowing = check_config(json.loads(json.dumps(config))).get("worth_knowing") or []
+    except Exception:  # noqa: BLE001 - advice, never a verdict
+        return []
+    return ["", "Worth knowing:", *(f"  {said}" for said in knowing)] if knowing else []
 
 
 def _plan_id_line(ctx: Context, file: Path) -> str:
@@ -606,8 +620,8 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
                  + (f", in {config['agent_model']}" if config.get("agent_model") else "")
                  + ").")
     return "\n".join([f"Saved to {ctx.workspace.shown(target)}; accepted by the validator. "
-                      f"{whose} Nothing has been run.", "The plan:", *_plan_lines(config), "",
-                      _plan_id_line(ctx, target)])
+                      f"{whose} Nothing has been run.", "The plan:", *_plan_lines(config),
+                      *_worth_knowing(config), "", _plan_id_line(ctx, target)])
 
 
 def _with_lines_for(text: str, before: dict[str, Any], config: dict[str, Any],

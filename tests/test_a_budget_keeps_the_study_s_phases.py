@@ -126,5 +126,68 @@ class TestTheStudySPhases(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
 
 
+class TestAnAIAppIsToldWhatTheGUIWarnsOf(unittest.TestCase):
+    """check_study and save_study say what the GUI's Check it says under
+    Worth knowing, from the same function: a 4 fs timestep with no
+    constraints was warned of there and passed here as it stands."""
+
+    RISKY = ("systems:\n  - system: ghg.pdb\nsimulation:\n  timestep_fs: 4\n"
+             "setup:\n  constraints: None\n")
+
+    def setUp(self):
+        import os
+
+        from fastmdxplora.mcp import App, Workspace
+        from tests._mcp_wire import Wire
+        from tests.test_an_ai_app_reads_and_checks_studies import _structure
+
+        self.tmp = Path(tempfile.mkdtemp())
+        self._env = {k: os.environ.get(k) for k in ("FASTMDXPLORA_CACHE_DIR",
+                                                    "FASTMDXPLORA_CONFIG_DIR")}
+        os.environ["FASTMDXPLORA_CACHE_DIR"] = str(self.tmp / "cache")
+        os.environ["FASTMDXPLORA_CONFIG_DIR"] = str(self.tmp / "settings")
+        self.root = self.tmp / "work"
+        self.root.mkdir()
+        _structure(self.root / "ghg.pdb")
+        self.wire = Wire(App(Workspace.at(self.root)).server())
+
+    def tearDown(self):
+        import os
+
+        self.wire.close()
+        for key, value in self._env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def said(self, tool, **arguments):
+        result = self.wire.request("tools/call", {"name": tool, "arguments": arguments})["result"]
+        self.assertFalse(result["isError"], result)
+        return result["content"][0]["text"]
+
+    def gui_says(self):
+        from fastmdxplora.gui.config_builder import check_config
+
+        knowing = check_config(yaml.safe_load(self.RISKY))["worth_knowing"]
+        self.assertTrue(knowing, "the GUI warns of nothing here: the case is not the one")
+        return knowing
+
+    def test_check_study_says_it(self):
+        said = self.said("check_study", config=self.RISKY)
+        self.assertIn("\nWorth knowing:\n", said)
+        for line in self.gui_says():
+            self.assertIn(f"  {line}", said)
+        # And a config with nothing worth knowing has no heading for it.
+        plain = self.said("check_study", config="systems:\n  - system: ghg.pdb\n")
+        self.assertNotIn("Worth knowing", plain)
+
+    def test_save_study_says_it(self):
+        said = self.said("save_study", config=self.RISKY, name="risky")
+        self.assertIn("\nWorth knowing:\n", said)
+        for line in self.gui_says():
+            self.assertIn(f"  {line}", said)
+
+
 if __name__ == "__main__":
     unittest.main()
