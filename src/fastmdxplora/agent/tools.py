@@ -831,14 +831,12 @@ def checked_config(box: Toolbox, config: dict[str, Any],
         # `fastmdx explore` and the GUI's Check it say it: a system setup
         # cannot read, a selection that does not parse. Relative paths are
         # read from the folder of studies, where a study from here starts.
-        from fastmdxplora.config.before_run import refuse_what_can_be_seen
-        from fastmdxplora.config.loader import ConfigError
+        from fastmdxplora.config.before_run import refused_before_a_run
 
         base = box.workspace.root if box.workspace is not None else Path.cwd()
-        try:
-            refuse_what_can_be_seen(filled, base=Path(base))
-        except ConfigError as exc:
-            raise _Refused(refused_said(exc)) from None
+        caught = refused_before_a_run(config, filled, defaults, base=Path(base))
+        if caught is not None:
+            raise _Refused(refused_said(caught)) from None
     lines = ["Accepted by the validator. The plan:", *plan_lines(filled)]
     if names:
         lines.append(f"Your defaults ({defaults.path.name}) fill what it leaves unset: "

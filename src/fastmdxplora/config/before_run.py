@@ -30,11 +30,16 @@ def phases_planned(config: dict[str, Any]) -> list[str]:
     """The phases a config runs, as the orchestrator reads its lists: its
     `include_phase` (or `include`), else all but its `exclude_phase` (or
     `exclude`), else all four."""
-    include = config.get("include_phase") or config.get("include")
+    from fastmdxplora.config.loader import _split_on_commas
+
+    # A list written as one string, `setup,report`, as the validator takes
+    # it: read letter by letter, it named no phase.
+    include = _split_on_commas(config.get("include_phase") or config.get("include"))
     if include:
         named = {str(p) for p in include}
         return [p for p in PHASES if p in named]
-    exclude = {str(p) for p in (config.get("exclude_phase") or config.get("exclude") or [])}
+    exclude = {str(p) for p in (_split_on_commas(
+        config.get("exclude_phase") or config.get("exclude")) or [])}
     return [p for p in PHASES if p not in exclude]
 
 
@@ -198,3 +203,27 @@ def refuse_what_can_be_seen(config: dict[str, Any], *, base: Path | None = None)
                 "'protein and name CA'; `fastmdx select` shows what one matches.",
                 code="config.option.not_permitted", option=setting,
                 given=selection) from exc
+
+
+def refused_before_a_run(config: dict[str, Any], filled: dict[str, Any], defaults: Any,
+                         *, base: Path | None = None) -> ConfigError | None:
+    """What :func:`refuse_what_can_be_seen` refuses in ``filled``, the
+    study with your defaults (``defaults``) filled in, naming the file where
+    the study as written (``config``) is not refused: a selection your file
+    gives was said as the Config's own, which the person could not find."""
+    try:
+        refuse_what_can_be_seen(filled, base=base)
+    except ConfigError as exc:
+        if defaults is None or getattr(defaults, "path", None) is None:
+            return exc
+        try:
+            refuse_what_can_be_seen(config, base=base)
+        except ConfigError as own:
+            return own
+        from fastmdxplora.config.defaults_file import DEFAULTS_FILE
+
+        return ConfigError(
+            f"With your defaults ({defaults.path}) filled in, the study is refused: "
+            f"{exc} Set that setting in the study's config, or change {DEFAULTS_FILE}.",
+            code=exc.code, **exc.refusal.details)
+    return None

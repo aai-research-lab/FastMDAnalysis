@@ -259,3 +259,52 @@ def test_check_it_judges_the_study_your_defaults_make(tmp_path):
                                 defaults=read_defaults(yours))
     assert checked["ok"] is False, checked
     assert checked["refusal"]["code"] == SELECTION[1]
+
+
+@pytest.mark.parametrize("phases, refused", [
+    ({"exclude_phase": "setup,report"}, False),
+    ({"include_phase": "setup,simulation"}, True),
+    ({"include": "setup,simulation"}, True),
+])
+def test_a_phase_list_written_as_one_string_is_read_as_a_list(wire, tmp_path, phases, refused):
+    """`setup,report` was read letter by letter: a study leaving setup out
+    was refused for a structure setup never reads, and one running setup
+    on a structure that is not there was saved and given a plan."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE, read_defaults
+    from fastmdxplora.gui.config_builder import check_config_file
+
+    wire, root = wire
+    study = {"systems": [{"id": "a", "system": "gone.pdb"}], **phases}
+    for tool in ("check_study", "save_study"):
+        arguments = {"config": yaml.safe_dump(study)}
+        if tool == "save_study":
+            arguments["name"] = f"s_{len(list(root.iterdir()))}"
+        result = wire.request("tools/call", {"name": tool, "arguments": arguments})["result"]
+        assert bool(result["isError"]) is refused, (tool, result["content"][0]["text"])
+    yours = tmp_path / DEFAULTS_FILE
+    yours.write_text("simulation:\n  temperature_K: 310\n", encoding="utf-8")
+    path = _write(tmp_path / "s.yml", study)
+    checked = check_config_file(str(path), to_run=True, base=tmp_path,
+                                defaults=read_defaults(yours))
+    assert (checked["ok"] is False) is refused, checked
+
+
+def test_a_refusal_your_defaults_make_names_them(wire, tmp_path, monkeypatch):
+    """A selection your file gives that does not parse was said as the
+    Config's own, which the person could not find in it."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE, read_defaults
+    from fastmdxplora.gui.config_builder import check_config_file
+
+    yours = tmp_path / DEFAULTS_FILE
+    yours.write_text(f"analysis:\n  select_atoms: '{BAD}'\n", encoding="utf-8")
+    path = _write(tmp_path / "s.yml", {"systems": [{"id": "a", "system": "1L2Y"}]})
+    checked = check_config_file(str(path), to_run=True, base=tmp_path,
+                                defaults=read_defaults(yours))
+    assert checked["ok"] is False
+    assert f"With your defaults ({yours})" in checked["error"], checked["error"]
+    wire, root = wire
+    (root / DEFAULTS_FILE).write_text(yours.read_text(), encoding="utf-8")
+    result = wire.request("tools/call", {"name": "check_study", "arguments": {
+        "config": "systems:\n  - system: 1L2Y\n"}})["result"]
+    said = result["content"][0]["text"]
+    assert result["isError"] and "With your defaults" in said and DEFAULTS_FILE in said, said

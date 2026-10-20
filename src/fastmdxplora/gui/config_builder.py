@@ -824,7 +824,7 @@ def check_config(data: dict[str, Any], *, to_run: bool = False,
                               "a PDB id or a structure file:\n"
                               "  systems:\n    - {system: 1L2Y}")}
         return {"ok": False, "error": str(exc), **said}
-    judged = data
+    judged = None
     if to_run and defaults is not None:
         from fastmdxplora.config.defaults_file import refused_with, with_defaults
 
@@ -838,12 +838,14 @@ def check_config(data: dict[str, Any], *, to_run: bool = False,
     if to_run:
         from pathlib import Path
 
-        from fastmdxplora.config.before_run import refuse_what_can_be_seen
+        from fastmdxplora.config.before_run import refused_before_a_run
 
-        try:
-            refuse_what_can_be_seen(judged, base=Path(base) if base is not None else None)
-        except ConfigError as exc:
-            return {"ok": False, "error": str(exc), **refused(exc)}
+        caught = refused_before_a_run(
+            data, judged if judged is not None else data,
+            defaults if judged is not None else None,
+            base=Path(base) if base is not None else None)
+        if caught is not None:
+            return {"ok": False, "error": str(caught), **refused(caught)}
 
     # The phases it runs, as the form ticks them: "simulation" alone was
     # said of a config that runs all four, its blocks read for its phases.

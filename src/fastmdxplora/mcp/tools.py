@@ -236,19 +236,19 @@ def _accepted(ctx: Context, config: dict[str, Any]) -> Path | None:
     return continuing
 
 
-def _seen_before_a_run(ctx: Context, config: dict[str, Any]) -> None:
+def _seen_before_a_run(ctx: Context, given: dict[str, Any], filled: dict[str, Any],
+                       defaults: Any) -> None:
     """Refuse what can be seen wrong before a run, as check_study does: a
-    system setup cannot read, a selection that does not parse. Relative
-    paths are read from the workspace, where a study from here starts."""
-    from fastmdxplora.config.before_run import refuse_what_can_be_seen
-    from fastmdxplora.config.loader import ConfigError
+    system setup cannot read, a selection that does not parse, naming your
+    defaults where they gave it. Relative paths are read from the
+    workspace, where a study from here starts."""
+    from fastmdxplora.config.before_run import refused_before_a_run
 
-    try:
-        refuse_what_can_be_seen(config, base=Path(ctx.workspace.root))
-    except ConfigError as exc:
+    caught = refused_before_a_run(given, filled, defaults, base=Path(ctx.workspace.root))
+    if caught is not None:
         from fastmdxplora.agent.tools import refused_said
 
-        raise ToolError(refused_said(exc), code=exc.code) from None
+        raise ToolError(refused_said(caught), code=caught.code) from None
 
 
 def _plan_lines(config: dict[str, Any]) -> list[str]:
@@ -622,7 +622,7 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
     if continuing is None:
         # What check_study refuses before a run is not saved as a study that
         # will run: a structure that is not there was saved and given a plan.
-        _seen_before_a_run(ctx, config)
+        _seen_before_a_run(ctx, before, config, _defaults)
     target = ctx.workspace.root / f"{stem}.yml"
     try:
         with target.open("x", encoding="utf-8") as out:
