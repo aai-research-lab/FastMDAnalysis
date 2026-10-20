@@ -841,6 +841,22 @@
   var ZOOM = { states: "x", labels: "x", lines: "x", matrix: "x", dendrogram: "x",
                landscape: "xy", density: "xy", projection: "xy", bars: "", hbars: "" };
 
+  /* The smallest span a key zooms to: about four points', frames' or
+   * cells' worth of the whole (in the data's units, as the view is). */
+  function leastOf(data, x, y) {
+    var n = (data.x && data.x.length) || (data.values && data.values.length) ||
+      (data.icoord && data.icoord.length) || 50;
+    // Points spread over both axes (a projection) keep four in view with
+    // each axis at two points' worth.
+    var share = Math.min(1, data.kind === "projection" ? Math.sqrt(4 / Math.max(4, n))
+      : 4 / Math.max(4, n));
+    var span = function (axis) {
+      var full = axis.full || [axis.low, axis.high];
+      return Math.abs(full[1] - full[0]) * share;
+    };
+    return { x: span(x), y: span(y) };
+  }
+
   function plot(host, data) {
     var how = PLOTS[data.kind];
     if (!how) return;
@@ -853,6 +869,7 @@
     tools.attach(host, {
       svg: f.svg, width: f.width, height: f.height, plot: f.plot,
       zoom: ZOOM[data.kind] || "", shared: clock, zoomed: !!f.view,
+      least: leastOf(data, x, y),
       name: (data.figure || data.title || data.kind).replace(/^analysis\//, "").replace(/\.png$/, "") +
         (f.view ? "_range" : ""),
       invert: function (px, py) {

@@ -135,7 +135,8 @@
    *   zoomed: whether it shows less than all,
    *   onView(view) with {x: [lo, hi], y: [lo, hi]} (y where "xy"), onReset(),
    *   csv() -> rows, the first its head; name: the file's name;
-   *   ownArrows: the plot's arrow keys are its own (a cursor along it).
+   *   ownArrows: the plot's arrow keys are its own (a cursor along it);
+   *   least: {x, y}, the smallest span a key zooms to (a few points' worth).
    * By the keyboard on a focused plot: + and - zoom about the middle of
    * what it shows, [ and ] move along it (and the arrows, where they are
    * not the plot's own), 0 or Escape shows all. */
@@ -180,13 +181,19 @@
       return { x: [Math.min(a.x, b.x), Math.max(a.x, b.x)], y: [Math.min(a.y, b.y), Math.max(a.y, b.y)] };
     }
     function scaled(k) {
-      var now = shown(), view = {};
+      var now = shown(), view = {}, changed = false;
+      var least = opts.least || {};
       [["x", now.x], ["y", now.y]].forEach(function (axis) {
         if (axis[0] === "y" && opts.zoom !== "xy") return;
-        var mid = (axis[1][0] + axis[1][1]) / 2, half = (axis[1][1] - axis[1][0]) / 2 * k;
-        view[axis[0]] = [mid - half, mid + half];
+        var span = axis[1][1] - axis[1][0], mid = (axis[1][0] + axis[1][1]) / 2;
+        var wanted = span * k;
+        // Zoomed in no further than a few points' worth.
+        var floor = least[axis[0]] > 0 ? least[axis[0]] : 0;
+        if (k < 1 && wanted < floor) wanted = Math.min(span, floor);
+        if (Math.abs(wanted - span) > 1e-12 * Math.max(1, Math.abs(span))) changed = true;
+        view[axis[0]] = [mid - wanted / 2, mid + wanted / 2];
       });
-      return view;
+      return changed ? view : null;
     }
     function along(fx, fy) {
       if (!opts.zoomed) return null;

@@ -551,3 +551,39 @@ def _csv_rows(page, selector):
         page.click(selector + ' .plot-tool:text("CSV")')
     lines = Path(got.value.path()).read_text(encoding="utf-8").splitlines()
     return lines[0], lines[1:]
+
+
+def test_a_key_zooms_in_no_further_than_a_few_points(study):
+    """Forty presses of + left no point in view and ticks all one number."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw, session)
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"]')
+            page.evaluate(PROJECTION)
+            for _ in range(40):
+                page.locator("#a-projection svg").focus()
+                page.keyboard.press("+")
+            page.wait_for_timeout(300)
+            _, projection = _csv(page, "#a-projection")
+            rmsd = '.series-chart[data-analysis="rmsd"]'
+            for _ in range(40):
+                page.locator(rmsd + " svg").focus()
+                page.keyboard.press("+")
+            page.wait_for_timeout(300)
+            with page.expect_download() as got:
+                page.click(rmsd + ' .plot-tool:text("CSV")')
+            series = Path(got.value.path()).read_text(encoding="utf-8").splitlines()[1:]
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    # Four points' worth of 100 points on a 10 by 10 grid: some in view.
+    assert len(projection) >= 1, projection
+    assert len(series) >= 3, series

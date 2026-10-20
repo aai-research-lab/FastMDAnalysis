@@ -341,6 +341,9 @@
       var timed = data.kind !== "residue";
       tools.attach(host, {
         svg: svg, width: width, height: HEIGHT, plot: plot, zoom: "x", ownArrows: true,
+        // A key zooms in to four points (three steps between them) at the least.
+        least: { x: data.x.length > 1
+          ? 3 * Math.abs(data.x[data.x.length - 1] - data.x[0]) / (data.x.length - 1) : 0 },
         shared: timed ? data.x_label : "",
         zoomed: !!view,
         name: data.analysis + (view ? "_range" : ""),
