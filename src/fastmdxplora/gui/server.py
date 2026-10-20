@@ -773,6 +773,19 @@ def make_handler(
     from fastmdxplora.gui.remote_routes import RemoteDesk
 
     remote_desk = RemoteDesk(app_runtime, hosted=hosting is not None)
+
+    def _structure_path_rule() -> Callable[[Any], str | None]:
+        # Hosted, only inside the workspace. Here, a relative path is read
+        # from the folder new studies go in, as Run reads it (the run starts
+        # there), not from wherever this process was started.
+        if hosting is not None:
+            return hosting.inside
+
+        def read_from_workspace(given: Any) -> str | None:
+            path = Path(str(given)).expanduser()
+            return str(path if path.is_absolute()
+                       else Path(app_runtime.exploration_root) / path)
+        return read_from_workspace
     html = template_html if template_html is not None else _load_template()
     from fastmdxplora.gui.sidebar_icons import with_icons
 
@@ -2039,8 +2052,7 @@ def make_handler(
                 from fastmdxplora.gui.preview import system_preview
 
                 self._send_json(system_preview(
-                    payload or {},
-                    path_for=hosting.inside if hosting is not None else None))
+                    payload or {}, path_for=_structure_path_rule()))
                 return
             if path == "/api/structure-facts":
                 # What a structure in the form's list of systems holds, for
@@ -2049,8 +2061,7 @@ def make_handler(
                 from fastmdxplora.gui.preview import structure_facts
 
                 self._send_json(structure_facts(
-                    (payload or {}).get("system"),
-                    path_for=hosting.inside if hosting is not None else None))
+                    (payload or {}).get("system"), path_for=_structure_path_rule()))
                 return
             if path == "/api/save-config":
                 # Hosted, for the service's page that runs a study on its
@@ -3107,6 +3118,21 @@ def _load_template() -> str:
         )
 
 
+def _where_new_studies_go(root: Path, home_mode: bool,
+                          exploration_root: str | Path | None) -> Path:
+    """The folder new studies are put in, relative paths read from and
+    your defaults found from: the one named; else, with no study open, the
+    folder the GUI was started in; else, beside the study it watches.
+
+    In home mode it was the parent of the folder the GUI was started in, so
+    a study designed there went one folder up, a structure beside the
+    person was previewed but not found by Run, and the folder's own
+    fastmdx-defaults.yml was not used."""
+    if exploration_root is not None:
+        return Path(exploration_root).resolve()
+    return root if home_mode else root.parent
+
+
 def serve_dashboard(
     *,
     output: str | Path,
@@ -3206,7 +3232,7 @@ def start_dashboard_session(
         exploration_root = hosting.workspace
     runtime = DashboardRuntime(
         workspace_root=root,
-        exploration_root=Path(exploration_root).resolve() if exploration_root is not None else root.parent,
+        exploration_root=_where_new_studies_go(root, home_mode, exploration_root),
         active_root=None if home_mode else root,
     )
     runtime.hosting = hosting
@@ -3274,7 +3300,7 @@ def start_test_server(
     root = Path(project_root).resolve()
     runtime = DashboardRuntime(
         workspace_root=root,
-        exploration_root=root.parent,
+        exploration_root=_where_new_studies_go(root, home_mode, None),
         active_root=None if home_mode else root,
     )
     handler = make_handler(root, config=config, runtime=runtime)
