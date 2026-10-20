@@ -332,6 +332,27 @@ def _prune(folder: Path) -> None:
                 pass
 
 
+def _kept(key: str, first: dict[str, Any]) -> None:
+    """A first read held in memory, the least recently used let go first."""
+    _FIRST_READ.pop(key, None)
+    _FIRST_READ[key] = first
+    while len(_FIRST_READ) > _FIRST_READS_KEPT:
+        _FIRST_READ.pop(next(iter(_FIRST_READ)))
+
+
+def _used(path: Path) -> None:
+    """A stored first read marked as used now (once a day at most), so the
+    cache lets go of the least recently read, not the first written."""
+    import os
+    import time
+
+    try:
+        if time.time() - path.stat().st_mtime > 86400:
+            os.utime(path)
+    except OSError:
+        pass
+
+
 def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
                    records: list[dict[str, Any]], unread: list[str], written_as: str = ""
                    ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -360,7 +381,7 @@ def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
         first = {"numbers": {str(i): {"file": n["record"]["file"], "key": n["record"]["key"],
                                       "value": float(n["record"]["value"])}
                              for i, n in enumerate(numbers) if n.get("traced")}}
-        _FIRST_READ[key] = first
+        _kept(key, first)
         try:
             path = _first_read_file(key)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -369,9 +390,8 @@ def _changed_since(base: Path, html: str, numbers: list[dict[str, Any]],
         except OSError:
             pass
         return numbers, []
-    _FIRST_READ[key] = first
-    while len(_FIRST_READ) > _FIRST_READS_KEPT:
-        _FIRST_READ.pop(next(iter(_FIRST_READ)))
+    _kept(key, first)
+    _used(_first_read_file(key))
     now = {(r["file"], r["key"]): r["value"] for r in records}
     said = [dict(n) for n in numbers]
     changed: set[str] = set()

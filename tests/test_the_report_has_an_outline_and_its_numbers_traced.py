@@ -617,3 +617,32 @@ def test_the_first_reads_kept_are_bounded(tmp_path, monkeypatch):
     assert len(left) <= report_page._FIRST_READS_KEPT
     # The oldest (long past the days kept) gone first.
     assert not any(p.name == f"{0:032d}.json" for p in left)
+
+
+def test_a_first_read_in_use_is_kept_however_old(tmp_path):
+    """The cache let go of first reads by when they were written: a study
+    read on and off for three months lost its first read to another study's,
+    and after a restart said its changed records were not changed."""
+    from fastmdxplora.gui import report_page
+
+    a, b = _written(tmp_path, "tri"), _written(tmp_path, "clean-tri-alanine")
+    if report_page.report_payload(a).get("rendered") != "html":
+        pytest.skip("the Markdown library is not installed")
+    folder = tmp_path / "cache" / "report_traces"
+    (stored,) = list(folder.glob("*.json"))
+    old = stored.stat().st_mtime - 91 * 86400
+    os.utime(stored, (old, old))
+    options = a / "analysis" / "rmsd" / "options.json"
+    record = json.loads(options.read_text(encoding="utf-8"))
+    record["findings"]["mean"]["mean"] += 1e-9
+    options.write_text(json.dumps(record), encoding="utf-8")
+    assert report_page.report_payload(a)["records_changed"] == ["analysis/rmsd/options.json"]
+    report_page.report_payload(b)            # another study's first read prunes
+    report_page._FIRST_READ.clear()          # the server started again
+    report_page._TRACED.clear()
+    assert stored.exists()
+    assert report_page.report_payload(a)["records_changed"] == ["analysis/rmsd/options.json"]
+    # Held in memory: adding one past the bound lets the oldest go.
+    for k in range(report_page._FIRST_READS_KEPT + 5):
+        report_page._kept(f"k{k}", {"numbers": {}})
+    assert len(report_page._FIRST_READ) == report_page._FIRST_READS_KEPT
