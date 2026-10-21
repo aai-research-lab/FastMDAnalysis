@@ -263,11 +263,18 @@ def archive_of(site: str, record: str,
     """The record's archive: its `name`, `size`, `md5`, the `url` it is
     downloaded from, and the record's `doi`, `id` and `version`."""
     base = base_url(site)
-    found = _call("GET", f"{base}/api/records/{record}", said=said, missing_ok=True)
-    if not isinstance(found, dict):
+    found = _call("GET", f"{base}/api/records/{record}", said=said, missing_ok=True,
+                  gone=_GONE)
+    if found is _GONE:
         raise ShareRefused(f"Zenodo has no published record {record}: look at the DOI or "
                            "address given (a draft's reserved DOI opens once it is published).",
                            code="environment.share.not_a_study")
+    if not isinstance(found, dict):
+        # Answered, but with no record: a gateway's, perhaps, not Zenodo's.
+        unread = ShareRefused(f"Zenodo's answer for record {record} was no record.",
+                              code="environment.service.unreachable")
+        unread.later = True
+        raise unread
     entries = found.get("files") or []
     if isinstance(entries, dict):
         entries = entries.get("entries") or []
@@ -842,6 +849,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     def _its(name: str) -> bool:
         return not known.get(name) or not held_sums.get(name) or held_sums[name] in known[name]
 
+    # The names the study gave its archives on this draft: a zip of the new
+    # archive's name it never gave one, uploaded over, would be the person's
+    # lost. (A draft an earlier release made names none.)
+    named = {ours, *replacing, *known} - {""}
+    earlier_release = not any(kept[site].get(key) for key in (
+        "archive", "sums", "asked_as", "record_archive", "stale", "uploading"))
     replacing = {name for name in replacing if _its(name)} - {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
@@ -851,7 +864,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
               and entry not in stale]
     foreign = sorted(name for name in _names(deposition)
                      if name.lower().endswith(".zip")
-                     and (name not in {archive.name, ours, *replacing} or not _its(name)))
+                     and (name not in {archive.name, ours, *replacing} or not _its(name)
+                          or (name == archive.name and name not in named
+                              and not earlier_release)))
     if foreign:
         raise ShareRefused(
             f"The draft {page} holds {', '.join(foreign)}, which this study did not put "
@@ -882,7 +897,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                                       ("license", license_id.lower()))))
 
     untouched = _the_study_s(held)
-    uploaded, removing = False, ""
+    uploaded, removing, described = False, "", False
     try:
         if said:
             said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to "
@@ -935,6 +950,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             _keep(study, kept)
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
+            described = True
             if isinstance(answer, dict) and isinstance(answer.get("metadata"), dict):
                 kept[site]["written"] = _written(answer["metadata"])
                 kept[site].pop("sending", None)
@@ -965,6 +981,11 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
                    "have taken away (a record of two archives opens as neither: share again, "
                    "or delete it there, before you publish)" if removing
+                   else f"with the new archive and the earlier "
+                   f"{', '.join(kept[site]['stale'])} beside it, not yet taken away (a record "
+                   "of two archives opens as neither: share again before you publish)"
+                   if uploaded and kept[site].get("stale")
+                   else "with the new archive and its description" if uploaded and described
                    else "with the new archive, its description "
                    + ("perhaps " if getattr(exc, "unclear", False) else "") + "not yet written"
                    if uploaded and untouched
