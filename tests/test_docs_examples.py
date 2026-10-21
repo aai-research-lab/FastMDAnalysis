@@ -718,17 +718,23 @@ class TestTheInterfaceIsCalledTheGUI:
 
     def test_the_docs_name_the_interface_consistently(self) -> None:
         import pathlib
+        import re
 
+        # The browser itself keeps the word: its tab, its windows, its
+        # session storage, the flag that suppresses it, and what it does on
+        # its own (asks before a page is left, loads a page, keeps or does
+        # not keep what the page stores). The study tabs' description
+        # (10-17, 10-18) says all of these.
+        literal = re.compile(
+            r"browser (tab|windows?|session storage)|--no-browser|this browser"
+            r"|the browser (does not|asks|loads)|the browser's own")
         root = pathlib.Path(__file__).resolve().parents[1]
         for page in ("docs/gui.md", "docs/studies.md", "README.md"):
             text = (root / page).read_text(encoding="utf-8")
             for line in text.splitlines():
-                if "browser" not in line:
+                if "browser" not in literal.sub("", line):
                     continue
-                # A browser tab, and the flag that suppresses it, are the
-                # literal thing and keep the word.
-                assert ("browser tab" in line or "--no-browser" in line), (
-                    f"{page}: {line.strip()[:80]}")
+                assert False, f"{page}: {line.strip()[:80]}"
 
 
 def test_the_source_names_the_software_too():
