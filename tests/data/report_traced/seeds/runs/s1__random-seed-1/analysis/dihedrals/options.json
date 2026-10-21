@@ -1,0 +1,23 @@
+{
+  "analysis": "dihedrals",
+  "class": "Dihedrals",
+  "selection": null,
+  "options": {
+    "density": true,
+    "angles": [
+      "phi",
+      "psi",
+      "omega"
+    ],
+    "bins": 72
+  },
+  "findings": {
+    "chain_breaks": {
+      "quartets_dropped": {
+        "phi": 0,
+        "psi": 0,
+        "omega": 0
+      }
+    }
+  }
+}

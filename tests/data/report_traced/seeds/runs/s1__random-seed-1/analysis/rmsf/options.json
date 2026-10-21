@@ -1,0 +1,24 @@
+{
+  "analysis": "rmsf",
+  "class": "RMSF",
+  "selection": "protein and name CA",
+  "options": {
+    "ref": 0,
+    "per_residue": true,
+    "start": "equilibrated",
+    "per_residue_average": "sqrt(sum_i m_i MSF_i / sum_i m_i) over the residue's selected atoms, as gmx rmsf -res"
+  },
+  "findings": {
+    "frames": {
+      "n_frames_analysed": 71,
+      "n_frames_given": 200,
+      "first_frame": 129,
+      "start": "equilibrated",
+      "equilibration_frames_by_rmsd": 129,
+      "equilibration_included": false,
+      "first_time_ns": 0.026,
+      "equilibrated_from_ns": 0.026,
+      "said": "71 of 200 frames were analysed, from frame 129, where the RMSD equilibrates. The RMSD of these atoms from the first frame equilibrates after 129 frames, and none of those are included."
+    }
+  }
+}

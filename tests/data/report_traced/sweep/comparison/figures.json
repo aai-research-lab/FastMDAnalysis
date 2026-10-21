@@ -1,0 +1,115 @@
+{
+  "version": "0.1.0",
+  "host": "vm",
+  "made": "2026-10-18T15:02:30+00:00",
+  "figures": {
+    "overlay_rmsd": {
+      "kind": "overlay",
+      "analysis": "rmsd",
+      "unit": "nm",
+      "against": "frame",
+      "runs": [
+        {
+          "run_id": "s1__temperature-K-300",
+          "label": "temperature_K=300",
+          "path": "runs/s1__temperature-K-300",
+          "analysed_by": "2.5.8",
+          "frames": 2,
+          "timed": false
+        },
+        {
+          "run_id": "s1__temperature-K-310",
+          "label": "temperature_K=310",
+          "path": "runs/s1__temperature-K-310",
+          "analysed_by": "2.5.9",
+          "frames": 2,
+          "timed": false
+        }
+      ]
+    },
+    "trend_rmsd": {
+      "kind": "trend",
+      "analysis": "rmsd",
+      "unit": "nm",
+      "against": "simulation.temperature_K",
+      "runs": [
+        {
+          "run_id": "s1__temperature-K-300",
+          "label": "temperature_K=300",
+          "path": "runs/s1__temperature-K-300",
+          "analysed_by": "2.5.8",
+          "x": 300.0,
+          "mean": 0.16000529429315674,
+          "error": 0.0001074965164073924,
+          "over": "after equilibration",
+          "said": "0.16001 \u00b1 0.00011"
+        },
+        {
+          "run_id": "s1__temperature-K-310",
+          "label": "temperature_K=310",
+          "path": "runs/s1__temperature-K-310",
+          "analysed_by": "2.5.9",
+          "x": 310.0,
+          "mean": 0.16033862762649007,
+          "error": 0.0001074965164073924,
+          "over": "after equilibration",
+          "said": "0.16034 \u00b1 0.00011"
+        }
+      ]
+    },
+    "overlay_rg": {
+      "kind": "overlay",
+      "analysis": "rg",
+      "unit": "nm",
+      "against": "frame",
+      "runs": [
+        {
+          "run_id": "s1__temperature-K-300",
+          "label": "temperature_K=300",
+          "path": "runs/s1__temperature-K-300",
+          "analysed_by": "2.5.8",
+          "frames": 2,
+          "timed": false
+        },
+        {
+          "run_id": "s1__temperature-K-310",
+          "label": "temperature_K=310",
+          "path": "runs/s1__temperature-K-310",
+          "analysed_by": "2.5.9",
+          "frames": 2,
+          "timed": false
+        }
+      ]
+    },
+    "trend_rg": {
+      "kind": "trend",
+      "analysis": "rg",
+      "unit": "nm",
+      "against": "simulation.temperature_K",
+      "runs": [
+        {
+          "run_id": "s1__temperature-K-300",
+          "label": "temperature_K=300",
+          "path": "runs/s1__temperature-K-300",
+          "analysed_by": "2.5.8",
+          "x": 300.0,
+          "mean": 1.2000052942931565,
+          "error": 0.00010749651640739229,
+          "over": "after equilibration",
+          "said": "1.20001 \u00b1 0.00011"
+        },
+        {
+          "run_id": "s1__temperature-K-310",
+          "label": "temperature_K=310",
+          "path": "runs/s1__temperature-K-310",
+          "analysed_by": "2.5.9",
+          "x": 310.0,
+          "mean": 1.2000052942931565,
+          "error": 0.00010749651640739229,
+          "over": "after equilibration",
+          "said": "1.20001 \u00b1 0.00011"
+        }
+      ]
+    }
+  }
+}

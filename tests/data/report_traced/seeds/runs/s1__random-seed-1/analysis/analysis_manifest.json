@@ -1,0 +1,311 @@
+{
+  "phase": "analysis",
+  "trajectory_input": "/tmp/F/ws/clean-own/simulation/production.dcd",
+  "topology_input": "/tmp/F/ws/clean-own/simulation/trajectory_topology.pdb",
+  "load_kwargs": {
+    "stride": null,
+    "first": null,
+    "last": null,
+    "saving_interval_ps": 0.2
+  },
+  "figure_colours": "colour",
+  "figure_width": "page",
+  "default_selection": null,
+  "n_frames": 200,
+  "n_atoms": 35,
+  "n_residues": 5,
+  "n_protein_residues": 3,
+  "plan": [
+    "rmsd",
+    "rmsf",
+    "rg",
+    "hbonds",
+    "ss",
+    "sasa",
+    "dihedrals",
+    "order_parameters",
+    "thermodynamics",
+    "end_to_end",
+    "moments_of_inertia",
+    "cluster",
+    "dimred"
+  ],
+  "resolved": {
+    "trajectory": "/tmp/F/ws/clean-own/simulation/production.dcd",
+    "topology": "/tmp/F/ws/clean-own/simulation/trajectory_topology.pdb",
+    "include": [
+      "rmsd",
+      "rmsf",
+      "rg",
+      "hbonds",
+      "ss",
+      "sasa",
+      "dihedrals",
+      "order_parameters",
+      "thermodynamics",
+      "end_to_end",
+      "moments_of_inertia",
+      "cluster",
+      "dimred"
+    ],
+    "stride": null,
+    "first": null,
+    "last": null,
+    "selection": null,
+    "figure_colours": "colour",
+    "figure_width": "page"
+  },
+  "results": {
+    "rmsd": {
+      "name": "rmsd",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/rmsd",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/rmsd/rmsd.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/rmsd/rmsd.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/rmsd/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/rmsd/rmsd.dat",
+        "/tmp/F/ws/clean-own/analysis/rmsd/rmsd.png",
+        "/tmp/F/ws/clean-own/analysis/rmsd/rmsd.svg",
+        "/tmp/F/ws/clean-own/analysis/rmsd/options.json"
+      ],
+      "message": "rmsd: ok",
+      "started_at": "2026-10-18T04:59:06.735011+00:00",
+      "finished_at": "2026-10-18T04:59:07.588419+00:00"
+    },
+    "rmsf": {
+      "name": "rmsf",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/rmsf",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/rmsf/rmsf.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/rmsf/rmsf.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/rmsf/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/rmsf/rmsf.dat",
+        "/tmp/F/ws/clean-own/analysis/rmsf/rmsf.png",
+        "/tmp/F/ws/clean-own/analysis/rmsf/rmsf.svg",
+        "/tmp/F/ws/clean-own/analysis/rmsf/options.json"
+      ],
+      "message": "rmsf: ok",
+      "started_at": "2026-10-18T04:59:07.588967+00:00",
+      "finished_at": "2026-10-18T04:59:08.341894+00:00"
+    },
+    "rg": {
+      "name": "rg",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/rg",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/rg/rg.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/rg/rg.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/rg/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/rg/rg.dat",
+        "/tmp/F/ws/clean-own/analysis/rg/rg.png",
+        "/tmp/F/ws/clean-own/analysis/rg/rg.svg",
+        "/tmp/F/ws/clean-own/analysis/rg/options.json"
+      ],
+      "message": "rg: ok",
+      "started_at": "2026-10-18T04:59:08.342319+00:00",
+      "finished_at": "2026-10-18T04:59:09.241874+00:00"
+    },
+    "hbonds": {
+      "name": "hbonds",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/hbonds",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/hbonds/hbonds.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/hbonds/hbonds.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/hbonds/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/hbonds/hbonds.dat",
+        "/tmp/F/ws/clean-own/analysis/hbonds/hbonds.png",
+        "/tmp/F/ws/clean-own/analysis/hbonds/hbonds.svg",
+        "/tmp/F/ws/clean-own/analysis/hbonds/options.json"
+      ],
+      "message": "hbonds: ok",
+      "started_at": "2026-10-18T04:59:09.242246+00:00",
+      "finished_at": "2026-10-18T04:59:10.674636+00:00"
+    },
+    "ss": {
+      "name": "ss",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/ss",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/ss/ss.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/ss/ss.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/ss/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/ss/ss.dat",
+        "/tmp/F/ws/clean-own/analysis/ss/ss.png",
+        "/tmp/F/ws/clean-own/analysis/ss/ss.svg",
+        "/tmp/F/ws/clean-own/analysis/ss/options.json"
+      ],
+      "message": "ss: ok",
+      "started_at": "2026-10-18T04:59:10.675546+00:00",
+      "finished_at": "2026-10-18T04:59:11.762825+00:00"
+    },
+    "sasa": {
+      "name": "sasa",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/sasa",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/sasa/sasa.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/sasa/sasa.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/sasa/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/sasa/sasa.dat",
+        "/tmp/F/ws/clean-own/analysis/sasa/sasa.png",
+        "/tmp/F/ws/clean-own/analysis/sasa/sasa.svg",
+        "/tmp/F/ws/clean-own/analysis/sasa/options.json"
+      ],
+      "message": "sasa: ok",
+      "started_at": "2026-10-18T04:59:11.763218+00:00",
+      "finished_at": "2026-10-18T04:59:13.681545+00:00"
+    },
+    "dihedrals": {
+      "name": "dihedrals",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/dihedrals",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/dihedrals/dihedrals.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/dihedrals/dihedrals.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/dihedrals/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/dihedrals/dihedrals.dat",
+        "/tmp/F/ws/clean-own/analysis/dihedrals/dihedrals.png",
+        "/tmp/F/ws/clean-own/analysis/dihedrals/dihedrals.svg",
+        "/tmp/F/ws/clean-own/analysis/dihedrals/options.json"
+      ],
+      "message": "dihedrals: ok",
+      "started_at": "2026-10-18T04:59:13.681977+00:00",
+      "finished_at": "2026-10-18T04:59:14.773815+00:00"
+    },
+    "order_parameters": {
+      "name": "order_parameters",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/order_parameters",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/order_parameters/order_parameters.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/order_parameters/order_parameters.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/order_parameters/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/order_parameters/order_parameters.dat",
+        "/tmp/F/ws/clean-own/analysis/order_parameters/order_parameters.png",
+        "/tmp/F/ws/clean-own/analysis/order_parameters/order_parameters.svg",
+        "/tmp/F/ws/clean-own/analysis/order_parameters/options.json"
+      ],
+      "message": "order_parameters: ok",
+      "started_at": "2026-10-18T04:59:14.774356+00:00",
+      "finished_at": "2026-10-18T04:59:15.559864+00:00"
+    },
+    "thermodynamics": {
+      "name": "thermodynamics",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/thermodynamics",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/thermodynamics/thermodynamics.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/thermodynamics/thermodynamics.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/thermodynamics/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/thermodynamics/thermodynamics.dat",
+        "/tmp/F/ws/clean-own/analysis/thermodynamics/thermodynamics.png",
+        "/tmp/F/ws/clean-own/analysis/thermodynamics/thermodynamics.svg",
+        "/tmp/F/ws/clean-own/analysis/thermodynamics/options.json"
+      ],
+      "message": "thermodynamics: ok",
+      "started_at": "2026-10-18T04:59:15.560412+00:00",
+      "finished_at": "2026-10-18T04:59:16.588569+00:00"
+    },
+    "end_to_end": {
+      "name": "end_to_end",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/end_to_end",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/end_to_end/end_to_end.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/end_to_end/end_to_end.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/end_to_end/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/end_to_end/end_to_end.dat",
+        "/tmp/F/ws/clean-own/analysis/end_to_end/end_to_end.png",
+        "/tmp/F/ws/clean-own/analysis/end_to_end/end_to_end.svg",
+        "/tmp/F/ws/clean-own/analysis/end_to_end/options.json"
+      ],
+      "message": "end_to_end: ok",
+      "started_at": "2026-10-18T04:59:16.596996+00:00",
+      "finished_at": "2026-10-18T04:59:18.521546+00:00"
+    },
+    "moments_of_inertia": {
+      "name": "moments_of_inertia",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/moments_of_inertia",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/moments_of_inertia/moments_of_inertia.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/moments_of_inertia/moments_of_inertia.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/moments_of_inertia/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/moments_of_inertia/moments_of_inertia.dat",
+        "/tmp/F/ws/clean-own/analysis/moments_of_inertia/moments_of_inertia.png",
+        "/tmp/F/ws/clean-own/analysis/moments_of_inertia/moments_of_inertia.svg",
+        "/tmp/F/ws/clean-own/analysis/moments_of_inertia/options.json"
+      ],
+      "message": "moments_of_inertia: ok",
+      "started_at": "2026-10-18T04:59:18.521908+00:00",
+      "finished_at": "2026-10-18T04:59:20.120917+00:00"
+    },
+    "cluster": {
+      "name": "cluster",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/cluster",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/cluster/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/cluster/options.json",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans.dat",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans.png",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans.svg",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_counts.png",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_counts.svg",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_populations.csv",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_medoid_0.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_medoid_1.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_medoid_2.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_medoid_3.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_kmeans_medoid_4.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical.dat",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical.png",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical.svg",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_counts.png",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_counts.svg",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_populations.csv",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_medoid_0.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_medoid_1.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_medoid_2.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_medoid_3.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_medoid_4.pdb",
+        "/tmp/F/ws/clean-own/analysis/cluster/hierarchical_distance_matrix.npy",
+        "/tmp/F/ws/clean-own/analysis/cluster/hierarchical_linkage.npy",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_dendrogram.png",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_hierarchical_dendrogram.svg",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_rmsd_matrix.npz",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_rmsd_matrix.png",
+        "/tmp/F/ws/clean-own/analysis/cluster/cluster_rmsd_matrix.svg"
+      ],
+      "message": "cluster: ok (kmeans, hierarchical)",
+      "started_at": "2026-10-18T04:59:20.125608+00:00",
+      "finished_at": "2026-10-18T04:59:29.247859+00:00"
+    },
+    "dimred": {
+      "name": "dimred",
+      "status": "ok",
+      "output_dir": "/tmp/F/ws/clean-own/analysis/dimred",
+      "figure_path": "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca.png",
+      "data_path": "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca.dat",
+      "options_path": "/tmp/F/ws/clean-own/analysis/dimred/options.json",
+      "artifacts": [
+        "/tmp/F/ws/clean-own/analysis/dimred/options.json",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca.dat",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca.png",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca.svg",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca_modes.npz",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca_landscape.npz",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca_landscape.png",
+        "/tmp/F/ws/clean-own/analysis/dimred/dimred_pca_landscape.svg"
+      ],
+      "message": "dimred: ok (pca)",
+      "started_at": "2026-10-18T04:59:29.248374+00:00",
+      "finished_at": "2026-10-18T04:59:30.606999+00:00"
+    }
+  }
+}

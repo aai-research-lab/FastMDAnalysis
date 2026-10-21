@@ -4183,7 +4183,10 @@
            * run started. */
           if ((moved.study || started.output || null) !== (c.study || null)) {
             c.page = "";
-            if (c === conv) convFor = "";
+            /* The thread is the run's study's now: a page that goes on
+             * showing another study (opened again elsewhere as the run
+             * started) reads that study's own thread. */
+            if (c === conv) convFor = validStudyKey(started.study_key) ? started.study_key : "";
           }
           c.study = moved.study || started.output;
           if (validStudyKey(moved.study_key)) c.page = moved.study_key;
@@ -4908,6 +4911,9 @@
       window.FastMDXDashboard.on("study-addressed", function (study) {
         var key = study && study.key;
         if (!validStudyKey(key) || launching || reading) return;
+        /* A read refused as the GUI had gone on (a run's study, its
+         * thread on screen): the page is on that study now. */
+        if (readAgain && convFor === key && conv.study) { readAgain = false; return; }
         if (readAgain || (conv.study && convFor && convFor !== key)) {
           readAgain = false;
           hideList();

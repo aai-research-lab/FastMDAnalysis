@@ -1,0 +1,8 @@
+{
+  "particles": 1403,
+  "steps": 20400,
+  "seconds": 187.306393,
+  "platform": "CPU",
+  "precision": "mixed",
+  "timestep_fs": 2.0
+}

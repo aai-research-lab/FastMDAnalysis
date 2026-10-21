@@ -1,0 +1,77 @@
+{
+  "analysis": "moments_of_inertia",
+  "class": "MomentsOfInertia",
+  "selection": "protein",
+  "options": {},
+  "findings": {
+    "inertia": {
+      "atoms": 33,
+      "total_mass_amu": 231.24999899999997,
+      "units": "amu nm^2",
+      "ordering": "ascending: I1 <= I2 <= I3"
+    },
+    "asphericity": {
+      "discard": 66,
+      "statistical_inefficiency": 76.10238894481067,
+      "effective_samples": 0.446766526930669,
+      "mean": 0.07823159569581688,
+      "standard_error": NaN,
+      "standard_deviation": 0.005013166005305929,
+      "degrees_of_freedom": 2.127659574468085,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 34 frames hold 0.4 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "shortfall": {
+        "target_independent": 25.0,
+        "independent": 0.446766526930669,
+        "statistical_inefficiency": 76.10238894481067,
+        "more_frames": 1869,
+        "more_ns": 0.0747599287033081,
+        "lower_bound": true
+      },
+      "n_frames": 100,
+      "unit": "nm\u00b2"
+    },
+    "acylindricity": {
+      "discard": 66,
+      "statistical_inefficiency": 28.88841285435821,
+      "effective_samples": 1.1769424707204237,
+      "mean": 0.010098604391222133,
+      "standard_error": NaN,
+      "standard_deviation": 0.0016190531863171523,
+      "degrees_of_freedom": 2.3255813953488373,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 34 frames hold 1.2 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "shortfall": {
+        "target_independent": 25.0,
+        "independent": 1.1769424707204237,
+        "statistical_inefficiency": 28.88841285435821,
+        "more_frames": 689,
+        "more_ns": 0.02755997371673584,
+        "lower_bound": true
+      },
+      "n_frames": 100,
+      "unit": "nm\u00b2"
+    },
+    "relative_shape_anisotropy": {
+      "discard": 66,
+      "statistical_inefficiency": 78.98748317711855,
+      "effective_samples": 0.43044794735084396,
+      "mean": 0.48844166543587186,
+      "standard_error": NaN,
+      "standard_deviation": 0.03161726809225767,
+      "degrees_of_freedom": 2.127659574468085,
+      "rules": 2,
+      "not_a_measurement": "This run is not long against its own correlation time: 34 frames hold 0.4 independent samples by their own estimate, and a correlated run shorter than 25 of them reads its correlation time low (only frames whose statistical inefficiency, before the correction for the sample mean, is under 2 are exempt). That count is an upper bound, so an error computed from it would be a lower bound -- and none is reported here rather than one that is wrong in a knowable direction. On ten replicas of one system differing only by seed, errors computed from one run were about ten times smaller than the spread of the ten means. The remedy is a longer run, or better, replicas.",
+      "shortfall": {
+        "target_independent": 25.0,
+        "independent": 0.43044794735084396,
+        "statistical_inefficiency": 78.98748317711855,
+        "more_frames": 1941,
+        "more_ns": 0.07763992595672607,
+        "lower_bound": true
+      },
+      "n_frames": 100,
+      "unit": ""
+    }
+  }
+}

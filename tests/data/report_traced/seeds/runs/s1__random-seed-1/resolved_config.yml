@@ -1,0 +1,149 @@
+# FastMDXplora resolved configuration
+#
+# This is the fully-merged configuration actually used for this run
+# (built-in defaults + config file + command-line overrides). Feed it
+# back to reproduce the exact study:
+#
+#   fastmdx explore --config resolved_config.yml
+#
+systems:
+- id: tri
+  system: /tmp/F/real/tri-ala.pdb
+output: /tmp/F/ws/clean-own
+setup:
+  agent: null
+  ph: 7.0
+  heterogens: auto
+  mutations: null
+  mutation_chain: null
+  protonation_margin: 1.0
+  residue_states: null
+  model: null
+  replace_nonstandard_residues: true
+  chains: null
+  build_missing_termini: false
+  keep_heterogens: false
+  keep_water: false
+  fixed_pdb: null
+  preparation_audit: false
+  forcefield: auto
+  force_field:
+  - amber14-all.xml
+  - amber14/tip3p.xml
+  water_model: tip3p
+  ligand: null
+  ligand_forcefield: openff-2.2.1
+  ligand_name: LIG
+  ligand_resname: null
+  ligand_net_charge: null
+  ligand_pose: auto
+  check_ligand_clashes: true
+  ligand_clash_threshold_nm: 0.15
+  membrane: null
+  membrane_orient: false
+  membrane_orientation_checked: false
+  membrane_center_z_nm: null
+  solvent_padding_nm: 1.4001
+  box_shape: dodecahedron
+  ion_positive: Na+
+  ion_negative: Cl-
+  ion_concentration_M: 0.15
+  neutralize: true
+  random_seed: 1209068117
+  nonbonded_method: PME
+  nonbonded_cutoff_nm: 0.9
+  ewald_error_tolerance: 0.0005
+  use_switching_function: false
+  switch_distance_nm: null
+  dispersion_correction: true
+  remove_cm_motion: true
+  constraints: HBonds
+  rigid_water: true
+  hydrogen_mass_amu: null
+  temperature_K: 300.0
+simulation:
+  agent: null
+  duration_ns: null
+  nvt_duration_ns: null
+  npt_duration_ns: null
+  nvt_steps: 200
+  ensemble: npt
+  npt_steps: 200
+  production_steps: 20000
+  setup_from: null
+  prepared_from: null
+  extra_ns: null
+  stop_when: null
+  resume_unsealed: false
+  resume_from: null
+  minimize: true
+  integrator: langevin_middle
+  integrator_error_tolerance: 0.001
+  minimize_tolerance_kjmol_per_nm: 10.0
+  minimize_max_iterations: 0
+  timestep_fs: 2
+  temperature_K: 300.0
+  pressure_bar: 1.0
+  pressure_atm: null
+  friction_per_ps: 1.0
+  barostat_frequency: 25
+  random_seed: null
+  platform: CPU
+  precision: mixed
+  device_index: null
+  trajectory_interval_steps: 100
+  state_interval_steps: 1000
+  save_selection: not water
+  checkpoint_interval_steps: 10000
+  live_telemetry: true
+  telemetry_interval: 1000
+  dashboard_ligand_resname: null
+  dashboard_binding_pocket_cutoff_A: 5.0
+  dashboard_max_playback_frames: 2000
+  restrain: null
+  restraint_release: null
+  restrain_production: false
+  umbrella: null
+  steered: null
+  metadynamics: null
+  plumed: null
+analysis:
+  agent: null
+  trajectory: /tmp/F/ws/clean-own/simulation/production.dcd
+  topology: /tmp/F/ws/clean-own/simulation/trajectory_topology.pdb
+  include:
+  - rmsd
+  - rmsf
+  - rg
+  - hbonds
+  - ss
+  - sasa
+  - dihedrals
+  - order_parameters
+  - thermodynamics
+  - end_to_end
+  - moments_of_inertia
+  - cluster
+  - dimred
+  exclude: null
+  select_atoms: null
+  selection: null
+  scope: solute
+  stride: null
+  first: null
+  last: null
+  figure_colours: colour
+  figure_width: page
+  options: null
+report:
+  agent: null
+  title: null
+  author: null
+  document: true
+  slides: true
+  pdf: true
+  bundle: true
+  include_methods: true
+  include_reproducibility: true
+  region_highlights: null
+  comparison: true

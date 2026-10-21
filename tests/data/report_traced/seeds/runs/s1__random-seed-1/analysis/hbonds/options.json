@@ -1,0 +1,29 @@
+{
+  "analysis": "hbonds",
+  "class": "HBonds",
+  "selection": "protein",
+  "options": {
+    "method": "baker_hubbard",
+    "criterion": "Baker-Hubbard: H...A < 2.5 A, D-H...A > 120 deg",
+    "periodic": true,
+    "freq": 0.1,
+    "candidate_freq": 0.0,
+    "count_multiplier": 1,
+    "n_persistent_bonds": 0,
+    "n_candidate_bonds": 1
+  },
+  "findings": {
+    "mean": {
+      "discard": 20,
+      "statistical_inefficiency": 1.0112359550561798,
+      "effective_samples": 178.0,
+      "mean": 0.005555555555555556,
+      "standard_error": 0.00558667935961659,
+      "standard_deviation": 0.07453559924999298,
+      "degrees_of_freedom": 60.0,
+      "rules": 2,
+      "n_frames": 200,
+      "unit": ""
+    }
+  }
+}

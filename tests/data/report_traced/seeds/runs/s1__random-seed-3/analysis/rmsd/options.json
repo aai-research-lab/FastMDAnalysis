@@ -1,0 +1,23 @@
+{
+  "analysis": "rmsd",
+  "class": "RMSD",
+  "selection": "protein and name CA",
+  "options": {
+    "ref": 0,
+    "align": true
+  },
+  "findings": {
+    "mean": {
+      "discard": 66,
+      "statistical_inefficiency": 2.1155260916770517,
+      "effective_samples": 16.071652405405697,
+      "mean": 0.009,
+      "standard_error": 0.0012,
+      "standard_deviation": 0.004021253974418797,
+      "degrees_of_freedom": 4.857142857142857,
+      "rules": 2,
+      "n_frames": 100,
+      "unit": "nm"
+    }
+  }
+}

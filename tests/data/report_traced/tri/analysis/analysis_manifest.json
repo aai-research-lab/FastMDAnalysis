@@ -1,0 +1,311 @@
+{
+  "phase": "analysis",
+  "trajectory_input": "/tmp/D/real/clean/simulation/production.dcd",
+  "topology_input": "/tmp/D/real/clean/simulation/trajectory_topology.pdb",
+  "load_kwargs": {
+    "stride": null,
+    "first": null,
+    "last": null,
+    "saving_interval_ps": 0.04
+  },
+  "figure_colours": "colour",
+  "figure_width": "page",
+  "default_selection": null,
+  "n_frames": 100,
+  "n_atoms": 35,
+  "n_residues": 5,
+  "n_protein_residues": 3,
+  "plan": [
+    "rmsd",
+    "rmsf",
+    "rg",
+    "hbonds",
+    "ss",
+    "sasa",
+    "dihedrals",
+    "order_parameters",
+    "thermodynamics",
+    "end_to_end",
+    "moments_of_inertia",
+    "cluster",
+    "dimred"
+  ],
+  "resolved": {
+    "trajectory": "/tmp/D/real/clean/simulation/production.dcd",
+    "topology": "/tmp/D/real/clean/simulation/trajectory_topology.pdb",
+    "include": [
+      "rmsd",
+      "rmsf",
+      "rg",
+      "hbonds",
+      "ss",
+      "sasa",
+      "dihedrals",
+      "order_parameters",
+      "thermodynamics",
+      "end_to_end",
+      "moments_of_inertia",
+      "cluster",
+      "dimred"
+    ],
+    "stride": null,
+    "first": null,
+    "last": null,
+    "selection": null,
+    "figure_colours": "colour",
+    "figure_width": "page"
+  },
+  "results": {
+    "rmsd": {
+      "name": "rmsd",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/rmsd",
+      "figure_path": "/tmp/D/real/clean/analysis/rmsd/rmsd.png",
+      "data_path": "/tmp/D/real/clean/analysis/rmsd/rmsd.dat",
+      "options_path": "/tmp/D/real/clean/analysis/rmsd/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/rmsd/rmsd.dat",
+        "/tmp/D/real/clean/analysis/rmsd/rmsd.png",
+        "/tmp/D/real/clean/analysis/rmsd/rmsd.svg",
+        "/tmp/D/real/clean/analysis/rmsd/options.json"
+      ],
+      "message": "rmsd: ok",
+      "started_at": "2026-10-18T03:24:41.586940+00:00",
+      "finished_at": "2026-10-18T03:24:42.143170+00:00"
+    },
+    "rmsf": {
+      "name": "rmsf",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/rmsf",
+      "figure_path": "/tmp/D/real/clean/analysis/rmsf/rmsf.png",
+      "data_path": "/tmp/D/real/clean/analysis/rmsf/rmsf.dat",
+      "options_path": "/tmp/D/real/clean/analysis/rmsf/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/rmsf/rmsf.dat",
+        "/tmp/D/real/clean/analysis/rmsf/rmsf.png",
+        "/tmp/D/real/clean/analysis/rmsf/rmsf.svg",
+        "/tmp/D/real/clean/analysis/rmsf/options.json"
+      ],
+      "message": "rmsf: ok",
+      "started_at": "2026-10-18T03:24:42.143603+00:00",
+      "finished_at": "2026-10-18T03:24:42.672451+00:00"
+    },
+    "rg": {
+      "name": "rg",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/rg",
+      "figure_path": "/tmp/D/real/clean/analysis/rg/rg.png",
+      "data_path": "/tmp/D/real/clean/analysis/rg/rg.dat",
+      "options_path": "/tmp/D/real/clean/analysis/rg/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/rg/rg.dat",
+        "/tmp/D/real/clean/analysis/rg/rg.png",
+        "/tmp/D/real/clean/analysis/rg/rg.svg",
+        "/tmp/D/real/clean/analysis/rg/options.json"
+      ],
+      "message": "rg: ok",
+      "started_at": "2026-10-18T03:24:42.672891+00:00",
+      "finished_at": "2026-10-18T03:24:43.205683+00:00"
+    },
+    "hbonds": {
+      "name": "hbonds",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/hbonds",
+      "figure_path": "/tmp/D/real/clean/analysis/hbonds/hbonds.png",
+      "data_path": "/tmp/D/real/clean/analysis/hbonds/hbonds.dat",
+      "options_path": "/tmp/D/real/clean/analysis/hbonds/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/hbonds/hbonds.dat",
+        "/tmp/D/real/clean/analysis/hbonds/hbonds.png",
+        "/tmp/D/real/clean/analysis/hbonds/hbonds.svg",
+        "/tmp/D/real/clean/analysis/hbonds/options.json"
+      ],
+      "message": "hbonds: ok",
+      "started_at": "2026-10-18T03:24:43.206098+00:00",
+      "finished_at": "2026-10-18T03:24:43.724871+00:00"
+    },
+    "ss": {
+      "name": "ss",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/ss",
+      "figure_path": "/tmp/D/real/clean/analysis/ss/ss.png",
+      "data_path": "/tmp/D/real/clean/analysis/ss/ss.dat",
+      "options_path": "/tmp/D/real/clean/analysis/ss/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/ss/ss.dat",
+        "/tmp/D/real/clean/analysis/ss/ss.png",
+        "/tmp/D/real/clean/analysis/ss/ss.svg",
+        "/tmp/D/real/clean/analysis/ss/options.json"
+      ],
+      "message": "ss: ok",
+      "started_at": "2026-10-18T03:24:43.725386+00:00",
+      "finished_at": "2026-10-18T03:24:44.357329+00:00"
+    },
+    "sasa": {
+      "name": "sasa",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/sasa",
+      "figure_path": "/tmp/D/real/clean/analysis/sasa/sasa.png",
+      "data_path": "/tmp/D/real/clean/analysis/sasa/sasa.dat",
+      "options_path": "/tmp/D/real/clean/analysis/sasa/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/sasa/sasa.dat",
+        "/tmp/D/real/clean/analysis/sasa/sasa.png",
+        "/tmp/D/real/clean/analysis/sasa/sasa.svg",
+        "/tmp/D/real/clean/analysis/sasa/options.json"
+      ],
+      "message": "sasa: ok",
+      "started_at": "2026-10-18T03:24:44.357719+00:00",
+      "finished_at": "2026-10-18T03:24:44.838682+00:00"
+    },
+    "dihedrals": {
+      "name": "dihedrals",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/dihedrals",
+      "figure_path": "/tmp/D/real/clean/analysis/dihedrals/dihedrals.png",
+      "data_path": "/tmp/D/real/clean/analysis/dihedrals/dihedrals.dat",
+      "options_path": "/tmp/D/real/clean/analysis/dihedrals/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/dihedrals/dihedrals.dat",
+        "/tmp/D/real/clean/analysis/dihedrals/dihedrals.png",
+        "/tmp/D/real/clean/analysis/dihedrals/dihedrals.svg",
+        "/tmp/D/real/clean/analysis/dihedrals/options.json"
+      ],
+      "message": "dihedrals: ok",
+      "started_at": "2026-10-18T03:24:44.839038+00:00",
+      "finished_at": "2026-10-18T03:24:45.369774+00:00"
+    },
+    "order_parameters": {
+      "name": "order_parameters",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/order_parameters",
+      "figure_path": "/tmp/D/real/clean/analysis/order_parameters/order_parameters.png",
+      "data_path": "/tmp/D/real/clean/analysis/order_parameters/order_parameters.dat",
+      "options_path": "/tmp/D/real/clean/analysis/order_parameters/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/order_parameters/order_parameters.dat",
+        "/tmp/D/real/clean/analysis/order_parameters/order_parameters.png",
+        "/tmp/D/real/clean/analysis/order_parameters/order_parameters.svg",
+        "/tmp/D/real/clean/analysis/order_parameters/options.json"
+      ],
+      "message": "order_parameters: ok",
+      "started_at": "2026-10-18T03:24:45.370278+00:00",
+      "finished_at": "2026-10-18T03:24:45.938921+00:00"
+    },
+    "thermodynamics": {
+      "name": "thermodynamics",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/thermodynamics",
+      "figure_path": "/tmp/D/real/clean/analysis/thermodynamics/thermodynamics.png",
+      "data_path": "/tmp/D/real/clean/analysis/thermodynamics/thermodynamics.dat",
+      "options_path": "/tmp/D/real/clean/analysis/thermodynamics/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/thermodynamics/thermodynamics.dat",
+        "/tmp/D/real/clean/analysis/thermodynamics/thermodynamics.png",
+        "/tmp/D/real/clean/analysis/thermodynamics/thermodynamics.svg",
+        "/tmp/D/real/clean/analysis/thermodynamics/options.json"
+      ],
+      "message": "thermodynamics: ok",
+      "started_at": "2026-10-18T03:24:45.939295+00:00",
+      "finished_at": "2026-10-18T03:24:46.275252+00:00"
+    },
+    "end_to_end": {
+      "name": "end_to_end",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/end_to_end",
+      "figure_path": "/tmp/D/real/clean/analysis/end_to_end/end_to_end.png",
+      "data_path": "/tmp/D/real/clean/analysis/end_to_end/end_to_end.dat",
+      "options_path": "/tmp/D/real/clean/analysis/end_to_end/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/end_to_end/end_to_end.dat",
+        "/tmp/D/real/clean/analysis/end_to_end/end_to_end.png",
+        "/tmp/D/real/clean/analysis/end_to_end/end_to_end.svg",
+        "/tmp/D/real/clean/analysis/end_to_end/options.json"
+      ],
+      "message": "end_to_end: ok",
+      "started_at": "2026-10-18T03:24:46.275690+00:00",
+      "finished_at": "2026-10-18T03:24:46.756183+00:00"
+    },
+    "moments_of_inertia": {
+      "name": "moments_of_inertia",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/moments_of_inertia",
+      "figure_path": "/tmp/D/real/clean/analysis/moments_of_inertia/moments_of_inertia.png",
+      "data_path": "/tmp/D/real/clean/analysis/moments_of_inertia/moments_of_inertia.dat",
+      "options_path": "/tmp/D/real/clean/analysis/moments_of_inertia/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/moments_of_inertia/moments_of_inertia.dat",
+        "/tmp/D/real/clean/analysis/moments_of_inertia/moments_of_inertia.png",
+        "/tmp/D/real/clean/analysis/moments_of_inertia/moments_of_inertia.svg",
+        "/tmp/D/real/clean/analysis/moments_of_inertia/options.json"
+      ],
+      "message": "moments_of_inertia: ok",
+      "started_at": "2026-10-18T03:24:46.756561+00:00",
+      "finished_at": "2026-10-18T03:24:47.228454+00:00"
+    },
+    "cluster": {
+      "name": "cluster",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/cluster",
+      "figure_path": "/tmp/D/real/clean/analysis/cluster/cluster_kmeans.png",
+      "data_path": "/tmp/D/real/clean/analysis/cluster/cluster_kmeans.dat",
+      "options_path": "/tmp/D/real/clean/analysis/cluster/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/cluster/options.json",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans.dat",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans.png",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans.svg",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_counts.png",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_counts.svg",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_populations.csv",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_medoid_0.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_medoid_1.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_medoid_2.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_medoid_3.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_kmeans_medoid_4.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical.dat",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical.png",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical.svg",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_counts.png",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_counts.svg",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_populations.csv",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_medoid_0.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_medoid_1.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_medoid_2.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_medoid_3.pdb",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_medoid_4.pdb",
+        "/tmp/D/real/clean/analysis/cluster/hierarchical_distance_matrix.npy",
+        "/tmp/D/real/clean/analysis/cluster/hierarchical_linkage.npy",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_dendrogram.png",
+        "/tmp/D/real/clean/analysis/cluster/cluster_hierarchical_dendrogram.svg",
+        "/tmp/D/real/clean/analysis/cluster/cluster_rmsd_matrix.npz",
+        "/tmp/D/real/clean/analysis/cluster/cluster_rmsd_matrix.png",
+        "/tmp/D/real/clean/analysis/cluster/cluster_rmsd_matrix.svg"
+      ],
+      "message": "cluster: ok (kmeans, hierarchical)",
+      "started_at": "2026-10-18T03:24:47.229001+00:00",
+      "finished_at": "2026-10-18T03:24:49.526845+00:00"
+    },
+    "dimred": {
+      "name": "dimred",
+      "status": "ok",
+      "output_dir": "/tmp/D/real/clean/analysis/dimred",
+      "figure_path": "/tmp/D/real/clean/analysis/dimred/dimred_pca.png",
+      "data_path": "/tmp/D/real/clean/analysis/dimred/dimred_pca.dat",
+      "options_path": "/tmp/D/real/clean/analysis/dimred/options.json",
+      "artifacts": [
+        "/tmp/D/real/clean/analysis/dimred/options.json",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca.dat",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca.png",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca.svg",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca_modes.npz",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca_landscape.npz",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca_landscape.png",
+        "/tmp/D/real/clean/analysis/dimred/dimred_pca_landscape.svg"
+      ],
+      "message": "dimred: ok (pca)",
+      "started_at": "2026-10-18T03:24:49.527337+00:00",
+      "finished_at": "2026-10-18T03:24:50.654922+00:00"
+    }
+  }
+}

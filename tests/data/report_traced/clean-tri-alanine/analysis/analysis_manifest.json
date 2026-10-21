@@ -1,0 +1,72 @@
+{
+  "phase": "analysis",
+  "trajectory_input": "/tmp/D/ws/clean-tri-alanine/simulation/production.dcd",
+  "topology_input": "/tmp/D/ws/clean-tri-alanine/simulation/trajectory_topology.pdb",
+  "load_kwargs": {
+    "stride": null,
+    "first": null,
+    "last": null,
+    "saving_interval_ps": 0.2
+  },
+  "figure_colours": "colour",
+  "figure_width": "page",
+  "default_selection": null,
+  "n_frames": 200,
+  "n_atoms": 35,
+  "n_residues": 5,
+  "n_protein_residues": 3,
+  "plan": [
+    "rmsd",
+    "thermodynamics"
+  ],
+  "resolved": {
+    "trajectory": "/tmp/D/ws/clean-tri-alanine/simulation/production.dcd",
+    "topology": "/tmp/D/ws/clean-tri-alanine/simulation/trajectory_topology.pdb",
+    "include": [
+      "rmsd",
+      "thermodynamics"
+    ],
+    "stride": null,
+    "first": null,
+    "last": null,
+    "selection": null,
+    "figure_colours": "colour",
+    "figure_width": "page"
+  },
+  "results": {
+    "rmsd": {
+      "name": "rmsd",
+      "status": "ok",
+      "output_dir": "/tmp/D/ws/clean-tri-alanine/analysis/rmsd",
+      "figure_path": "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/rmsd.png",
+      "data_path": "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/rmsd.dat",
+      "options_path": "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/options.json",
+      "artifacts": [
+        "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/rmsd.dat",
+        "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/rmsd.png",
+        "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/rmsd.svg",
+        "/tmp/D/ws/clean-tri-alanine/analysis/rmsd/options.json"
+      ],
+      "message": "rmsd: ok",
+      "started_at": "2026-10-18T03:27:58.775168+00:00",
+      "finished_at": "2026-10-18T03:27:59.435466+00:00"
+    },
+    "thermodynamics": {
+      "name": "thermodynamics",
+      "status": "ok",
+      "output_dir": "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics",
+      "figure_path": "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/thermodynamics.png",
+      "data_path": "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/thermodynamics.dat",
+      "options_path": "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/options.json",
+      "artifacts": [
+        "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/thermodynamics.dat",
+        "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/thermodynamics.png",
+        "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/thermodynamics.svg",
+        "/tmp/D/ws/clean-tri-alanine/analysis/thermodynamics/options.json"
+      ],
+      "message": "thermodynamics: ok",
+      "started_at": "2026-10-18T03:27:59.435909+00:00",
+      "finished_at": "2026-10-18T03:27:59.756070+00:00"
+    }
+  }
+}

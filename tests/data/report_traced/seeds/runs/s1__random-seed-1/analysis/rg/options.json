@@ -1,0 +1,23 @@
+{
+  "analysis": "rg",
+  "class": "Rg",
+  "selection": "protein",
+  "options": {
+    "by_chain": false,
+    "mass_weighted": true
+  },
+  "findings": {
+    "mean": {
+      "discard": 129,
+      "statistical_inefficiency": 2.3186970055651575,
+      "effective_samples": 30.620645918630714,
+      "mean": 0.3139593495713263,
+      "standard_error": 0.0009614393069483859,
+      "standard_deviation": 0.005320213334883518,
+      "degrees_of_freedom": 10.142857142857142,
+      "rules": 2,
+      "n_frames": 200,
+      "unit": "nm"
+    }
+  }
+}

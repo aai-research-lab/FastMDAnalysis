@@ -264,12 +264,35 @@
     el("run-trajectory-field").hidden = state.start !== "trajectory";
     el("run-config-field").hidden = !fromConfig;
     el("run-output-field").hidden = fromConfig;
+    // Every step is shown from the start, as a study from a structure
+    // has them, to be read before anything is chosen; a config is run as
+    // it stands, so its steps are its own.
     ["system", "protocol", "analysis", "review"].forEach((step) => {
       const section = el("run-step-" + step);
-      if (section) section.hidden = !started || fromConfig;
+      if (section) section.hidden = fromConfig;
     });
     document.querySelectorAll("#run-steps .builder-step-link").forEach((link) => {
-      link.hidden = link.dataset.step !== "start" && (!started || fromConfig);
+      link.hidden = link.dataset.step !== "start" && fromConfig;
+    });
+  }
+
+  /* Before a starting point is chosen, steps 2 to 5 are shown as they are
+   * for a study from a structure, to read but not change: each says so,
+   * and nothing in them takes a click or a key. */
+  function markWaiting(waiting) {
+    ["system", "protocol", "analysis", "review"].forEach((step) => {
+      const section = el("run-step-" + step);
+      if (!section) return;
+      section.inert = waiting;
+      section.classList.toggle("is-waiting", waiting);
+      let said = section.querySelector(":scope > .builder-step-waiting");
+      if (waiting && !said) {
+        said = node("p", "builder-step-waiting muted",
+          "As a study from a structure has it. Choose what the study starts from (step 1) to change it.");
+        section.querySelector(".builder-step-head").after(said);
+      } else if (!waiting && said) {
+        said.remove();
+      }
     });
   }
 
@@ -466,12 +489,21 @@
   // ------------------------------------------------------------- the steps
 
   function renderSteps() {
-    if (!state.schema || !state.start || state.start === "config") return;
+    if (!state.schema || state.start === "config") return;
     const focus = focusedSetting();
-    renderSystemStep();
-    renderProtocolStep();
-    renderAnalysisStep();
-    renderReviewStep();
+    // Nothing chosen yet: the steps as a study from a structure has them.
+    const waiting = !state.start;
+    const chosen = state.phases;
+    if (waiting) state.phases = new Set(STARTING_POINTS.structure.phases);
+    try {
+      renderSystemStep();
+      renderProtocolStep();
+      renderAnalysisStep();
+      renderReviewStep();
+    } finally {
+      if (waiting) state.phases = chosen;
+    }
+    markWaiting(waiting);
     if (window.FastMDXPicker && window.FastMDXPicker.attachAll) window.FastMDXPicker.attachAll();
     applyFind();
     restoreFocus(focus);
@@ -2302,7 +2334,9 @@
     const knowing = el("run-worth-knowing");
     // The estimate, which carries the advice, can arrive after the checks.
     const status = el("run-status");
-    if (status && status.dataset.state === "ok") setStatus("ok", checksPass());
+    if (status && (status.dataset.state === "ok" || status.dataset.state === "costed")) {
+      setStatus(...checksPass());
+    }
     if (knowing) {
       knowing.replaceChildren();
       const advice = (state.estimate && state.estimate.ok && state.estimate.advisories) || [];
@@ -2597,9 +2631,19 @@
    * long for its constraints. */
   function checksPass() {
     const advice = (state.estimate && state.estimate.ok && state.estimate.advisories) || [];
-    return advice.length
+    const said = advice.length
       ? `Checks pass; ${advice.length === 1 ? "one thing" : advice.length + " things"} worth knowing`
       : "Checks pass";
+    // A cost that does not fit (What it costs here) is not a check of the
+    // Config passing: said apart, in its own colour. Run stays as it is.
+    const cost = (state.estimate && state.estimate.ok && Array.isArray(state.estimate.cost))
+      ? state.estimate.cost : [];
+    const errors = cost.filter((line) => line.level === "error");
+    if (!errors.length) return ["ok", said];
+    const kinds = errors.map((line) => (COST_KINDS[line.kind] || line.kind || "").toLowerCase());
+    return ["costed", "The Config's checks pass" + said.slice("Checks pass".length) + "; what it costs here has " +
+      (errors.length === 1 ? "an error" : errors.length + " errors") + " (" + kinds.join(", ") +
+      "), said under What it costs here"];
   }
 
   function setStatus(kind, said) {
@@ -2707,7 +2751,7 @@
         && !(state.estimate && state.estimate.ok)) redrawAnalyses();
     if (!ready()) return;
     if (built.ok) {
-      setStatus("ok", checksPass());
+      setStatus(...checksPass());
       const note = el("run-note");
       if (note && note.dataset.ok === "") note.textContent = "";
     } else {
@@ -2765,6 +2809,7 @@
     const wanted = state.start === "structure" && state.phases.has("setup")
       && state.systems.some((row) => row.system);
     if (!wanted) {
+      renderCost(null);
       box.hidden = true;
       previewKey = "";
       previewSeq += 1;
@@ -2803,6 +2848,7 @@
     const before = JSON.stringify(state.estimate && state.estimate.structure);
     state.estimate = answer || {};
     renderPreview(state.estimate);
+    renderCost(state.estimate);
     renderReviewLive();
     // The structure decides what some settings offer (its models, its
     // residues): built again when what it holds is first known or changes.
@@ -2896,6 +2942,48 @@
     (e.notes || []).forEach((note) => body.appendChild(node("p", "builder-help", note)));
     body.appendChild(node("p", "builder-help",
       "Worked out from the structure and these settings. Setup's own numbers replace it once it has run."));
+  }
+
+  /* What the study costs here, beside the summary as a compiler's
+   * diagnostics: the speed a run makes, the time every run takes, the disk
+   * its trajectories take and the GPU memory a run needs, each a note, a
+   * warning or an error (gui/preview.py, study_cost). */
+  const COST_KINDS = { speed: "Speed", time: "Time", disk: "Disk", gpu: "GPU memory" };
+  const COST_LEVELS = { note: "note", warning: "warning", error: "error" };
+
+  function renderCost(answer) {
+    const box = el("run-cost");
+    const list = el("run-cost-lines");
+    if (!box || !list) return;
+    list.replaceChildren();
+    const structure = state.start === "structure";
+    box.hidden = !structure;
+    if (!structure) return;
+    const lines = answer && answer.ok && Array.isArray(answer.cost) ? answer.cost : null;
+    const counts = { note: 0, warning: 0, error: 0 };
+    if (!lines) {
+      const why = state.phases.has("setup")
+        ? "Name a structure to see its speed, time, disk and GPU memory here."
+        : "Worked out from the structure setup prepares; without setup there is none to work from.";
+      list.appendChild(node("li", "builder-cost-line is-empty muted", why));
+    } else {
+      lines.forEach((line) => {
+        const level = COST_LEVELS[line.level] || "note";
+        counts[level] += 1;
+        const item = node("li", "builder-cost-line");
+        item.dataset.level = level;
+        item.dataset.kind = line.kind || "";
+        item.appendChild(node("span", "builder-cost-level", level));
+        item.appendChild(node("span", "builder-cost-kind", COST_KINDS[line.kind] || line.kind || ""));
+        item.appendChild(node("span", "builder-cost-said", line.said || ""));
+        list.appendChild(item);
+      });
+    }
+    const said = [];
+    if (counts.error) said.push(`${counts.error} error${counts.error === 1 ? "" : "s"}`);
+    if (counts.warning) said.push(`${counts.warning} warning${counts.warning === 1 ? "" : "s"}`);
+    text(el("run-cost-count"), said.join(", "));
+    box.dataset.worst = counts.error ? "error" : counts.warning ? "warning" : "note";
   }
 
   /* The periodic cell setup builds, as OpenMM lays out its box vectors for a

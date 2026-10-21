@@ -493,6 +493,12 @@ def _status_records(root: Path) -> dict[str, Any]:
     from fastmdxplora.gui.series import refused_said
     from fastmdxplora.gui.telemetry import live_records_refused, not_read_health
 
+    # The study's name, as its results name it: the status can come first.
+    # A manifest the held read refused is read as none, so the study is
+    # named by its folder, as its results name it; nothing is read through
+    # the link.
+    manifest = _load_json(root / "manifest.json")
+    title = "" if _no_study(root) else _run_title(root, manifest)
     # A run that ended without saying so is said to have.
     status = status_as_it_stands(root)
     metrics = read_metrics(root)
@@ -512,9 +518,7 @@ def _status_records(root: Path) -> dict[str, Any]:
         # as a run that stalled.
         "stages": run_stages(root),
         "phases": run_phases(root),
-        # Status can arrive before results; keep this record read confined too.
-        "run_title": "" if _no_study(root) else _run_title(
-            root, _load_json(root / "manifest.json")),
+        "run_title": title,
     }
 
 

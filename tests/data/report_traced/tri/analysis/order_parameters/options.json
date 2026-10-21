@@ -1,0 +1,22 @@
+{
+  "analysis": "order_parameters",
+  "class": "OrderParameters",
+  "selection": "protein",
+  "options": {
+    "align_selection": "protein and name CA",
+    "ref": 0,
+    "reference": null,
+    "reference_exclude": null,
+    "definition": "Lipari-Szabo generalised order parameter, from the closed form of the internal second-rank correlation plateau after superposition"
+  },
+  "findings": {
+    "order_parameters": {
+      "vectors": 2,
+      "mean": 0.8198187351226807,
+      "minimum": 0.8118574619293213,
+      "alignment": "protein and name CA",
+      "halves_max_difference": 0.041509270668029785,
+      "not_a_measurement": "The two halves of this trajectory give order parameters differing by up to 0.042, against the 0.02 that published sets are quoted to. Motion slower than the run is motion the run did not see, and unsampled motion is indistinguishable from rigidity, so these values are an upper bound rather than an estimate and the error is in one direction. A longer run is the only remedy."
+    }
+  }
+}

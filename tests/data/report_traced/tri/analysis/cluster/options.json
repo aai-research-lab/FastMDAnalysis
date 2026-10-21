@@ -1,0 +1,31 @@
+{
+  "analysis": "cluster",
+  "class": "Cluster",
+  "selection": "protein and name CA",
+  "options": {
+    "methods": [
+      "kmeans",
+      "hierarchical"
+    ],
+    "features": "rmsd",
+    "n_clusters": 5,
+    "eps": 0.2,
+    "min_samples": 5,
+    "linkage": "average",
+    "random_state": 42,
+    "n_init": 10
+  },
+  "findings": {
+    "frames": {
+      "n_frames_analysed": 100,
+      "n_frames_given": 100,
+      "first_frame": 0,
+      "start": null,
+      "equilibration_frames_by_rmsd": 66,
+      "equilibration_included": true,
+      "first_time_ns": 3.999999910593033e-05,
+      "equilibrated_from_ns": 0.0026800000667572023,
+      "said": "All 100 frames were analysed, from the first. The RMSD of these atoms from the first frame equilibrates after 66 frames, and the 66 before that are included: a relaxation from the starting structure can come out as a state or a component of its own. `start: equilibrated` leaves them out."
+    }
+  }
+}

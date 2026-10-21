@@ -1,0 +1,63 @@
+{
+  "version": "0.1.0",
+  "host": "vm",
+  "made": "2026-10-19T07:38:24+00:00",
+  "figures": {
+    "overlay_rmsd": {
+      "kind": "overlay",
+      "analysis": "rmsd",
+      "unit": "nm",
+      "against": "time",
+      "runs": [
+        {
+          "run_id": "s1__random-seed-1",
+          "label": "random_seed=1",
+          "path": "runs/s1__random-seed-1",
+          "analysed_by": "0.1.0",
+          "frames": 200,
+          "timed": true
+        },
+        {
+          "run_id": "s1__random-seed-2",
+          "label": "random_seed=2",
+          "path": "runs/s1__random-seed-2",
+          "analysed_by": "0.1.0",
+          "frames": 200,
+          "timed": true
+        },
+        {
+          "run_id": "s1__random-seed-3",
+          "label": "random_seed=3",
+          "path": "runs/s1__random-seed-3",
+          "analysed_by": "0.1.0",
+          "frames": 100,
+          "timed": true
+        }
+      ]
+    },
+    "overlay_rg": {
+      "kind": "overlay",
+      "analysis": "rg",
+      "unit": "nm",
+      "against": "time",
+      "runs": [
+        {
+          "run_id": "s1__random-seed-1",
+          "label": "random_seed=1",
+          "path": "runs/s1__random-seed-1",
+          "analysed_by": "0.1.0",
+          "frames": 200,
+          "timed": true
+        },
+        {
+          "run_id": "s1__random-seed-3",
+          "label": "random_seed=3",
+          "path": "runs/s1__random-seed-3",
+          "analysed_by": "0.1.0",
+          "frames": 100,
+          "timed": true
+        }
+      ]
+    }
+  }
+}

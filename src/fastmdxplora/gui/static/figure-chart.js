@@ -149,15 +149,85 @@
       "aria-label": options.said || data.title || "", class: "figure-svg",
     }, host);
     svg.style.height = height + "px";
+    // What is plotted is drawn in a layer kept inside the axes, so a plot
+    // zoomed into shows nothing outside them.
+    var clipId = "fig-clip-" + Math.random().toString(36).slice(2, 9);
+    el("rect", { x: plot.left, y: plot.top, width: plot.right - plot.left, height: plot.bottom - plot.top },
+       el("clipPath", { id: clipId }, el("defs", {}, svg)));
+    var layer = el("g", { "clip-path": "url(#" + clipId + ")", class: "figure-layer" }, svg);
     var tip = document.createElement("div");
     tip.className = "series-tip";
     tip.hidden = true;
     host.appendChild(tip);
-    return { svg: svg, plot: plot, width: width, height: height, tip: tip, c: colours() };
+    return { svg: svg, layer: layer, plot: plot, width: width, height: height, tip: tip, c: colours(),
+             view: viewOf(host, data), clock: { factor: 1, unit: "ns" } };
+  }
+
+  /* The kinds plotted on the simulation's clock (or on frame numbers, where
+   * the run kept none): a range dragged across one is the page's. */
+  var TIMED = { states: "x_label", labels: "x_label", lines: "x_label", matrix: "axis_label" };
+
+  function clockOf(data) {
+    var key = TIMED[data.kind];
+    var label = key ? data[key] : "";
+    return label === "Time (ns)" || label === "Frame" ? label : "";
+  }
+
+  /* What a plot shows: the page's time range for one on its clock, else
+   * the part it was zoomed to, else all of it. */
+  function viewOf(host, data) {
+    var tools = window.FastMDXPlotTools;
+    var clock = clockOf(data);
+    var shared = clock && tools ? tools.range(clock) : null;
+    if (shared) {
+      return data.kind === "matrix" ? { x: [shared.from, shared.to], y: [shared.from, shared.to] }
+        : { x: [shared.from, shared.to] };
+    }
+    return host._view || null;
+  }
+
+  /* The axes' extents as shown (the view, where there is one), and times in
+   * picoseconds where what is shown is under a nanosecond. */
+  function scale(f, x, y) {
+    x.full = [x.low, x.high];
+    y.full = [y.low, y.high];
+    if (f.view && f.view.x) { x.low = f.view.x[0]; x.high = f.view.x[1]; }
+    if (f.view && f.view.y) { y.low = f.view.y[0]; y.high = f.view.y[1]; }
+    // Fixed ticks (the dihedrals' every 90 degrees) that leave fewer than
+    // three in what is shown give way to ticks for the view.
+    [[x, "x"], [y, "y"]].forEach(function (pair) {
+      var axis = pair[0];
+      if (!Array.isArray(axis.ticks) || !f.view || !f.view[pair[1]]) return;
+      var inside = axis.ticks.filter(function (v) { return v >= axis.low && v <= axis.high; });
+      if (inside.length < 3) axis.ticks = undefined;
+    });
+    if (x.label === "Time (ns)" && Math.max(Math.abs(x.low), Math.abs(x.high)) < 1) {
+      f.clock = { factor: 1000, unit: "ps" };
+    }
+    f.x = x;
+    f.y = y;
+    var plot = f.plot;
+    return {
+      px: function (v) { return plot.left + (v - x.low) / (x.high - x.low) * (plot.right - plot.left); },
+      py: function (v) { return plot.bottom - (v - y.low) / (y.high - y.low) * (plot.bottom - plot.top); },
+    };
   }
 
   function axes(f, x, y) {
     var plot = f.plot, svg = f.svg, c = f.c;
+    if (!f.x) scale(f, x, y);
+    // On the simulation's clock in the unit its span reads in.
+    function timed(axis) {
+      if (axis.label !== "Time (ns)" || f.clock.factor === 1 || axis.ticks === false) return;
+      var k = f.clock.factor;
+      var shown = ticks(axis.low * k, axis.high * k, axis === x ? 5 : 4);
+      var say = tickText(shown);
+      axis.ticks = shown.map(function (v) { return v / k; });
+      axis.say = function (v) { return say(v * k); };
+      axis.label = "Time (ps)";
+    }
+    timed(x);
+    timed(y);
     function px(v) { return plot.left + (v - x.low) / (x.high - x.low) * (plot.right - plot.left); }
     function py(v) { return plot.bottom - (v - y.low) / (y.high - y.low) * (plot.bottom - plot.top); }
     if (y.ticks !== false) {
@@ -219,10 +289,42 @@
     });
   }
 
-  /* A grid of values as an image over the plot: row 0 at the bottom. */
+  /* Past this many cells, a map is drawn as an image of its cells; under
+   * it, as the cells themselves, each run of one colour along a row one
+   * rectangle, so it is sharp at any size and saved as such. */
+  var MOST_CELLS = 8000;
+
+  /* A grid of values over the extent `where` covers: row 0 at the bottom. */
   function raster(f, grid, colourOf, where) {
     var ny = grid.length, nx = ny ? grid[0].length : 0;
     if (!nx) return;
+    var w = (where.right - where.left) / nx, h = (where.bottom - where.top) / ny;
+    var runs = [], count = 0;
+    for (var row = 0; row < ny && count <= MOST_CELLS; row += 1) {
+      var i = 0;
+      while (i < nx) {
+        var colour = colourOf(grid[row][i], i, row);
+        var key = colour ? colour.join(",") : "";
+        var k = i + 1;
+        while (k < nx) {
+          var next = colourOf(grid[row][k], k, row);
+          if ((next ? next.join(",") : "") !== key) break;
+          k += 1;
+        }
+        if (colour) { runs.push([row, i, k - i, colour]); count += 1; }
+        i = k;
+      }
+    }
+    if (count <= MOST_CELLS) {
+      var cells = el("g", { class: "figure-cells", "shape-rendering": "crispEdges" }, f.layer);
+      runs.forEach(function (r) {
+        el("rect", { x: (where.left + r[1] * w).toFixed(2), y: (where.bottom - (r[0] + 1) * h).toFixed(2),
+                     width: (r[2] * w + 0.4).toFixed(2), height: (h + 0.4).toFixed(2), fill: rgb(r[3]) }, cells);
+      });
+      f.svg.setAttribute("data-cells", String(count));
+      return;
+    }
+    f.svg.setAttribute("data-cells", "image");
     var canvas = document.createElement("canvas");
     canvas.width = nx;
     canvas.height = ny;
@@ -244,7 +346,11 @@
       x: where.left, y: where.top, width: Math.max(1, where.right - where.left),
       height: Math.max(1, where.bottom - where.top), preserveAspectRatio: "none",
       class: "figure-raster",
-    }, f.svg);
+      // Each cell its own colour, not blended with the next.
+      style: "image-rendering: pixelated",
+    }, f.layer);
+    el("title", {}, shown).textContent = "Drawn as a picture of its " + nx + " by " + ny +
+      " cells: more runs of a colour than are drawn one by one";
     shown.setAttributeNS("http://www.w3.org/1999/xlink", "href", canvas.toDataURL("image/png"));
     shown.setAttribute("href", canvas.toDataURL("image/png"));
   }
@@ -279,16 +385,23 @@
     return at.x >= f.plot.left && at.x <= f.plot.right && at.y >= f.plot.top && at.y <= f.plot.bottom;
   }
 
-  function when(data, i) {
+  function when(data, i, f) {
     var t = data.x ? data.x[i] : data.t[i];
     var label = data.x_label || data.t_label;
+    var clock = f && f.clock ? f.clock : { factor: 1, unit: "ns" };
     return label === "Frame" ? "frame " + data.frames[i]
-      : format(t) + " ns · frame " + data.frames[i];
+      : format(t * clock.factor) + " " + clock.unit + " \u00b7 frame " + data.frames[i];
   }
+
+  /* A click opens its frame once it is not the first of a double click,
+   * which shows all again (plot-tools.js). */
+  var pendingFrame = null;
+  document.addEventListener("dblclick", function () { clearTimeout(pendingFrame); }, true);
 
   function openFrame(data, frameNumber) {
     if (!data.linked || frameNumber == null || !window.FastMDXSeries || !window.FastMDXSeries.openFrame) return;
-    window.FastMDXSeries.openFrame(frameNumber);
+    clearTimeout(pendingFrame);
+    pendingFrame = setTimeout(function () { window.FastMDXSeries.openFrame(frameNumber); }, 280);
   }
 
   function focusResidue(entity) {
@@ -314,6 +427,8 @@
     if (!count) return { set: function () {}, current: function () { return -1; } };
     var current = -1;
     var svg = f.svg;
+    // Its arrows move along its points; zoom keeps + - [ ] (plot-tools.js).
+    f.ownArrows = true;
     svg.setAttribute("role", "application");
     svg.setAttribute("tabindex", "0");
     svg.setAttribute("aria-label", label);
@@ -353,6 +468,7 @@
   function gridKeyboard(f, label, columns, rows, show, activate) {
     var column = -1, row = 0, svg = f.svg;
     if (!columns || !rows) return { set: function () {} };
+    f.ownArrows = true;
     svg.setAttribute("role", "application");
     svg.setAttribute("tabindex", "0");
     svg.setAttribute("aria-label", label);
@@ -390,6 +506,12 @@
     });
   }
 
+  /* Where a grid's whole extent falls, drawn on the axes as shown. */
+  function extentOf(map, x, y) {
+    return { left: map.px(x.full[0]), right: map.px(x.full[1]),
+             top: map.py(y.full[1]), bottom: map.py(y.full[0]) };
+  }
+
   /* ------------------------------------------------------------------ */
   /* Each kind of figure                                                  */
   /* ------------------------------------------------------------------ */
@@ -413,8 +535,9 @@
       for (var i = 0; i < n; i += 1) row.push(data.states[i].charAt(r));
       grid.push(row);
     }
-    raster(f, grid, function (code) { return fill[code] || null; }, f.plot);
-    var map = axes(f, x, y);
+    var map = scale(f, x, y);
+    raster(f, grid, function (code) { return fill[code] || null; }, extentOf(map, x, y));
+    axes(f, x, y);
     legend(f, data.classes.map(function (k) {
       return { label: k.label, colour: rgb(fill[k.code]) };
     }));
@@ -435,7 +558,7 @@
     function showCell(i, res, at) {
       var entity = data.entities && data.entities[res - 1];
       showTip(f, at ? at.x : map.px(data.x[i]), at ? at.y : map.py(res),
-        [names[data.states[i].charAt(res - 1)] || "", "residue " + data.residues[res - 1], when(data, i)], hint);
+        [names[data.states[i].charAt(res - 1)] || "", "residue " + data.residues[res - 1], when(data, i, f)], hint);
       return entity;
     }
     var keys = gridKeyboard(f, data.title + ". Left and right select a frame; up and down select a residue.",
@@ -454,6 +577,7 @@
       if (cell) openFrameAndResidue(data, cell.frame,
         data.entities && data.entities[cell.residue - 1]);
     });
+    return f;
   }
 
   function plotLabels(host, data) {
@@ -467,7 +591,7 @@
               say: function (v) { return v < 0 ? "noise" : String(v); } };
     var map = axes(f, x, y);
     var r = n > 2000 ? 1.4 : n > 500 ? 2 : 2.6;
-    var layer = el("g", {}, f.svg);
+    var layer = el("g", {}, f.layer);
     for (var i = 0; i < n; i += 1) {
       el("circle", { cx: map.px(data.x[i]).toFixed(1), cy: map.py(data.labels[i]).toFixed(1), r: r,
                      fill: category(data.labels[i]) }, layer);
@@ -482,7 +606,7 @@
     function show(i) {
       var k = data.labels[i];
       showTip(f, map.px(data.x[i]), map.py(k),
-        [k < 0 ? "noise" : "cluster " + k, when(data, i)], hint);
+        [k < 0 ? "noise" : "cluster " + k, when(data, i, f)], hint);
     }
     var keys = keyboard(f, data.title + ". Select a frame with left and right arrows.", n,
       show, function (i) { openFrame(data, data.frames[i]); });
@@ -497,6 +621,7 @@
       var i = indexAt(event);
       if (i >= 0) openFrame(data, data.frames[i]);
     });
+    return f;
   }
 
   function plotBars(host, data) {
@@ -556,6 +681,7 @@
         openFrame(data, data.clusters[i].medoid_frame);
       }
     });
+    return f;
   }
 
   function plotDendrogram(host, data) {
@@ -574,7 +700,7 @@
       var d = "M" + map.px(xs[0]).toFixed(1) + " " + map.py(ys[0]).toFixed(1);
       for (var k = 1; k < 4; k += 1) d += "L" + map.px(xs[k]).toFixed(1) + " " + map.py(ys[k]).toFixed(1);
       el("path", { d: d, fill: "none", "stroke-width": 1.2,
-                   stroke: group == null ? f.c.axis : category(group), class: "figure-link" }, f.svg);
+                   stroke: group == null ? f.c.axis : category(group), class: "figure-link" }, f.layer);
     });
     if (data.cut != null) {
       el("line", { x1: f.plot.left, x2: f.plot.right, y1: map.py(data.cut), y2: map.py(data.cut),
@@ -589,6 +715,7 @@
               data.cut != null ? "merges below the cut are coloured by their cluster" : "");
     });
     f.svg.addEventListener("mouseleave", function () { f.tip.hidden = true; });
+    return f;
   }
 
   function plotGrid(host, data, opts) {
@@ -602,34 +729,40 @@
     var x = { low: ex[0], high: ex[ex.length - 1], label: opts.xLabel, ticks: opts.ticks };
     var y = { low: ey[0], high: ey[ey.length - 1], label: opts.yLabel, ticks: opts.ticks };
     var shade = hexToRgb(f.c.shade.charAt(0) === "#" ? f.c.shade : "#2a2d31");
+    var map = scale(f, x, y);
     raster(f, values, function (v) {
       if (v == null) return opts.empty === "shade" ? shade : null;
       return viridis((v - range[0]) / (range[1] - range[0]));
-    }, f.plot);
-    var map = axes(f, x, y);
+    }, extentOf(map, x, y));
+    axes(f, x, y);
     (data.guides || []).forEach(function (g) {
       el("line", { x1: map.px(g), x2: map.px(g), y1: f.plot.top, y2: f.plot.bottom,
-                   stroke: f.c.text, "stroke-opacity": 0.5, "stroke-width": 0.8 }, f.svg);
+                   stroke: f.c.text, "stroke-opacity": 0.5, "stroke-width": 0.8 }, f.layer);
       el("line", { x1: f.plot.left, x2: f.plot.right, y1: map.py(g), y2: map.py(g),
-                   stroke: f.c.text, "stroke-opacity": 0.5, "stroke-width": 0.8 }, f.svg);
+                   stroke: f.c.text, "stroke-opacity": 0.5, "stroke-width": 0.8 }, f.layer);
     });
     colourBar(f, range[0], range[1], data.label + (data.unit ? " (" + data.unit + ")" : ""), viridis);
     var nx = values[0].length, ny = values.length;
+    // The cell under the pointer, by where it is on the axes as shown
+    // (zoomed, the view's extents, not the whole grid's).
+    function cellOf(edgesOf, value, count) {
+      var k = 0;
+      while (k < count - 1 && edgesOf[k + 1] <= value) k += 1;
+      return k;
+    }
     function cellAt(event) {
       var at = pointer(f, event);
       if (!inside(f, at)) return null;
-      return {
-        at: at,
-        i: Math.min(nx - 1, Math.floor((at.x - f.plot.left) / (f.plot.right - f.plot.left) * nx)),
-        j: Math.min(ny - 1, Math.floor((f.plot.bottom - at.y) / (f.plot.bottom - f.plot.top) * ny)),
-      };
+      var dx = x.low + (at.x - f.plot.left) / (f.plot.right - f.plot.left) * (x.high - x.low);
+      var dy = y.low + (f.plot.bottom - at.y) / (f.plot.bottom - f.plot.top) * (y.high - y.low);
+      return { at: at, i: cellOf(ex, dx, nx), j: cellOf(ey, dy, ny) };
     }
     function showCell(i, j, at) {
       var v = values[j][i];
       var cx = (ex[i] + ex[i + 1]) / 2, cy = (ey[j] + ey[j + 1]) / 2;
       showTip(f, at ? at.x : map.px(cx), at ? at.y : map.py(cy),
         [v == null ? opts.emptySaid : format(v) + (data.unit ? " " + data.unit : ""),
-         opts.where(cx, cy, i, j)], opts.hint || "");
+         opts.where(cx, cy, i, j, f.clock)], opts.hint || "");
     }
     f.svg.addEventListener("mousemove", function (event) {
       var cell = cellAt(event);
@@ -669,8 +802,9 @@
       edgesX: e, edgesY: e, xLabel: data.axis_label, yLabel: data.axis_label,
       emptySaid: "—",
       hint: hint,
-      where: function (a, b, column, row) {
-        var axis = timed ? format(a) + " ns and " + format(b) + " ns"
+      where: function (a, b, column, row, clock) {
+        var k = clock ? clock.factor : 1, unit = clock ? clock.unit : "ns";
+        var axis = timed ? format(a * k) + " " + unit + " and " + format(b * k) + " " + unit
           : "axis frames " + Math.round(a) + " and " + Math.round(b);
         return axis + "; row " + rowSaid(row) + "; column " + rowSaid(column);
       },
@@ -680,6 +814,7 @@
     });
     if (exact) {
       var column = -1, row = 0;
+      f.ownArrows = true;
       f.svg.setAttribute("role", "application");
       f.svg.setAttribute("tabindex", "0");
       f.svg.setAttribute("aria-label", "RMSD frame matrix. Arrows select a cell. Enter opens its row frame; Shift+Enter opens its column frame.");
@@ -703,10 +838,11 @@
         event.preventDefault();
       });
     }
+    return f;
   }
 
   function plotLandscape(host, data) {
-    plotGrid(host, data, {
+    return plotGrid(host, data, {
       edgesX: data.edges_x, edgesY: data.edges_y, xLabel: data.axes[0], yLabel: data.axes[1],
       emptySaid: "not visited",
       where: function (a, b) { return format(a) + ", " + format(b); },
@@ -714,7 +850,7 @@
   }
 
   function plotDensity(host, data) {
-    plotGrid(host, data, {
+    return plotGrid(host, data, {
       edgesX: data.edges_x, edgesY: data.edges_y, xLabel: data.axes[0], yLabel: data.axes[1],
       ticks: data.ticks, empty: "shade", emptySaid: "none",
       where: function (a, b) { return "φ " + Math.round(a) + "°, ψ " + Math.round(b) + "°"; },
@@ -730,7 +866,7 @@
     var map = axes(f, x, y);
     var n = data.x.length;
     var r = n > 2000 ? 1.6 : n > 500 ? 2.2 : 3;
-    var layer = el("g", {}, f.svg);
+    var layer = el("g", {}, f.layer);
     var at = [];
     for (var i = 0; i < n; i += 1) {
       if (data.x[i] == null || data.y[i] == null) { at.push(null); continue; }
@@ -739,7 +875,12 @@
       el("circle", { cx: cx.toFixed(1), cy: cy.toFixed(1), r: r,
                      fill: rgb(viridis((data.t[i] - tr[0]) / (tr[1] - tr[0]))) }, layer);
     }
-    colourBar(f, tr[0], tr[1], data.t_label === "Frame" ? "Frame" : "Time (ns)", viridis);
+    // Its time in the unit the run's length reads in, as the axes are: a
+    // run under a nanosecond in ps.
+    var framed = data.t_label === "Frame";
+    var inPs = !framed && Math.max(Math.abs(tr[0]), Math.abs(tr[1])) < 1;
+    colourBar(f, inPs ? tr[0] * 1000 : tr[0], inPs ? tr[1] * 1000 : tr[1],
+              framed ? "Frame" : inPs ? "Time (ps)" : "Time (ns)", viridis);
     var hint = data.linked ? "Click to open this frame; use left and right arrows, then Enter" : "";
     function pointAt(event) {
       var p = pointer(f, event);
@@ -754,7 +895,7 @@
     }
     function show(best) {
       var unit = data.unit ? " " + data.unit : "";
-      showTip(f, at[best][0], at[best][1], [when(data, best),
+      showTip(f, at[best][0], at[best][1], [when(data, best, f),
         format(data.x[best]) + unit + ", " + format(data.y[best]) + unit], hint);
     }
     var keys = keyboard(f, data.title + ". Left and right select a point; Enter opens its frame.", n,
@@ -771,6 +912,7 @@
       var i = pointAt(event);
       if (i >= 0) openFrame(data, data.frames[i]);
     });
+    return f;
   }
 
   /* One bar a row, each named at its left, the largest first: hollow
@@ -858,6 +1000,7 @@
       var i = indexAt(event);
       if (i >= 0 && bars[i].entity) focusResidue(bars[i].entity);
     });
+    return f;
   }
 
   /* A few series over the same frames, each in its colour, named above
@@ -880,7 +1023,7 @@
         d += (d ? "L" : "M") + map.px(data.x[i]).toFixed(1) + " " + map.py(v).toFixed(1);
       });
       el("path", { d: d, fill: "none", stroke: category(k), "stroke-width": 1.4,
-                   "stroke-linejoin": "round", class: "figure-line" }, f.svg);
+                   "stroke-linejoin": "round", class: "figure-line" }, f.layer);
     });
     legend(f, data.series.map(function (s, k) { return { label: s.label, colour: category(k) }; }));
     var guide = el("line", { y1: f.plot.top, y2: f.plot.bottom, stroke: f.c.axis,
@@ -899,7 +1042,7 @@
       guide.setAttribute("x2", px);
       guide.setAttribute("visibility", "visible");
       showTip(f, px, at ? at.y : (f.plot.top + f.plot.bottom) / 2,
-        [when(data, i)].concat(data.series.map(function (s) {
+        [when(data, i, f)].concat(data.series.map(function (s) {
         return s.label + " " + format(s.y[i]) + unit;
       })), hint);
     }
@@ -919,6 +1062,7 @@
       var i = indexAt(event);
       if (i >= 0) openFrame(data, data.frames[i]);
     });
+    return f;
   }
 
   var PLOTS = {
@@ -927,10 +1071,142 @@
     hbars: plotHBars, lines: plotLines,
   };
 
+  /* How a plot of each kind zooms: along x, in both, or not at all (a row
+   * of categories, a list of bars). */
+  var ZOOM = { states: "x", labels: "x", lines: "x", matrix: "x", dendrogram: "x",
+               landscape: "xy", density: "xy", projection: "xy", bars: "", hbars: "" };
+
+  /* The smallest span a key zooms to: about four points', frames' or
+   * cells' worth of the whole (in the data's units, as the view is). */
+  function leastOf(data, x, y) {
+    var n = (data.x && data.x.length) || (data.values && data.values.length) ||
+      (data.icoord && data.icoord.length) || 50;
+    // Points spread over both axes (a projection) keep four in view with
+    // each axis at two points' worth.
+    var share = Math.min(1, data.kind === "projection" ? Math.sqrt(4 / Math.max(4, n))
+      : 4 / Math.max(4, n));
+    var span = function (axis) {
+      var full = axis.full || [axis.low, axis.high];
+      return Math.abs(full[1] - full[0]) * share;
+    };
+    return { x: span(x), y: span(y) };
+  }
+
   function plot(host, data) {
     var how = PLOTS[data.kind];
-    if (how) how(host, data);
+    if (!how) return;
+    var f = how(host, data);
+    if (f) host.dataset.view = f.view ? (f.view === host._view ? "zoomed" : "range") : "";
+    var tools = window.FastMDXPlotTools;
+    if (!f || !tools) return;
+    var clock = clockOf(data);
+    var x = f.x || { low: 0, high: 1 }, y = f.y || { low: 0, high: 1 };
+    tools.attach(host, {
+      svg: f.svg, width: f.width, height: f.height, plot: f.plot,
+      zoom: ZOOM[data.kind] || "", shared: clock, zoomed: !!f.view, ownArrows: !!f.ownArrows,
+      least: leastOf(data, x, y),
+      full: { x: x.full || null, y: y.full || null },
+      name: (data.figure || data.title || data.kind).replace(/^analysis\//, "").replace(/\.png$/, "") +
+        (f.view ? "_range" : ""),
+      invert: function (px, py) {
+        return { x: x.low + (px - f.plot.left) / (f.plot.right - f.plot.left) * (x.high - x.low),
+                 y: y.low + (f.plot.bottom - py) / (f.plot.bottom - f.plot.top) * (y.high - y.low) };
+      },
+      onView: function (view) { host._view = view; plot(host, data); },
+      onReset: function () { host._view = null; plot(host, data); },
+      csv: function () { return csvOf(data, x, y); },
+    });
+    if (clock) drawnOnTheClock.push({ host: host, data: data });
   }
+
+  /* A row's time and frame, or its frame alone where the run kept no
+   * clock. */
+  function clockHead(label) { return label === "Frame" ? ["frame"] : ["time_ns", "frame"]; }
+  function clockCells(label, t, frame) { return label === "Frame" ? [frame] : [t, frame]; }
+
+  /* The numbers a plot shows, as rows: those in view where it is zoomed. */
+  function csvOf(data, x, y) {
+    function inX(v) { return v >= x.low - 1e-12 && v <= x.high + 1e-12; }
+    function inY(v) { return v >= y.low - 1e-12 && v <= y.high + 1e-12; }
+    var rows;
+    if (data.kind === "states") {
+      rows = [clockHead(data.x_label).concat(data.residues)];
+      data.x.forEach(function (t, i) {
+        if (inX(t)) rows.push(clockCells(data.x_label, t, data.frames[i]).concat(data.states[i].split("")));
+      });
+    } else if (data.kind === "labels") {
+      rows = [clockHead(data.x_label).concat(["cluster"])];
+      data.x.forEach(function (t, i) {
+        if (inX(t)) rows.push(clockCells(data.x_label, t, data.frames[i]).concat([data.labels[i]]));
+      });
+    } else if (data.kind === "lines") {
+      rows = [clockHead(data.x_label).concat(data.series.map(function (s) {
+        return s.label + (data.unit ? " (" + data.unit + ")" : "");
+      }))];
+      data.x.forEach(function (t, i) {
+        if (inX(t)) {
+          rows.push(clockCells(data.x_label, t, data.frames[i])
+            .concat(data.series.map(function (s) { return s.y[i]; })));
+        }
+      });
+    } else if (data.kind === "bars") {
+      rows = [["cluster", "frames", "fraction", "medoid_frame", "medoid_time_ns"]];
+      data.clusters.forEach(function (k) {
+        rows.push([k.cluster, k.frames, k.fraction, k.medoid_frame, k.medoid_time_ns]);
+      });
+    } else if (data.kind === "hbars") {
+      // The value as its axis says it, with its unit or what it is a
+      // share of; the error, where there is one, in the same.
+      rows = [["quantity", data.x_label || "value", "standard error"]];
+      (data.bars || []).forEach(function (b) { rows.push([b.label, b.value, b.error]); });
+    } else if (data.kind === "dendrogram") {
+      rows = [["link", "x1", "x2", "x3", "x4", "height1", "height2", "height3", "height4", "cluster"]];
+      data.icoord.forEach(function (xs, i) {
+        rows.push([i].concat(xs, data.dcoord[i], [data.groups[i]]));
+      });
+    } else if (data.kind === "projection") {
+      var per = data.unit ? " (" + data.unit + ")" : "";
+      rows = [["frame", data.t_label === "Frame" ? "frame_shown" : "time_ns",
+               data.axes[0] + per, data.axes[1] + per]];
+      data.x.forEach(function (v, i) {
+        if (v != null && data.y[i] != null && inX(v) && inY(data.y[i])) {
+          rows.push([data.frames[i], data.t[i], v, data.y[i]]);
+        }
+      });
+    } else {
+      // A map: each cell's centre and its value.
+      var ex = data.edges_x, ey = data.edges_y;
+      if (data.kind === "matrix") {
+        ex = ey = edges(data.extent[0], data.extent[1], data.values.length);
+      }
+      var names = data.kind === "matrix" ? [data.axis_label, data.axis_label] : data.axes;
+      rows = [[names[0], names[1], data.label + (data.unit ? " (" + data.unit + ")" : "")]];
+      data.values.forEach(function (row, j) {
+        var cy = (ey[j] + ey[j + 1]) / 2;
+        if (!inY(cy)) return;
+        row.forEach(function (v, i) {
+          var cx = (ex[i] + ex[i + 1]) / 2;
+          if (inX(cx)) rows.push([cx, cy, v]);
+        });
+      });
+    }
+    return rows;
+  }
+
+  /* The plots on the simulation's clock, drawn again as the page's time
+   * range changes. */
+  var drawnOnTheClock = [];
+  document.addEventListener("fmx:time-range", function () {
+    var seen = [];
+    drawnOnTheClock = drawnOnTheClock.filter(function (d) {
+      if (!d.host.isConnected || seen.indexOf(d.host) >= 0) return false;
+      seen.push(d.host);
+      return true;
+    });
+    drawnOnTheClock.slice().forEach(function (d) {
+      if (!d.host.hidden) plot(d.host, d.data);
+    });
+  });
 
   function load(figure) {
     if (!cache[figure]) {

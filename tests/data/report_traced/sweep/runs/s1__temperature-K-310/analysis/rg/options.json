@@ -1,0 +1,1 @@
+{"analysis": "rg", "options": {}, "findings": {"mean": {"discard": 40, "statistical_inefficiency": 1.005586592178771, "effective_samples": 357.99999999999994, "mean": 1.2000052942931565, "standard_error": 0.00010749651640739229, "standard_deviation": 0.002033929539640315, "degrees_of_freedom": 120.0, "rules": 2, "n_frames": 400, "unit": "nm"}}}

@@ -170,6 +170,8 @@
     var measure = data.measures.filter(function (m) { return m.analysis === analysis; })[0];
     var finished = data.runs.map(function (run, i) { return { run: run, index: i }; })
       .filter(function (r) { return r.run.state === "completed" || r.run.so_far; });
+    // Another measure is not zoomed as the one before was.
+    if (chart.getAttribute("data-analysis") !== analysis) chart._view = null;
     chart.setAttribute("data-analysis", analysis);
     chart.setAttribute("data-drawn", "");
     Promise.all(finished.map(function (r) {
@@ -205,13 +207,25 @@
     var H = W < 480 ? 240 : 280, L = 64, R = 16, T = 12, B = 40;
     var xs = [], ys = [];
     drawn.forEach(function (d) { xs = xs.concat(d.series.x); ys = ys.concat(d.series.y); });
+    // Zoomed, or the page's time range on its clock (plot-tools.js), in the
+    // series' own units: what it shows. Only the Analysis page's own chart
+    // takes the tools; Compare's cards are drawn whole.
+    var tools = over ? null : window.FastMDXPlotTools;
+    var xLabel = drawn[0].series.x_label;
+    var shared = tools ? tools.range(xLabel) : null;
+    var view = shared ? [shared.from, shared.to] : (tools && chart._view) || null;
+    chart.dataset.view = view ? (shared ? "range" : "zoomed") : "";
     // In picoseconds under a nanosecond, as every chart of a series says it.
     var clock = window.FastMDXSeries && window.FastMDXSeries.timeScale
-      ? window.FastMDXSeries.timeScale(over || xs, drawn[0].series.x_label)
-      : { factor: 1, label: drawn[0].series.x_label };
+      ? window.FastMDXSeries.timeScale(over || view || xs, xLabel)
+      : { factor: 1, label: xLabel };
     if (clock.factor !== 1) xs = xs.map(function (x) { return x * clock.factor; });
-    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
-    var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    var x0 = view ? view[0] * clock.factor : Math.min.apply(null, xs);
+    var x1 = view ? view[1] * clock.factor : Math.max.apply(null, xs);
+    // The values in view set the height.
+    var seen = ys.filter(function (y, k) { return xs[k] >= x0 && xs[k] <= x1; });
+    if (!seen.length) seen = ys;
+    var y0 = Math.min.apply(null, seen), y1 = Math.max.apply(null, seen);
     if (y0 >= 0 && y0 < 0.5 * y1) y0 = 0;
     if (!(y1 > y0)) { y1 = y0 + 1; }
     if (!(x1 > x0)) { x1 = x0 + 1; }
@@ -258,6 +272,20 @@
     ylabel.textContent = (measure ? measure.label : "") + unit;
     svg.appendChild(ylabel);
 
+    // What is plotted stays inside the axes when zoomed.
+    var clipId = "runs-clip-" + Math.random().toString(36).slice(2, 9);
+    var defs = document.createElementNS(SVG, "defs");
+    var clip = document.createElementNS(SVG, "clipPath");
+    clip.setAttribute("id", clipId);
+    var box = document.createElementNS(SVG, "rect");
+    box.setAttribute("x", L); box.setAttribute("y", T);
+    box.setAttribute("width", W - L - R); box.setAttribute("height", H - T - B);
+    clip.appendChild(box);
+    defs.appendChild(clip);
+    svg.appendChild(defs);
+    var layer = document.createElementNS(SVG, "g");
+    layer.setAttribute("clip-path", "url(#" + clipId + ")");
+    svg.appendChild(layer);
     drawn.forEach(function (d) {
       var path = document.createElementNS(SVG, "polyline");
       path.setAttribute("points", d.series.x.map(function (x, k) {
@@ -268,7 +296,7 @@
       path.setAttribute("stroke", colourOf(d.r.index));
       var dash = dashOf(d.r.index);
       if (dash) path.setAttribute("stroke-dasharray", dash);
-      svg.appendChild(path);
+      layer.appendChild(path);
 
       var item = el("span", "runs-overlay-key");
       var swatch = el("span", "runs-compared-swatch");
@@ -278,6 +306,42 @@
       legend.appendChild(item);
     });
     chart.appendChild(svg);
+    if (tools) {
+      var again = function () { draw(chart, legend, drawn, measure, missing, over); };
+      chart._redraw = again;
+      var clocked = xLabel !== "Frame";
+      tools.attach(chart, {
+        svg: svg, width: W, height: H, plot: { left: L, top: T, right: W - R, bottom: H - B },
+        zoom: "x", shared: xLabel, zoomed: !!view,
+        full: { x: (function () {
+          var all = [];
+          drawn.forEach(function (d) { all = all.concat(d.series.x); });
+          return [Math.min.apply(null, all), Math.max.apply(null, all)];
+        }()) },
+        least: { x: (function (x) {
+          return x.length > 1 ? 3 * Math.abs(x[x.length - 1] - x[0]) / (x.length - 1) : 0;
+        }(drawn[0].series.x)) },
+        name: "runs_" + (measure ? measure.analysis : "series") + (view ? "_range" : ""),
+        invert: function (x, y) {
+          return { x: (x0 + (x - L) / (W - L - R) * (x1 - x0)) / clock.factor,
+                   y: y0 + (H - B - y) / (H - T - B) * (y1 - y0) };
+        },
+        onView: function (v) { chart._view = v.x; again(); },
+        onReset: function () { chart._view = null; again(); },
+        csv: function () {
+          var rows = [["run", clocked ? "time_ns" : "frame",
+                       (measure ? measure.analysis : "value") + unit]];
+          drawn.forEach(function (d) {
+            d.series.x.forEach(function (x, k) {
+              var at = x * clock.factor;
+              if (at < x0 - 1e-12 || at > x1 + 1e-12) return;
+              rows.push([d.r.run.run_id, x, d.series.y[k]]);
+            });
+          });
+          return rows;
+        },
+      });
+    }
     if (missing) {
       legend.appendChild(el("span", "muted small",
         missing + " finished run" + (missing === 1 ? " has" : "s have") + " no such series"));
@@ -318,6 +382,12 @@
         if (shown && shown.ok) overlay(shown, select.value);
       });
     }
+  });
+
+  /* The page's time range changed: the Analysis page's overlay with it. */
+  document.addEventListener("fmx:time-range", function () {
+    var chart = document.getElementById("runs-overlay-chart");
+    if (chart && chart._redraw && chart.isConnected) chart._redraw();
   });
 
   window.FastMDXRunsCompared = { load: load, palette: PALETTE.slice(), overlay: overlay,

@@ -131,6 +131,7 @@
     filter.addEventListener("input", function () { applyFilter(filter.value); });
     if (previous) applyFilter(previous);
     decorateCards(host);
+    if (window.FastMDXCells) window.FastMDXCells.render();
   }
 
   /* An index link scrolls to its section and moves focus there; the
@@ -350,6 +351,7 @@
     }
     host.hidden = false;
     linkData(rows);
+    if (window.FastMDXCells) window.FastMDXCells.render();
   }
 
   /* A card's data files, beside its figure, so the numbers behind it are
@@ -852,5 +854,7 @@
     sectionsRendered: sectionsRendered,
     applyFilter: applyFilter,
     tableAsRows: tableAsRows,
+    /* What the results table was drawn from, for each analysis's cell. */
+    overviewRows: function () { return (overview && overview.rows) || []; },
   };
 }());

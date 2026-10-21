@@ -46,6 +46,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the list. Unused axis and remedy-price work is skipped; unexpected reader
   failures retain a public note and a private debug traceback.
 
+- A running study is named in the tab's title and its end notice from its
+  first status, even where its results are not read with it; the name is
+  read from the study's own manifest, and one linked out of it is not read:
+  the study is named by its folder, as its results name it. A study with no
+  manifest yet (a run just started) is named by its folder, not by the
+  system of the study shown before it. A study started from the Config
+  Builder leaves no draft of itself for the page opened next. A conversation
+  a run took to its study is not the one written in by a page still on the
+  study it was started from (opened there again elsewhere as the run
+  started): that page shows its own study's conversation.
+
 ### Added
 
 - Every page of a study says where it is at its head: the study, the run
@@ -103,6 +114,35 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   what it replaced, each piece it was carried on in), with when, how long,
   the version and computer, and the means an analysis run again moved.
   Read from the study's own records only; one not read is said so.
+- The Analysis page as cells: each analysis says under its heading what it
+  determined, what it was run with and Analyze again for it alone. Every
+  plot, the overlay of a study's runs too, zooms by a drag or + and -,
+  moves with Shift or [ and ], shows all again on a double click or 0, and
+  saves what it shows as SVG, PNG or CSV. A time range dragged on
+  one plot on the simulation's clock is every such plot's and is marked on
+  the Viewer's timeline. Maps are drawn as their cells, and a run shorter
+  than a nanosecond is read in picoseconds. Analyze again, which a GUI
+  served beyond this computer refuses, is not offered there.
+- The Report page has an outline beside the report, its sections
+  numbered as the PDF now numbers them. Each number the report states
+  opens the record it was traced to (file, place, value, converted to the
+  report's units). A record is taken only where it is plainly the
+  number's: its unit or what it counts, the number's own analysis or run,
+  and the words beside it; where several could hold it each is named and
+  none picked, and otherwise no record is said to be traced. A record a
+  number was traced to whose value changed since the report was first read
+  is named. Records are read from the study only: one linked out of it is
+  named as not read, and a number it may hold is said as not traced. A
+  number's card takes the keyboard's focus, and the report keeps its width
+  beside the outline.
+- New study shows all five steps from the start, steps 2 to 5 to read
+  until a starting point is chosen, with Run on this machine quiet until
+  there is a study to run. Beside the summary, What it costs here: the
+  ns/day a run makes on this machine's timing, the time, the trajectories'
+  disk against what is free, and the GPU memory a run needs against what
+  is free, each a note, a warning or an error. Each run is costed from its
+  own system and settings, a system whose structure is not read yet said
+  not worked out; an error there is said apart from the Config's checks.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never

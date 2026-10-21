@@ -1,0 +1,4 @@
+systems:
+  - system: 1UBQ
+simulation:
+  duration_ns: 1.0

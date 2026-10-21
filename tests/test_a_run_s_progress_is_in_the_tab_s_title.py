@@ -94,14 +94,17 @@ def _ended_at_the_first_status(
             page.set_default_timeout(60000)
             page.expose_function("endTheRun", end_the_run)
             if results_after_status:
+                # The study's results not read with its first status: they
+                # come with a later poll.
                 page.add_init_script("""
                     const fetch = window.fetch;
-                    const firstStatus = new Promise((resolve) => {
-                        window.addEventListener('dashboard:status-updated', resolve, {once: true});
-                    });
+                    let statusSeen = false;
+                    window.addEventListener('dashboard:status-updated', () => {
+                        statusSeen = true;
+                    }, {once: true});
                     window.fetch = (url, ...options) => {
-                        if (new URL(url, location.href).pathname === '/api/results') {
-                            return firstStatus.then(() => fetch(url, ...options));
+                        if (!statusSeen && new URL(url, location.href).pathname === '/api/results') {
+                            return Promise.reject(new TypeError('results not read yet'));
                         }
                         return fetch(url, ...options);
                     };
@@ -391,3 +394,32 @@ def test_refused_by_the_browser_it_is_unticked_and_says_why(tmp_path) -> None:
         session.server.shutdown()
     assert not ticked
     assert "turned off" in said
+
+
+def test_the_status_names_the_study_only_from_its_own_manifest(tmp_path) -> None:
+    """The status names the study as its results do, from the study's own
+    manifest: one linked out of the study is refused, and the study is
+    named by its folder in both, never by the record outside."""
+    from fastmdxplora.gui.server import _confined, _results_payload, _status_records
+
+    study = tmp_path / "study"
+    (study / "simulation").mkdir(parents=True)
+    _running(study)
+
+    def named():
+        status = _confined(study, _status_records)
+        results = _confined(study, _results_payload)
+        assert status["run_title"] == results["run_title"], (status["run_title"],
+                                                               results["run_title"])
+        return status
+
+    assert named()["run_title"] == "study"
+    (study / "manifest.json").write_text(json.dumps({"title": "Own"}), encoding="utf-8")
+    assert named()["run_title"] == "Own"
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"title": "Outside"}), encoding="utf-8")
+    (study / "manifest.json").unlink()
+    (study / "manifest.json").symlink_to(outside)
+    answer = named()
+    assert answer["run_title"] == "study", answer["run_title"]
+    assert "manifest.json" in answer.get("unavailable", []), answer.get("unavailable")

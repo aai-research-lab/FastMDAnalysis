@@ -187,6 +187,7 @@ FastMDXplora/
 │       │   ├── problems_view.py   # The study's recorded problems, read and never acted on
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
 │       │   ├── report_page.py     # The report as a document, in the page
+│       │   ├── report_numbers.py  # Each number the report states, traced to the record it came from
 │       │   ├── browse.py          # Walking the filesystem from the page; what is a study
 │       │   ├── again_view.py      # What the GUI offers to run again on the study on screen
 │       │   ├── directory_inspect.py  # What is in a folder, and what can be done with it
@@ -236,7 +237,13 @@ FastMDXplora/
 │       │   │                      #   ruler; frame-series.js its tracks), compare.js and compare.css
 │       │   │                      #   (two studies or runs on the Compare page), study-timeline.js and
 │       │   │                      #   study-timeline.css (the study's Timeline), stop-run.js (Stop the
-│       │   │                      #   run, asked first, wherever it is offered), run-notice.js
+│       │   │                      #   run, asked first, wherever it is offered), plot-tools.js (zoom,
+│       │   │                      #   move and save on every plot, and the page's time range),
+│       │   │                      #   analysis-cells.js and analysis-cells.css (each analysis a cell),
+│       │   │                      #   report-outline.js and report-outline.css (the report's outline,
+│       │   │                      #   and its numbers traced), builder-cost.css (New study's
+│       │   │                      #   steps before a start, its quiet Run and what it costs),
+│       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,
 │       │   │                      #   and Remote jobs on All studies);

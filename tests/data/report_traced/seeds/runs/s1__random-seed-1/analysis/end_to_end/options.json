@@ -1,0 +1,40 @@
+{
+  "analysis": "end_to_end",
+  "class": "EndToEndDistance",
+  "selection": "protein",
+  "options": {
+    "atom": "CA",
+    "by_chain": true
+  },
+  "findings": {
+    "ends": {
+      "atom": "CA",
+      "chains": 1,
+      "atom_pairs": [
+        [
+          4,
+          24
+        ]
+      ],
+      "computed_as": "sum of minimum-image steps between consecutive residues along the chain"
+    },
+    "periodic": {
+      "narrowest_width_nm": 1.9034878015518188,
+      "longest_end_to_end_nm": 0.7401545174990616,
+      "nearest_self_image_nm": 2.017709805349967,
+      "longest_step_nm": 0.39887771811808015
+    },
+    "mean": {
+      "discard": 133,
+      "statistical_inefficiency": 1.8413765620163143,
+      "effective_samples": 36.38582209748274,
+      "mean": 0.6648680753355625,
+      "standard_error": 0.00238431762734401,
+      "standard_deviation": 0.01438236166251088,
+      "degrees_of_freedom": 9.571428571428571,
+      "rules": 2,
+      "n_frames": 200,
+      "unit": "nm"
+    }
+  }
+}

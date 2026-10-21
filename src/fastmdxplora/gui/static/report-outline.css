@@ -1,0 +1,111 @@
+/* The report's outline beside it, and its numbers traced to their records
+ * (report-outline.js). */
+
+/* Each section numbered as the PDF numbers it. */
+#report-document h2[data-section]::before,
+#report-document h3[data-section]::before {
+    content: attr(data-section);
+    display: inline-block; min-width: 2.2em; margin-right: 6px;
+    color: var(--text-muted); font-weight: 500; font-variant-numeric: tabular-nums;
+}
+#report-document h2, #report-document h3 { scroll-margin-top: 72px; }
+
+.report-layout { display: block; }
+.report-document { position: relative; }
+
+.report-outline {
+    margin-bottom: 12px; font-size: var(--text-xs); color: var(--text-secondary);
+}
+.outline-toggle {
+    width: 100%; text-align: left; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid var(--border-subtle); background: var(--background-secondary, transparent);
+    color: var(--text-primary); font: inherit; font-weight: 600; cursor: pointer;
+}
+.outline-toggle .muted { font-weight: 400; }
+.outline-body { display: none; padding: 10px 4px 4px; }
+.report-outline[data-open="true"] .outline-body { display: block; }
+.outline-title {
+    display: none;
+    font-size: var(--text-2xs); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-muted); margin: 0 0 6px 8px;
+}
+.outline-list { list-style: none; margin: 0; padding: 0; }
+.outline-sub { padding-left: 12px; }
+.outline-item {
+    display: flex; gap: 8px; width: 100%; text-align: left; align-items: baseline;
+    padding: 4px 8px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--text-secondary); font: inherit; cursor: pointer;
+}
+.outline-level-2 > .outline-item { color: var(--text-primary); font-weight: 500; }
+.outline-item:hover { background: var(--background-hover, color-mix(in srgb, var(--accent) 8%, transparent)); }
+.outline-item[aria-current="location"] {
+    background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-text, var(--accent));
+}
+.outline-number { flex: none; min-width: 2.2em; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.outline-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-numbers {
+    margin: 12px 8px 0; padding-top: 10px; border-top: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+}
+.outline-numbers p { margin: 0; }
+.outline-changed { color: var(--accent-orange); overflow-wrap: anywhere; }
+
+/* The outline beside the report where the page is wide enough for both. */
+@container maincolumn (width >= 1180px) {
+    .report-layout {
+        display: grid; grid-template-columns: 220px minmax(0, 860px); gap: 24px; align-items: start;
+    }
+    .report-layout:has(> .report-outline[hidden]) { display: block; }
+    .report-outline {
+        position: sticky; top: 64px; margin: 0;
+        max-height: calc(100vh - 96px); overflow-y: auto;
+    }
+    .outline-toggle { display: none; }
+    .outline-body { display: block; padding-top: 0; }
+    .outline-title { display: block; }
+    /* The page's column widened by the outline's, so the report keeps the
+       width it has without it and its tables are not cut. */
+    .page-shell:has(> .page[data-page="report"]:not([hidden]) .report-layout > .report-outline:not([hidden])) {
+        max-width: calc(900px + 244px);
+    }
+}
+
+/* A number the report states, and where it came from on a click. */
+#report-document .report-number {
+    cursor: pointer; border-radius: 3px;
+    text-decoration: underline dotted color-mix(in srgb, var(--text-muted) 70%, transparent);
+    text-underline-offset: 3px;
+}
+#report-document .report-number:hover,
+#report-document .report-number:focus-visible,
+#report-document .report-number[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--accent) 14%, transparent); outline: none;
+}
+#report-document[data-marked="true"] .report-number[data-state="none"],
+#report-document[data-marked="true"] .report-number[data-state="several"] {
+    background: color-mix(in srgb, var(--accent-orange) 22%, transparent);
+    text-decoration-color: var(--accent-orange);
+}
+.report-number-card {
+    position: absolute; z-index: 20; width: min(420px, calc(100% - 16px));
+    padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-primary);
+    background: var(--background-elevated, var(--background-secondary, var(--background-primary)));
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18); font-size: var(--text-xs); line-height: 1.5;
+    color: var(--text-secondary); font-family: var(--font-stack);
+}
+.report-number-card p { margin: 6px 0; }
+.report-number-card .number-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.report-number-card .number-head b { color: var(--text-primary); font-family: var(--font-mono); }
+.report-number-card .number-where { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px; }
+.report-number-card .number-where code { overflow-wrap: anywhere; white-space: normal; }
+.report-number-card[data-traced="false"] .number-head b { color: var(--accent-orange); }
+.report-number-card:focus { outline: none; }
+.report-number-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.report-number-card .plot-tool { margin: 0 6px 4px 0; }
+.number-stale { color: var(--accent-orange); }
+
+@media print {
+    .report-outline, .report-number-card { display: none !important; }
+    .report-layout { display: block !important; }
+    #report-document .report-number { text-decoration: none; background: none !important; }
+}
