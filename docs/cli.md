@@ -132,7 +132,7 @@ Giving both `--include` and `--exclude` exits **2** with a message.
 
 | Flag | What it does |
 |---|---|
-| `--dry-run` | Validate everything, print the plan, run nothing. Creates no output directory |
+| `--dry-run` | Validate everything, print the plan, run nothing. Creates no output directory. Also refuses a system setup could not read (a structure file that is not there, a name that is no PDB identifier, a sequence) and a selection MDTraj cannot parse, and says what is worth knowing before the run, as the GUI's Check it does |
 | `--force-overwrite`, `--force` | Run phases whose output the folder already holds, removing that output first |
 | `--rerun` | As `--force-overwrite`, keeping what it replaces in the study's `previous/<phase>` |
 | `--rerun-window N [N ...]` | Umbrella studies: run these windows again in place, keep the rest, recombine |
@@ -720,8 +720,8 @@ not `fastmdx setup --config study.yml`.
 | Code | Means |
 |---|---|
 | **0** | Success. Also `--version`, `--cite`, `info`, a written template, a matched selection, a completed dry run |
-| **1** | The work ran and failed: a phase errored, a selection matched nothing, the Agent gave up or exceeded its budget |
-| **2** | A usage or Config error: an unknown setting, a bad value, `--include` with `--exclude`, no system given, a refusal to overwrite |
+| **1** | The work ran and failed: a phase errored, an analysis the study asked for failed (named in `analysis.include` or `analysis.options`, the study's own or a system's; not one the run had too few frames for), a selection matched nothing, the Agent gave up or exceeded its budget |
+| **2** | A usage or Config error: an unknown setting, a bad value, `--include` with `--exclude`, no system given, a system setup cannot read or a selection that does not parse (refused before anything is written, a run and a dry run alike), a refusal to overwrite |
 | **130** | Interrupted with Ctrl-C; the study records where it stopped, and `fastmdx resume` carries it on |
 
 Failures print `fastmdx: <message>` on stderr **without a traceback** — the

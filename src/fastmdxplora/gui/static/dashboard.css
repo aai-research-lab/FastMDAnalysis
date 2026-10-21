@@ -5383,16 +5383,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .study-actions { display: flex; align-items: center; justify-content: flex-start; gap: 6px; margin-top: 4px; }
 .study-actions .study-pick { margin-left: 6px; }
 .study-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); cursor: pointer; }
-/* Compare and Clear, beside the pointer that chose the second study
-   (studies.js `place`), above the cards and the page's sticky bars, below
-   the Agent beside the page, the sidebar's peek and every dialog. */
-.studies-compare-bar { display: flex; align-items: center; gap: 10px;
-    position: fixed; z-index: 15; padding: 6px 8px 6px 12px; width: max-content;
-    background: var(--background-elevated); border: 1px solid var(--border-strong);
-    border-radius: 10px; box-shadow: var(--shadow-modal); color: var(--text-primary); }
-/* Put aside while every place for it would cover what is being read. */
-.studies-compare-bar.is-aside { visibility: hidden; }
-.studies-compare-bar[hidden], .studies-empty[hidden] { display: none; }
+.studies-empty[hidden] { display: none; }
 /* A study's tags and note (studies.js, study_tags.py). */
 .study-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .study-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
@@ -5794,7 +5785,7 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     .main { height: auto; overflow: visible; }
     .sidebar, .side-panel, .col-handle, .sidebar-expand, .side-expand,
     .agent-dialog, .agent-drawer, .page-header-actions, .report-notices, .report-write-ask,
-    .report-figure-made, .figure-provenance, .studies-compare-bar {
+    .report-figure-made, .figure-provenance {
         display: none !important;
     }
     .page-shell { padding: 0; max-width: none; }
@@ -6584,7 +6575,23 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
     border: 1px solid var(--border-primary); border-radius: var(--radius-control);
     font-family: var(--font-stack); font-size: var(--text-sm);
 }
-.page[data-page="run"] .builder-field input[type="number"] { max-width: 180px; font-family: var(--font-mono); }
+.page[data-page="run"] .builder-field input[type="number"] {
+    /* At least 180px, and as wide as its placeholder (in the box's own
+       monospace), never past the field: its padding and border (20px), and
+       the room Chromium keeps at the right for the step arrows, where the
+       text stops (about 16px; without it the last word was cut). */
+    max-width: max(180px, calc(var(--placeholder-ch, 0) * 1ch + 40px)); font-family: var(--font-mono);
+}
+/* Where the form is as narrow as a phone's, a number box gives its step
+   arrows' room to its text: a phone has no pointer to press them with, and
+   "Not set: a seed is drawn and recorded" was cut there at 390px. */
+@container builderform (width < 680px) {
+    .page[data-page="run"] .builder-field input[type="number"] { appearance: textfield; }
+    .page[data-page="run"] .builder-field input[type="number"]::-webkit-inner-spin-button,
+    .page[data-page="run"] .builder-field input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none; margin: 0;
+    }
+}
 .page[data-page="run"] .builder-field .mono,
 .page[data-page="run"] .builder-system-row input.mono { font-family: var(--font-mono); }
 .page[data-page="run"] .builder-field input::placeholder,
@@ -6770,13 +6777,25 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 }
 .page[data-page="run"] .builder-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .page[data-page="run"] .builder-summary-head h2 { margin: 0; font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
+/* The verdict wraps rather than being cut: on one line it was cut with no
+   ellipsis (a flex box's text never shows one), at 390px and at 1440px. */
 .page[data-page="run"] .builder-status {
-    display: inline-flex; align-items: center; gap: 6px; max-width: 70%; padding: 2px 9px; border-radius: 999px;
-    font-size: var(--text-xs); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: inline-flex; align-items: flex-start; gap: 6px; max-width: 70%; min-width: 0; padding: 3px 10px; border-radius: 12px;
+    font-size: var(--text-xs); font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
 }
+.page[data-page="run"] .builder-phone-bar .builder-status { flex: 1 1 auto; max-width: none; }
+/* Three lines at most at the page's foot, the rest in the summary, which a
+   press on it scrolls to: a long refusal grew the bar to half the screen. */
+.page[data-page="run"] .builder-phone-bar #run-phone-status {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+    overflow: hidden; position: relative; padding-left: 23px; cursor: pointer;
+}
+.page[data-page="run"] .builder-phone-bar #run-phone-status::before { position: absolute; left: 10px; top: 3px; }
+/* Run keeps its one line beside a verdict of three. */
+.page[data-page="run"] .builder-phone-bar .primary-btn { flex: none; white-space: nowrap; }
 .page[data-page="run"] .builder-status:empty,
 .page[data-page="run"] .builder-status[data-state="none"] { display: none; }
-.page[data-page="run"] .builder-status::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.page[data-page="run"] .builder-status::before { content: ""; flex: none; width: 7px; height: 7px; margin-top: 0.38em; border-radius: 50%; background: currentColor; }
 .page[data-page="run"] .builder-status[data-state="ok"] { color: var(--status-completed); background: color-mix(in srgb, var(--status-completed) 13%, transparent); }
 .page[data-page="run"] .builder-status[data-state="refused"] { color: var(--status-error); background: color-mix(in srgb, var(--status-error) 12%, transparent); }
 .page[data-page="run"] .builder-status[data-state="waiting"] { color: var(--text-secondary); background: var(--background-soft); }

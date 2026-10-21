@@ -564,14 +564,39 @@ def exploration_environment_error(config: Mapping[str, Any]) -> str | None:
     installations, but it is misleading for the dashboard's *Run Simulation*
     action: the child exits successfully without producing a simulation.
     """
-    # Analysis is in the plan unless the phase list leaves it out.
-    phases = config.get("include_phase")
-    runs_analysis = not isinstance(phases, list) or "analysis" in phases
-    missing = missing_dependencies(include_analysis=runs_analysis)
-
+    missing = _missing_for(config, missing_dependencies)
     if not missing:
         return None
     return dependency_error_message(missing)
+
+
+def _missing_for(config: Mapping[str, Any], missing_dependencies: Any) -> list[Any]:
+    """The backends the config's plan needs and this Python lacks. Analysis
+    is in the plan unless the phase list leaves it out; OpenMM where setup
+    or simulation runs; PDBFixer where setup repairs a structure, which it
+    does not for one given as `setup.fixed_pdb` (every system's). A Run of
+    a structure already fixed was refused for PDBFixer, which the command
+    line skips for it."""
+    from fastmdxplora.gui.config_builder import phases_it_runs
+
+    phases = config.get("include_phase")
+    runs_analysis = not isinstance(phases, list) or "analysis" in phases
+    missing = missing_dependencies(include_analysis=runs_analysis)
+    if not missing:
+        return []
+    running = set(phases_it_runs(dict(config)))
+    setup = config.get("setup") if isinstance(config.get("setup"), dict) else {}
+    systems = [s for s in config.get("systems") or () if isinstance(s, dict)]
+
+    def fixed(system: Mapping[str, Any]) -> bool:
+        own = system.get("setup") if isinstance(system.get("setup"), dict) else {}
+        return bool(own.get("fixed_pdb") or setup.get("fixed_pdb"))
+
+    repairs = "setup" in running and not (
+        (systems and all(fixed(s) for s in systems)) or (not systems and setup.get("fixed_pdb")))
+    needed = {"openmm.app": bool(running & {"setup", "simulation"}),
+              "pdbfixer": repairs}
+    return [item for item in missing if needed.get(item.module, True)]
 
 
 def _backend_refusal(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -581,9 +606,7 @@ def _backend_refusal(config: Mapping[str, Any]) -> dict[str, Any]:
     from fastmdxplora.dependencies import MissingBackendError, missing_dependencies
     from fastmdxplora.gui.config_builder import refused
 
-    phases = config.get("include_phase")
-    runs_analysis = not isinstance(phases, list) or "analysis" in phases
-    missing = missing_dependencies(include_analysis=runs_analysis)
+    missing = _missing_for(config, missing_dependencies)
     if not missing:
         return {}
     said = refused(MissingBackendError(missing))
@@ -661,6 +684,19 @@ def _taken_back(config_path: Path | None, folder: Path, made: Path | None) -> No
             return
         if each == made:
             return
+
+
+def _defaults_found_from(output_dir: Path) -> Any:
+    """Your fastmdx-defaults.yml as `fastmdx explore --output` finds it for
+    a run written into ``output_dir``; None where there is none, or where
+    it is wrong (the run says so, naming it)."""
+    from fastmdxplora.config.defaults_file import defaults_for
+    from fastmdxplora.config.loader import ConfigError
+
+    try:
+        return defaults_for(output_dir)
+    except ConfigError:
+        return None
 
 
 @dataclass
@@ -1323,7 +1359,8 @@ class DashboardRuntime:
 
         made = _made_by(output_dir)
         prepared = prepare_run(dict(state) if state else None, output_dir,
-                               config=dict(config) if config is not None else None)
+                               config=dict(config) if config is not None else None,
+                               defaults=_defaults_found_from(output_dir))
         if not prepared["ok"]:
             return prepared
         # Refused here, before a process is spawned, when the chemistry
@@ -1332,9 +1369,13 @@ class DashboardRuntime:
         written = _json_mapping_or_yaml(Path(prepared["config_path"]))
         environment_error = exploration_environment_error(written)
         if environment_error:
+            # What this launch wrote taken back, so the same folder can be
+            # given again once the backend is there: it was left, and the
+            # next Run of that name was refused as a folder not empty.
+            refusal = _backend_refusal(written)
+            _taken_back(Path(prepared["config_path"]), output_dir, made)
             return {"ok": False, "error": environment_error,
-                    "config_path": prepared["config_path"], "command": None,
-                    **_backend_refusal(written)}
+                    "config_path": None, "command": None, **refusal}
 
         # A previous rejected launch may have hidden its old telemetry.
         # This is a new process and must become the current run even when
@@ -1481,21 +1522,19 @@ class DashboardRuntime:
         workspace's starting lock held."""
         from fastmdxplora.gui.config_builder import check_config_file
 
-        checked = check_config_file(config_path)
+        output_dir = self.output_of_existing_config(config_path, output)
+        if output_dir is None:
+            return {"ok": False,
+                    "error": "The output folder must be inside your workspace."}
+        # Judged as the run will judge it: systems required, and with the
+        # defaults the run will find where it writes.
+        checked = check_config_file(config_path, to_run=True,
+                                    defaults=_defaults_found_from(output_dir),
+                                    base=self.exploration_root)
         if not checked["ok"]:
             return checked
 
         source = Path(checked["path"])
-        requested = (output or "").strip()
-        if requested:
-            output_dir = self._output_folder(requested)
-            if output_dir is None:
-                return {"ok": False,
-                        "error": "The output folder must be inside your workspace."}
-        else:
-            # Beside the config, under a name taken from it, so a config
-            # kept with its data leaves its results there too.
-            output_dir = (source.parent / f"{source.stem}_output").resolve()
         if output_dir.exists() and any(output_dir.iterdir()):
             detail = f"Output folder already exists and is not empty: {output_dir}. Choose a new output folder to start a new simulation."
             self.data_stale = True
@@ -1524,6 +1563,25 @@ class DashboardRuntime:
             "modified": False,
             **started,
         }
+
+    def output_of_existing_config(self, config_path: str,
+                                  output: str | None = None) -> Path | None:
+        """Where a config run as it stands writes: the folder asked for; else
+        the config's own `output:`, read as `fastmdx explore` reads it from
+        the folder runs start in; else beside the config, under a name taken
+        from it, so a config kept with its data leaves its results there too.
+        None for a folder outside a hosted workspace."""
+        requested = (output or "").strip()
+        if requested:
+            return self._output_folder(requested)
+        source = Path(config_path).expanduser()
+        own = _json_mapping_or_yaml(source).get("output")
+        if isinstance(own, str) and own.strip():
+            if self.hosting is not None:
+                return self.hosting.inside(own.strip())
+            named = Path(own.strip()).expanduser()
+            return (named if named.is_absolute() else self.exploration_root / named).resolve()
+        return (source.parent / f"{source.stem}_output").resolve()
 
     def _adopt_if_running(self, root: Path | None) -> bool:
         """If the study at root has a live run this server did not start,

@@ -101,10 +101,10 @@ def test_the_n_terminus_is_on_the_left(tmp_path):
 
 def test_where_there_is_no_backbone(tmp_path):
     from fastmdxplora.gui.backbone_picture import backbone_svg
-    from fastmdxplora.gui.workspace import card_of
+    from fastmdxplora.gui.workspace import _picture_of
 
     nothing = _study(tmp_path / "nothing", system="1L2Y")
-    assert backbone_svg(nothing) is None and card_of(nothing)["thumbnail"] is None
+    assert backbone_svg(nothing) is None and _picture_of(nothing) is None
     # Two atoms are not a trace.
     short = _study(tmp_path / "short", system="2RES")
     _pdb(short / "setup" / "prepared.pdb", _helix(2, "A", 1))
@@ -119,18 +119,20 @@ def test_where_there_is_no_backbone(tmp_path):
 
 
 def test_a_card_s_picture(tmp_path):
-    from fastmdxplora.gui.workspace import card_of
+    # The picture `/api/study-thumbnail` sends; no longer read for each card
+    # on All studies, whose rows draw the molecule.
+    from fastmdxplora.gui.workspace import _picture_of as picture
 
     plotted = _study(tmp_path / "plotted", means={"rmsd": (0.1, 0.01)})
     _pdb(plotted / "setup" / "prepared.pdb", _helix(10, "A", 1))
-    assert card_of(plotted)["thumbnail"] == "figure"
+    assert picture(plotted) == "figure"
     unplotted = _study(tmp_path / "unplotted")
     _pdb(unplotted / "setup" / "prepared.pdb", _helix(10, "A", 1))
-    assert card_of(unplotted)["thumbnail"] == "backbone"
+    assert picture(unplotted) == "backbone"
     # A study of runs: the first run's structure.
     runs = _replicas(tmp_path / "chignolin")
     _pdb(runs / "runs" / "seed1" / "setup" / "prepared.pdb", _helix(10, "A", 1))
-    assert card_of(runs)["thumbnail"] == "backbone"
+    assert picture(runs) == "backbone"
 
 
 def test_the_route_sends_it(tmp_path):
@@ -162,7 +164,10 @@ def test_the_route_sends_it(tmp_path):
     assert none[0] == 404
 
 
-def test_the_cards_two_a_row_and_the_picture_shown(tmp_path):
+def test_the_cards_as_many_a_row_as_fit_and_the_molecule_shown(tmp_path):
+    """Since 10-18 a card's picture is the molecule drawn in the page from
+    the backbone's points (the user: "why not just show the molecule?"), and
+    the cards as many a row as fit."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -185,31 +190,35 @@ def test_the_cards_two_a_row_and_the_picture_shown(tmp_path):
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             page.set_default_timeout(60000)
+            page.add_init_script(
+                "try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
             page.wait_for_selector(".study-card")
-            for width in (1400, 700):
-                page.set_viewport_size({"width": width, "height": 1000})
-                sizes[width] = page.evaluate(
-                    "() => getComputedStyle(document.getElementById('studies-grid'))"
-                    ".gridTemplateColumns.split(' ').length")
+            columns = ("() => getComputedStyle(document.getElementById('studies-grid'))"
+                       ".gridTemplateColumns.split(' ').length")
+            # The column settles once the frame has laid out its panels.
+            page.wait_for_function(f"({columns})() >= 3")
+            sizes[1400] = page.evaluate(columns)
+            page.set_viewport_size({"width": 700, "height": 1000})
+            page.wait_for_function(f"({columns})() < {sizes[1400]}")
+            sizes[700] = page.evaluate(columns)
             page.set_viewport_size({"width": 1400, "height": 1000})
             card = '.study-card[data-path$="unplotted"] .study-thumb'
-            page.wait_for_function(f"() => document.querySelector('{card} img')"
-                                   ".naturalWidth > 0")
+            page.wait_for_selector(card + " svg.study-molecule line")
             picture = page.get_attribute(card, "data-picture")
             title = page.get_attribute(card, "title")
-            page.wait_for_selector('.study-card[data-path$="broken"] .study-thumb-none')
             fallen = page.text_content('.study-card[data-path$="broken"] .study-thumb-none')
             named = page.text_content('.study-card[data-path$="named"] .study-thumb-none')
             browser.close()
     finally:
         session.server.shutdown()
     assert errors == []
-    assert sizes == {1400: 2, 700: 1}
-    assert picture == "backbone" and title.startswith("No figure yet: the protein's backbone")
+    assert sizes[1400] >= 3 and 1 <= sizes[700] < sizes[1400]
+    assert picture == "molecule"
+    assert title.startswith("Its backbone (12 residues, the structure it was set up from)")
     assert (fallen, named) == ("9XYZ", "1L2Y")
 
 

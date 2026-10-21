@@ -170,7 +170,7 @@ FastMDXplora/
 │       │   ├── motion.py          # A study's main motions, swung and shown as lines on the first frame
 │       │   ├── states.py          # The states the cluster analysis found, and two compared
 │       │   ├── backbone_angles.py # Each residue's φ and ψ in each frame played
-│       │   ├── backbone_picture.py # A study's backbone for its card, before any figure
+│       │   ├── backbone_picture.py # A study's backbone: its picture, and the points of the molecule All studies draws
 │       │   ├── sidebar_icons.py   # The sidebar's line icons, for the GUI and the standalone dashboard
 │       │   ├── simulated_time.py  # How long a study ran: its production first, equilibration beside, wall time
 │       │   ├── overview_view.py   # What the Overview leads with: the means, the production's clock, the phases
@@ -243,6 +243,10 @@ FastMDXplora/
 │       │   │                      #   report-outline.js and report-outline.css (the report's outline,
 │       │   │                      #   and its numbers traced), builder-cost.css (New study's
 │       │   │                      #   steps before a start, its quiet Run and what it costs),
+│       │   │                      #   studies-table.css (All studies: views, chips, the list's
+│       │   │                      #   rows with their molecules, the gallery, a phone's rows,
+│       │   │                      #   the bar for the studies chosen), run-progress.js (a run's
+│       │   │                      #   progress and time left as the status bar says them),
 │       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,
@@ -273,6 +277,7 @@ FastMDXplora/
 │       ├── config/
 │       │   ├── schema.py          # Config schema (single source of truth for options)
 │       │   ├── loader.py          # YAML load, merge, strict validation
+│       │   ├── before_run.py      # What is refused before anything is built: a system setup cannot read, a selection that does not parse
 │       │   ├── generate.py        # `fastmdx config` templates
 │       │   ├── describe.py        # The config language, described for an AI model
 │       │   ├── languages.py       # One study as a config file, a command and a script

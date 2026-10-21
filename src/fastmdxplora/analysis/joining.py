@@ -115,7 +115,8 @@ def _config_digest(directory: Path, *, _depth: int = 0) -> str:
     try:
         import yaml
 
-        data = yaml.safe_load(_records.read_text(resolved, encoding="utf-8")) or {}
+        data = yaml.load(_records.read_text(resolved, encoding="utf-8"),
+                         Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
     except Exception:  # noqa: BLE001 - an unreadable config is not a study
         return ""
 

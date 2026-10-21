@@ -786,6 +786,9 @@
         input.placeholder = "e.g. " + (Array.isArray(field.example)
           ? field.example.join(", ") : String(field.example));
       }
+      // A number's box is as wide as what it says when empty, so "Not set:
+      // read from the chemistry file" is read whole, not cut at 180px.
+      if (input.placeholder) input.style.setProperty("--placeholder-ch", String(input.placeholder.length));
     }
     return input;
   }
@@ -823,7 +826,9 @@
       const number = Number(value);
       const low = field.minimum, high = field.maximum;
       const unit = field.unit ? " " + field.unit : "";
-      if (isNaN(number)) problem = `${field.label} is a number.`;
+      const above = field.exclusive_minimum && low !== null && low !== undefined;
+      if (isNaN(number) || !isFinite(number)) problem = `${field.label} is a number.`;
+      else if (above && number <= low) problem = `${field.label} must be more than ${low}${unit}.`;
       else if (low !== null && low !== undefined && high !== null && high !== undefined
                && (number < low || number > high)) problem = `${field.label} runs from ${low} to ${high}${unit}.`;
       else if (low !== null && low !== undefined && number < low) problem = `${field.label} is at least ${low}${unit}.`;
@@ -2248,6 +2253,7 @@
       if (!field.essential) wrap.classList.add("is-more");
       grid.appendChild(wrap);
     });
+    sayMode(grid);
     (state.schema.run_options || []).filter((field) => field.role !== "provenance").forEach((field) => {
       const wrap = control(RUN_OPTIONS_KEY, field);
       if (!field.essential) wrap.classList.add("is-more");
@@ -2324,8 +2330,13 @@
       const lines = (state.built && state.built.ok && state.built.plan) || [];
       lines.filter((line) => line.label !== "Checked after").forEach((line) => {
         plan.appendChild(node("dt", null, line.label));
-        const value = node("dd", line.default ? "is-default" : null, line.value);
-        if (line.default) value.appendChild(node("span", "builder-default-mark", "default"));
+        // A value your fastmdx-defaults.yml gives is marked as yours, as its
+        // field is: the plan said FastMDXplora's own value there, which the
+        // run did not use.
+        const yours = line.source === "yours";
+        const value = node("dd", line.default || yours ? "is-default" : null, line.value);
+        if (yours) value.appendChild(node("span", "builder-default-mark", "your default"));
+        else if (line.default) value.appendChild(node("span", "builder-default-mark", "default"));
         plan.appendChild(value);
       });
       if (!lines.length) plan.appendChild(node("dd", "muted", whyNotReady() || "Being worked out…"));
@@ -2601,11 +2612,45 @@
     saveDraft();
   }
 
+  /* The Mode box says the mode the run will take. Workers or devices given
+   * with no mode run in parallel (the explorer's rule), and the box said
+   * "sequential (default)" of a study opened with `workers: 2`. */
+  function sayMode(drawn) {
+    // Scheduling's one setting of choices, as the schema gives it.
+    const field = ((state.schema && state.schema.execution_options) || [])
+      .find((each) => Array.isArray(each.choices) && each.choices.length > 1);
+    if (!field) return;
+    // The box as it is drawn, before it is on the page: the review's boxes
+    // are drawn again after a study is opened, and the new one said
+    // "sequential (default)" of a study given workers.
+    const box = (drawn && drawn.querySelector(`#set-${EXECUTION_KEY.replace(/_/g, "")}-${field.name}`))
+      || el(`set-${EXECUTION_KEY.replace(/_/g, "")}-${field.name}`);
+    if (!box || box.tagName !== "SELECT") return;
+    // The choices are the schema's: its default, and the other one, which
+    // workers or devices given ask for.
+    const usual = field.default;
+    const asked = field.choices.find((choice) => choice !== usual);
+    const given = state.values[EXECUTION_KEY] || {};
+    const implied = !given[field.name] && Boolean(given.workers || (Array.isArray(given.devices)
+      ? given.devices.length : given.devices));
+    Array.from(box.options).forEach((option) => {
+      if (option.value === asked) {
+        option.textContent = implied ? `${asked} (the workers or devices given ask for it)` : asked;
+      } else if (option.value === usual) {
+        option.textContent = implied ? usual : `${usual} (default)`;
+      }
+    });
+    if (!given[field.name]) box.value = implied ? asked : usual;
+  }
+
   function updateSummary() {
+    sayMode();
     const chain = el("run-summary");
     if (state.start === "config") {
       const verdict = state.configVerdict;
-      text(chain, verdict && verdict.ok ? verdict.phases.join(" → ") : "No config checked yet");
+      // A config checked and refused was said as never checked.
+      text(chain, !verdict ? "No config checked yet"
+        : verdict.ok ? verdict.phases.join(" → ") : "Refused: the check says why");
     } else {
       const doing = PHASES.filter((p) => state.phases.has(p.name)).map((p) => p.label);
       const systems = state.start === "structure" ? state.systems.filter((row) => row.system).length : 1;
@@ -2646,7 +2691,28 @@
       "), said under What it costs here"];
   }
 
+  /* At phone width the bar at the foot says the verdict in three lines at
+   * most; pressed, it takes the page to the verdict in full, in the summary
+   * under the form. A long refusal filled half the screen. */
+  function wirePhoneStatus() {
+    const chip = el("run-phone-status");
+    if (!chip || chip.dataset.wired) return;
+    chip.dataset.wired = "1";
+    chip.tabIndex = 0;
+    chip.setAttribute("role", "button");
+    chip.setAttribute("aria-label", "Show the whole verdict");
+    const reach = () => {
+      const whole = el("run-status");
+      if (whole) whole.scrollIntoView({ block: "center" });
+    };
+    chip.addEventListener("click", reach);
+    chip.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); reach(); }
+    });
+  }
+
   function setStatus(kind, said) {
+    wirePhoneStatus();
     ["run-status", "run-phone-status"].forEach((id) => {
       const target = el(id);
       if (!target) return;
@@ -2674,8 +2740,10 @@
         if (!isChanged(phase, name)) return;
         const field = fieldOf(phase, name);
         if (!field || field.role === "provenance") return;
+        // Unset, a setting takes what its `unset` says (production "2 ns"):
+        // that is what it was changed from, not "not set".
         const before = field.default === null || field.default === undefined
-          ? (field.unset ? "not set" : "") : said(field.default, field.unit);
+          ? (field.unset || "") : said(field.default, field.unit);
         const now = said(valueOf(phase, name), field.control === "number" ? field.unit : "");
         add(field.label || name, before ? `${before} → ${now}` : now, () => revertSetting(phase, name));
       });
@@ -3683,7 +3751,9 @@
     try {
       const response = await fetch("/api/run-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, output: el("run-output").value.trim() }),
+        // No Results folder: it is hidden in this mode, and its old value sent
+        // the run elsewhere than the config's own `output:`.
+        body: JSON.stringify({ path }),
       });
       started = await response.json();
     } finally { launchesPending -= 1; }

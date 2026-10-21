@@ -452,8 +452,11 @@ class TestPipelineRun:
         ]
 
     def test_sequence_input_records_fallback(self, tmp_path: Path):
-        """Sequence input yields the manifest-only fallback with a clear note."""
+        """Sequence input keeps the sequence and the manifest with a clear
+        note, and setup fails: nothing was prepared."""
         from unittest.mock import MagicMock as MM
+
+        from fastmdxplora.refusals import StudyError
 
         orch = MM()
         orch.system = "MKTAYIAKQRQISFVKSHFSRQ"
@@ -461,8 +464,10 @@ class TestPipelineRun:
         orch._presenter = None
         out_dir = tmp_path / "setup"
         out_dir.mkdir()
-        artifacts = setup_run(orchestrator=orch, output_dir=out_dir)
-        assert "input.sequence" in artifacts
+        with pytest.raises(StudyError, match="structure predictor") as raised:
+            setup_run(orchestrator=orch, output_dir=out_dir)
+        assert raised.value.code == "environment.backend.missing"
+        assert (out_dir / "input.sequence").is_file()
         manifest = json.loads((out_dir / "setup_parameters.json").read_text(encoding="utf-8"))
         assert manifest["input"]["form"] == "sequence"
         assert any("structure predictor" in n for n in manifest["notes"])

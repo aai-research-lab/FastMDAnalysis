@@ -743,11 +743,13 @@ def _said_met(verdicts: list[Verdict], production: float, runs: int, independent
     text = f"After {production:g} ns of production{each}: {known}."
     if runs == 1:
         text += (" One run: precise within itself, and not checked against independent "
-                 "starts, so a run trapped in one state would look the same "
-                 "(independent_starts: not_required).")
+                 "starts, so a run trapped in one state, or still relaxing more slowly "
+                 "than it ran, would look the same (independent_starts: not_required).")
     else:
         text += (f" The {runs} replicas started from one structure and differ by seed, so "
-                 "they check trapping as far as their dynamics carried them apart.")
+                 "they check trapping as far as their dynamics carried them apart; a "
+                 "relaxation slower than the runs, shared from that structure, they "
+                 "cannot check.")
     return text
 
 
@@ -813,7 +815,11 @@ def stopping_section(root: str | Path) -> list[str]:
                ", and one run is judged alone only on 50 independent samples, ")
             + "and calibrated on series with a known mean, the errors judged this way held "
             "the truth about as often as they state. A state none of the runs left is not "
-            "in the error.", ""]
+            "in the error, and neither is a relaxation slower than the runs that they all "
+            "began from: on series relaxing over 30 ns from 3 standard deviations away, "
+            "studies stopped near 40-60 ns with the truth inside two of their errors in "
+            "fewer than 3 in 100, alone or as replicas from one structure. Runs from "
+            "different structures are what show it.", ""]
     return lines
 
 

@@ -18,7 +18,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-__all__ = ["runs_compared", "run_folder"]
+__all__ = ["runs_compared", "run_folder", "mean_of_replicas"]
 
 #: A difference is marked past this many combined standard errors, as the
 #: written comparison marks a trend (`fastmdxplora.batch.compare`).
@@ -69,7 +69,7 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
     labels = {run["run_id"]: run.get("label") or run["run_id"] for run in runs}
     measures = [_measure(name, runs, found, replicas, labels) for name in names]
     if summary is not None:
-        _with_the_replica_spread(summary, measures)
+        _with_the_replica_spread(summary, measures, of=len(runs))
     return {
         "ok": True,
         "runs": [{"run_id": run["run_id"], "label": labels[run["run_id"]], "state": run["state"],
@@ -211,7 +211,8 @@ def _the_replicas_together(base: Path) -> dict[str, Any] | None:
     return summary if isinstance(summary, dict) else None
 
 
-def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, Any]]) -> None:
+def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, Any]],
+                             of: int | None = None) -> None:
     """The spread of the replicas' means against the error each run
     estimated for itself, as the written comparison says it; and the mean
     of their means with the error the spread gives it (its standard
@@ -226,11 +227,37 @@ def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, A
             measure["said"] = str(entry["calibration"])
         if not isinstance(entry, dict):
             continue
-        members = len(entry.get("members") or [])
-        mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
-        if mean is not None and spread is not None and members >= 2:
-            measure["ensemble"] = {"mean": mean, "error": spread / math.sqrt(members),
-                                   "spread": spread, "runs": members}
+        together = mean_of_replicas(entry, of=of)
+        if together is not None:
+            measure["ensemble"] = together
+
+
+def mean_of_replicas(entry: dict[str, Any], *, of: int | None = None) -> dict[str, Any] | None:
+    """One quantity of replicas, from its entry in their comparison
+    (`batch.aggregate.aggregate_members`): the mean of their means and its
+    error, the spread of the means (their standard deviation) over the
+    square root of their number, with the spread and how many runs. Where
+    the runs' own errors do not back the spread (aggregate's
+    ``spread_not_an_error``), no error, and ``withheld`` says why. None
+    where fewer than two means or no spread are recorded. The one
+    derivation of it, which the runs' table, the written comparison and All
+    studies all give. Given how many runs the study has (``of``), more than
+    gave this mean (a run not read, not ended, or without it), ``of`` is
+    kept beside ``runs``, for the mean to say it is of some of them."""
+    members = len(entry.get("members") or [])
+    mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
+    if mean is None or spread is None or members < 2:
+        return None
+    withheld = entry.get("spread_not_an_error") or None
+    if withheld is None and entry.get("qualified_by_their_own_runs"):
+        # A comparison written before the reason was: the runs it names.
+        withheld = (f"{len(entry['qualified_by_their_own_runs'])} of the {members} replicas did "
+                    "not determine their own mean, so their spread is not yet an error.")
+    together = {"mean": mean, "error": None if withheld else spread / math.sqrt(members),
+                "spread": spread, "runs": members, "withheld": withheld}
+    if isinstance(of, int) and of > members:
+        together["of"] = of
+    return together
 
 
 def _finite(value: Any) -> float | None:

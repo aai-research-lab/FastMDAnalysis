@@ -199,13 +199,28 @@ def normalize_systems(raw: Any) -> list[dict[str, Any]]:
     seen_ids: set[str] = set()
     for i, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            raise SweepError(f"`systems[{i}]` must be a mapping, got {type(entry).__name__}.", code="batch.sweep.invalid")
+            raise SweepError(
+                f"`systems[{i}]` must be a mapping, got {type(entry).__name__}: "
+                "each entry is `{system: <PDB id or path>}`, with an optional "
+                "`id` and phase blocks.",
+                code="config.option.wrong_type", option=f"systems[{i}]",
+                context="systems", expected_type="mapping",
+                found_type=type(entry).__name__)
         if "system" not in entry or not entry["system"]:
-            raise SweepError(f"`systems[{i}]` is missing a `system` input.")
+            raise SweepError(
+                f"`systems[{i}]` is missing a `system` input: a PDB identifier "
+                "to fetch or the path of a structure file.",
+                code="config.option.missing_companion", option=f"systems[{i}]",
+                requires=["system"])
 
         sid = str(entry.get("id") or default_system_id(i))
         if sid in seen_ids:
-            raise SweepError(f"Duplicate system id '{sid}' in `systems`.")
+            raise SweepError(
+                f"Duplicate system id '{sid}' in `systems`: each id names its "
+                "own run folder, so two systems cannot share one. Give each "
+                "entry its own `id`.",
+                code="config.option.conflicting",
+                options=[f"systems[{i}].id"], context="systems")
         seen_ids.add(sid)
 
         # Per-system per-phase option overrides
@@ -389,8 +404,15 @@ def normalize_summary_for_validation(data: dict[str, Any]) -> None:
             phase, option = _split_dotted(axis)
             schema = PHASE_SCHEMAS[phase]
             if schema.get(option) is None:
+                from fastmdxplora.config.loader import _suggest, _suggestion_only
+
                 valid = sorted(schema.field_names())
                 raise SweepError(
                     f"Sweep axis '{axis}' names option '{option}', which is "
-                    f"not a valid {phase} option. Valid: {', '.join(valid)}."
+                    f"not a valid {phase} option{_suggest(option, set(valid))}. "
+                    f"Valid: {', '.join(valid)}.",
+                    code="config.option.unknown", option=str(axis),
+                    context="sweep", permitted=[f"{phase}.{v}" for v in valid],
+                    suggestion=(f"{phase}.{s}" if (s := _suggestion_only(
+                        option, set(valid))) else None),
                 )

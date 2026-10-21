@@ -11,6 +11,9 @@ drives the CLI and the Python API:
 Public API
 ----------
 - :func:`validate_config` -- strict schema validation (raises ConfigError)
+- :func:`refuse_what_can_be_seen` -- what a run would refuse before it
+  starts that the schema cannot know: a system setup cannot read, a
+  selection that does not parse (raises ConfigError)
 - :func:`load_config_file` -- parse a YAML config to a dict
 - :func:`phase_options` -- extract per-phase option blocks
 - :func:`generate_template` -- the ``fastmdx config`` template
@@ -38,6 +41,7 @@ from fastmdxplora.config.loader import (
     study_options,
     validate_config,
 )
+from fastmdxplora.config.before_run import refuse_what_can_be_seen
 from fastmdxplora.config.schema import PHASE_SCHEMAS, PhaseSchema
 
 __all__ = [
@@ -53,6 +57,7 @@ __all__ = [
     "generate_template",
     "load_config_file",
     "phase_options",
+    "refuse_what_can_be_seen",
     "STUDY_LEVEL_KEYS",
     "study_options",
     "validate_config",

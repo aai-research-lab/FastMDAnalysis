@@ -263,7 +263,7 @@ class TestOneRouteInIsTheSameAsAnother:
     """The umbrella expansion, which every route was said to get."""
 
     STUDY = {
-        "systems": [{"system": "1L2Y", "name": "w"}],
+        "systems": [{"system": "1L2Y", "id": "w"}],
         "simulation": {"umbrella": {
             "collective_variable": "distance",
             "selection_a": "resid 1", "selection_b": "resid 10",

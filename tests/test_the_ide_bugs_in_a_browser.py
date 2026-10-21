@@ -77,8 +77,11 @@ def test_a_finished_study_of_runs_is_completed_everywhere(finished_sweep, width,
         page.keyboard.press("Escape")
         page.goto(url + "#studies", wait_until="domcontentloaded")
         page.wait_for_selector(".study-state, .studies-state")
+        # The list first: the study's row says its state.
+        page.wait_for_selector(".studies-row .studies-state-line")
         said["card"] = page.eval_on_selector_all(
-            ".study-state", "s => s.map(x => x.textContent.trim())")
+            ".studies-row:not(.studies-child) .studies-state-line",
+            "s => s.map(x => x.textContent.trim())")
         return said
 
     said = _serve(finished_sweep, look, width=width, colour_scheme=scheme)

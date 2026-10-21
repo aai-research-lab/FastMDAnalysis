@@ -99,7 +99,8 @@ class TestTheCards:
         assert card["production_ns"] == 10 and card["forcefield"] == "amber14"
         assert card["means"][0] == {"analysis": "rmsd", "label": "RMSD", "mean": 0.1234,
                                     "error": 0.0056, "unit": "nm", "withheld": None}
-        assert card["thumbnail"]
+        # Its figure is the thumbnail route's, no longer read for each card.
+        assert "thumbnail" not in card and thumbnail_of(workspace / "ubiquitin")
 
     def test_where_a_study_stands(self, workspace):
         assert card_of(workspace / "stopped")["state"] == "stopped"
@@ -306,6 +307,8 @@ def test_the_page(workspace) -> None:
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             page.set_default_timeout(60000)
+            # All studies opens on its list; the cards chosen, as a person would.
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
@@ -318,13 +321,13 @@ def test_the_page(workspace) -> None:
             page.wait_for_selector(".study-card")
             cards = page.locator(".study-card").count()
             first = page.text_content(".study-card .study-name")
-            means = page.text_content('.study-card[data-path$="ubiquitin"] .study-means')
+            means = page.text_content('.study-card[data-path$="ubiquitin"] .studies-means')
             page.fill("#studies-search", "1l2y")
             searched = page.locator(".study-card").count()
             page.fill("#studies-search", "")
             page.check('.study-card[data-path$="/ubiquitin"] .study-pick input')
-            # One chosen offers nothing yet: Compare and Clear come with the second.
-            waiting = page.is_hidden("#studies-compare-bar")
+            # One chosen: the bar under the list, Compare waiting for a second.
+            waiting = page.is_visible("#studies-bar-in") and page.is_disabled("#studies-compare")
             page.check('.study-card[data-path$="ubiquitin_longer"] .study-pick input')
             # Compared on the Compare page (compare.js), then back to the cards.
             page.click("#studies-compare")
@@ -333,6 +336,8 @@ def test_the_page(workspace) -> None:
             rmsd = page.text_content('.compare-means-table tr[data-analysis="rmsd"]')
             resolved = page.get_attribute('.compare-means-table tr[data-analysis="rmsd"]', "class")
             page.go_back()
+            # Read again on its way back: once read, the cards stay.
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
             page.wait_for_selector('.study-card[data-path$="stopped"] .study-open')
             page.click('.study-card[data-path$="stopped"] .study-open')
             # Said beside its button, which is an icon (and named so for a moment).
@@ -345,8 +350,9 @@ def test_the_page(workspace) -> None:
             page.goto(session.url + "#overview", wait_until="domcontentloaded")
             page.wait_for_selector("body.state-ready")
             page.click('[data-view-link="studies"]')
-            page.wait_for_function(
-                "() => document.getElementById('studies-where').textContent.includes(' in ')")
+            # The count and its folder are two spans, a no-break space between.
+            page.wait_for_function("() => document.getElementById('studies-where').textContent"
+                                   ".replace(/\\u00a0/g, ' ').includes(' in ')")
             browser.close()
     finally:
         session.server.shutdown()
@@ -381,6 +387,8 @@ def test_why_a_study_did_not_open_outlasts_the_cards_drawn_again(workspace) -> N
             page.set_default_timeout(60000)
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            # All studies opens on its list; the cards chosen, as in test_the_page.
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
             # The switch's answer waits until the test lets it go.
             page.add_init_script("""
                 const fetch = window.fetch;

@@ -9,6 +9,122 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- A joined run's drift between segments counts every ordering of up to
+  seven segments, and the mirror of the observed order always counts as
+  extreme: on four segments the verdict had turned on rounding. A segment
+  withheld for drifting within itself is said to be, not reported as an
+  unresolved correlation, and the joins of a series with missing values
+  stay on their frames, in the report as well. (Three or four segments
+  still cannot be called drifting by this test; that is being worked on.)
+
+- An umbrella study's barrier is a peak standing above the curve on both
+  sides by 2.5 kJ/mol and by twice the error of that rise, not the curve's highest
+  point: along a distance a plain well 20 kJ/mol deep reported its plateau,
+  or the wall at the first window, as a barrier. The highest point is still
+  given, and whether it is an end. On a full turn tiled by the windows, and
+  sampled in every bin, the ends are neighbours, for barriers and for wells (a torsion's trans well
+  at +-180 degrees); a partial arc whose windows' tails wrap is not read as
+  a turn.
+- An umbrella study's binding free energy is no longer refused on sound
+  data. The curve ran past the outermost windows into bins only one
+  window's tail reached, and WHAM treated the density as flat across a
+  bin; the bulk check read exactly those bins, and on windows drawn from a
+  known answer it refused two studies in three, the rest 0.2 kJ/mol off.
+  Along a distance the curve now stops at the last window's centre, WHAM
+  solves on a grid eight times finer with each window's bias averaged over
+  a bin, and on the same test the binding free energy is not refused and
+  its mean over studies lands within a few hundredths of a kJ/mol of the
+  closed form.
+- A bin no sample reached is said where it is (inside the bound range, or
+  where the bulk reference is read) rather than refused as "no population
+  above the bulk reference"; one at the wall the ligand cannot enter is
+  taken as holding nobody.
+- Along a distance the PMF figure and its summary show W(r), the
+  potential of mean force, flat where nothing interacts; the
+  distribution's free energy, which the binding integral uses, stays in
+  `pmf.json` and beside it in the data file, and its summary is read off
+  W(r), not off the distribution's wall at the first window.
+
+- A mean whose frames still trend is withheld when the trend is large
+  against its own error, not only against the frames' spread. That bar did
+  not tighten as a run grew: on frames 500 inefficiencies long under a
+  decay of one spread over half the run, every mean was called determined,
+  a median five errors from where the decay was heading; about two in five
+  are now withheld, a stationary series in about one in a hundred. Counted
+  as the stopping rule's third remedy in
+  `preregistration/stopping-calibration.md` and adopted on its third
+  held-out set, with two cases relaxing over 30 ns that no test within a
+  run can see, as the report of a study run until it knew now says. It
+  lowers how often a wrong mean is given; it does not make the ones still
+  given right.
+
+- A study is checked whole before it runs, as the weekly test of 10-20
+  found it was not:
+  - a system entry's phase blocks are checked as a top-level block is (a
+    misspelt setting there ran at the value it meant to change), and keys
+    other than `system`, `id` and the phases are refused;
+  - each swept value is checked against its setting (`setup.ph: [25]` was
+    prepared at pH 25), a value repeated on an axis is refused, and so is
+    an axis a system entry also sets;
+  - a setting given a number it cannot be is refused: a timestep of 0,
+    negative steps, an interval under 1 or longer than production, a
+    hydrogen mass at or under hydrogen's own or over four times it, a negative
+    pressure in atm or friction, an analysis's `last` at or before its
+    `first`, under one worker, and NaN or infinity anywhere, analysis
+    options included; setup refuses a system it built with a mass at or
+    under zero;
+  - a misspelt analysis option, `forcefield` beside `force_field`,
+    `include` beside a different `include_phase`, a length given in steps
+    and in ns that disagree, and a sweep of one spelling where the study
+    sets the other are refused with the Config, not part-way through the
+    run; a recorded `forcefield: auto` beside a list replays;
+  - an error OpenMM raises that is not about the numbers is said as it is,
+    not as an unstable simulation.
+- Your defaults fill only what the study leaves unset: a study's
+  `pressure_atm`, `*_duration_ns`, `force_field` or `keep_heterogens` is no
+  longer overridden by the other spelling in `fastmdx-defaults.yml`, and a
+  default a system's own value replaces is not recorded as the reason.
+- `fastmdx config` writes `agent`, `agent_model`, `budget_hours` and
+  `decisions` commented out: a study made from the full template was
+  recorded as drafted with an AI model, with a budget and a reason for its
+  pH that nobody gave. Its help lines start with `##`, and each of a pair of
+  settings says to use one or the other.
+- A system setup cannot read and a selection that does not parse are
+  refused before a run by `fastmdx explore`, its `--dry-run`, the GUI's
+  Check it and `check_study` alike, where setup reads the system (not from a
+  prepared one), and `save_study` saves none of them.
+  `refuse_what_can_be_seen` is given beside `validate_config` for a script.
+  `--dry-run` prints what is worth knowing before a run, as
+  Check it does, and says an interval that leaves production's last steps
+  unsaved. A run fails (exit 1) when an analysis its Config names failed,
+  never for too few frames. Setup given
+  a sequence it cannot build fails, saying so. `fastmdx config -f` into a
+  folder that does not exist says so in one line.
+- A study with `budget_hours` runs its own phases in each stage and records
+  them; with a phase list of its own it was refused for setting both
+  `include` and `exclude`.
+- The Config Builder shows and runs the study your defaults make: its plan
+  says each system's value where systems differ, its file holds what your
+  defaults give, so it runs the same study where there are none, and
+  FastMDXplora's own value typed over yours is kept; its header says your
+  defaults are written in, and its command leaves their reasons to the
+  file. A default some systems
+  took is recorded as the reason in their runs only. Full config ticked runs
+  the full file.
+- `fastmdx gui` with no study open puts new studies in the folder it was
+  started in, reads your defaults and relative paths from it, as the
+  preview did.
+- Check it judges a Config as Run as it stands runs it (no systems, or a
+  stopping rule on an analysis that is not one, no longer "Runs."), and Run
+  as it stands writes to the Config's own `output:`.
+- The plan names the pressure the run is given when bar and atm are both
+  set, in the Builder and in `check_study`. `check_study` and `save_study`
+  say what is worth knowing.
+- The Builder asks for PDBFixer only where setup repairs a structure, takes
+  back the folder of a Run it refused, says "2 ns → 0.002 ns" for a length
+  changed, refuses a timestep of 0 on its box, shows the Mode a Config's
+  workers give, tells a person what to add to a Config with no system, and
+  lets its verdict and empty boxes be read whole at every width.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
@@ -143,6 +259,75 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   is free, each a note, a warning or an error. Each run is costed from its
   own system and settings, a system whose structure is not read yet said
   not worked out; an error there is said apart from the Config's checks.
+- All studies opens on its list, a row a study with its molecule (the Cα
+  trace of its latest frame or its structure, coloured N to C), where it
+  stands (a run's progress in ns and the time it has left), the ns it
+  simulated and every mean, a ring for one not yet determined with why.
+  Replicas give the mean of their means, its error their spread over the
+  root of their number, or the spread alone where some could not determine
+  their own. Views as tabs (your own kept in this browser), chips for
+  state, system and tags, replicas folded under their study, keys, and the
+  cards a gallery of the same molecules. A trajectory analysed with no run
+  of its own says "analysed".
+- The studies chosen on All studies have one bar at the foot of the list,
+  in place of Compare and Clear beside the pointer: how many, Compare (two),
+  Tag (a tag on or off all of them, other tags kept), Files (one), Archive
+  (left out of All studies, shown by Archived; kept in the study's
+  `study_tags.json`, nothing moved) and Clear, with Undo after Tag and
+  Archive. Any number can be chosen: the list's head box chooses every study
+  shown, Shift and a click a range.
+- All studies reads each study as its own pages do: a record linked out
+  of a study, or a file of it that is not one of its results, is not read
+  for its row, its card or its picture (`/api/study-thumbnail`); the row
+  names it, and what it would have said (where the study stands, how long
+  it ran, a mean, its molecule) is said not read, never taken as absent. A
+  structure a study is to start from outside its folder is not drawn. A
+  run's time left is at its production's own speed and how long it ran is
+  as its Overview says (a run stopped once determined ran less than its
+  ceiling); the replicas' mean of means and its error are the runs' table's
+  own. Why a mean is not determined is reached from the keyboard on its
+  row. Bound beyond this computer, Tag, Archive, Open, Files and Compare
+  are not offered. In a column too narrow for the table (the side panel
+  open, or the Agent beside, on a laptop) each study is two or three lines,
+  as on a phone, rather than a table scrolled sideways; the bar for the
+  studies chosen no longer covers the last row. A list read before tags or
+  an archive were kept, and answered after, no longer draws them as they
+  were.
+- All studies, reviewed: a study's runs linked out of it are not read when
+  unfolded, a run linked out has no picture served, and a folder linked
+  into the workspace is not looked in. Tag and Archive send what changes,
+  kept on the tags as they are, so a tag an AI app added since stays; a run
+  of a study is not archived alone. Replicas' mean and error, or why there
+  is none, are read from their runs as the runs' table and the written
+  comparison read them, the spread called an error only where every
+  replica determined its own mean with an error of its own (the comparison
+  says so too). A study of several runs counts every run, begun or not,
+  says each run's length or their range, and its time left as it runs them;
+  progress and time left are the status bar's own (run-progress.js). A
+  study with no Manifest that ran says what its records do. Columns give
+  way in turn before the list becomes lines, which keep the sort, choosing
+  all, the time left and Open, Tag and Files; what was not read opens from
+  the row. Cards are read once while a study's records stand.
+- All studies, reviewed again: a study's tags are changed held to the study,
+  so a `study_tags.json` linked out of it is neither read nor written (the
+  change is refused, and says why); a run linked out of its study offers no
+  Tag, Open, Files or box, is refused a tag change, and is not read when
+  asked by its own path. A study linked into the workspace from elsewhere is
+  listed again, marked a link to where it leads and read held to itself
+  (hosted, named and not read). A tagged study keeps its name, its tags
+  wrapping under it; in lines a running study's progress and time left have
+  a line of their own. Replicas' mean from fewer runs than the study has
+  says how many ("from 2 of 3 replicas"), its error how many it is from; a
+  replica linked out is named rather than "an unavailable record". The
+  written comparison calls the spread the error once each run has
+  determined its own mean, and says the runs said so only of runs that did.
+  A study of runs says how many began ("1 of 3 runs begun, 18.5 ps"), a
+  range in one unit, and is active when its newest run was; its workers are
+  those its runner recorded. A kept card is read again when the structure
+  its molecule is drawn from changes, and the first list is quicker. A
+  study whose tags were not read offers no Tag; a run begun whose length is
+  not recorded counts as begun ("2 of 3 lengths known"); a cut name gives
+  its whole name on hover; unfolded runs draw no stray line in lines.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never

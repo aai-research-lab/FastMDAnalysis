@@ -61,6 +61,7 @@ __all__ = [
     "detect_equilibration",
     "summarise",
     "drift_in_spread",
+    "trend_in_errors",
     "mean_record",
     "shared_start",
     "with_its_error",
@@ -133,10 +134,28 @@ DRIFT_FRAMES = 6
 #: determined or not (``rules``), so what reads a record made by an
 #: earlier version can say its verdict may not be this version's. 2: a
 #: mean whose averaged frames still move one way is withheld
-#: (``analysis.sampling.still_drifting``). A record without the key was
-#: written by an earlier version, most of which did not withhold such a
-#: mean, so it may call one determined.
-MEAN_RULES = 2
+#: (``analysis.sampling.still_drifting``). 3: so is one whose frames trend
+#: by :data:`DRIFT_IN_ERRORS` of the trend's own error. A record without
+#: the key was written by an earlier version, most of which did not
+#: withhold such a mean, so it may call one determined.
+MEAN_RULES = 3
+
+#: A series whose averaged frames trend by this many times the trend's own
+#: error is still drifting, however small the trend is against the frames'
+#: spread. The spread's test (:data:`DRIFT_IN_SPREAD`) does not tighten as a
+#: run grows while the mean's error does, so a relaxation slower than the
+#: run passed it: on AR(1) frames 500 inefficiencies long under a decay of
+#: one spread over half the run, every mean was determined and its median
+#: five errors from the value the decay was heading to. Judged against the
+#: trend's error it is withheld in about two of five such runs, and a
+#: stationary series in about one in a hundred (measured 0.1% to 1.7%,
+#: fewer for a short series, whose trend's error is read wide; P(|z| >=
+#: 2.5) is 1.2%); a run
+#: extended until it is determined is asked again at each look (counted in
+#: ``preregistration/stopping-calibration.md``, the third remedy). It
+#: lowers how often a wrong mean is given; it does not make the ones still
+#: given right, and a relaxation much slower than the run it does not see.
+DRIFT_IN_ERRORS = 2.5
 
 #: The error of a mean after a discard is taken from the whole run, scaled to
 #: the frames kept, unless discarding gained at least this many times the
@@ -499,6 +518,52 @@ def drift_in_spread(values: Any) -> float:
     return float((last.mean() - first.mean()) / noise)
 
 
+def _trend(values: np.ndarray, inefficiency: float) -> "tuple[float, float]":
+    """The least-squares slope of ``values`` against frame number, and its
+    error with the residuals taken as correlated over ``inefficiency``
+    frames: ``sqrt(g var(r) / sum (t - t_bar)^2)``. In closed form, from
+    the sums the slope needs, so it costs one pass over the series. The
+    error is NaN for fewer than three values, and zero where none vary."""
+    n = values.size
+    if n < 3:
+        return 0.0, float("nan")
+    t = np.arange(n, dtype=float) - 0.5 * (n - 1)
+    spread = n * (n * n - 1.0) / 12.0
+    centred = values - values.mean()
+    # Sums rather than dot products: a dot product runs on every BLAS thread,
+    # and the convergence view asks this for fifty prefixes of a series.
+    slope = float(np.sum(t * centred)) / spread
+    # Residual sum of squares: sum c^2 - slope^2 sum t^2.
+    left = max(float(np.sum(centred * centred)) - slope * slope * spread, 0.0)
+    variance = left / (n - 2)
+    return slope, float(np.sqrt(max(float(inefficiency), 1.0) * variance / spread))
+
+
+def trend_in_errors(values: Any, inefficiency: float) -> float:
+    """How steadily a series moves, against the error of that movement: the
+    least-squares slope over frame number divided by its error, the frames
+    taken as correlated over ``inefficiency`` frames (the series' own, as
+    the mean's error takes it before any discard is weighed; the trend's
+    residuals decorrelate no slower than the series, so the error is if
+    anything wide). Zero for a series too short, or one that does not vary.
+
+    Unlike :func:`drift_in_spread` it tightens as a run grows, as the
+    mean's error does: a run long enough to give a mean an error of a
+    hundredth of its spread can show a trend of a tenth of a spread, and
+    that trend is the mean's bias. What it cannot see is curvature: a
+    relaxation much slower than the run, or a slow oscillation, shows as a
+    trend only in part, and a mean left after it can still be biased.
+    """
+    series = np.asarray(values, dtype=np.float64)
+    series = series[np.isfinite(series)]
+    if series.size < DRIFT_FRAMES:
+        return 0.0
+    slope, error = _trend(series, inefficiency)
+    if not np.isfinite(error) or error <= 0.0:
+        return 0.0
+    return float(slope / error)
+
+
 def summarise(
     series: np.ndarray,
     *,
@@ -603,6 +668,28 @@ def _summary(
         )
 
     drift = drift_in_spread(kept)
+    slope, slope_error = _trend(kept, g) if kept.size >= DRIFT_FRAMES else (0.0, float("nan"))
+    trend = (slope / slope_error
+             if np.isfinite(slope_error) and slope_error > 0.0 else 0.0)
+    if kept.size >= DRIFT_FRAMES and abs(trend) >= DRIFT_IN_ERRORS \
+            and abs(drift) < DRIFT_IN_SPREAD:
+        import dataclasses
+
+        change = slope * (kept.size - 1)
+        return dataclasses.replace(equilibrated, standard_error=float("nan")), Withholding(
+            f"Still drifting after its equilibration: over the {kept.size} frames "
+            f"averaged the series moves steadily, by {change:+.4g} from first to "
+            f"last, a trend {abs(trend):.1f} times its own error with the frames' "
+            "correlation allowed for. Small against how much the frames wobble, it "
+            "is not small against the mean's error, and a relaxation slower than "
+            "the run puts the mean where the run happened to stop rather than "
+            "where the system is going; the remedy is a longer run. (A relaxation "
+            "far slower than the run may show no trend at all: runs from "
+            "different structures are what test that.)",
+            code="analysis.sampling.still_drifting",
+            frames=int(kept.size), drift_in_spread=round(float(drift), 2),
+            trend_in_errors=round(float(trend), 2), needed=DRIFT_IN_ERRORS,
+        )
     if kept.size >= DRIFT_FRAMES and abs(drift) >= DRIFT_IN_SPREAD:
         # Its own error cannot say so: a series moving steadily through the
         # frames averaged holds the start of a trend, not a state, and the
@@ -965,6 +1052,11 @@ class Pooled:
         }
 
 
+def _code_of(reason: Any) -> str:
+    """The refusal code a withholding carries, or an empty string."""
+    return str(getattr(getattr(reason, "refusal", None), "code", "") or "")
+
+
 def summarise_segments(
     series: np.ndarray,
     joins: "list[int] | tuple[int, ...]",
@@ -988,7 +1080,9 @@ def summarise_segments(
     -------
     (Pooled, None) or (None, Withholding)
         Withheld where no segment supported a mean, where the segment means
-        move in order (``analysis.sampling.drifting``), where any segment
+        move in order (``analysis.sampling.drifting``), where a segment is
+        still moving within itself (``analysis.sampling.still_drifting``),
+        where any segment
         that supported a mean did not resolve its own correlation time
         (``analysis.sampling.correlation_unresolved``: its independent-sample
         count is an upper bound, so the pooled error would be a lower one),
@@ -998,9 +1092,17 @@ def summarise_segments(
         twenty, and twenty is twenty however it was collected -- but ten
         segments that each support nothing support nothing together.
     """
-    values = np.asarray(series, dtype=float)
-    values = values[np.isfinite(values)]
-    boundaries = sorted({int(j) for j in joins if 0 < int(j) < values.size})
+    raw = np.asarray(series, dtype=float)
+    finite = np.isfinite(raw)
+    values = raw[finite]
+    # The joins are frame numbers of the series as given. Values that are not
+    # finite are left out first, so each join moves back by those before it:
+    # left where they were, the segments after a stretch of NaN began
+    # several frames late and took frames of the next one with them.
+    before = np.concatenate(([0], np.cumsum(finite)))
+    boundaries = sorted({int(before[min(int(j), raw.size)]) for j in joins
+                         if 0 < int(j) < raw.size}
+                        - {0, int(values.size)})
 
     if not boundaries:
         equilibrated, why = summarise(
@@ -1014,6 +1116,7 @@ def summarise_segments(
     edges = [0, *boundaries, values.size]
     pieces: list[Equilibrated] = []
     kept_at: list[int] = []
+    reasons: list[Any] = []
     withheld: list[tuple[int, str]] = []
     for index, (start, stop) in enumerate(zip(edges, edges[1:])):
         # Each segment is equilibrated on its own. A segment that begins
@@ -1028,6 +1131,7 @@ def summarise_segments(
             continue
         pieces.append(piece)
         kept_at.append(index)
+        reasons.append(why)
 
     if not pieces:
         return None, Withholding(
@@ -1060,6 +1164,37 @@ def summarise_segments(
         means[resolved], 1.0 / errors[resolved] ** 2)
     if refusal is not None:
         return None, refusal
+
+    # A segment still moving within itself is withheld for that, and its
+    # remedy is a longer run, not longer segments: reported under its own
+    # code rather than as a correlation time it may well have resolved.
+    moving = [(index, why) for index, ok, why in zip(kept_at, resolved, reasons)
+              if not ok and _code_of(why) == "analysis.sampling.still_drifting"]
+    if moving:
+        details = [why.refusal.details for _index, why in moving]
+        drift = max(abs(float(d.get("drift_in_spread", 0.0))) for d in details)
+        trends = [abs(float(d["trend_in_errors"])) for d in details
+                  if "trend_in_errors" in d]
+        by_spread = drift >= DRIFT_IN_SPREAD
+        how = (f"the last third of one differs from its first by "
+               f"{drift:.1f} times their spread" if by_spread else
+               f"one trends by {max(trends):.1f} times the trend's own error"
+               if trends else "their frames still move one way")
+        return None, Withholding(
+            f"{len(moving)} of {len(pieces)} segments of this joined run are "
+            f"still drifting within themselves (numbered "
+            f"{', '.join(str(i) for i, _why in moving)} from zero): {how}. Each "
+            "segment is judged on its own, so a run of many stationary ones is "
+            "now and then withheld for one of them. A mean of a quantity "
+            "still moving describes where the run happened to stop, not a "
+            "state, and pooling such segments would give that a confident "
+            "error. The remedy is a longer run.",
+            code="analysis.sampling.still_drifting",
+            frames=int(values.size), drift_in_spread=round(drift, 2),
+            **({} if by_spread or not trends
+               else {"trend_in_errors": round(max(trends), 2)}),
+            needed=DRIFT_IN_SPREAD if by_spread else DRIFT_IN_ERRORS,
+        )
 
     if not resolved.all():
         unresolved = [index for index, ok in zip(kept_at, resolved) if not ok]
@@ -1143,16 +1278,22 @@ def _drift_test(means: np.ndarray, precisions: np.ndarray
     scatter = heterogeneity_ratio(means, precisions)
     drifting = drift_across_segments(means, precisions)
     agree = bool(np.isfinite(scatter) and scatter <= 1.0)
-    if drifting >= DRIFT_SIGNIFICANT_BELOW or agree:
+    # At the level, not only below it: an exact count of 120 orderings
+    # reaches 6/120 = 0.05 itself.
+    if not drifting <= DRIFT_SIGNIFICANT_BELOW or agree:
         return scatter, drifting, None
     span = float(means[-1] - means[0])
-    return scatter, drifting, Withholding(
+    chance = (f"about {drifting:.1%}" if drifting >= 0.001
+              else "less than 0.1%")
+    said = (
         f"The segment means move in order across the run, by {span:+.4g} "
         f"from first to last, and an ordering this clean arises by "
-        f"chance about {drifting:.1%} of the time. The system had not "
-        "equilibrated at the scale of the whole run, so a pooled mean would "
-        "be the mean of a moving target with a confident error bar on "
-        "it. The remedy is a longer run, not more pooling.",
+        f"chance {chance} of the time. The system had not "
+        "equilibrated at the scale of the whole run, so a pooled mean "
+        "would be the mean of a moving target with a confident error "
+        "bar on it. The remedy is a longer run, not more pooling.")
+    return scatter, drifting, Withholding(
+        said,
         code="analysis.sampling.drifting",
         drift_p=float(drifting), heterogeneity=float(scatter),
         span=span, segments=int(means.size),
@@ -1168,6 +1309,11 @@ HETEROGENEITY_QUALIFY_ABOVE = 2.0
 #: How unusual the ordering of the segment means has to look before it is
 #: called drift rather than scatter.
 DRIFT_SIGNIFICANT_BELOW = 0.05
+
+#: Orderings counted exactly rather than sampled, at most: every ordering
+#: of up to seven segments (5040).
+EXACT_ORDERINGS_AT_MOST = 5040
+
 
 
 def _weighted_slope(means: np.ndarray, weights: np.ndarray,
@@ -1199,19 +1345,42 @@ def drift_across_segments(means: np.ndarray, weights: np.ndarray, *,
     Tested by permuting the order of the segments rather than by assuming
     a distribution. The observed statistic is the weighted least-squares
     slope against segment index; the null is what that slope looks like
-    when the same segment means are put in a random order. Exact for any
-    number of segments, which matters because a run is often three or
-    four, and a t or normal approximation on three points is a number
-    rather than a test.
+    when the same segment means are put in another order. Every ordering is
+    counted where there are at most :data:`EXACT_ORDERINGS_AT_MOST` of them
+    (seven segments), and ``permutations`` are drawn at random beyond that.
+
+    Reversing an order negates the slope, so on ``k`` segments the test can
+    say no less than ``2 / k!``: a third for three segments and a twelfth
+    for four, both above :data:`DRIFT_SIGNIFICANT_BELOW`. It cannot call
+    three or four segments drifting, whatever their means; that is a known
+    limit, not a finding that they agree.
 
     Returns 1.0 for fewer than three segments: two points always lie on a
-    line, and calling that a trend would refuse every two-segment run.
+    line, and calling that a trend would refuse every two-segment run; and
+    1.0 where a mean is not a number. Weights that are not all positive
+    numbers are replaced by equal ones, and the order judged alone.
     """
     if means.size < 3:
         return 1.0
 
     positions = np.arange(means.size, dtype=float)
+    if not (np.all(np.isfinite(weights)) and np.all(weights > 0.0)):
+        # Weights that cannot be read leave the order alone to judge, so a
+        # NaN cannot switch the test off.
+        weights = np.ones(means.size)
     observed = abs(_weighted_slope(means, weights, positions))
+    if not np.isfinite(observed):
+        return 1.0
+    # The mirror ordering gives the same slope to the last bit only by luck
+    # of rounding; a slope equal within rounding is as extreme.
+    level = observed * (1.0 - 1e-9)
+
+    if math.factorial(means.size) <= EXACT_ORDERINGS_AT_MOST:
+        from itertools import permutations as orderings
+
+        slopes = [abs(_weighted_slope(means[list(o)], weights[list(o)], positions))
+                  for o in orderings(range(means.size))]
+        return float(sum(1 for c in slopes if c >= level)) / len(slopes)
 
     rng = np.random.default_rng(seed)
     order = np.arange(means.size)
@@ -1220,7 +1389,7 @@ def drift_across_segments(means: np.ndarray, weights: np.ndarray, *,
         shuffled = rng.permutation(order)
         candidate = abs(_weighted_slope(means[shuffled], weights[shuffled],
                                         positions))
-        if candidate >= observed:
+        if candidate >= level:
             at_least_as_extreme += 1
     # The +1s are the standard correction: the observed ordering is itself
     # one of the orderings, and leaving it out lets a p-value of exactly

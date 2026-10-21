@@ -236,6 +236,21 @@ def _accepted(ctx: Context, config: dict[str, Any]) -> Path | None:
     return continuing
 
 
+def _seen_before_a_run(ctx: Context, given: dict[str, Any], filled: dict[str, Any],
+                       defaults: Any) -> None:
+    """Refuse what can be seen wrong before a run, as check_study does: a
+    system setup cannot read, a selection that does not parse, naming your
+    defaults where they gave it. Relative paths are read from the
+    workspace, where a study from here starts."""
+    from fastmdxplora.config.before_run import refused_before_a_run
+
+    caught = refused_before_a_run(given, filled, defaults, base=Path(ctx.workspace.root))
+    if caught is not None:
+        from fastmdxplora.agent.tools import refused_said
+
+        raise ToolError(refused_said(caught), code=caught.code) from None
+
+
 def _plan_lines(config: dict[str, Any]) -> list[str]:
     from fastmdxplora.agent.tools import plan_lines
 
@@ -546,12 +561,26 @@ def _check_study(ctx: Context, args: dict[str, Any]) -> str:
     # Every path the config names held to the workspace before anything it
     # names (the defaults beside its output) is read.
     _accepted(ctx, config)
-    lines, _ = _as_tool_error(lambda: checked_config(_box(ctx), config, file))
+    lines, filled = _as_tool_error(lambda: checked_config(_box(ctx), config, file))
+    lines += _worth_knowing(filled)
     if file is not None:
         lines += ["", _plan_id_line(ctx, file)]
     else:
         lines += ["", "To run it, save it first with save_study."]
     return "\n".join(lines)
+
+
+def _worth_knowing(config: dict[str, Any]) -> list[str]:
+    """What the GUI's Check it says under Worth knowing for the same config,
+    by the same function: a 4 fs timestep with no constraints was warned of
+    there and not here, so an AI app passed on a study that fails in NVT."""
+    from fastmdxplora.gui.config_builder import check_config
+
+    try:
+        knowing = check_config(json.loads(json.dumps(config))).get("worth_knowing") or []
+    except Exception:  # noqa: BLE001 - advice, never a verdict
+        return []
+    return ["", "Worth knowing:", *(f"  {said}" for said in knowing)] if knowing else []
 
 
 def _plan_id_line(ctx: Context, file: Path) -> str:
@@ -569,7 +598,7 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
     if _is_a_path(text):
         raise ToolError("Give the config itself as YAML; save_study writes a new file.")
     config, _ = _config_from(ctx, text)
-    _accepted(ctx, config)
+    continuing = _accepted(ctx, config)
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", args["name"].strip()).strip("._-")
     stem = re.sub(r"\.(ya?ml)$", "", stem, flags=re.IGNORECASE)[:96]
     if not stem:
@@ -590,6 +619,10 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
     if filled:
         _accepted(ctx, config)
         text = _with_lines_for(text, before, config, filled)
+    if continuing is None:
+        # What check_study refuses before a run is not saved as a study that
+        # will run: a structure that is not there was saved and given a plan.
+        _seen_before_a_run(ctx, before, config, _defaults)
     target = ctx.workspace.root / f"{stem}.yml"
     try:
         with target.open("x", encoding="utf-8") as out:
@@ -606,8 +639,8 @@ def _save_study(ctx: Context, args: dict[str, Any]) -> str:
                  + (f", in {config['agent_model']}" if config.get("agent_model") else "")
                  + ").")
     return "\n".join([f"Saved to {ctx.workspace.shown(target)}; accepted by the validator. "
-                      f"{whose} Nothing has been run.", "The plan:", *_plan_lines(config), "",
-                      _plan_id_line(ctx, target)])
+                      f"{whose} Nothing has been run.", "The plan:", *_plan_lines(config),
+                      *_worth_knowing(config), "", _plan_id_line(ctx, target)])
 
 
 def _with_lines_for(text: str, before: dict[str, Any], config: dict[str, Any],

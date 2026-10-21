@@ -146,6 +146,11 @@ class Assessment:
         reported as equilibrated is a claim from no evidence, and it appeared
         beside "too few independent samples" about the same numbers.
         """
+        # Withheld for its trend, a mean has not equilibrated whatever the
+        # thirds say: the trend is judged against its own error, which the
+        # thirds' test is not, and the one series has one verdict.
+        if "still drifting" in str(self.withheld or "").lower():
+            return False
         if not self.drift_is_measurable:
             return None
         return abs(self.drift_in_noise) < 2.0
@@ -261,7 +266,10 @@ def assess_series(name: str, values: Any,
         # from the truth and a standard error saying otherwise.
         from fastmdxplora.statistics import summarise_segments
 
-        pooled, withheld = summarise_segments(series, joins)
+        # The series as given: the joins are its frame numbers, and
+        # summarise_segments moves them past values that are not finite.
+        pooled, withheld = summarise_segments(
+            np.asarray(values, dtype=np.float64).ravel(), joins)
         if pooled is None:
             # The joined run supports no mean -- drifting segments, or too
             # few independent samples once the joins are accounted for.
