@@ -324,7 +324,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   A study of runs says how many began ("1 of 3 runs begun, 18.5 ps"), a
   range in one unit, and is active when its newest run was; its workers are
   those its runner recorded. A kept card is read again when the structure
-  its molecule is drawn from changes, and the first list is quicker.
+  its molecule is drawn from changes, and the first list is quicker. A
+  study whose tags were not read offers no Tag; a run begun whose length is
+  not recorded counts as begun ("2 of 3 lengths known"); a cut name gives
+  its whole name on hover; unfolded runs draw no stray line in lines.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
