@@ -33,6 +33,14 @@
     return analysis && analysis.overviewRows ? analysis.overviewRows() : [];
   }
 
+  /* Whether the analyses' own records are in: until then a cell does not
+   * know how many frames its analysis read (thermodynamics reads the
+   * state log's rows), only how many the trajectory had. */
+  function rowsRead() {
+    var analysis = window.FastMDXAnalysisPage;
+    return !analysis || !analysis.overviewRead || analysis.overviewRead();
+  }
+
   function ordinal(n) {
     var k = n % 100;
     if (k >= 11 && k <= 13) return n + "th";
@@ -50,6 +58,10 @@
       .filter(function (n) { return n != null; })[0];
     if (own != null && own !== record.frames) {
       parts.push(own + " frames");
+    } else if (!row && !rowsRead()) {
+      // Not said until the records come: the trajectory's count said
+      // meanwhile was wrong for an analysis that reads other rows, and the
+      // cell is drawn again once they are read (analysis-page.js).
     } else if (record.frames != null) {
       var stride = Number(record.stride || 1);
       parts.push(record.frames + " frames" + (stride > 1 ? ", every " + ordinal(stride) : ""));

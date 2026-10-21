@@ -856,5 +856,7 @@
     tableAsRows: tableAsRows,
     /* What the results table was drawn from, for each analysis's cell. */
     overviewRows: function () { return (overview && overview.rows) || []; },
+    /* Whether the analyses' own records have been read for this study. */
+    overviewRead: function () { return !!overview; },
   };
 }());
