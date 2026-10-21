@@ -206,11 +206,12 @@ class _Unsteady(_Zenodo):
                 return self._status(fault)
             bucket, name = self.path.split("/")[2:4]
             type(self).uploaded_to[int(bucket.lstrip("b"))] = name
-            super().do_PUT()
-            # A file of that name a test lists now holds what was uploaded.
-            sent = hashlib.md5(type(self).stored["archive"]).hexdigest()  # noqa: S324
+            # A file of that name a test lists as the upload begins holds what
+            # was uploaded (one a test lists once it is answered is the test's).
             listed = [*(type(self).files or []),
                       *type(self).files_of.get(int(bucket.lstrip("b")), [])]
+            super().do_PUT()
+            sent = hashlib.md5(type(self).stored["archive"]).hexdigest()  # noqa: S324
             for entry in listed:
                 if entry.get("filename") == name and "checksum" in entry:
                     entry["checksum"] = sent
@@ -2571,3 +2572,80 @@ def test_a_lone_zip_not_the_study_s_is_not_said_one_of_two(tmp_path, unsteady, c
     said = capsys.readouterr().err
     assert "holds a.zip, which this study did not put there" in said
     assert "two archives" not in said
+
+
+def _as_2_6_0_kept_it(study: Path) -> None:
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "7", "version": "1", "doi": "10.5072/zenodo.7"}}))
+
+
+def test_an_earlier_release_s_draft_is_described_after_a_share_that_failed(tmp_path,
+                                                                           unsteady):
+    """Review of the twenty-second commit: a draft 2.6.0 shared, one share
+    failing after its upload, was taken for the person's for good."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    _analysed_again(study, "Words of the next share.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next share." in unsteady.meta[7]["description"]
+
+
+def test_words_the_person_added_to_an_earlier_release_s_draft_stay(tmp_path, unsteady):
+    """Review of the twenty-second commit: a paragraph the person added to a
+    draft 2.6.0 described was written over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    unsteady.meta[7]["description"] += "<p>Funded by the person's grant.</p>"
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Funded by the person's grant." in unsteady.meta[7]["description"]
+
+
+def test_an_earlier_release_s_draft_keeps_its_names_and_is_described(tmp_path, unsteady):
+    """Hands-on review of the twenty-second commit: a draft 2.6.0 shared with
+    other names than this share's was never described again."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    names = [{"name": "Aina, Adekunle"}, {"name": "Other, Author"}]
+    unsteady.meta[7]["creators"] = names
+    _analysed_again(study, "Words of the next share.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next share." in unsteady.meta[7]["description"]
+    assert unsteady.meta[7]["creators"] == names
+    _analysed_again_too = study / "report" / "report.md"
+    _analysed_again_too.write_text(_analysed_again_too.read_text().replace(
+        "Words of the next share.", "Words of the share after."))
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the share after." in unsteady.meta[7]["description"]
+    assert unsteady.meta[7]["creators"] == names
+
+
+def test_a_zip_put_back_under_a_replaced_archive_s_name_is_said(tmp_path, unsteady,
+                                                               monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.files = [{"id": "a", "filename": "a.zip"}]
+    _during_upload(monkeypatch, lambda: setattr(unsteady, "files", [
+        {"id": "b", "filename": "b.zip"},
+        {"id": "p", "filename": "a.zip", "checksum": "md5:9"}]))
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    assert "holds a.zip, put there on Zenodo during this share" in capsys.readouterr().err
+
+
+def test_several_zips_not_the_study_s_are_said_as_several(tmp_path, unsteady, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.files = [{"id": "s", "filename": "shared.zip"}, {"id": "x", "filename": "x.zip"},
+                      {"id": "y", "filename": "y.zip"}]
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "Delete them there" in capsys.readouterr().err

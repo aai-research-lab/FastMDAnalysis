@@ -254,7 +254,10 @@ keywords, an embargo, a licence or a kind you gave a draft the study had
 not described yet, or wrote there while its archive was uploading (only
 the version is the study's to set). A draft or record shared by an
 earlier release, which kept no account of what it wrote, is described
-again while its words, names and keywords are still as a share wrote them. A
+again while its description is still as such a share wrote it, word for
+word; its creators, keywords, licence and access, which the study cannot
+tell from yours, stay as the draft holds them in that record from then
+on (change them there). A
 licence or access you set on a draft is a change of yours too: from then
 on only the version is the study's to set. A `.zip` put on the draft while
 the study's archive uploads is said once it is up, for you to delete

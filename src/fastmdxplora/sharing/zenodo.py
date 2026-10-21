@@ -476,6 +476,12 @@ _SENT = ("upload_type", "title", "description", "creators", "access_right", "lic
          "keywords", "related_identifiers")
 
 
+#: The description an earlier release wrote, of its own words throughout.
+_EARLIER_WROTE = re.compile(
+    r"<p>[^<]*</p><p>A molecular dynamics study packed by FastMDXplora \S* as an RO-Crate "
+    r"\(ro-crate-metadata\.json lists every file with its SHA-256\)\. Open it with "
+    r"<code>fastmdx gui --open &lt;this record's DOI&gt;</code>\.</p>", re.DOTALL)
+
 #: What only someone writes in a draft's description: a draft holding none
 #: of it is as Zenodo made it.
 _SOMEONE_S = ("description", "creators", "contributors", "keywords", "notes", "references",
@@ -717,10 +723,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                   **{k: earlier[k] for k in ("archive", "written", "doi", "record", "asked_as",
                                              "sending", "record_written", "record_sending",
                                              "record_archive", "record_sums", "stale",
-                                             "uploading", "made_as", "sums")
+                                             "uploading", "made_as", "sums", "by_earlier")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
+        if earlier.get("by_earlier"):
+            kept[site]["by_earlier"] = True
         # The archive the record holds, the study's: begun again, a draft of
         # it holds that one, not the one put on the draft deleted.
         # (And any it was replacing, or sent whose answer was lost: one of
@@ -872,8 +880,21 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # archive's name it never gave one, uploaded over, would be the person's
     # lost. (A draft an earlier release made names none.)
     named = {ours, *replacing, *known} - {""}
-    earlier_release = not any(kept[site].get(key) for key in (
-        "archive", "sums", "asked_as", "record_archive", "stale", "uploading"))
+    # Shared by an earlier release, which kept no record of what it wrote but
+    # wrote the description at every share: the study's where it is still
+    # as such a share wrote it (its own words, names and keywords).
+    # Its names, keywords, licence and access, which the study cannot tell from
+    # the person's, stay as the draft holds them in that record from then on;
+    # its description and title follow the study's.
+    # (Marked in shared_to.json at its first share here, so a share that
+    # fails part way leaves it so marked.)
+    by_earlier = bool(kept[site].get("by_earlier")) or (
+        bool(earlier.get("id")) and not any(earlier.get(key) for key in (
+            "written", "sending", "asked_as", "archive", "sums", "record_written",
+            "record_sending")))
+    if by_earlier:
+        kept[site]["by_earlier"] = True
+    earlier_release = by_earlier
     replacing = {name for name in replacing if _its(name)} - {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
@@ -894,7 +915,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             + ("; a record of two archives opens as neither" if len(
                 [n for n in _names(deposition) if n.lower().endswith(".zip")]) > 1
                else "; a record holding it would not open as the study")
-            + ". Delete it there, or keep it in a record of its own, then share again.",
+            + (". Delete them there, or keep them in a record of their own, then share again."
+               if len(foreign) > 1 else
+               ". Delete it there, or keep it in a record of its own, then share again."),
             code="environment.service.unusable_response", url=page)
     # The description: the study's where it wrote it last or none was
     # written yet; else the person's, kept.
@@ -907,19 +930,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # one of them, whichever landed.
     sending = _sendings(kept[site].get("sending"))
     made_as = kept[site].get("made_as") if isinstance(kept[site].get("made_as"), dict) else {}
-    # Shared by an earlier release, which kept no record of what it wrote but
-    # wrote the description at every share: the study's where it is still
-    # as such a share wrote it (its own words, names and keywords).
-    by_earlier = bool(earlier.get("id")) and not any(earlier.get(key) for key in (
-        "written", "sending", "asked_as", "archive", "sums", "record_written",
-        "record_sending"))
-    template = _metadata(packed["crate"], authors=authors, license_id=license_id,
-                         system=system, version=version)
 
     def _as_earlier_wrote(held: dict[str, Any]) -> bool:
-        return by_earlier and "packed by FastMDXplora" in str(held.get("description") or "") \
-            and all(_described({key: held.get(key)}) == _described({key: template.get(key)})
-                    for key in _SENT if key != "description")
+        return by_earlier and bool(_EARLIER_WROTE.fullmatch(str(held.get("description") or "")))
 
     def _the_study_s(held: dict[str, Any]) -> bool:
         return (bool(last) and _written(held) == last) or _sent(held) in sending \
@@ -989,10 +1002,14 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         sent_md5 = (kept[site]["sums"].get(archive.name) or [""])[-1]
         # (Not one the study has just taken away, which a listing may show a
         # moment longer.)
-        gone_now = {str(e.get("filename") or e.get("key")) for e in stale}
+        deleted_ids = {str(e.get("id")) for e in stale}
+        lagging = {str(f.get("filename") or f.get("key") or "")
+                   for f in again.get("files") or []
+                   if isinstance(f, dict) and str(f.get("id")) in deleted_ids}
         others = sorted(name for name in _names(again) if name.lower().endswith(".zip")
-                        and name not in {archive.name, *gone_now, *replacing}
-                        and name not in _names(deposition))
+                        and name != archive.name and name not in lagging
+                        and name not in (_names(deposition) - {e.get("filename") or e.get("key")
+                                                               for e in stale}))
         if (now_sums.get(archive.name) and now_sums[archive.name] != sent_md5) or others:
             clash = ShareRefused(
                 f"The draft {page} holds "
@@ -1012,6 +1029,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         if untouched:
             ours_said = _metadata(packed["crate"], authors=authors, license_id=license_id,
                                   system=system, version=version)
+            if by_earlier:
+                # Its own words only: the rest stays as the draft holds it.
+                ours_said = {key: ours_said[key] for key in ("title", "description",
+                                                            "version", "prereserve_doi")}
             kept[site]["sending"] = [*_sendings(kept[site].get("sending")),
                                      _sent({**inherited, **ours_said})][-_SENDINGS:]
             _keep(study, kept)
