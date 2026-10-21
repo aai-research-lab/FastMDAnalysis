@@ -206,6 +206,15 @@ class _Unsteady(_Zenodo):
                 return self._status(fault)
             bucket, name = self.path.split("/")[2:4]
             type(self).uploaded_to[int(bucket.lstrip("b"))] = name
+            super().do_PUT()
+            # A file of that name a test lists now holds what was uploaded.
+            sent = hashlib.md5(type(self).stored["archive"]).hexdigest()  # noqa: S324
+            listed = [*(type(self).files or []),
+                      *type(self).files_of.get(int(bucket.lstrip("b")), [])]
+            for entry in listed:
+                if entry.get("filename") == name and "checksum" in entry:
+                    entry["checksum"] = sent
+            return None
         return super().do_PUT()
 
     def do_GET(self):  # noqa: N802
@@ -2500,3 +2509,65 @@ def test_a_draft_gone_since_it_was_listed_is_asked_for_again(tmp_path, unsteady,
     capsys.readouterr()
     assert _share_to_zenodo(study, out) == 0
     assert "is gone from Zenodo since it was listed" in capsys.readouterr().out
+
+
+def _during_upload(monkeypatch, then) -> None:
+    """``then()`` done on Zenodo's site as the study's archive uploads."""
+    real = zenodo._call
+
+    def call(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if kwargs.get("upload") is not None:
+            then()
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", call)
+
+
+def test_a_zip_put_over_the_study_s_during_its_upload_is_said(tmp_path, unsteady,
+                                                             monkeypatch, capsys):
+    """Hands-on review of the twentieth commit: a zip of the person's put on
+    the draft under the archive's name as it uploaded was taken as the
+    study's, and the share said to publish it."""
+    study = _study(tmp_path / "study")
+    _during_upload(monkeypatch, lambda: setattr(unsteady, "files", [
+        {"id": "p", "filename": "shared.zip", "checksum": "md5:feed"}]))
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "holds shared.zip with other contents than this study sent" in said
+    assert "is kept" not in said
+
+
+def test_another_zip_put_on_the_draft_during_its_upload_is_said(tmp_path, unsteady,
+                                                               monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    _during_upload(monkeypatch, lambda: setattr(unsteady, "files", [
+        {"id": "s", "filename": "shared.zip"}, {"id": "n", "filename": "next.zip"}]))
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "holds next.zip, put there on Zenodo during this share" in capsys.readouterr().err
+
+
+def test_every_earlier_archive_left_is_named(tmp_path, unsteady, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.files = [{"id": "a", "filename": "a.zip"}]
+    unsteady.faults = {"DELETE": [500] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    unsteady.files = [{"id": "a", "filename": "a.zip"}, {"id": "b", "filename": "b.zip"}]
+    unsteady.faults = {"DELETE": [500] * zenodo.TRIES}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "c.zip") == 2
+    assert "the earlier a.zip, b.zip, which Zenodo may not" in capsys.readouterr().err
+
+
+def test_a_lone_zip_not_the_study_s_is_not_said_one_of_two(tmp_path, unsteady, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.files = [{"id": "m", "filename": "a.zip", "checksum": "md5:9"}]
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    said = capsys.readouterr().err
+    assert "holds a.zip, which this study did not put there" in said
+    assert "two archives" not in said

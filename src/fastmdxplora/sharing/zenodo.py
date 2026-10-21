@@ -891,8 +891,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             f"The draft {page} holds {', '.join(foreign)}, which this study did not put "
             "there" + (" (or an earlier release of FastMDXplora put there, which kept no "
                        "record of its archive)" if earlier_release else "")
-            + "; a record of two archives opens as neither. Delete it there, or keep it "
-            "in a record of its own, then share again.",
+            + ("; a record of two archives opens as neither" if len(
+                [n for n in _names(deposition) if n.lower().endswith(".zip")]) > 1
+               else "; a record holding it would not open as the study")
+            + ". Delete it there, or keep it in a record of its own, then share again.",
             code="environment.service.unusable_response", url=page)
     # The description: the study's where it wrote it last or none was
     # written yet; else the person's, kept.
@@ -981,6 +983,28 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                                   "draft.", code="environment.service.unreachable")
             unread.later = True
             raise unread
+        # What the draft holds now: the archive as sent, and no zip the
+        # person put there meanwhile.
+        now_sums = {name: _md5(checksum) for name, checksum in _contents(again)}
+        sent_md5 = (kept[site]["sums"].get(archive.name) or [""])[-1]
+        # (Not one the study has just taken away, which a listing may show a
+        # moment longer.)
+        gone_now = {str(e.get("filename") or e.get("key")) for e in stale}
+        others = sorted(name for name in _names(again) if name.lower().endswith(".zip")
+                        and name not in {archive.name, *gone_now, *replacing}
+                        and name not in _names(deposition))
+        if (now_sums.get(archive.name) and now_sums[archive.name] != sent_md5) or others:
+            clash = ShareRefused(
+                f"The draft {page} holds "
+                + (f"{archive.name} with other contents than this study sent"
+                   if now_sums.get(archive.name) and now_sums[archive.name] != sent_md5
+                   else ", ".join(others))
+                + ", put there on Zenodo during this share; a record of two archives opens "
+                "as neither, and one not the study's does not open as it. Delete it there "
+                "before you publish, then share again.",
+                code="environment.service.unusable_response", url=page)
+            clash.whole = True
+            raise clash
         if isinstance(again, dict) and isinstance(again.get("metadata"), dict):
             held = again["metadata"]
             inherited = {k: v for k, v in held.items() if k not in ("doi", "prereserve_doi")}
@@ -1014,14 +1038,15 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                      "you publish.")
         _keep(study, kept)
     except ShareRefused as exc:
-        if getattr(exc, "gone", False):
+        if getattr(exc, "gone", False) or getattr(exc, "whole", False):
             raise
         if getattr(exc, "status", 0) in (404, 410):
             raise ShareRefused(
                 f"{exc} The draft {page} is gone from {site} (deleted there during this "
                 "share): share again and a new one is made.",
                 code="environment.service.unusable_response", url=page) from exc
-        kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
+        left = ", ".join(n for n in kept[site].get("stale") or [removing] if n) or removing
+        kept_as = (f"with the new archive and the earlier {left}, which Zenodo may not "
                    "have taken away (a record of two archives opens as neither: share again, "
                    "or delete it there, before you publish)" if removing
                    else f"with the new archive and the earlier "
