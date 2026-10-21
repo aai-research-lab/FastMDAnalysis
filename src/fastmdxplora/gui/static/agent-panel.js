@@ -1513,9 +1513,14 @@
       var onlyHere = Boolean(heldInPage[was]);
       unsentKey = key;
       unsentTitle = title;
+      /* Emptied as the words go: not taken for the shown study's box
+       * emptied, which would forget what is kept for it (CI-774 reviews
+       * L5 and L6). */
+      restoring += 1;
       if (area) { area.value = ""; area.dispatchEvent(new Event("input")); }
       pendingFiles = [];
       renderChips();
+      restoring -= 1;
       var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
       if (sendHeld) {
         /* Held to be sent: it goes with its study, and is sent there. */

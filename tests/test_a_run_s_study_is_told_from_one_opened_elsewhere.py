@@ -906,6 +906,38 @@ def test_a_held_message_whose_words_follow_the_thread_is_sent_in_the_run_s_study
     assert errors == []
 
 
+def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, monkeypatch):
+    """L5 1 and L6 H1, with no launch: words typed on `here`, another window
+    opens `other` (the words kept for `here`); words typed on `other`,
+    another window opens `here` again. `here`'s words are back in its box,
+    and `other`'s are kept for it: they were erased as the box emptied."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    page, errors, close = _page_on(session, [])
+    try:
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        page.fill("#agent-request", "for here")
+        page.wait_for_timeout(500)
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_timeout(1000)
+        page.fill("#agent-request", "for other")
+        page.wait_for_timeout(500)
+        _switch_elsewhere(session, here)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(1500)
+        box = page.input_value("#agent-request")
+        kept = _unsent(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert box == "for here", (box, kept)
+    assert kept.get(study_key(other)) == "for other", kept
+    assert errors == []
+
+
 def test_a_config_builder_launch_takes_only_its_run_s_study_as_its_own(browser, site,  # noqa: F811
                                                                          monkeypatch):
     """L1 4 and L2 M2: the Config Builder's Start pressed, another window
