@@ -681,6 +681,53 @@ def test_a_study_of_runs_says_how_many_began_in_one_unit_and_when_its_run_was_ac
                     "two_begun": "2 of 3 runs begun, 0 ps to 20 ps"}
 
 
+def _shown_at(space, width, look, *, unfold=None):
+    """What ``look`` finds on All studies of ``space`` at ``width``, a
+    study's runs unfolded first where ``unfold`` names it."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(next(space.iterdir())), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": width, "height": 900},
+                                    is_mobile=width < 500, has_touch=width < 500)
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(space)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            if unfold:
+                page.click(f'#studies-table tr.studies-row[data-path$="/{unfold}"] .studies-fold')
+                page.wait_for_selector("#studies-table tr.studies-child")
+            said = page.evaluate(look)
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    return said
+
+
+@pytest.mark.parametrize("width", [390, 900, 1920])
+def test_an_unfolded_run_s_connector_stays_in_its_row(tmp_path, width):
+    """Under 1000 px, unfolding a study's runs drew each run's connector
+    from a box above the list: a line down through the filters and rows,
+    its hook beside the parent."""
+    space = tmp_path / "ws"
+    _members(_replicas(space / "reps"), [0.10, 0.12, 0.14])
+    tall = _shown_at(space, width, """() => [...document.querySelectorAll('#studies-table tr.studies-child')]
+        .map((row) => {
+            const line = getComputedStyle(row.querySelector('td.studies-name'), '::before');
+            return line.content === 'none' ? 0 : parseFloat(line.height) - row.getBoundingClientRect().height;
+        })""", unfold="reps")
+    assert len(tall) == 3 and max(tall) <= 0, tall
+
+
 def test_a_study_that_ran_is_not_said_not_started(tmp_path):
     """A study with no Manifest that simulated and analysed was said "not
     started", grouped under "nothing ran", beside its 40 ps and its RMSD;

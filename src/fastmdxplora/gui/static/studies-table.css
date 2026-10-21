@@ -118,6 +118,9 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-child .studies-name { padding-left: 34px; position: relative; }
 .studies-child .studies-name::before { content: ""; position: absolute; left: 16px; top: 0; height: 50%; width: 10px;
     border-left: 1px solid var(--border-primary); border-bottom: 1px solid var(--border-primary); border-bottom-left-radius: 6px; }
+/* In lines a cell is not positioned, nor the row: the connector would hang
+ * from a box above the list. The indent and the open fold say it there. */
+.studies-table-wrap.is-lines .studies-child .studies-name::before { content: none; }
 .studies-child .studies-mol-frame { transform: scale(.85); }
 .studies-group td { padding: 7px 12px; font-size: var(--text-xs); color: var(--text-muted);
     background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
