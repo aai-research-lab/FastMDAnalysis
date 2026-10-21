@@ -1190,7 +1190,8 @@ def phases_asked(project_root: str | Path) -> list[str]:
         if not _records.is_file(path):
             continue
         try:
-            data = yaml.safe_load(_records.read_text(path, encoding="utf-8"))
+            data = yaml.load(_records.read_text(path, encoding="utf-8"),
+                             Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(data, dict):

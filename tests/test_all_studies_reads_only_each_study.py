@@ -556,3 +556,45 @@ def test_a_run_linked_out_is_named_not_an_unavailable_record(tmp_path):
     assert _named_first(["an unavailable record", "runs/seed2", "a non-regular record",
                          "members.json"]) == ["members.json", "runs/seed2",
                                               "a non-regular record", "an unavailable record"]
+
+
+def test_a_held_read_finds_where_an_address_leads_once(tmp_path, monkeypatch):
+    """The first list of a hundred studies took 1.5 times the base's: each
+    record a card asked of was resolved again at every ask (four or five
+    times for one ``is_file``: its check, its admission, its folder's). A
+    held read finds where an address leads once; a link retargeted out of
+    the study after that is still not read through, its parts opened one
+    at a time without following a link."""
+    import os
+    import posixpath
+
+    from fastmdxplora import record_access
+    from fastmdxplora.gui import workspace
+
+    study = _a_study(tmp_path / "study")
+    real = posixpath.realpath
+    asked: list[str] = []
+
+    def counted(path, *args, **kwargs):
+        asked.append(os.fspath(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(posixpath, "realpath", counted)
+    monkeypatch.setattr(os.path, "realpath", counted)
+    workspace._CARDS_KEPT.clear()
+    workspace.card_of(study)
+    assert len(asked) < 60, len(asked)
+    monkeypatch.setattr(posixpath, "realpath", real)
+    monkeypatch.setattr(os.path, "realpath", real)
+
+    _write(tmp_path / "outside", "rmsd/options.json", _mean("rmsd", 0.4321))
+    options = study / "analysis" / "rmsd" / "options.json"
+    with record_access.confined_records(study, lambda path: True):
+        assert "0.1234" in record_access.read_text(options)
+        moved = study / "analysis" / "rmsd_moved"
+        (study / "analysis" / "rmsd").rename(moved)
+        _link(study / "analysis" / "rmsd", tmp_path / "outside" / "rmsd")
+        with pytest.raises(OSError):
+            record_access.read_text(options)
+        assert record_access.is_file(options) is False
+        assert "analysis/rmsd/options.json" in record_access.refused()

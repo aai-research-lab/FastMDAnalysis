@@ -104,6 +104,7 @@ def admitted_for_problems(root: Path) -> Callable[[Path], bool]:
     a result linked to it is refused, or its pid, command and host would be
     read as that result.
     """
+    from fastmdxplora import record_access
     from fastmdxplora.gui.server import _private, _public_records
     from fastmdxplora.orchestrator import RUN_PROCESS_FILE
 
@@ -122,7 +123,8 @@ def admitted_for_problems(root: Path) -> Callable[[Path], bool]:
         if not public(path):
             return False
         try:
-            return path.resolve().name != RUN_PROCESS_FILE
+            # Where it leads, as the held read found it (`record_access`).
+            return record_access.resolved(path).name != RUN_PROCESS_FILE
         except (OSError, RuntimeError):
             return False
 

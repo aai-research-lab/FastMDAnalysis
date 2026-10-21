@@ -26,6 +26,19 @@ class ReadScope:
     admitted: Callable[[Path], bool]
     denied: set[str] = field(default_factory=set)
     descriptor: int | None = None
+    #: Where each address led when first checked in this held read: a read
+    #: asks the same folders again and again (a card, a hundred times).
+    #: Kept for the read only; the bytes are still opened one part at a time
+    #: from the pinned folder without following a link (`_open`), so an
+    #: address retargeted since cannot lead a read out of the study.
+    leads: dict[str, Path] = field(default_factory=dict)
+
+    def resolved(self, path: Path) -> Path:
+        key = str(path)
+        found = self.leads.get(key)
+        if found is None:
+            found = self.leads[key] = path.resolve()
+        return found
 
     def checked(self, path: Path, *, remember: bool = True) -> Path:
         """Check both the requested address and its current destination."""
@@ -34,7 +47,7 @@ class ReadScope:
         missing: FileNotFoundError | None = None
         try:
             relative = path.relative_to(self.root)
-            resolved = path.resolve()
+            resolved = self.resolved(path)
             resolved.relative_to(self.root)
             # One check where the address is where it leads (no link on
             # the way): the same answer, asked once.
@@ -207,6 +220,13 @@ def note_refused(names: frozenset[str] | set[str]) -> None:
     scope = _scope.get()
     if scope is not None:
         scope.denied.update(names)
+
+
+def resolved(path: Path) -> Path:
+    """Where ``path`` leads, as this call's held read found it (`ReadScope`),
+    or now, outside a held read."""
+    scope = _scope.get()
+    return Path(path).resolve() if scope is None else scope.resolved(Path(path))
 
 
 def refused() -> frozenset[str]:
