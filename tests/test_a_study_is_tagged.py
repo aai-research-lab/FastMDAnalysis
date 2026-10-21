@@ -77,7 +77,7 @@ def test_what_cannot_be_kept_is_said(workspace, monkeypatch):
 
     monkeypatch.setattr(study_tags.os, "replace", refused)
     assert set_tags(study, ["a"])["reason"] == (
-        "The study's tags could not be kept in its folder: Permission denied.")
+        "The study's tags could not be saved in its folder: Permission denied.")
     monkeypatch.undo()
     # A file written by hand that is not as kept is read as none.
     (study / "study_tags.json").write_text("[1, 2]", encoding="utf-8")

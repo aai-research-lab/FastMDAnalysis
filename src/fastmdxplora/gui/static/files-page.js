@@ -518,7 +518,10 @@
           again = false;
           setTimeout(function () { refresh(false); }, 0);
         }
-        if (!said || !said.ok) return;
+        if (!said || !said.ok) {
+          couldNot((said && (said.error || said.reason)) || "The server could not read them.");
+          return;
+        }
         can = said.can || {};
         word = said.reveal_word || "folder";
         if (said.html === shown) return;
@@ -539,8 +542,23 @@
       .catch(function () {
         asking = null;
         if (again) { again = false; setTimeout(function () { refresh(false); }, 2600); }
+        else couldNot("The server did not answer.");
       });
     asking = asked;
+  }
+
+  /* Not read: said, with Try again, where nothing was shown yet. A page
+   * already drawn stays as it was (the next change asks again); it was
+   * left at "Reading the study's files..." for ever. */
+  function couldNot(why) {
+    if (shown || !window.FastMDXPageState) return;
+    window.FastMDXPageState.show(host, {
+      kind: "error", title: "The study's files could not be read", detail: why,
+      action: { label: "Try again", run: function () {
+        window.FastMDXPageState.show(host, { kind: "loading", title: "Reading the study's files…" });
+        refresh(true);
+      } },
+    });
   }
 
   function start() {

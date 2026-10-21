@@ -77,11 +77,14 @@
     }
   }
 
-  function say(text) {
+  /* Nothing to compare, comparing, or not compared: one block, as every
+   * page says it (page-states.js). */
+  function say(state) {
     var empty = byId("compare-empty");
     if (!empty) return;
-    empty.hidden = !text;
-    empty.textContent = text || "";
+    if (!state) { empty.hidden = true; empty.replaceChildren(); return; }
+    if (window.FastMDXPageState) window.FastMDXPageState.show(empty, state);
+    else { empty.hidden = false; empty.textContent = state.title + (state.detail ? " " + state.detail : ""); }
   }
 
   function clear() {
@@ -108,11 +111,12 @@
     shown = null;
     if (!pair) {
       byId("compare-said").textContent = "Two studies, or two runs, side by side.";
-      say("Choose two studies in All studies, two runs on a study's Overview, or Compare " +
-          "with\u2026 in the palette (\u2318K).");
+      say({ kind: "empty", title: "Nothing to compare yet",
+            detail: "Choose two studies in All studies, two runs on a study's Overview, or Compare " +
+                    "with\u2026 in the palette (\u2318K)." });
       return Promise.resolve(null);
     }
-    say("Comparing\u2026");
+    say({ kind: "loading", title: "Comparing\u2026" });
     var asked = location.hash;
     asking = asked;
     return fetch("/api/compared?" + new URLSearchParams({ a: pair[0], b: pair[1] }),
@@ -130,12 +134,14 @@
   function draw(pair, data) {
     var page = document.querySelector('.page[data-page="compare"]');
     if (!data || !data.ok) {
-      say((data && (data.reason || data.error)) || "They could not be compared.");
+      say({ kind: "error", title: "They could not be compared",
+            detail: (data && (data.reason || data.error)) || "The server gave no reason.",
+            action: { label: "Try again", run: function () { shown = null; asking = ""; load(); } } });
       if (page) page.setAttribute("data-compared", "no");
       return;
     }
     shown = { pair: pair, data: data, hash: location.hash };
-    say("");
+    say(null);
     byId("compare-said").textContent = data.first.said + " and " + data.second.said;
     byId("compare-swap").hidden = false;
     byId("compare-beside").hidden = false;

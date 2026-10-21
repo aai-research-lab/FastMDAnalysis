@@ -68,7 +68,7 @@
     // Tags once it has some, marked so on the icon; the count to a reader.
     var tag = ICONS.button("tag", some ? "Tags" + (count ? " (" + count + ")" : "") : "Tag",
                            "study-tag-edit" + (some ? " has-tags" : ""));
-    tag.title = (some ? "Tags" : "Tag") + ": words and a note of your own, kept in the study's folder";
+    tag.title = (some ? "Tags" : "Tag") + ": words and a note of your own, saved in the study's folder";
     tag.addEventListener("click", function () {
       editing = study.path;
       draw();
@@ -195,7 +195,7 @@
       }).then(function (r) { return r.json(); }).then(function (d) {
         save.disabled = false;
         if (!d || !d.ok) {
-          said.textContent = (d && (d.reason || d.error)) || "The tags could not be kept.";
+          said.textContent = (d && (d.reason || d.error)) || "The tags could not be saved.";
           return;
         }
         study.tags = d.tags;
@@ -235,7 +235,7 @@
   function offerUndoOfTags(study, before) {
     var board = window.FastMDXDashboard;
     if (!board || !board.toast) return;
-    board.toast("Kept the tags and note of " + (study.name || "the study") + ".", "ok", { label: "Undo", run: function () {
+    board.toast("Saved the tags and note of " + (study.name || "the study") + ".", "ok", { label: "Undo", run: function () {
       fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1362,10 +1362,21 @@
     }
     var keysSaid = el("studies-keys");
     if (keysSaid) keysSaid.hidden = !shown.length;
+    // One block for none, none matching, and a list not read
+    // (page-states.js).
     empty.hidden = shown.length > 0;
-    empty.textContent = studies.length
-      ? "No study matches that."
-      : "No studies here. Look in another folder, or start one from the Agent or the Config page.";
+    if (!shown.length && window.FastMDXPageState) {
+      window.FastMDXPageState.show(empty, listRefused ? {
+        kind: "error", title: "The studies could not be listed", detail: listRefused,
+        action: { label: "Try again", run: function () { load(lookedIn || undefined); } },
+      } : studies.length ? {
+        kind: "empty", title: "No study matches that",
+        detail: "Clear the search, the chips or the tag to see them all.",
+      } : {
+        kind: "empty", title: "No studies here",
+        detail: "Look in another folder, or start one from New study or the Agent.",
+      });
+    }
     sayChosen();
   }
 
@@ -1574,7 +1585,7 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ path: one.path, tags: one.tags })
       }).then(function (r) { return r.json(); }).then(function (d) {
-        if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
+        if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not saved" };
         var study = studyAt(one.path);
         if (study) { study.tags = d.tags; study.note = d.note; }
         return { path: one.path };
@@ -1725,7 +1736,7 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ path: one.path, tags: one.tags || [], archived: on })
       }).then(function (r) { return r.json(); }).then(function (d) {
-        if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
+        if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not saved" };
         // A server that does not pass "archived" on keeps the tags alone.
         if (!!d.archived !== on) return { path: one.path, reason: "this GUI's server does not keep Archive yet" };
         one.archived = on;
@@ -1790,6 +1801,9 @@
     said.textContent = why;
   }
 
+  // Why the list could not be read, said in the page's empty block.
+  var listRefused = null;
+
   function load(where) {
     if (loading) return loading;
     var query = where ? "?" + new URLSearchParams({ path: where }) : "";
@@ -1799,11 +1813,12 @@
         loading = null;
         if (!data || !data.ok) {
           studies = [];
-          el("studies-where").textContent = (data && (data.reason || data.error)) ||
-            "The studies could not be listed.";
+          listRefused = (data && (data.reason || data.error)) || "The server could not list them.";
+          el("studies-where").textContent = "The studies could not be listed.";
           draw();
           return;
         }
+        listRefused = null;
         lookedIn = data.root;
         studies = data.studies || [];
         // Listed again: a study's runs may have new numbers since.
@@ -1822,7 +1837,9 @@
       })
       .catch(function () {
         loading = null;
-        el("studies-where").textContent = "The server did not answer.";
+        listRefused = "The server did not answer.";
+        el("studies-where").textContent = "The studies could not be listed.";
+        draw();
       });
     return loading;
   }

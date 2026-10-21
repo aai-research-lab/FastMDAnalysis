@@ -142,6 +142,9 @@
       title(state);
       if (last && last.run === "running" && state.run !== "running" && ended(last, state)) {
         notify(state);
+        // Saved with the page's other notices (notices.js), asked for or not.
+        window.dispatchEvent(new CustomEvent("fmx:run-ended", { detail: {
+          name: state.name, run: state.run || state.said, stage: state.stage, study: state.study } }));
       }
       last = state;
     });

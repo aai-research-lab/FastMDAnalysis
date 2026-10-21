@@ -13,6 +13,8 @@
   <link rel="stylesheet" href="/static/study-tabs.css">
   <link rel="stylesheet" href="/static/place.css">
   <link rel="stylesheet" href="/static/statusbar.css">
+  <link rel="stylesheet" href="/static/notices.css">
+  <link rel="stylesheet" href="/static/page-states.css">
   <link rel="stylesheet" href="/static/compare.css">
   <link rel="stylesheet" href="/static/study-timeline.css">
   <link rel="stylesheet" href="/static/report-outline.css">
@@ -273,28 +275,6 @@
       </div>
     </div>
   </div>
-  <!-- Clearing the scratch of the Viewer and the live view
-       (files-actions.js): what would go is asked for first, and said. -->
-  <div id="files-clear-dialog" class="agent-dialog" hidden>
-    <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
-         aria-labelledby="files-clear-title">
-      <div class="agent-dialog-head">
-        <div>
-          <div class="builder-label" id="files-clear-title">Clear the scratch?</div>
-          <div class="builder-card-note">What the Viewer wrote and the live view kept, on this computer.</div>
-        </div>
-        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
-      </div>
-      <div class="agent-dialog-body">
-        <p class="files-dialog-said" id="files-clear-said">Looking at what can go…</p>
-        <ul class="files-dialog-kept" id="files-clear-kept" hidden></ul>
-      </div>
-      <div class="agent-dialog-foot">
-        <button type="button" class="ghost-btn" data-dialog-close>Cancel</button>
-        <button type="button" class="primary-btn" id="files-clear-go" disabled>Clear</button>
-      </div>
-    </div>
-  </div>
   <!-- The citation, and its BibTeX, each taken in one click. The report,
        the slides and `fastmdx info` print it too; filled by the server from
        the same constant, so it cannot drift from the others. -->
@@ -526,17 +506,9 @@
       <!-- The open study's conversations with the Agent, the one talked in
            last first; then the chats of no study. Each opens in the Agent
            beside the page (chats.js). -->
-      <div class="sidebar-convs" id="sidebar-study-convs" hidden>
-        <div class="sidebar-convs-head">
-          <span class="sidebar-convs-title">Conversations</span>
-          <button type="button" class="line-btn" id="sidebar-study-new" title="A new conversation about this study"
-                  aria-label="A new conversation about this study"><!--icon:new:line-icon--></button>
-        </div>
-        <div class="sidebar-convs-list" id="sidebar-study-convs-list"></div>
-      </div>
       <details class="sidebar-chats" id="sidebar-chats" open>
-        <summary class="nav-link sidebar-chats-head" title="Chats about no study" aria-label="Chats">
-          <!--icon:chat:nav-icon chats-icon--><span>Chats</span>
+        <summary class="nav-link sidebar-chats-head" title="Conversations with the Agent" aria-label="Conversations">
+          <!--icon:chat:nav-icon chats-icon--><span>Conversations</span>
           <button type="button" class="line-btn" id="sidebar-chat-new" title="A new chat, about no study"
                   aria-label="A new chat, about no study"><!--icon:new:line-icon--></button>
           <!--icon:chevron:recent-chevron-->
@@ -649,7 +621,7 @@
             </div>
             <div class="studies-bar-in studies-bar-said" id="studies-bar-said" role="status" hidden></div>
           </div>
-          <p class="muted studies-empty" id="studies-empty" hidden></p>
+          <div class="studies-empty" id="studies-empty" hidden></div>
           <p class="studies-keys muted small" id="studies-keys" hidden><kbd>/</kbd> search
             <kbd>j</kbd> <kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>x</kbd> choose
             <kbd>c</kbd> compare two <kbd>t</kbd> tag the chosen <kbd>Esc</kbd> clear
@@ -671,7 +643,7 @@
                       title="Open the first in the Viewer, the second played beside it">Play them beside in the Viewer</button>
             </div>
           </div>
-          <p class="muted compare-empty" id="compare-empty" role="status"></p>
+          <div class="compare-empty" id="compare-empty"></div>
           <div class="compare-heads" id="compare-heads" hidden></div>
           <section class="card compare-section" id="compare-settings" hidden></section>
           <section class="card compare-section" id="compare-means" hidden></section>
@@ -1843,7 +1815,7 @@
                standalone dashboard carries; files-page.js finds, filters,
                sorts and folds it, files-actions.js deposits and clears. -->
           <div id="files-page" class="files-page" data-source="/api/files-page">
-            <div class="files-empty">Reading the study's files…</div>
+            <div class="fmx-state" data-kind="loading" role="status"><span class="fmx-spin" aria-hidden="true"></span><span class="fmx-state-title">Reading the study's files…</span></div>
           </div>
         </section>
 
@@ -1914,7 +1886,7 @@
               <button id="agent-conversations" class="line-btn" type="button" aria-label="Conversations"
                       title="Conversations: open an earlier one"><!--icon:chat:line-icon--></button>
               <button id="agent-new" class="line-btn" type="button" aria-label="New conversation"
-                      title="New conversation: this one is kept"><!--icon:new:line-icon--></button>
+                      title="New conversation: this one is saved"><!--icon:new:line-icon--></button>
             </div>
           </div>
 
@@ -2083,6 +2055,8 @@
     <span class="sb-remote" id="sb-remote"></span>
     <span class="sb-spacer"></span>
     <button type="button" class="sb-item sb-problems" id="sb-problems" hidden></button>
+    <button type="button" class="sb-item sb-notices" id="sb-notices" aria-haspopup="dialog" aria-expanded="false"
+            aria-label="Notices" title="Every notice, refusal and run that ended" hidden><!--icon:bell:sb-icon--><span class="sb-text">Notices</span><span class="sb-count" hidden></span></button>
     <button type="button" class="sb-item sb-agent" id="sb-agent" hidden></button>
     <span class="sb-live" id="sb-live">
       <span class="sidebar-refreshed" id="refreshed-indicator">updated <span id="refreshed-at">just now</span></span>
@@ -2137,6 +2111,8 @@
   <script src="/static/runs-compared.js"></script>
   <script src="/static/stopping.js"></script>
   <script src="/static/fixes.js"></script>
+  <script src="/static/confirm.js"></script>
+  <script src="/static/page-states.js"></script>
   <script src="/static/stop-run.js"></script>
   <script src="/static/studies.js"></script>
   <script src="/static/remote.js"></script>
@@ -2144,6 +2120,7 @@
   <script src="/static/viewer-rail.js"></script>
   <script src="/static/palette.js"></script>
   <script src="/static/run-notice.js"></script>
+  <script src="/static/notices.js"></script>
   <script src="/static/viewer-sequence.js"></script>
   <script src="/static/viewer-selections.js"></script>
   <script src="/static/frame-series.js"></script>
