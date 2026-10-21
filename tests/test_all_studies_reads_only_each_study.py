@@ -114,11 +114,36 @@ def workspace(tmp_path) -> tuple[Path, Path]:
 
 
 def _opened_outside(outside: Path, read) -> tuple[object, list[str]]:
+    """``read()``, and every path under ``outside`` opened or listed while
+    it ran: as the audit hook sees them, and the reads `record_access`
+    makes relative to a folder it holds open (``dir_fd``), by where they
+    lead."""
+    import os
+
+    real = os.open
+    target = str(outside.resolve()) + "/"
+    seen: list[str] = []
+
+    def opened_at(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is not None and not os.path.isabs(os.fsdecode(path)):
+            try:
+                where = os.path.realpath(os.path.join(
+                    os.readlink(f"/proc/self/fd/{dir_fd}"), os.fsdecode(path)))
+            except OSError:
+                where = ""
+            if where.startswith(target):
+                seen.append(where)
+        return real(path, flags, mode, dir_fd=dir_fd)
+
     _watch(outside)
+    os.open = opened_at
+    os.supports_dir_fd.add(opened_at)
     try:
         answer = read()
-        return answer, sorted(set(_OPENED))
+        return answer, sorted(set(_OPENED) | set(seen))
     finally:
+        os.open = real
+        os.supports_dir_fd.discard(opened_at)
         _WATCHED.clear()
 
 
@@ -253,7 +278,8 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
 
     from fastmdxplora.gui.server import start_dashboard_session
 
-    space, _ = workspace
+    space, outside = workspace
+    _runs_linked_out(space, outside)
     session = start_dashboard_session(output=str(space / "own"), host="127.0.0.1", port=0)
     look = """(name) => {
         const row = document.querySelector(`#studies-table tr.studies-row[data-path$="/${name}"]`);
@@ -278,6 +304,10 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
             linked = page.evaluate(look, "linked")
             hidden = page.evaluate(look, "hidden")
             own = page.evaluate(look, "own")
+            # Its runs unfolded: not read where its `runs` leads out of it.
+            page.click('#studies-table tr.studies-row[data-path$="/reps_out"] .studies-fold')
+            page.wait_for_selector(".studies-child-wait:has-text('runs was not read')")
+            unfolded = page.inner_text(".studies-child-wait")
             page.click('[data-studies-view="cards"]')
             card = page.inner_text('.study-card[data-path$="/linked"]')
             browser.close()
@@ -292,3 +322,47 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
     assert "Rg" not in hidden["means"] and "not read" in hidden["means"]
     assert own["said"] == "" and "not read" not in own["means"]
     assert "Not read: " in card
+    assert unfolded == ("Not read: runs was not read: it is a link to a folder outside "
+                        "the study.")
+
+
+def _runs_linked_out(space: Path, outside: Path) -> Path:
+    """A study of two replicas whose ``runs`` is a link out of it, and a
+    folder of studies linked into the workspace from outside it."""
+    study = space / "reps_out"
+    planned = [{"run_id": f"seed{n}", "system": "1UAO", "options": {}} for n in (1, 2)]
+    _write(study, "batch_manifest.json", {
+        "n_runs": 2, "planned": planned, "sweep": {"simulation.random_seed": [1, 2]},
+        "runs": [{"run_id": p["run_id"], "status": "ok"} for p in planned]})
+    for n in (1, 2):
+        _a_study(outside / "runs_dir" / f"seed{n}", **OUT)
+    _link(study / "runs", outside / "runs_dir")
+    _a_study(outside / "folder_of_studies" / "elsewhere", **OUT)
+    _link(space / "linked_folder", outside / "folder_of_studies")
+    return study
+
+
+def test_runs_linked_out_and_a_folder_linked_in_are_not_read(workspace):
+    """A study whose ``runs`` is a link out of it: unfolding it read every
+    run where the link led and showed their means. A run linked out of its
+    study had its figure served. A folder linked into the workspace from
+    outside it was walked, and its studies listed."""
+    from fastmdxplora.gui.workspace import card_of, studies_in, study_thumbnail
+
+    space, outside = workspace
+    study = _runs_linked_out(space, outside)
+    runs, opened_runs = _opened_outside(outside, lambda: studies_in(study / "runs"))
+    run, opened_run = _opened_outside(outside, lambda: card_of(study / "runs" / "seed1"))
+    picture, opened_picture = _opened_outside(
+        outside, lambda: study_thumbnail(space / "reps" / "runs" / "seed2"))
+    listed, opened_listed = _opened_outside(outside, lambda: studies_in(space))
+    assert opened_runs == [] and opened_run == [] and opened_picture == []
+    assert opened_listed == []
+    assert runs["studies"] == [] and runs["root"] == str(study / "runs")
+    assert runs["not_read"] == "runs was not read: it is a link to a folder outside the study."
+    assert run["state"] == "not known" and run["unavailable"] == ["runs"]
+    assert picture["ok"] is False and picture["unavailable"] == ["runs/seed2"]
+    names = {card["name"] for card in listed["studies"]}
+    assert "elsewhere" not in names and "reps_out" in names
+    for value in LEAKED:
+        assert value not in json.dumps([runs, run, picture]), value

@@ -48,10 +48,20 @@ _FIRST = ("rmsd", "rg", "sasa", "rmsf", "hbonds", "ligand_rmsd")
 
 def studies_in(root: Path | str, *, deepest: int = DEEPEST,
                most: int = MOST) -> dict[str, Any]:
-    """The studies under ``root``, newest first, each as a card."""
+    """The studies under ``root``, newest first, each as a card. A folder
+    linked into it from outside it is not walked into; a study's runs
+    (``<study>/runs``, unfolded on All studies) are listed only where
+    ``runs`` is the study's own, each run linked out of it named and not
+    read."""
     from fastmdxplora.gui.browse import is_study
 
-    base = Path(root).expanduser()
+    given = Path(root).expanduser().absolute()
+    if given.name == "runs" and _out_of_its_study(given / "_") == "runs":
+        # Its runs are not looked for where the link leads: not listed.
+        return {"ok": True, "root": str(given), "studies": [], "more": False,
+                "tags_used": [], "unavailable": ["runs"],
+                "not_read": "runs was not read: it is a link to a folder outside the study."}
+    base = given
     try:
         base = base.resolve()
     except OSError:
@@ -60,6 +70,7 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
         return {"ok": False, "reason": f"No such folder: {base}"}
     found: list[Path] = []
     more = False
+    runs_of_a_study = given.name == "runs" and is_study(given.parent)
 
     def walk(folder: Path, depth: int) -> None:
         nonlocal more
@@ -67,11 +78,19 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
             more = True
             return
         try:
-            children = sorted(p for p in folder.iterdir()
-                              if p.is_dir() and not p.name.startswith("."))
+            # A link to a folder outside the one looked in is not followed:
+            # its studies are not this folder's, and it is not listed. A
+            # run linked out of its study is listed, as not read (`card_of`).
+            children = sorted(p for p in folder.iterdir() if not p.name.startswith("."))
         except OSError:
             return
         for child in children:
+            if not _within(child, base):
+                if runs_of_a_study and depth == 1 and os.path.islink(child):
+                    found.append(child)
+                continue
+            if not child.is_dir():
+                continue
             if len(found) >= most:
                 more = True
                 return
@@ -86,11 +105,9 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
         found.append(base)
     else:
         walk(base, 1)
-    # A study's runs, unfolded on All studies: a run linked out of its
-    # study is not read, as its study's pages do not read it.
-    study = base.parent if base.name == "runs" and is_study(base.parent) else None
-    cards = [card_of(folder) if study is None or _within(folder, study)
-             else _a_run_not_read(folder) for folder in found]
+    # A run linked out of its study is not read (`card_of`), as its
+    # study's pages do not read it.
+    cards = [card_of(folder) for folder in found]
     cards.sort(key=lambda card: card.get("when") or "", reverse=True)
     return {"ok": True, "root": str(base), "studies": cards, "more": more,
             "tags_used": tags_used(cards)}
@@ -104,10 +121,29 @@ def _within(folder: Path, study: Path) -> bool:
     return True
 
 
-def _a_run_not_read(folder: Path) -> dict[str, Any]:
-    """The card of a run of a study whose folder is a link out of it: named,
-    and nothing of it read."""
-    name = f"runs/{folder.name}"
+def _out_of_its_study(folder: Path) -> str | None:
+    """For a run of a study of several, as its path is given
+    (``<study>/runs/<run>``): what of it leads out of the study, ``runs``
+    or ``runs/<run>``; None for a run inside its study, or a folder that is
+    not a run of a study. Told from where the path leads, without opening
+    anything there."""
+    from fastmdxplora.gui.browse import is_study
+
+    folder = Path(folder).expanduser().absolute()
+    runs, study = folder.parent, folder.parent.parent
+    if runs.name != "runs" or not is_study(study):
+        return None
+    if not _within(runs, study):
+        return "runs"
+    if folder.name != "_" and os.path.lexists(folder) and not _within(folder, study):
+        return f"runs/{folder.name}"
+    return None
+
+
+def _a_run_not_read(folder: Path, name: str | None = None) -> dict[str, Any]:
+    """The card of a run of a study whose folder, or whose study's ``runs``,
+    is a link out of it: named, and nothing of it read."""
+    name = name or f"runs/{folder.name}"
     return {"path": str(folder), "name": folder.name, "system": "", "structure": "",
             "kind": "", "state": "not known", "when": "", "last_active": "", "means": [],
             "tags": [], "note": "", "molecule": None, "unread": list(_PARTS),
@@ -271,6 +307,9 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     from fastmdxplora.gui.server import _as_opened, _confined
 
     base = Path(folder)
+    out = _out_of_its_study(base)
+    if out:
+        return _a_run_not_read(base, out)
     card = _confined(base, _card_read)
     if not isinstance(card, dict) or "state" not in card:
         # The study's folder could not be opened to hold the read in.
@@ -525,6 +564,11 @@ def study_thumbnail(folder: Path | str, *, scheme: str = "light",
             return {"ok": False, "reason": "no figure, and no structure to draw"}
         return {"ok": True, "data": picture.encode("utf-8"), "kind": "image/svg+xml"}
 
+    out = _out_of_its_study(Path(folder))
+    if out:
+        # A run linked out of its study, as its card says: not read.
+        return {"ok": False, "unavailable": [out], "unavailable_why": {out: "outside"},
+                "not_read": f"{out} was not read: it is a link to a folder outside the study."}
     answer = _confined(Path(folder), read)
     if isinstance(answer, dict) and answer.get("unavailable"):
         answer["not_read"] = _not_read_said(answer["unavailable"],

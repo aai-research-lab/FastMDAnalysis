@@ -699,6 +699,7 @@
   var activeView = "all";
   var expanded = {};
   var runsOf = {};
+  var runsNotRead = {};
   var COLUMNS = [["molecule", "Molecule"], ["system", "System"], ["length", "Simulated"],
                  ["means", "Means"], ["active", "Active"]];
   var BUILT_IN = [
@@ -931,6 +932,8 @@
           runsOf[study.path] = d && d.ok ? (d.studies || []).sort(function (a, b) {
             return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
           }) : [];
+          // Its runs not read (its `runs` a link out of it): said so.
+          runsNotRead[study.path] = (d && d.not_read) || "";
           draw();
         })
         .catch(function () { runsOf[study.path] = []; draw(); });
@@ -1040,6 +1043,7 @@
           if (runs === "loading" || (runs && !runs.length)) {
             var wait = make("tr", "studies-child-wait");
             var wc = make("td", "muted small", runs === "loading" ? "Reading its runs…"
+              : runsNotRead[study.path] ? "Not read: " + runsNotRead[study.path]
               : "None of its runs is here to read: its runs folder holds no study.");
             wc.colSpan = heads.length;
             wait.appendChild(wc);
