@@ -51,6 +51,14 @@ MOST_FRAMES = 2000
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 
+#: How many exact frames are prepared at once. Each one reads the browser's
+#: sample of frames to fit to (and the DCD route copies it whole), several
+#: times the size of the sample; the routes are open to a GUI served beyond
+#: this computer, and the server answers each request in its own thread.
+_EXACT_AT_ONCE = threading.BoundedSemaphore(2)
+_EXACT_WAIT_S = 60.0
+_EXACT_BUSY = {"ok": False, "reason": "Other frames are being prepared. Try again in a moment."}
+
 
 def frames_for_binary(n_atoms: int, most: int = MOST_FRAMES) -> int:
     """How many frames of a system this size are sent: as many as fit in
@@ -114,8 +122,13 @@ def exact_frame_info(output_dir: str | Path, frame: Any, *, most_frames: int = M
         if name is None:
             return {"ok": False, "reason": reason or "The alignment settings are unavailable."}
     simulation = _load_json(out / "simulation" / "simulation_parameters.json")
-    exact_time = _times([frame], total, simulation.get("duration_ns_actual"),
-                        _interval_ns(out, source))[0]
+    from fastmdxplora.simulation.runner import chose_its_own_step
+
+    # No time where the integrator chose its own step, as playback says none
+    # (`frame_times_ns`): spreading the run's length evenly made one up.
+    exact_time = (None if chose_its_own_step(out / "simulation")
+                  else _times([frame], total, simulation.get("duration_ns_actual"),
+                              _interval_ns(out, source))[0])
     query: dict[str, Any] = {"frame": frame, "signature": signature}
     dcd_query: dict[str, Any] = {"exact_frame": frame, "signature": signature}
     for values in (query, dcd_query):
@@ -143,6 +156,8 @@ def exact_frame(output_dir: str | Path, frame: int, *, most_frames: int = MOST_F
                                cutoff_angstrom=cutoff_angstrom, to=to)
     if not details.get("ok"):
         return None, details
+    if not _EXACT_AT_ONCE.acquire(timeout=_EXACT_WAIT_S):
+        return None, dict(_EXACT_BUSY)
     source = _source(out)
     try:
         exact = _source_frame(out, source, frame)
@@ -161,6 +176,8 @@ def exact_frame(output_dir: str | Path, frame: int, *, most_frames: int = MOST_F
         return exact, details
     except Exception as exc:  # noqa: BLE001 - report an unavailable exact frame to the page
         return None, {"ok": False, "reason": f"Frame {frame} could not be prepared: {exc}"}
+    finally:
+        _EXACT_AT_ONCE.release()
 
 
 def exact_frame_xtc(output_dir: str | Path, frame: int, *, most_frames: int = MOST_FRAMES,
@@ -200,6 +217,8 @@ def exact_frames_dcd(output_dir: str | Path, frame: int, *, most_frames: int = M
     if not details.get("ok"):
         return None, details
     simulation = out / "simulation"
+    if not _EXACT_AT_ONCE.acquire(timeout=_EXACT_WAIT_S):
+        return None, dict(_EXACT_BUSY)
     try:
         base_path = simulation / FRAMES_FILE
         if on != "none":
@@ -225,6 +244,8 @@ def exact_frames_dcd(output_dir: str | Path, frame: int, *, most_frames: int = M
             return target.read_bytes(), details
     except Exception as exc:  # noqa: BLE001 - report an unavailable exact frame to the page
         return None, {"ok": False, "reason": f"Frame {frame} could not be prepared: {exc}"}
+    finally:
+        _EXACT_AT_ONCE.release()
 
 
 def _source_frame(out: Path, source: dict[str, Any] | None, frame: int) -> Any:

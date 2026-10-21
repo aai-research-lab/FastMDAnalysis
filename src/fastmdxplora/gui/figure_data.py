@@ -412,15 +412,16 @@ def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
             rows = np.add.reduceat(values, starts, axis=0)
             values = np.add.reduceat(rows, starts, axis=1) / np.outer(sizes, sizes)
         timed = times is not None and len(times) == n and bool(np.all(np.isfinite(times)))
-        source_frames = (loaded.tolist() if loaded is not None and len(loaded) == n
-                         else _clock(root, list(range(n)))[0])
-        if timed:
-            axis = times
-        else:
-            # `frames` in this file are already source trajectory identifiers.
-            # Applying the analysis start/stride clock to them again changes
-            # their identity.
-            axis = np.asarray(source_frames, dtype=float)
+        # `frames` in this file count the frames the analysis loaded (from
+        # the clustering's own first frame, `analysis/cluster.py`), as the
+        # labels' and the medoids' do: each is the trajectory's frame only
+        # once the analysis's first frame and stride are applied, as theirs
+        # are. Sent as they were, a matrix of a strided analysis opened
+        # frame 3 of the trajectory for its fourth row, not frame 15.
+        indices = (loaded.tolist() if loaded is not None and len(loaded) == n
+                   else list(range(n)))
+        source_frames = _clock(root, indices)[0]
+        axis = times if timed else np.asarray(source_frames, dtype=float)
         step = float(np.median(np.diff(axis))) if n > 1 else 1.0
         cells = math.ceil(n / block)
         groups = []

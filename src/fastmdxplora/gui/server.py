@@ -1641,7 +1641,12 @@ def make_handler(
                     on=one("on") or "none", ligand=one("ligand") or None,
                     cutoff_angstrom=one("cutoff") or 5.0, to=one("to") or "first")
                 if data is None:
-                    self.send_error(404, details.get("reason") or "Exact frame unavailable")
+                    # Said in a fixed phrase: the reason can carry a library's
+                    # message with the study's absolute path, which the
+                    # status line is not scrubbed of as JSON is (`hosting`).
+                    # The page asks /api/exact-frame for why.
+                    logger.info("exact frame %s unavailable: %s", frame, details.get("reason"))
+                    self.send_error(404, "Exact frame unavailable")
                     return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
@@ -3070,7 +3075,12 @@ def make_handler(
                     ligand=one("ligand") or None, cutoff_angstrom=one("cutoff") or 5.0,
                     to=one("to") or "first")
                 if data is None:
-                    self.send_error(404, details.get("reason") or "Exact frame unavailable")
+                    # Said in a fixed phrase: the reason can carry a library's
+                    # message with the study's absolute path, which the
+                    # status line is not scrubbed of as JSON is (`hosting`).
+                    # The page asks /api/exact-frame for why.
+                    logger.info("exact frame %s unavailable: %s", frame, details.get("reason"))
+                    self.send_error(404, "Exact frame unavailable")
                     return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")

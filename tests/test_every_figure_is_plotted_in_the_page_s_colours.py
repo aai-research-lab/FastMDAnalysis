@@ -215,14 +215,23 @@ class TestEachFigureIsGivenInItsShape:
         cells = math.ceil(n / 2)
         assert matrix["block"] == 2 and len(matrix["values"]) == cells
         assert matrix["values"][0][0] == pytest.approx(big[:2, :2].mean(), rel=1e-4)
-        assert matrix["frame_groups"][0] == {"first": 0, "last": 1, "count": 2}
+        # A group names the trajectory's frames, as `frames` does: the
+        # analysis read every second one (`_write`'s stride).
+        assert matrix["frame_groups"][0] == {"first": 0, "last": 2, "count": 2}
         # The last cell is a block wide too: the axis ends where it does.
         assert matrix["extent"] == pytest.approx([-0.005, (cells * 2 - 0.5) * 0.01])
-        assert matrix["frame_groups"][-1] == {"first": n - 1, "last": n - 1, "count": 1}
+        last = (n - 1) * 2
+        assert matrix["frame_groups"][-1] == {"first": last, "last": last, "count": 1}
         assert matrix["values"][-1][-1] == pytest.approx(float(big[-1, -1]), rel=1e-4)
 
-    def test_the_rmsd_matrix_keeps_source_frames_without_applying_start_and_stride_twice(
+    def test_the_rmsd_matrix_names_the_trajectory_s_frames_as_the_labels_do(
             self, tmp_path) -> None:
+        """`frames` in the matrix file count the frames the analysis loaded
+        (`analysis/cluster.py` writes its first frame plus 0, 1, 2, ...), as
+        the cluster labels' and medoids' do; the trajectory's frame is that
+        count through the analysis's first frame and stride, for all three.
+        Sent unmapped, a matrix of an analysis loaded from frame 2 at a
+        stride of 2 opened trajectory frame 1 for its second row, not 6."""
         root = _write(tmp_path / "study")
         manifest_path = root / "analysis" / "analysis_manifest.json"
         manifest = json.loads(manifest_path.read_text())
@@ -231,11 +240,14 @@ class TestEachFigureIsGivenInItsShape:
         np.savez_compressed(
             root / "analysis" / "cluster" / "cluster_rmsd_matrix.npz",
             rmsd_nm=np.zeros((3, 3), dtype=np.float32),
-            frames=np.array([4, 6, 8]), time_ns=np.full(3, np.nan))
+            frames=np.array([0, 1, 2]), time_ns=np.full(3, np.nan))
 
         matrix = _get(root, "cluster/cluster_rmsd_matrix")
 
         assert matrix["frames"] == [4, 6, 8]
+        from fastmdxplora.gui.figure_data import _clock
+
+        assert matrix["frames"] == _clock(root, [0, 1, 2])[0]
         assert matrix["axis_label"] == "Frame"
         assert matrix["extent"] == pytest.approx([3.0, 9.0])
         assert matrix["linked"] is False
