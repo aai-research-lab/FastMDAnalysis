@@ -308,6 +308,23 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   way in turn before the list becomes lines, which keep the sort, choosing
   all, the time left and Open, Tag and Files; what was not read opens from
   the row. Cards are read once while a study's records stand.
+- All studies, reviewed again: a study's tags are changed held to the study,
+  so a `study_tags.json` linked out of it is neither read nor written (the
+  change is refused, and says why); a run linked out of its study offers no
+  Tag, Open, Files or box, is refused a tag change, and is not read when
+  asked by its own path. A study linked into the workspace from elsewhere is
+  listed again, marked a link to where it leads and read held to itself
+  (hosted, named and not read). A tagged study keeps its name, its tags
+  wrapping under it; in lines a running study's progress and time left have
+  a line of their own. Replicas' mean from fewer runs than the study has
+  says how many ("from 2 of 3 replicas"), its error how many it is from; a
+  replica linked out is named rather than "an unavailable record". The
+  written comparison calls the spread the error once each run has
+  determined its own mean, and says the runs said so only of runs that did.
+  A study of runs says how many began ("1 of 3 runs begun, 18.5 ps"), a
+  range in one unit, and is active when its newest run was; its workers are
+  those its runner recorded. A kept card is read again when the structure
+  its molecule is drawn from changes, and the first list is quicker.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
