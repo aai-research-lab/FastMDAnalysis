@@ -1192,9 +1192,10 @@ def test_a_message_waiting_is_never_sent_as_the_page_goes(tmp_path, monkeypatch)
 
 
 def test_reloading_during_a_launch_asks_nothing_and_sends_nothing(tmp_path, monkeypatch):
-    """L7 2, L7 4, L8 H1 and L10 F1: Enter during the launch, then a reload.
-    The words are kept in this tab as any unsent words, so the browser
-    does not ask; nothing is ever sent by itself after the reload."""
+    """L7 2, L7 4, L8 H1, L10 F1 and L12 F9: Enter during the launch, then a
+    reload. The words are kept in this tab as any unsent words, so the
+    browser does not ask; nothing is ever sent by itself after the reload,
+    and the page that comes back says where the words are."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
@@ -1210,12 +1211,15 @@ def test_reloading_during_a_launch_asks_nothing_and_sends_nothing(tmp_path, monk
         page.wait_for_timeout(5000)
         kept = _unsent(page)
         box = page.input_value("#agent-request")
+        note = _note(page)
     finally:
         close()
         session.server.shutdown()
     assert dialogs == [], dialogs
     assert _requests(asked) == ["chignolin"], asked
     assert words in json.dumps(kept) or words in box, (kept, box)
+    # L12 F9: the page that comes back says where they are.
+    assert words in box or "as a run started is kept for it" in note, (box, note)
     assert errors == []
 
 
@@ -1928,6 +1932,46 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
     where = _where(workspace, "asked on run1")
     assert where and all(w.startswith("run1/") for w in where), where
     assert str(current.get("study") or "").endswith("run1"), current
+    assert errors == []
+
+
+def test_a_message_refused_as_the_gui_moved_is_kept_unsent_for_its_study(tmp_path,
+                                                                          monkeypatch):
+    """L12 F6: a message sent as another window (or another tab's run)
+    opened another study: the view check refuses it, and its save is
+    refused as written for the study left; the page then put the other
+    study's thread up, and the message was in no thread and not kept. It is
+    kept as unsent words for the study it was written in, and said."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked = []
+    page, errors, close = _page_on(session, [])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+
+        def moved_then_refused(route):
+            _switch_elsewhere(session, other)
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(
+                {"ok": False, "error": "The current view changed. Select it again before asking "
+                 "the Agent.", "code": "agent.view.changed"}))
+
+        page.unroute("**/api/agent/propose*")
+        page.route("**/api/agent/propose*", moved_then_refused)
+        page.fill("#agent-request", "sent as the GUI moved")
+        page.keyboard.press("Enter")
+        _shows(page, study_key(other))
+        page.wait_for_timeout(4000)
+        kept = _unsent(page)
+        box = page.input_value("#agent-request")
+        on_disk = _where(workspace, "sent as the GUI moved")
+    finally:
+        close()
+        session.server.shutdown()
+    assert on_disk or "sent as the GUI moved" in kept.get(study_key(here), "") \
+        or "sent as the GUI moved" in box, (on_disk, kept, box)
     assert errors == []
 
 

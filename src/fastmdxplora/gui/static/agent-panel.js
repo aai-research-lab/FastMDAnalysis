@@ -1489,7 +1489,8 @@
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
       unsentKey = follow;
-      unsentTitle = "the run's study";
+      /* Named by its folder, as notes name a study (CI-774 review L12). */
+      unsentTitle = runFolders[follow] ? "the run's study (" + runFolders[follow] + ")" : "the run's study";
     }
     var area = el("agent-request");
     var typed = boxNow();
@@ -1543,6 +1544,26 @@
     unsentKey = key;
     unsentTitle = title;
     putBack(key, begunElsewhere ? "" : typed);
+    if (!begunElsewhere) saidWhereKeptAsARunStarted(key);
+  }
+  /* Words kept as the page before went while a run started: where they are
+   * is said, once. */
+  function saidWhereKeptAsARunStarted(shown) {
+    try {
+      for (var i = 0; i < sessionStorage.length; i += 1) {
+        var name = sessionStorage.key(i) || "";
+        if (name.indexOf(UNSENT_WORDS) !== 0) continue;
+        var kept = JSON.parse(sessionStorage.getItem(name) || "null");
+        if (!kept || typeof kept !== "object" || !kept.asRunStarted) continue;
+        var key = name.slice(UNSENT_WORDS.length);
+        var title = String(kept.asRunStarted);
+        delete kept.asRunStarted;
+        sessionStorage.setItem(name, JSON.stringify(kept));
+        if (key === shown || !validStudyKey(key)) continue;
+        unsentSaid("The unsent message typed for " + title + " as a run started is kept for it, "
+                   + "not put here: it is in the box again when " + title + " is open.", "moved", key);
+      }
+    } catch (e) { /* nothing kept */ }
   }
   /* The last of `list` for the study `key`, or -1. */
   function lastRun(list, key) {
@@ -1555,8 +1576,13 @@
   var wordsFollowRun = "";
   /* Every launch this page made has answered: the run's study, if one
    * started (`key`), is known, and a switch seen meanwhile is judged. */
-  function launchAnswered(key, follows) {
+  /* The folder each run this page started went to, by its study's key. */
+  var runFolders = {};
+  function launchAnswered(key, follows, output) {
     if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
+    if (validStudyKey(key) && output) {
+      runFolders[key] = String(output).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+    }
     /* An answer not read (`key` null): the run's study is not known, and
      * the first study seen other than the words' own is taken for it. */
     if (follows) wordsFollowRun = validStudyKey(key) ? key : key === null ? "next" : "";
@@ -1803,6 +1829,7 @@
            * the GUI has open: said, and kept unsaved here. */
           var dashboard = window.FastMDXDashboard;
           if (dashboard && dashboard.toast) dashboard.toast(d.error || "Not saved.", "warning");
+          keepRefusedWords(c, entries);
         } else if (d && d.gone) {
           /* Deleted elsewhere: not written again, unless the person has
            * said something since. What the deleted conversation held went
@@ -1822,6 +1849,39 @@
     }).then(function (d) { settled(c); return d; }, function () { settled(c); });
   }
 
+  /* A save refused as the GUI had opened another study (another window, a
+   * run of another tab): the messages the server has not kept are kept as
+   * unsent words for the study the thread is for, and said; the thread
+   * put up in its place lost them (CI-774 review L12). */
+  var keptRefused = {};
+  function keepRefusedWords(c, entries) {
+    var key = c.page;
+    if (!validStudyKey(key)) return;
+    var words = entries.filter(function (e) {
+      return e && e.role === "user" && e.eid && e.text && !c.confirmed[e.eid] && !keptRefused[e.eid];
+    }).map(function (e) { keptRefused[e.eid] = true; return e.text; });
+    if (!words.length) return;
+    var text = words.join("\n\n");
+    if (key === unsentKey) {
+      var area = el("agent-request");
+      if (!area) return;
+      area.value = boxNow().trim() ? boxNow() + "\n\n" + text : text;
+      area.dispatchEvent(new Event("input"));
+      unsentSaid("Not saved, as the GUI had opened another study: the message is back in the box.",
+                 "moved", "");
+      return;
+    }
+    var kept = storedUnsent(key);
+    var all = kept && kept.words.trim() ? kept.words + "\n\n" + text : text;
+    try {
+      sessionStorage.setItem(UNSENT_WORDS + key,
+                             JSON.stringify({ words: all, files: kept ? kept.files : [] }));
+    } catch (e) {
+      heldInPage[key] = { words: all, files: [], title: "" };
+    }
+    unsentSaid("Not saved, as the GUI had opened another study: the message is kept unsent for the "
+               + "study it was written in, in the box again when that study is open.", "moved", key);
+  }
   function settled(c) {
     c.waiting -= 1;
     if (!c.waiting) waitingThreads = waitingThreads.filter(function (t) { return t !== c; });
@@ -3994,7 +4054,8 @@
         var took = started && started.conversation;
         launchAnswered(started === undefined ? null : runKey,
                        Boolean(c === conv && boxNow().trim() && boxNow() !== boxAtRun
-                               && (started === undefined || (took && took.ok && took.moved))));
+                               && (started === undefined || (took && took.ok && took.moved))),
+                       started && started.output);
         sendWaitLater();
         startingRuns = startingRuns.filter(function (e) { return e !== entry; });
         /* Said where the person can see it: the reply it was asked in may
@@ -4971,6 +5032,18 @@
       if (event.isTrusted && noteKind === "moved") unsentSaid("");
     });
     window.addEventListener("pagehide", keepUnsent);
+    /* Left as a run started (a reload, a Back): the words kept are marked
+     * so, with their study's name, and the page that comes back says
+     * where they are (CI-774 review L12). */
+    window.addEventListener("pagehide", function () {
+      if (!launching || !validStudyKey(unsentKey) || !boxNow().trim()) return;
+      try {
+        var kept = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + unsentKey) || "null");
+        if (!kept || typeof kept !== "object") return;
+        kept.asRunStarted = unsentTitle || "the study it was typed in";
+        sessionStorage.setItem(UNSENT_WORDS + unsentKey, JSON.stringify(kept));
+      } catch (e) { /* kept as it is */ }
+    });
     if (window.FastMDXDashboard) {
       window.FastMDXDashboard.on("study-addressed", restoreUnsent);
     }
