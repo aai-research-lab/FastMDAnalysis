@@ -166,10 +166,24 @@
       together.appendChild(el("td", "", ""));
       measures.forEach(function (m) {
         var td = el("td", "is-number mono");
-        if (m.ensemble) {
-          td.textContent = withError(m.ensemble.mean, m.ensemble.error);
+        // Of fewer runs than the study has (one not ended, not read, or
+        // without this mean): said on the mean, not left to be taken as
+        // every run's.
+        var some = m.ensemble && m.ensemble.of ? " (" + m.ensemble.runs + " of " + m.ensemble.of + ")" : "";
+        var from = m.ensemble && m.ensemble.of
+          ? " From " + m.ensemble.runs + " of the study's " + m.ensemble.of + " runs." : "";
+        if (m.ensemble && m.ensemble.withheld) {
+          // Not determined: their spread is not yet an error, as All
+          // studies and the written comparison say (runs_compared.py).
+          td.textContent = figure(m.ensemble.mean) + some;
+          td.classList.add("is-withheld");
+          td.title = "Not determined: " + m.ensemble.withheld + " Their spread: "
+            + figure(m.ensemble.spread) + "." + from;
+        } else if (m.ensemble) {
+          td.textContent = withError(m.ensemble.mean, m.ensemble.error) + some;
           td.title = "Mean of " + m.ensemble.runs + " runs' means ± the error between them (their "
-            + "spread, " + figure(m.ensemble.spread) + ", over √" + m.ensemble.runs + ")";
+            + "spread, " + figure(m.ensemble.spread) + ", over √" + m.ensemble.runs + ", from "
+            + m.ensemble.runs + " runs)." + from;
         } else {
           td.textContent = "\u2014";
         }

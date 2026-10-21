@@ -1283,6 +1283,36 @@ def _validation_error(stage: str, detail: str, *, topology: Any = None,
     )
 
 
+#: Words OpenMM uses where the integration itself went wrong: a coordinate
+#: or an energy that is NaN or infinite, a constraint it could not hold.
+_NUMERICAL_WORDS = ("nan", "infinit", "energy", "coordinate", "constraint")
+
+
+def _integration_failed(stage: str, exc: Exception, simulation: Any) -> Exception:
+    """What to raise for an error inside ``simulation.step``.
+
+    A state that is not a physical one is diagnosed as an instability, with
+    the atoms it happened to. Every other error was called one too: a
+    reporter given an interval of zero stopped on Python's modulo by zero
+    and was told to minimize for longer. That error is said as it is.
+    """
+    said = str(exc)
+    if (not isinstance(exc, (ZeroDivisionError, TypeError, ValueError,
+                             AttributeError, KeyError, IndexError))
+            and any(word in said.lower() for word in _NUMERICAL_WORDS)):
+        failed_topology, failed_positions = _state_for_diagnosis(simulation)
+        return _validation_error(
+            stage, f"OpenMM integration failed ({exc})",
+            topology=failed_topology, positions=failed_positions,
+            timestep_fs=_step_fs(simulation))
+    return StudyError(
+        f"The {stage} stopped on an error that is not an unstable state: "
+        f"{type(exc).__name__}: {said}. The positions and energies were not "
+        "the cause; the settings of the run or the engine are.",
+        code="simulation.run.engine_failed", stage=stage,
+        error=f"{type(exc).__name__}: {said}")
+
+
 def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
     """Validate finite positions and potential energy at a stage boundary."""
     unit = omm["unit"]
@@ -1487,11 +1517,7 @@ def _run_md_stage(
         try:
             simulation.step(this)
         except Exception as exc:  # noqa: BLE001
-            failed_topology, failed_positions = _state_for_diagnosis(simulation)
-            raise _validation_error(
-                label, f"OpenMM integration failed ({exc})",
-                topology=failed_topology, positions=failed_positions,
-                timestep_fs=_step_fs(simulation)) from exc
+            raise _integration_failed(label, exc, simulation) from exc
         done += this
         if stop is not None and stop.requested:
             done += _step_to_a_frame(simulation, stop, done=done,
@@ -1560,11 +1586,7 @@ def _run_md_stage_with_live_metrics(
         try:
             simulation.step(chunk)
         except Exception as exc:  # noqa: BLE001
-            failed_topology, failed_positions = _state_for_diagnosis(simulation)
-            raise _validation_error(
-                label, f"OpenMM integration failed ({exc})",
-                topology=failed_topology, positions=failed_positions,
-                timestep_fs=_step_fs(simulation)) from exc
+            raise _integration_failed(label, exc, simulation) from exc
         current_step += chunk
         remaining -= chunk
         if stop is not None and stop.requested:

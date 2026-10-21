@@ -44,6 +44,27 @@ def _defaults_for(phase: str) -> dict[str, Any]:
     return {f.name: f.default for f in PHASE_SCHEMAS[phase].fields}
 
 
+def _yours_for(state: dict[str, Any], defaults: Any) -> dict[str, dict[str, Any]]:
+    """Your defaults by phase, as a run of this state would be given them:
+    none for a continuation, no setup for a study prepared from another, and
+    none for a setting the study sweeps (`with_defaults`' own rules)."""
+    values = getattr(defaults, "values", None)
+    if not values:
+        return {}
+    simulation = state.get("simulation") if isinstance(state.get("simulation"), dict) else {}
+    if simulation.get("resume_from"):
+        return {}
+    rows = state.get("sweep")
+    if isinstance(rows, dict):
+        swept = {str(axis) for axis in rows}
+    else:
+        swept = {str(row.get("axis")) for row in rows or () if isinstance(row, dict)}
+    return {phase: {key: value for key, value in given.items()
+                    if f"{phase}.{key}" not in swept}
+            for phase, given in values.items()
+            if phase in PHASE_SCHEMAS and not (phase == "setup" and simulation.get("setup_from"))}
+
+
 def _coerce(value: Any, field: Any) -> Any:
     """Bring a value in from a form, where everything arrives as text.
 
@@ -159,7 +180,8 @@ def _analysis_option_defaults(names: Any) -> dict[str, dict[str, Any]]:
     return filled
 
 
-def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
+def build_config(state: dict[str, Any], *, full: bool = False,
+                 defaults: Any = None, _yours_written: bool = True) -> dict[str, Any]:
     """A config dict from the page's state.
 
     ``state`` holds a block per phase, plus the top-level keys the run needs
@@ -169,6 +191,13 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
 
     With ``full``, every setting is named at whatever value it would take,
     default or chosen. Without it, only what differs from the default.
+
+    ``defaults`` is your fastmdx-defaults.yml where one applies. The file
+    names what the run takes from it, as `fastmdx explore` fills it (a
+    system's own value kept, a default some systems take given to those),
+    each recorded in ``decisions``: a file taken where there is no defaults
+    file runs the study shown here. FastMDXplora's own value chosen over
+    yours is kept (it was left out, and the run took yours).
     """
     # The state arrives from the browser, not through the loader, so a
     # study written with the earlier `include` is settled before anything
@@ -179,6 +208,29 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
 
     state = canonical_phase_keys(dict(state))
     config: dict[str, Any] = {}
+    # Your defaults as the run is given them: `with_defaults` on what the
+    # form chose, so a system's own value keeps that system's and a default
+    # only some systems take goes to those. Read for a full config, which
+    # names what the run will use; a short one names what was chosen.
+    yours: dict[str, dict[str, Any]] = {}
+    given_yours: dict[str, Any] = {}
+    if full and _yours_for(state, defaults):
+        from fastmdxplora.config.defaults_file import with_defaults
+
+        chosen_only = build_config(state, full=False, defaults=defaults,
+                                   _yours_written=False)
+        given_yours, names = with_defaults(chosen_only, defaults)
+        for name in names:
+            phase, _, key = name.partition(".")
+            block = given_yours.get(phase)
+            if isinstance(block, dict) and key in block and not (
+                    isinstance(chosen_only.get(phase), dict) and key in chosen_only[phase]):
+                yours.setdefault(phase, {})[key] = block[key]
+    # What each setting is left at when the form gives nothing: yours where
+    # your defaults give it. A value chosen is left out of a short file only
+    # where it is FastMDXplora's own and yours say nothing else, so a file
+    # taken where no defaults file is runs the study shown here.
+    left_at = _yours_for(state, defaults)
 
     # Who wrote the study, carried through rather than dropped. The form
     # loads `agent` and `agent_model` into `study` and then, building the
@@ -288,14 +340,13 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
             if not (full and phase in running):
                 continue
             block = {}
-        defaults = _defaults_for(phase)
+        own = _defaults_for(phase)
+        # The default a setting has here: yours where the run takes yours,
+        # else FastMDXplora's own.
+        defaults_here = {**own, **yours.get(phase, {})}
         fields = {f.name: f for f in group.fields}
         kept: dict[str, Any] = {}
-        if full:
-            # Start from what the run would use, then let the page's choices
-            # land on top. A setting nobody touched still appears, at the
-            # value it will actually take.
-            kept.update({k: v for k, v in defaults.items() if v is not None})
+        chosen: set[str] = set()
         for name, raw in block.items():
             field = fields.get(name)
             if field is None:
@@ -306,11 +357,52 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
             # Restating a default tells a reader nothing and buries the
             # settings that were actually chosen -- unless the whole point of
             # this file is to record every value the run used.
-            if not full and value == defaults.get(name):
+            if not full and value == own.get(name) and value == left_at.get(
+                    phase, {}).get(name, value):
                 continue
             kept[name] = value
+            chosen.add(name)
+        if full:
+            # What the run would use under the page's choices. A setting
+            # nobody touched still appears, at the value it will take; one
+            # whose other spelling is chosen, here or by a system, is left to
+            # it (a default `pressure_bar` beside a chosen `pressure_atm` is
+            # the pressure the run would take).
+            from fastmdxplora.config.loader import same_setting
+
+            swept = set(config.get("sweep") or ())
+            spelled = {f"{phase}.{name}" for name in chosen} | {
+                f"{phase}.{key}" for entry in config.get("systems") or ()
+                if isinstance(entry, dict) and isinstance(entry.get(phase), dict)
+                for key in entry[phase]} | swept
+            for name, value in defaults_here.items():
+                dotted = f"{phase}.{name}"
+                # A swept setting, or one whose other spelling is swept, is
+                # the sweep's: a written `pressure_bar` beside a swept
+                # `pressure_atm` was refused as both given.
+                if value is None or name in chosen or dotted in swept or (
+                        (same_setting(dotted) - {dotted}) & spelled):
+                    continue
+                kept[name] = value
         if kept:
             config[phase] = kept
+
+    if given_yours:
+        # The systems as your defaults leave them (a default some systems
+        # take is in their blocks), and the reasons as the run records them,
+        # so a full config that names yours says where they came from.
+        if isinstance(given_yours.get("systems"), list):
+            config["systems"] = given_yours["systems"]
+        if isinstance(given_yours.get("decisions"), dict):
+            config["decisions"] = given_yours["decisions"]
+
+    if not full and _yours_written and _yours_for(state, defaults):
+        # Your defaults written in, as the run will be given them: Download
+        # config and Copy the command left them to a file that is not taken
+        # with the study, and the study ran at 300 K elsewhere.
+        from fastmdxplora.config.defaults_file import with_defaults
+
+        config, _ = with_defaults(config, defaults)
 
     if full and "analysis" in running:
         # The nested settings, which is where the decisions that change a
@@ -365,17 +457,24 @@ def _system_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
     return entry
 
 
-def config_yaml(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
+def config_yaml(state: dict[str, Any], *, full: bool = False,
+                defaults: Any = None) -> dict[str, Any]:
     """The config as text, from the builder's form state. A sweep row that
-    cannot be read is said under the form rather than failing the request."""
+    cannot be read is said under the form rather than failing the request.
+    ``defaults``: your fastmdx-defaults.yml that applies where the study
+    will run, for :func:`build_config` and the plan."""
     from fastmdxplora.batch.sweep import SweepError
 
+    from fastmdxplora.config.loader import ConfigError
+
     try:
-        config = build_config(state, full=full)
-        short = build_config(state, full=False) if full else None
-    except SweepError as exc:
+        config = build_config(state, full=full, defaults=defaults)
+        short = build_config(state, full=False, defaults=defaults) if full else None
+    except (SweepError, ConfigError) as exc:
+        # A row that cannot be read, or the phase lists given in both
+        # spellings and differing: said under the form, not a failed request.
         return {"ok": False, "error": str(exc), "yaml": "", **refused(exc)}
-    answer = render_config(config, full=full, short=short)
+    answer = render_config(config, full=full, short=short, defaults=defaults)
     if answer.get("ok"):
         from fastmdxplora.gui.applicable import not_applicable
 
@@ -432,9 +531,38 @@ def export_config(config: dict[str, Any], *, full: bool = False) -> dict[str, An
     return render_config(filled, full=full, short=chosen, keep_choices=True)
 
 
+def _names_yours(config: dict[str, Any]) -> bool:
+    """Whether the file holds a value your defaults gave, said by the reason
+    recorded for it."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE
+
+    said = config.get("decisions")
+    return isinstance(said, dict) and any(
+        isinstance(one, dict) and one.get("source") == DEFAULTS_FILE
+        for one in said.values())
+
+
+def _without_yours_reasons(config: dict[str, Any]) -> dict[str, Any]:
+    """The study for its command: the values your defaults gave stay, their
+    reasons are left to the file, so the command stays one a person reads
+    (it carried a `--decisions` argument of JSON for each)."""
+    from fastmdxplora.config.defaults_file import DEFAULTS_FILE
+
+    said = config.get("decisions")
+    if not isinstance(said, dict):
+        return config
+    kept = {name: one for name, one in said.items()
+            if not (isinstance(one, dict) and one.get("source") == DEFAULTS_FILE)}
+    trimmed = {key: value for key, value in config.items() if key != "decisions"}
+    if kept:
+        trimmed["decisions"] = kept
+    return trimmed
+
+
 def render_config(config: dict[str, Any], *, full: bool = False,
                   short: dict[str, Any] | None = None,
-                  keep_choices: bool = False) -> dict[str, Any]:
+                  keep_choices: bool = False,
+                  defaults: Any = None) -> dict[str, Any]:
     """The config as text, validated, from a config -- the one source.
 
     Everything that renders a config to YAML goes through here: the form,
@@ -448,12 +576,16 @@ def render_config(config: dict[str, Any], *, full: bool = False,
     Returns ``ok`` false and the validator's own message where the settings
     would be refused, so the failure arrives here rather than on the cluster
     an hour later.
+
+    With ``defaults`` (your fastmdx-defaults.yml), the plan says the values
+    the run will take with them filled in, marked as yours, and a study
+    they would make refused is refused here, naming the file.
     """
+    import copy
+
     import yaml
 
-    try:
-        validate_config(config)
-    except ConfigError as exc:
+    def refusal(exc: ConfigError) -> dict[str, Any]:
         return {
             "ok": False,
             "error": str(exc),
@@ -463,6 +595,11 @@ def render_config(config: dict[str, Any], *, full: bool = False,
                 len(v) for k, v in config.items() if isinstance(v, dict)
             ),
         }
+
+    try:
+        validate_config(config)
+    except ConfigError as exc:
+        return refusal(exc)
 
     # The config knows who wrote it: `agent` is set when the Agent did. A
     # file that says "the GUI" on a study the Agent drafted misattributes
@@ -482,6 +619,12 @@ def render_config(config: dict[str, Any], *, full: bool = False,
             "# those for phases not currently selected. Ask for the full\n"
             "# config to record every value the run will use.\n"
             if keep_choices
+            else
+            ("# Only settings that differ from FastMDXplora's defaults appear\n"
+             "# here, with what your fastmdx-defaults.yml gives written in, so\n"
+             "# the file runs the same study where that file is not. Ask for\n"
+             "# the full config to record every value the run will use.\n")
+            if _names_yours(config)
             else
             "# Only settings that differ from the defaults appear here, so\n"
             "# what this file says is what was decided. Ask for the full\n"
@@ -512,8 +655,18 @@ def render_config(config: dict[str, Any], *, full: bool = False,
     # command's defaults come free by omission. The form's path supplies
     # it; the Agent's config already is the short form.
     decided = short if (full and short is not None) else config
+    # What the run will be given: the decided settings with your defaults
+    # filling what they leave unset, as `fastmdx explore` fills them.
+    with_yours = decided
+    if defaults is not None:
+        from fastmdxplora.config.defaults_file import refused_with, with_defaults
+
+        with_yours, _ = with_defaults(copy.deepcopy(decided), defaults)
+        caused = refused_with(decided, with_yours, defaults)
+        if caused is not None:
+            return refusal(caused)
     try:
-        command = cli_command(decided)
+        command = cli_command(_without_yours_reasons(decided))
         header += (
             "# Or, without this file:\n"
             "#\n"
@@ -525,10 +678,13 @@ def render_config(config: dict[str, Any], *, full: bool = False,
         header += f"# ({why})\n#\n"
 
     body = yaml.safe_dump(config, sort_keys=False, default_flow_style=False)
-    from fastmdxplora.gui.plan import plan_of
+    from fastmdxplora.gui.plan import plan_of, sourced
 
     try:
-        plan = plan_of(decided)
+        plan = plan_of(with_yours)
+        if with_yours is not decided:
+            # Each value your defaults give marked as yours.
+            plan = sourced(plan, with_yours)
     except Exception:  # noqa: BLE001 - the plan is said beside the file, never instead of it
         plan = []
     return {
@@ -546,7 +702,8 @@ def render_config(config: dict[str, Any], *, full: bool = False,
     }
 
 
-def check_config_file(path: str) -> dict[str, Any]:
+def check_config_file(path: str, *, to_run: bool = False,
+                      defaults: Any = None, base: Any = None) -> dict[str, Any]:
     """Read a config someone already has and say whether it will run.
 
     The point of writing a config is that it goes elsewhere -- edited by hand,
@@ -556,6 +713,12 @@ def check_config_file(path: str) -> dict[str, Any]:
 
     Reports the phases it names, so somebody can see at a glance whether the
     file does what they remember it doing.
+
+    ``to_run``: judged as `fastmdx explore --config` judges it, systems
+    required and the stopping rule checked against them, and with your
+    defaults (``defaults``) filled in. Without it, as a file to open in the
+    form, which may have no systems yet. ``base``: the folder the run starts
+    in, which a relative structure path is read from.
     """
     import yaml
 
@@ -582,7 +745,8 @@ def check_config_file(path: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {"ok": False, "error": "A config is a mapping of settings."}
 
-    return {**check_config(data), "path": str(target)}
+    return {**check_config(data, to_run=to_run, defaults=defaults, base=base),
+            "path": str(target)}
 
 
 def _lists_as_lists(data: dict[str, Any]) -> dict[str, Any]:
@@ -623,7 +787,8 @@ def phases_it_runs(data: dict[str, Any], *, in_the_form: bool = False) -> list[s
     return running
 
 
-def check_config(data: dict[str, Any]) -> dict[str, Any]:
+def check_config(data: dict[str, Any], *, to_run: bool = False,
+                 defaults: Any = None, base: Any = None) -> dict[str, Any]:
     """The same verdict, for a config that is not on disk.
 
     Split out of :func:`check_config_file` so a config that never had a
@@ -631,15 +796,56 @@ def check_config(data: dict[str, Any]) -> dict[str, Any]:
     checked and opened in the form by the same code that checks one from a
     file. The alternative was a second implementation in JavaScript of the
     mapping below, which is where the two would drift.
+
+    ``to_run``, ``defaults`` and ``base`` as :func:`check_config_file`
+    takes them: a config with no systems said "Runs." here and was refused
+    by the run. Judged to run, what can be seen wrong before anything is
+    built is refused too, as `fastmdx explore` refuses it: a system setup
+    cannot read, a selection that does not parse.
     """
+    import copy
+
     # Validated in place: the validator settles the older spellings into
     # the current ones as it goes, and the summary below reads the settled
     # form. The analysis lists are given their shape first.
     data.update(_lists_as_lists(dict(data)))
+    as_given = copy.deepcopy(data)
     try:
-        validate_config(data)
+        validate_config(data, require_systems=to_run)
     except ConfigError as exc:
-        return {"ok": False, "error": str(exc)}
+        said = refused(exc)
+        if (said["refusal"].get("code") == "config.option.missing_companion"
+                and not data.get("systems")):
+            # The validator's words are written for the Agent, which takes a
+            # structure from a request; a person is told what to add.
+            return {"ok": False, **said,
+                    "error": ("This Config names no system, so there is no "
+                              "structure to run. Add one under `systems:`, "
+                              "a PDB id or a structure file:\n"
+                              "  systems:\n    - {system: 1L2Y}")}
+        return {"ok": False, "error": str(exc), **said}
+    judged = None
+    if to_run and defaults is not None:
+        from fastmdxplora.config.defaults_file import refused_with, with_defaults
+
+        filled, _ = with_defaults(copy.deepcopy(as_given), defaults)
+        caused = refused_with(as_given, filled, defaults, require_systems=True)
+        if caused is not None:
+            return {"ok": False, "error": str(caused), **refused(caused)}
+        # Judged as the run is given it, your defaults filled, as
+        # `fastmdx explore` and check_study judge it.
+        judged = filled
+    if to_run:
+        from pathlib import Path
+
+        from fastmdxplora.config.before_run import refused_before_a_run
+
+        caught = refused_before_a_run(
+            data, judged if judged is not None else data,
+            defaults if judged is not None else None,
+            base=Path(base) if base is not None else None)
+        if caught is not None:
+            return {"ok": False, "error": str(caught), **refused(caught)}
 
     # The phases it runs, as the form ticks them: "simulation" alone was
     # said of a config that runs all four, its blocks read for its phases.

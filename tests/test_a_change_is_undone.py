@@ -53,6 +53,9 @@ def browser():
 def _page(browser, session, where):
     page = browser.new_context(viewport={"width": 1400, "height": 1000}).new_page()
     page.set_default_timeout(60000)
+    # All studies opens on its list; these read its cards, as a person who
+    # chose them would.
+    page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
     page.errors = []
     page.on("pageerror", lambda error: page.errors.append(str(error)))
     page.goto(session.url + where, wait_until="domcontentloaded")

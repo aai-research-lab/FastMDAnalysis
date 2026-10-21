@@ -90,6 +90,9 @@ class PMF(Analysis):
              for value in curve.get("free_energy_kjmol", [])],
             dtype=float)
 
+        mean_force, recomputed = _potential_of_mean_force(record, coordinate,
+                                                          energy)
+
         self._overlaps = record.get("overlaps") or []
         self._refused = record.get("refused")
         self._unsampled = int(record.get("unsampled_bins") or 0)
@@ -99,21 +102,40 @@ class PMF(Analysis):
         # grid spans wherever the coordinate went and the windows covered a
         # part of it, so a minimum taken across the whole grid references a
         # region nothing visited.
+        # A summary written before a barrier was a peak (no `highest_kjmol`
+        # in it) is read again by today's rule, so one curve has one barrier.
         summary = record.get("summary")
-        if not summary:
-            from fastmdxplora.simulation.umbrella import describe_pmf
+        if not summary or recomputed or "highest_kjmol" not in summary:
+            from fastmdxplora.simulation.umbrella import (
+                PERIODIC_VARIABLES, describe_pmf, turn_is_tiled)
 
             covered = record.get("covered")
+            plan = record.get("plan") or {}
+            periodic = plan.get("collective_variable") in PERIODIC_VARIABLES
+            # The windows that had samples, as the recombination counted.
+            count = record.get("n_windows") or plan.get("n_windows")
             summary = describe_pmf(
-                coordinate, energy,
-                tuple(covered) if covered else None)
+                coordinate, energy if mean_force is None else mean_force,
+                tuple(covered) if covered else None,
+                periodic=periodic,
+                errors=(curve.get("uncertainty") or {}).get("standard_error"),
+                closed=bool(periodic and covered and isinstance(count, int)
+                            and turn_is_tiled(covered[0], covered[1], count)))
         self._summary = summary
+        self._mean_force = mean_force is not None
         return {"coordinate": coordinate, "free_energy_kjmol": energy,
+                "potential_of_mean_force_kjmol": mean_force,
                 "summary": summary}
 
     def plot(self, result: dict[str, Any], ax: plt.Axes) -> None:
         coordinate = result["coordinate"]
-        energy = result["free_energy_kjmol"]
+        # Along a distance, W(r): the curve a reader means by a potential of
+        # mean force, flat once the two centres no longer interact. The
+        # distribution's free energy, which the binding integral uses, is in
+        # the data file beside it.
+        energy = (result["potential_of_mean_force_kjmol"]
+                  if result.get("potential_of_mean_force_kjmol") is not None
+                  else result["free_energy_kjmol"])
         ax.plot(coordinate, energy, linewidth=1.6)
 
         # The minimum the summary gives: the lowest bin inside the range the
@@ -146,6 +168,8 @@ class PMF(Analysis):
                 f"({self._unsampled} bins unsampled)")
 
     def default_ylabel(self) -> str:
+        if getattr(self, "_mean_force", False):
+            return "W(r), potential of mean force (kJ/mol)"
         return "Free energy (kJ/mol)"
 
     def default_xlabel(self) -> str:
@@ -159,11 +183,51 @@ class PMF(Analysis):
         of a whitespace table then disagrees about what it holds.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        lines = ["# coordinate free_energy_kjmol"]
-        for x, y in zip(result["coordinate"], result["free_energy_kjmol"]):
-            lines.append(f"{x:.6f} {'nan' if np.isnan(y) else f'{y:.6f}'}")
+        mean_force = result.get("potential_of_mean_force_kjmol")
+
+        def said(value: float) -> str:
+            return "nan" if np.isnan(value) else f"{value:.6f}"
+
+        if mean_force is None:
+            lines = ["# coordinate free_energy_kjmol"]
+            for x, y in zip(result["coordinate"], result["free_energy_kjmol"]):
+                lines.append(f"{x:.6f} {said(y)}")
+        else:
+            lines = [
+                "# coordinate free_energy_kjmol potential_of_mean_force_kjmol",
+                "# free_energy_kjmol is that of the distance's distribution,"
+                " -kT ln P(r), shell included;",
+                "# potential_of_mean_force_kjmol is W(r) = that + 2kT ln r,"
+                " flat where nothing interacts.",
+            ]
+            for x, y, w in zip(result["coordinate"], result["free_energy_kjmol"],
+                               mean_force):
+                lines.append(f"{x:.6f} {said(y)} {said(w)}")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
+
+
+def _potential_of_mean_force(record: dict[str, Any], coordinate: np.ndarray,
+                             energy: np.ndarray) -> "tuple[np.ndarray | None, bool]":
+    """W(r) for a curve along a distance between centres, and whether it was
+    worked out here: the record's own where it carries one, else from the
+    distribution's free energy and the record's temperature, for a study
+    recombined before the record carried it. None for any other coordinate."""
+    from fastmdxplora.simulation.umbrella import KB_KJ, SHELL_COORDINATES
+
+    curve = record.get("pmf") or {}
+    stored = curve.get("potential_of_mean_force_kjmol")
+    if stored is not None:
+        return np.asarray([np.nan if v is None else float(v) for v in stored],
+                          dtype=float), False
+    variable = (record.get("plan") or {}).get("collective_variable")
+    temperature = record.get("temperature_K")
+    if (variable not in SHELL_COORDINATES or not isinstance(temperature, (int, float))
+            or coordinate.size == 0 or np.any(coordinate <= 0.0)
+            or not np.any(np.isfinite(energy))):
+        return None, False
+    mean_force = energy + 2.0 * KB_KJ * float(temperature) * np.log(coordinate)
+    return mean_force - np.nanmin(mean_force), True
 
 
 register_analysis(PMF.name, PMF)

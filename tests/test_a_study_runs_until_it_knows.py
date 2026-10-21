@@ -493,7 +493,9 @@ class TestTheReport:
         assert "| 1 | 2 | " in text and "extended by 6 ns" in text
         assert "stopped: determined as asked" in text
         assert "**Determined as asked.**" in text
-        assert "is not in the error." in text
+        assert "A state none of the runs left is not in the error" in text
+        # Nor a relaxation slower than the runs: only other structures show it.
+        assert "Runs from different structures are what show it." in text
 
     def test_nothing_where_the_length_was_fixed(self, tmp_path):
         assert stopping_section(tmp_path) == []

@@ -566,6 +566,11 @@ CODES: tuple[Code, ...] = (
          "The chosen force field cannot describe what the study contains.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("forcefield", "needs")),
+    Code("setup.system.mass_not_positive",
+         "The system built gives an atom a mass at or below zero, as a "
+         "repartitioned hydrogen mass too large for its heavy atom does.",
+         Kind.SEMANTIC, Disclosure.NOTHING, since="2.7",
+         detail_keys=("atoms", "hydrogen_mass_amu")),
     Code("setup.membrane.orientation_unchecked",
          "A bilayer was asked for and the protein's orientation relative to "
          "the membrane normal has not been established.",
@@ -725,6 +730,11 @@ CODES: tuple[Code, ...] = (
          "The integration produced a non-finite state.",
          Kind.SEMANTIC, Disclosure.NOTHING,
          detail_keys=("step", "diagnosis")),
+    Code("simulation.run.engine_failed",
+         "A step stopped on an error that is not a non-finite state: a "
+         "reporter's setting, or the engine's own error.",
+         Kind.SEMANTIC, Disclosure.NOTHING, since="2.7",
+         detail_keys=("stage", "error")),
 
     # -- analysis -----------------------------------------------------------
     Code("analysis.unknown",
@@ -808,9 +818,10 @@ CODES: tuple[Code, ...] = (
          detail_keys=("frames", "independent", "statistical_inefficiency", "needed")),
     Code("analysis.sampling.still_drifting",
          "The frames averaged still move in one direction: their last third's "
-         "mean differs from their first third's by at least twice their spread.",
+         "mean differs from their first third's by at least twice their spread, "
+         "or they trend steadily by at least 2.5 times the trend's own error.",
          Kind.INSUFFICIENT, Disclosure.FIELD_ONLY,
-         detail_keys=("frames", "drift_in_spread", "needed")),
+         detail_keys=("frames", "drift_in_spread", "trend_in_errors", "needed")),
     Code("analysis.sampling.drifting",
          "The segment means move in order across the run, so it had not "
          "equilibrated at the scale of the whole run.",

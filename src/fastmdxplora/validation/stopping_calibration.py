@@ -151,6 +151,16 @@ CASES: tuple[Case, ...] = (
     Case("two_states_drawn_starts",
          TwoStates((1.0, 1.2), 2000.0, 0.03, 0.95, "drawn"), 3, 0.01, 5.0, 200.0, 500,
          "the same two states, each replica started in a state drawn at random"),
+    # Registered 10-18 with the third remedy, after the seven above were
+    # counted: a relaxation ten times slower than the transient's, slower
+    # than the first piece, which the check against the frames' spread let
+    # through. Appended, so the cases above keep their numbers and seeds.
+    Case("slow_transient_one_run",
+         Correlated(**_FAST, offset=0.15, relax_frames=3000.0), 1, 0.01, 2.0, 100.0, 1000,
+         "the fast case starting 3 sigma away, relaxing over 30 ns, one run"),
+    Case("slow_transient_three_replicas",
+         Correlated(**_FAST, offset=0.15, relax_frames=3000.0), 3, 0.01, 2.0, 100.0, 1000,
+         "the fast case starting 3 sigma away, relaxing over 30 ns, three replicas"),
 )
 
 

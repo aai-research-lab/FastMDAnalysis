@@ -1062,8 +1062,11 @@ RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-1
 #: recorded. Set again by `agent-looks` (`read_study` takes the analysis
 #: asked about, and an analysis named with @ says to pass it), and by
 #: `agent-one-list` (the looks from one list with `fastmdx mcp`'s, three
-#: more of them, the arguments said from their schemas).
-ASKED_NOW = "b60d00f3184e815070b2d7e23d051227abc951b5dd5e9b21e0c81784d8051313"
+#: more of them, the arguments said from their schemas). Set again by
+#: `tester-area2` (the bounds a setting cannot pass, in the schema's
+#: structure; then the hydrogen mass's ceiling and the help of each step
+#: count beside its duration); no verdict changed.
+ASKED_NOW = "801a897595fa1e9fc2f2c7a3bfc52e73485accddf619fafe159fcb376b675bd7"
 
 
 def _asked_in_own_words(monkeypatch) -> list[str]:
@@ -1424,8 +1427,8 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 #: cases resolve what is named from the folders here, where the study the
 #: run was asked against is not.
 CONTEXT_ASKED_NOW = {
-    True: "6699431e303954e707f3dd2427faf5670ee949044c4c8e2238a47412a55586da",
-    False: "800cfdde527993d94875f0b22b2e2d2daf2a5790d43727890a3a56395c9c0fc8"}
+    True: "da972e32035e295f54d51bf703dedd985e0ae3f6c0720fd3676bcc0590b9a0f1",
+    False: "ed31ad5cee49214b96deabe4c45bf65ec22aa5b383bf792fb6755fcddc234de9"}
 
 
 def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:

@@ -74,7 +74,8 @@ FORWARDERS = frozenset({"_rewrapped"})
 #: uncoded understates the work by thirteen sites. Named explicitly rather
 #: than accepting any call, so an actual uncoded helper cannot hide here.
 BUILDERS = frozenset({"_validation_error", "_explain_unparameterized",
-                      "_no_belt", "_tilted", "_provider_failed"})
+                      "_no_belt", "_tilted", "_provider_failed",
+                      "_integration_failed"})
 
 #: Sites allowed to raise without saying which refusal they are. None.
 #:

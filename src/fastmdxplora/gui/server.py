@@ -773,6 +773,19 @@ def make_handler(
     from fastmdxplora.gui.remote_routes import RemoteDesk
 
     remote_desk = RemoteDesk(app_runtime, hosted=hosting is not None)
+
+    def _structure_path_rule() -> Callable[[Any], str | None]:
+        # Hosted, only inside the workspace. Here, a relative path is read
+        # from the folder new studies go in, as Run reads it (the run starts
+        # there), not from wherever this process was started.
+        if hosting is not None:
+            return hosting.inside
+
+        def read_from_workspace(given: Any) -> str | None:
+            path = Path(str(given)).expanduser()
+            return str(path if path.is_absolute()
+                       else Path(app_runtime.exploration_root) / path)
+        return read_from_workspace
     html = template_html if template_html is not None else _load_template()
     from fastmdxplora.gui.sidebar_icons import with_icons
 
@@ -1084,7 +1097,10 @@ def make_handler(
                     named = self._path_for(one("path") or str(app_runtime.exploration_root))
                     if named is None:
                         return
-                    self._send_json(workspace.studies_in(named))
+                    # A study linked into the workspace from outside it is
+                    # listed; hosted, not read, as every route refuses a
+                    # path outside the workspace there.
+                    self._send_json(workspace.studies_in(named, linked_in_read=hosting is None))
                     return
                 if path == "/api/compared":
                     # The Compare page: two studies or runs, their series too.
@@ -1099,28 +1115,28 @@ def make_handler(
                 named = self._path_for(one("path"))
                 if named is None:
                     return
+                # Read held to the study (`workspace.study_thumbnail`): a
+                # figure or structure linked out of it is not read.
+                # `is_study` is the module's: imported here, it would be a
+                # local of the whole handler, unbound on every other route.
+                answer = (workspace.study_thumbnail(named, scheme=one("scheme") or "light",
+                                                    series=bool(one("series")))
+                          if is_study(Path(named)) else {"ok": False, "reason": "not a study"})
                 if one("series"):
                     # The numbers of the card's series, for the card to plot
                     # in the page's colours.
-                    self._send_json(workspace.thumbnail_series(named) if is_study(Path(named))
-                                    else {"ok": False, "reason": "not a study"})
+                    self._send_json(answer)
                     return
-                # `is_study` is the module's: imported here, it would be a
-                # local of the whole handler, unbound on every other route.
-                figure = workspace.thumbnail_of(named) if is_study(Path(named)) else None
-                kind = "image/png"
-                if figure is not None:
-                    data = figure.read_bytes()
-                else:
-                    # No figure yet: a picture of the study's backbone.
-                    from fastmdxplora.gui.backbone_picture import backbone_svg
-
-                    picture = backbone_svg(named, one("scheme") or "light") \
-                        if is_study(Path(named)) else None
-                    if picture is None:
+                if not answer.get("data"):
+                    # No picture: said why where a record was not read.
+                    if answer.get("unavailable"):
+                        self._send_json({key: answer[key] for key in
+                                         ("ok", "unavailable", "unavailable_why", "not_read")
+                                         if key in answer}, status=404)
+                    else:
                         self.send_error(404, "Not found")
-                        return
-                    data, kind = picture.encode("utf-8"), "image/svg+xml"
+                    return
+                data, kind = answer["data"], answer["kind"]
                 self.send_response(200)
                 self.send_header("Content-Type", kind)
                 if kind == "image/svg+xml":
@@ -1803,15 +1819,38 @@ def make_handler(
             if path == "/api/study-tags":
                 # A study's tags and note, as the person set them on its card,
                 # kept in its folder beside its records (study_tags.py).
-                from fastmdxplora.study_tags import set_tags
+                from fastmdxplora.gui.workspace import _out_of_its_study
+                from fastmdxplora.study_tags import change_tags, set_tags
 
                 named = self._path_for(str(payload.get("path") or ""))
                 if named is None:
                     return
+                out = _out_of_its_study(Path(named))
+                if out:
+                    # A run linked out of its study, as All studies lists
+                    # it: not read, so not tagged or archived there.
+                    self._send_json({"ok": False, "reason": (
+                        f"{out} is a link to a folder outside the study: it is not read, "
+                        "and its tags are not changed.")})
+                    return
                 if not is_study(Path(named)):
                     self._send_json({"ok": False, "reason": f"{named} is not a study."})
                     return
-                self._send_json(set_tags(named, payload.get("tags"), payload.get("note")))
+
+                # The page sends a change (tags added and taken off, archived
+                # or not), applied to the tags as kept: a tag kept since it
+                # read the study, by an AI app or another window, stays. A
+                # whole list given replaces them, as before. Held to the
+                # study, as its card is read: tags linked out of it are not
+                # read, so not changed.
+                def kept(inside: Path) -> dict[str, Any]:
+                    if "tags" in payload:
+                        return set_tags(inside, payload.get("tags"), payload.get("note"),
+                                        archived=payload.get("archived"))
+                    return change_tags(inside, payload.get("add"), payload.get("remove"),
+                                       payload.get("note"), archived=payload.get("archived"))
+
+                self._send_json(_confined(Path(named), kept))
                 return
             if path == "/api/movies":
                 # A movie of the study's frames started: ffmpeg on this
@@ -2030,7 +2069,16 @@ def make_handler(
                 named = self._path_for((payload or {}).get("path"))
                 if named is None:
                     return
-                self._send_json(check_config_file(named))
+                # As Run as it stands will judge it: systems required, and
+                # with the defaults the run will find where it writes. It
+                # said "Runs." of a config the run then refused.
+                from fastmdxplora.gui.exploration import _defaults_found_from
+
+                where = app_runtime.output_of_existing_config(named)
+                self._send_json(check_config_file(
+                    named, to_run=True,
+                    defaults=_defaults_found_from(where) if where is not None else None,
+                    base=app_runtime.exploration_root))
                 return
             if path == "/api/preview-system":
                 # What the form's study will build and cost, while the form
@@ -2039,8 +2087,7 @@ def make_handler(
                 from fastmdxplora.gui.preview import system_preview
 
                 self._send_json(system_preview(
-                    payload or {},
-                    path_for=hosting.inside if hosting is not None else None))
+                    payload or {}, path_for=_structure_path_rule()))
                 return
             if path == "/api/structure-facts":
                 # What a structure in the form's list of systems holds, for
@@ -2049,8 +2096,7 @@ def make_handler(
                 from fastmdxplora.gui.preview import structure_facts
 
                 self._send_json(structure_facts(
-                    (payload or {}).get("system"),
-                    path_for=hosting.inside if hosting is not None else None))
+                    (payload or {}).get("system"), path_for=_structure_path_rule()))
                 return
             if path == "/api/save-config":
                 # Hosted, for the service's page that runs a study on its
@@ -2076,8 +2122,20 @@ def make_handler(
                 if isinstance(request.get("config"), dict):
                     self._send_json(export_config(request["config"], full=bool(request.get("full"))))
                     return
+                # With your defaults, as Run will be given them: the plan
+                # says the values the run takes, and a value set back to
+                # FastMDXplora's own over yours is kept in the file. A
+                # defaults file that is wrong is said by the schema's route,
+                # and the file is written without it meanwhile.
+                from fastmdxplora.config.loader import ConfigError
+                from fastmdxplora.gui.agent_panel import your_defaults
+
+                try:
+                    yours = your_defaults(app_runtime)
+                except ConfigError:
+                    yours = None
                 self._send_json(
-                    config_yaml(request, full=bool(request.get("full")))
+                    config_yaml(request, full=bool(request.get("full")), defaults=yours)
                 )
                 return
             if path == "/api/explore/stop":
@@ -3107,6 +3165,21 @@ def _load_template() -> str:
         )
 
 
+def _where_new_studies_go(root: Path, home_mode: bool,
+                          exploration_root: str | Path | None) -> Path:
+    """The folder new studies are put in, relative paths read from and
+    your defaults found from: the one named; else, with no study open, the
+    folder the GUI was started in; else, beside the study it watches.
+
+    In home mode it was the parent of the folder the GUI was started in, so
+    a study designed there went one folder up, a structure beside the
+    person was previewed but not found by Run, and the folder's own
+    fastmdx-defaults.yml was not used."""
+    if exploration_root is not None:
+        return Path(exploration_root).resolve()
+    return root if home_mode else root.parent
+
+
 def serve_dashboard(
     *,
     output: str | Path,
@@ -3206,7 +3279,7 @@ def start_dashboard_session(
         exploration_root = hosting.workspace
     runtime = DashboardRuntime(
         workspace_root=root,
-        exploration_root=Path(exploration_root).resolve() if exploration_root is not None else root.parent,
+        exploration_root=_where_new_studies_go(root, home_mode, exploration_root),
         active_root=None if home_mode else root,
     )
     runtime.hosting = hosting
@@ -3274,7 +3347,7 @@ def start_test_server(
     root = Path(project_root).resolve()
     runtime = DashboardRuntime(
         workspace_root=root,
-        exploration_root=root.parent,
+        exploration_root=_where_new_studies_go(root, home_mode, None),
         active_root=None if home_mode else root,
     )
     handler = make_handler(root, config=config, runtime=runtime)

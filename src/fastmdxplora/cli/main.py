@@ -2005,6 +2005,15 @@ def _cmd_explore(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # What can be found wrong without building anything, refused before
+    # anything is written, a dry run and a run alike: a system setup could
+    # not read, and a selection MDTraj could not parse. Both were found only
+    # when setup or an analysis reached them. The paths are read from here,
+    # where the run starts.
+    from fastmdxplora.config.before_run import refuse_what_can_be_seen
+
+    refuse_what_can_be_seen(config, base=Path.cwd())
+
     # --no-report removes report from the plan via exclude (unless the user
     # already constrained phases with include).
     if getattr(args, "no_report", False) and not config.get("include_phase"):
@@ -2040,6 +2049,10 @@ def _cmd_explore(args: argparse.Namespace) -> int:
             if staged.setup_done:
                 print("\nSetup's output is kept, so a shorter study can reuse it.")
             return 2
+        failed = _analyses_asked_for_that_failed(config, _runs_in(output))
+        if failed:
+            _say_failed(failed)
+            return 1
         return 0
 
     fmdx = FastMDXplora(
@@ -2069,8 +2082,15 @@ def _cmd_explore(args: argparse.Namespace) -> int:
             session.stop()
         raise
 
-    # Dry run: the plan was printed; nothing executed.
+    # Dry run: the plan was printed; nothing executed. What the GUI's Check
+    # it says is worth knowing is said here too.
     if getattr(args, "dry_run", False):
+        knowing = _worth_knowing(config)
+        if knowing:
+            print()
+            print("Worth knowing before it runs:")
+            for line in knowing:
+                print(f"  {line}")
         return 0
 
     # Some of a study's phases ran again: its record still runs it whole.
@@ -2086,6 +2106,13 @@ def _cmd_explore(args: argparse.Namespace) -> int:
         # Stopped at the terminal: the study wrote where it stopped and
         # what carries it on, and the shell is told it was interrupted.
         rc = 130
+    failed = _analyses_asked_for_that_failed(config, results)
+    if failed:
+        # The analysis phase finishes when one of its analyses fails, and
+        # the run did, with exit 0: a study whose RMSD selection could not be
+        # parsed said "analysis complete" and succeeded with no RMSD in it.
+        _say_failed(failed)
+        rc = rc or 1
     if len(results) == 1:
         if rc and not results[0].phases and results[0].message:
             # Stopped before any phase ran, which no phase has said.
@@ -2105,6 +2132,104 @@ def _cmd_explore(args: argparse.Namespace) -> int:
         print(f"Manifest:       {fmdx.output_dir / 'manifest.json'}")
     _finish_dashboard_for_command(session, args)
     return rc
+
+
+def _worth_knowing(config: dict[str, Any]) -> list[str]:
+    """What the GUI's Check it says is worth knowing about a config, each
+    with what to do about it, read from the same function."""
+    from fastmdxplora.advisories import advise
+
+    holders = [config] + [e for e in config.get("systems") or [] if isinstance(e, dict)]
+    said: list[str] = []
+    for holder in holders:
+        settings: dict[str, Any] = {}
+        for source in (config, holder):
+            for phase in ("setup", "simulation"):
+                block = source.get(phase)
+                if isinstance(block, dict):
+                    settings.update(block)
+        try:
+            found = advise({}, settings)
+        except Exception:  # noqa: BLE001 - advice, never a verdict
+            continue
+        for advisory in found:
+            line = " ".join(str(part).strip() for part in
+                            (f"({advisory.setting})", advisory.summary, advisory.remedy)
+                            if part)
+            if line not in said:
+                said.append(line)
+    return said
+
+
+def _say_failed(failed: list[str]) -> None:
+    """Say the analyses the study asked for that failed."""
+    print("fastmdx: " + ("an analysis" if len(failed) == 1 else
+                         f"{len(failed)} analyses")
+          + " the study asked for failed: " + "; ".join(failed) + ".",
+          file=sys.stderr)
+
+
+def _runs_in(output: Path) -> list[Any]:
+    """The runs of a study written to ``output``, as results carry them for
+    :func:`_analyses_asked_for_that_failed`: one flat run, or each under
+    `runs/`."""
+    from types import SimpleNamespace
+
+    runs = sorted(p for p in (output / "runs").glob("*") if p.is_dir()) \
+        if (output / "runs").is_dir() else []
+    folders = runs or [output]
+    return [SimpleNamespace(output_dir=folder, run_id=folder.name) for folder in folders]
+
+
+#: What an analysis says when the run is too short for it (its refusal,
+#: `analysis.sampling.too_few_frames`, reaches its row as words only).
+_TOO_FEW_FRAMES = re.compile(
+    r"\bframes?\b.*\b(at least|needed|needs|required|only)\b"
+    r"|\b(at least|needs|only)\b.*\bframes?\b", re.IGNORECASE | re.DOTALL)
+
+
+def _analyses_asked_for_that_failed(config: dict[str, Any],
+                                    results: list[Any]) -> list[str]:
+    """Each analysis the study asked for that ran and failed, with why.
+
+    Asked for: named in `analysis.include` or given options in
+    `analysis.options`, in the study's own block or a system entry's. An
+    analysis of the default plan is said in its own row and is not a failure
+    of the run, and neither is one the run was too short for (too few frames
+    to cluster): the run did what it was asked, and a longer one would have
+    it.
+    """
+    import json
+
+    named: set[str] = set()
+    holders = [config] + [e for e in config.get("systems") or [] if isinstance(e, dict)]
+    for holder in holders:
+        analysis = holder.get("analysis")
+        if isinstance(analysis, dict):
+            named |= {str(n) for n in (analysis.get("include") or [])}
+            named |= {str(n) for n in (analysis.get("options") or {})}
+
+    failed: list[str] = []
+    for run in results:
+        folder = getattr(run, "output_dir", None)
+        if folder is None:
+            continue
+        try:
+            record = json.loads((Path(folder) / "analysis" / "analysis_manifest.json")
+                                .read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for name, result in (record.get("results") or {}).items():
+            if not isinstance(result, dict) or result.get("status") != "error":
+                continue
+            if name not in named:
+                continue
+            why = str(result.get("message") or "").removeprefix(f"{name}: ").strip()
+            if _TOO_FEW_FRAMES.search(why):
+                continue
+            where = f" in {run.run_id}" if len(results) > 1 else ""
+            failed.append(f"{name}{where} ({why})" if why else f"{name}{where}")
+    return failed
 
 
 def _stopped_by_ctrl_c(results: list[Any]) -> bool:
@@ -2963,7 +3088,17 @@ def _cmd_config(args: argparse.Namespace) -> int:
         return 2
 
     text = generate_template(minimal=args.minimal)
-    out_path.write_text(text, encoding="utf-8")
+    try:
+        out_path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        # A folder that is not there, one that cannot be written, a name
+        # that is a folder: said in one line, as a file that exists is.
+        print(
+            f"fastmdx: cannot write {out_path}: {exc.strerror or type(exc).__name__}. "
+            f"Choose a file in a folder that exists with -f.",
+            file=sys.stderr,
+        )
+        return 2
     kind = "minimal" if args.minimal else "comprehensive"
     print(f"Wrote {kind} config template to {out_path}")
     print(f"Edit it, then run:  fastmdx explore --config {out_path}")

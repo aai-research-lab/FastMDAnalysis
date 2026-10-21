@@ -68,6 +68,10 @@ def a_value_other_than_the_default(block: str, name: str) -> Any:
         return UNDESCRIBED[name]
     f = field(block, name)
     default = f.default
+    if (block, name) == ("setup", "constraints"):
+        # Checked against the bonds setup can hold, as a choice in any
+        # letter case, though not declared as `choices`.
+        return "AllBonds"
     if f.choices:
         return next((c for c in f.choices if c != default), f.choices[0])
     kind = f.type

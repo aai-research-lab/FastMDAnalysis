@@ -68,7 +68,9 @@ class TestTheOrderOfOperations(unittest.TestCase):
         self.calibrated()
         run_in_stages(self.config(), self.root, budget_hours=1000,
                       platform_name="CUDA", explore=self.explore)
-        self.assertEqual(self.calls[1]["exclude_phase"], ["setup"])
+        self.assertNotIn("setup", self.calls[1]["include_phase"])
+        self.assertEqual(self.calls[1]["include_phase"],
+                         ["simulation", "analysis", "report"])
         self.assertIn("setup", self.calls[1]["setup_from"])
 
     def test_setup_from_goes_in_the_simulation_block(self):

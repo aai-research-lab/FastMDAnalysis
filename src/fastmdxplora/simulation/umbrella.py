@@ -1813,6 +1813,19 @@ def windows_with_too_little_sampling(
 #: wrong.
 PERIODIC_VARIABLES = frozenset({"torsion"})
 
+#: Coordinates that are a distance between two centres, whose distribution
+#: carries the room in a shell, 4 pi r^2. Not a distance under a funnel's
+#: cylinder, where the room no longer grows with r; umbrella windows run
+#: under a cone, whose cap's room still goes as r^2.
+SHELL_COORDINATES = frozenset({"ligand_distance", "distance"})
+
+#: The least a peak must stand above the curve's lowest point on each side
+#: to be a barrier, where its error does not ask for more: about kT at room
+#: temperature, more than a plateau's bin-to-bin noise, less than any
+#: barrier worth naming.
+BARRIER_PROMINENCE_KJMOL = 2.5
+
+
 
 def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
     """Say when a periodic coordinate has been tiled only part of the way.
@@ -1830,11 +1843,7 @@ def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
     centres = sorted(w.centre for w in plan.windows)
     covered = centres[-1] - centres[0]
     gap = 2.0 * np.pi - covered
-    if gap <= 0:
-        return None
-    spacing = covered / (len(centres) - 1)
-    if gap <= 1.5 * spacing:
-        # Closed to within a window's spacing: the circle is tiled.
+    if turn_is_tiled(centres[0], centres[-1], len(centres), centres):
         return None
     return (
         f"The windows cover {np.degrees(covered):.0f} degrees of a "
@@ -1843,6 +1852,30 @@ def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
         "not a boundary: the free energy across it is not sampled, and the "
         "barrier between the minima either side of it is unknown. Tile the "
         "full turn, or read the result as the one path it covers.")
+
+
+def turn_is_tiled(lowest: float, highest: float, count: int,
+                  centres: "list[float] | None" = None) -> bool:
+    """Whether ``count`` windows from ``lowest`` to ``highest`` (radians)
+    close a full turn: the widest arc between neighbouring centres, the way
+    round included, is no more than one and a half of their mean spacing.
+    The windows decide it, not where their samples happened to reach.
+    ``centres``, where given, are the windows' own; an arc listed across
+    +-pi (centres at 150 and -150 degrees and nothing between -150 and 150)
+    then reads as the arc it is, where the lowest and highest alone said it
+    closed the turn."""
+    if count < 2:
+        return False
+    if centres is not None and len(centres) >= 2:
+        ordered = np.sort(np.remainder(np.asarray(centres, dtype=float) + np.pi,
+                                       2.0 * np.pi) - np.pi)
+        gaps = np.diff(np.concatenate([ordered, [ordered[0] + 2.0 * np.pi]]))
+        return bool(np.max(gaps) <= 1.5 * (2.0 * np.pi / len(ordered)))
+    covered = float(highest) - float(lowest)
+    gap = 2.0 * np.pi - covered
+    if gap <= 0:
+        return True
+    return gap <= 1.5 * covered / (count - 1)
 
 
 def closure_gap(coordinate: Any, energy: Any) -> float | None:
@@ -1877,7 +1910,9 @@ def closure_gap(coordinate: Any, energy: Any) -> float | None:
 
 def describe_pmf(coordinate: Any, energy: Any,
                  covered: tuple[float, float] | None = None,
-                 *, periodic: bool = False) -> dict[str, Any]:
+                 *, periodic: bool = False,
+                 errors: Any = None,
+                 closed: bool | None = None) -> dict[str, Any]:
     """The numbers a reader wants from a curve, computed once, here.
 
     Reading these by hand is how the curve gets misread. The grid spans
@@ -1886,33 +1921,122 @@ def describe_pmf(coordinate: Any, energy: Any,
     reference in a region no window visited -- a real study looked to have a
     164 kJ/mol barrier that way, against 11 measured where the windows
     actually were.
+
+    **A barrier is a peak**, a bin higher than its neighbours that stands
+    above the curve's lowest point on each side by at least
+    :data:`BARRIER_PROMINENCE_KJMOL` and by twice the error of that rise
+    (``errors``, the bins' standard errors, where the study measured them).
+    Not the curve's highest point: along a distance that is the wall at the
+    first window, which moves with where the window was put (22.2 kJ/mol on
+    a well 20 deep, 23.4 with the windows begun 0.05 nm closer); nor a bin a
+    few samples reached, whose spike a soft window leaves in a plain well.
+    The highest point is still given (``highest_kjmol``), and whether it is
+    an end of the curve. At the 200 samples a window must hold by default
+    (``minimum_samples``) a plateau's spike still passes, because the lowest
+    of many noisy bins sits below the plateau: in 2 to 4 studies in a
+    hundred under stiff windows (1000 kJ/mol/nm^2), 18 to 43 under soft
+    ones (200 to 300), and 0 and 2 to 4 at 500 samples. A real hump lower
+    than 2.5 kJ/mol is reported or not by its noise.
+
+    **On a full turn the ends are neighbours** (``closed``): windows tiled
+    round a circle stop at their outermost centres, short of meeting, and a
+    barrier at +-pi between them was lost when the turn was judged on the
+    slice they covered. The caller says whether the turn is closed, from
+    the windows (:func:`turn_is_tiled`) and a curve with no bin unsampled:
+    judged from where the samples reached, a partial arc whose outer tails
+    wrapped read as a full turn, and its minimum moved into the arc no
+    window held. Left out, the turn is closed only where the slice covered
+    (or the whole curve, with nothing covered named) spans it.
     """
     coordinate = np.asarray(coordinate, dtype=float)
     energy = np.asarray([np.nan if v is None else float(v) for v in energy],
                         dtype=float)
+    try:
+        error = np.asarray([np.nan if v is None else float(v)
+                            for v in (errors if errors is not None else [])],
+                           dtype=float)
+    except TypeError:
+        error = np.asarray([], dtype=float)
+    if error.shape != energy.shape:
+        error = np.full(energy.shape, np.nan)
+    empty = {"barrier_kjmol": None, "barrier_at": None, "covered": None,
+             "minima": [], "highest_kjmol": None, "highest_at": None,
+             "highest_is_an_end": None}
     if coordinate.size == 0 or not np.any(np.isfinite(energy)):
-        return {"barrier_kjmol": None, "covered": None, "minima": []}
+        return empty
 
-    inside = np.isfinite(energy)
-    if covered is not None:
+    finite = np.isfinite(energy)
+    if not periodic:
+        closed = False
+    elif closed is None:
+        judged = finite.copy()
+        if covered is not None:
+            judged &= (coordinate >= covered[0]) & (coordinate <= covered[1])
+        closed = bool(judged.sum() > 2
+                      and closure_gap(coordinate[judged], energy[judged]) is not None)
+    else:
+        closed = bool(closed) and bool(finite.all()) and finite.sum() > 2
+    inside = finite.copy()
+    if covered is not None and not closed:
         inside &= (coordinate >= covered[0]) & (coordinate <= covered[1])
     if not np.any(inside):
-        return {"barrier_kjmol": None, "covered": None, "minima": []}
+        return empty
 
-    where, values = coordinate[inside], energy[inside]
+    where, values, spread = coordinate[inside], energy[inside], error[inside]
     values = values - float(np.min(values))
     top = int(np.argmax(values))
+    n = values.size
+
+    def neighbours(i: int) -> "tuple[float, float] | None":
+        if 0 < i < n - 1:
+            return values[i - 1], values[i + 1]
+        if closed and n > 2:
+            return values[(i - 1) % n], values[(i + 1) % n]
+        return None
 
     # A minimum is a bin lower than both its neighbours. Endpoints are left
-    # out: the profile does not stop there, the windows do.
+    # out where the profile does not stop there but the windows do; on a
+    # closed turn they have neighbours, and the trans well of a torsion
+    # sits at its ends.
     minima = [
         {"coordinate": float(where[i]), "free_energy_kjmol": float(values[i])}
-        for i in range(1, values.size - 1)
-        if values[i] < values[i - 1] and values[i] < values[i + 1]
+        for i in range(n)
+        if neighbours(i) is not None
+        and values[i] < neighbours(i)[0] and values[i] <= neighbours(i)[1]
+        # A flat bottom of two bins counts once; on an open curve, as before,
+        # it is a bin lower than both its neighbours.
+        and (closed or values[i] < neighbours(i)[1])
     ]
+
+    def stands(i: int) -> bool:
+        """Whether peak ``i`` stands above the lowest point on each side by
+        the fixed margin and by twice the error of the difference."""
+        if closed:
+            low = int(np.argmin(values))
+            sides = [low]
+        else:
+            sides = [int(np.argmin(values[:i])), i + 1 + int(np.argmin(values[i + 1:]))]
+        for side in sides:
+            rise = float(values[i] - values[side])
+            # An error not measured counts as none, not as the other's.
+            noise = float(np.hypot(np.nan_to_num(spread[i]),
+                                   np.nan_to_num(spread[side])))
+            needed = max(BARRIER_PROMINENCE_KJMOL, 2.0 * noise)
+            if rise < needed:
+                return False
+        return True
+
+    peaks = [i for i in range(n)
+             if neighbours(i) is not None
+             and values[i] > neighbours(i)[0] and values[i] >= neighbours(i)[1]
+             and stands(i)]
+    barrier = max(peaks, key=lambda i: values[i]) if peaks else None
     return {
-        "barrier_kjmol": float(values[top]),
-        "barrier_at": float(where[top]),
+        "barrier_kjmol": None if barrier is None else float(values[barrier]),
+        "barrier_at": None if barrier is None else float(where[barrier]),
+        "highest_kjmol": float(values[top]),
+        "highest_at": float(where[top]),
+        "highest_is_an_end": bool(not closed and top in (0, n - 1)),
         "covered": [float(where.min()), float(where.max())],
         "minima": sorted(minima, key=lambda m: m["free_energy_kjmol"]),
         # Only where the coordinate is a circle. `closure_gap` decides "is
@@ -1998,6 +2122,43 @@ def _split_off_the_derived(
             "The quantity could not be computed from this curve, so the "
             "resamples have nothing to put an interval around.")}
     return curve, one
+
+
+#: Points per bin at which a window's bias is evaluated before its Boltzmann
+#: factor is averaged over the bin. Midpoints, so the bin's edges are not
+#: counted twice; eight keeps the average within a thousandth of a kT for a
+#: bin as wide as a window's own spread.
+BIAS_POINTS_PER_BIN = 8
+
+#: How many finer bins WHAM solves on for each bin it reports.
+WHAM_SUBDIVISIONS = 8
+
+
+def _bias_over_each_bin(windows: "list[Window]", edges: np.ndarray,
+                        kT: float, periodic: bool) -> np.ndarray:
+    """Each window's bias in each bin, as WHAM needs it: ``-kT ln`` of the
+    bin's average of ``exp(-U / kT)``, not ``U`` at the bin's centre.
+
+    The counts a window puts in a bin are its unbiased density times
+    ``exp(-U / kT)`` integrated over the bin. Taking ``U`` at the centre
+    instead is right only where the bias barely changes across a bin, and a
+    stiff window's changes by several kT across one beyond its centre: with
+    unlimited sampling the outer bins came out a quarter to half a kJ/mol
+    low. Averaged over the bin, the error goes where the unbiased density is
+    flat within the bin, which the finer grid WHAM solves on makes so.
+    """
+    count = BIAS_POINTS_PER_BIN
+    fractions = (np.arange(count) + 0.5) / count
+    widths = np.diff(edges)
+    points = edges[:-1, None] + widths[:, None] * fractions[None, :]
+    rows = []
+    for window in windows:
+        reduced = (0.5 * window.force_constant
+                   * displacement(points, window.centre, periodic) ** 2 / kT)
+        least = reduced.min(axis=1)
+        rows.append(kT * (least - np.log(
+            np.mean(np.exp(-(reduced - least[:, None])), axis=1))))
+    return np.array(rows)
 
 
 def compute_pmf(
@@ -2166,25 +2327,53 @@ def compute_pmf(
     # `WHAM_TOLERANCE_KJMOL` and the iteration ceiling are module constants so
     # a study that wants to know can read what it was held to.
     kT = KB_KJ * float(temperature_K)
-    everything = np.concatenate([samples[w.index] for w in ordered])
-    # `_edges` pins the grid when a bootstrap resample is recombined. The
-    # edges are drawn from the data's extremes, so every resample would
-    # otherwise land on a slightly different grid and the bin-by-bin spread
-    # would measure where the bins moved as much as what the free energy did.
-    edges = (np.asarray(_edges, dtype=float) if _edges is not None
-             else np.linspace(everything.min(), everything.max(), bins + 1))
-    centres = 0.5 * (edges[:-1] + edges[1:])
-
-    counts = np.array([np.histogram(samples[w.index], bins=edges)[0]
-                       for w in ordered], dtype=float)
-    n_per_window = counts.sum(axis=1)
     # A torsion is a circle, and the distance to a window's centre has to be
     # measured the short way round. See `displacement`.
     periodic = getattr(plan, "collective_variable", None) in PERIODIC_VARIABLES
-    bias = np.array([
-        0.5 * w.force_constant * displacement(centres, w.centre, periodic) ** 2
-        for w in ordered
-    ])
+    everything = np.concatenate([samples[w.index] for w in ordered])
+    # `_edges` pins the grid when a bootstrap resample is recombined, so the
+    # bin-by-bin spread measures what the free energy did rather than where
+    # the bins moved.
+    #
+    # Along a distance between centres the grid stops at the outermost
+    # window's centre, or where the data stop if that is sooner. Beyond it
+    # only that window's tail reaches, in a handful of counts, and those are
+    # the bins the binding free energy reads its bulk reference from: with
+    # them in, exact data were refused two times in three. Restricting the
+    # histogram is exact for WHAM, each window's count then being its count
+    # inside the range. The inner end stays where the data begin, so a
+    # first window placed at the well, or inside the wall the ligand cannot
+    # enter, keeps the side of the well it reached and leaves no empty bins
+    # before the first sample.
+    shell = getattr(plan, "collective_variable", None) in SHELL_COORDINATES
+    if _edges is not None:
+        edges = np.asarray(_edges, dtype=float)
+    else:
+        lowest, highest = float(everything.min()), float(everything.max())
+        if shell:
+            highest = min(highest, max(w.centre for w in ordered))
+            if highest <= lowest:
+                highest = float(everything.max())
+        edges = np.linspace(lowest, highest, bins + 1)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+
+    # Solved on a grid WHAM_SUBDIVISIONS times finer than the one reported,
+    # and summed back onto it. A bin's probability is what the curve
+    # reports, and solving for it on the bin itself treats the density as
+    # flat across the bin; a well narrower than a bin (a 20 kJ/mol well at
+    # 300 K is about 0.025 nm across, the default bin 0.03 nm) is not, and
+    # the curve came out up to half a kJ/mol off and a binding free energy
+    # 0.37 kJ/mol off with unlimited sampling. On the finer grid both fall
+    # to a few hundredths. Each pass costs a few times more; the Boltzmann
+    # factors are taken once, outside the loop, to keep that small.
+    fine = np.concatenate(
+        [np.linspace(a, b, WHAM_SUBDIVISIONS + 1)[:-1]
+         for a, b in zip(edges[:-1], edges[1:])] + [edges[-1:]])
+
+    counts = np.array([np.histogram(samples[w.index], bins=fine)[0]
+                       for w in ordered], dtype=float)
+    n_per_window = counts.sum(axis=1)
+    bias = _bias_over_each_bin(ordered, fine, kT, periodic)
 
     free_energies = np.zeros(len(ordered))
     # What the loop finished at, so the caller can be told. It used to run to
@@ -2196,22 +2385,25 @@ def compute_pmf(
     residual = float("inf")
     converged = False
     passes = 0
+    boltzmann = np.exp(-bias / kT)
+    counted = counts.sum(axis=0)
     for _ in range(WHAM_MAX_ITERATIONS):
         passes += 1
-        weights = np.exp((free_energies[:, None] - bias) / kT)
-        denominator = (n_per_window[:, None] * weights).sum(axis=0)
+        denominator = (n_per_window * np.exp(free_energies / kT)) @ boltzmann
         with np.errstate(divide="ignore", invalid="ignore"):
-            probability = counts.sum(axis=0) / denominator
+            probability = counted / denominator
         probability = np.nan_to_num(probability)
-        updated = -kT * np.log(
-            np.clip((probability[None, :] * np.exp(-bias / kT)).sum(axis=1),
-                    1e-300, None))
+        updated = -kT * np.log(np.clip(boltzmann @ probability, 1e-300, None))
         updated -= updated[0]
         residual = float(np.max(np.abs(updated - free_energies)))
         free_energies = updated
         if residual < WHAM_TOLERANCE_KJMOL:
             converged = True
             break
+
+    # Back onto the reported bins: each one's probability is the sum of its
+    # finer bins'.
+    probability = probability.reshape(-1, WHAM_SUBDIVISIONS).sum(axis=1)
 
     # The floor belongs in the iteration, where log(0) would poison the
     # self-consistency loop, and not in what comes out of it. Carried through,
@@ -2231,6 +2423,19 @@ def compute_pmf(
             "coordinate they biased is the one being histogrammed."
         , code="simulation.windows.no_sampling")
     pmf -= np.nanmin(pmf)
+
+    # Along a distance between two centres the curve above is the free
+    # energy of the distance's distribution, in which the room in a shell,
+    # 4 pi r^2, is still present: in bulk it falls as -2kT ln r with nothing
+    # interacting. The binding integral wants it in that form. A reader
+    # wants the potential of mean force, W(r) = A(r) + 2kT ln r, flat once
+    # the two no longer interact, and a depth or barrier read off A instead
+    # moves with the range the windows spanned by 2kT ln(r2 / r1).
+    mean_force = None
+    if shell and bool(np.all(centres > 0.0)):
+        mean_force = pmf + 2.0 * kT * np.log(centres)
+        if np.any(np.isfinite(mean_force)):
+            mean_force -= np.nanmin(mean_force)
 
     # `null` rather than a number: the coordinate exists and the free energy
     # there is unknown, which JSON says exactly and every plotting library
@@ -2327,12 +2532,26 @@ def compute_pmf(
 
     return {
         "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": free_energy,
-                "uncertainty": uncertainty},
+                # Of `free_energy_kjmol`; W(r) differs from it by a known
+                # function of r and a constant, not in its noise.
+                "uncertainty": uncertainty,
+                # W(r), along a distance between centres; None elsewhere.
+                "potential_of_mean_force_kjmol": (
+                    None if mean_force is None else
+                    [None if np.isnan(v) else float(v) for v in mean_force]),
+                "form": ("distribution" if mean_force is not None
+                         else "coordinate")},
         # The spread of whatever `also` measured, from the same resamples.
         "derived": derived,
         "covered": [float(covered[0]), float(covered[1])],
-        "summary": describe_pmf(centres, free_energy, covered,
-                                periodic=periodic),
+        # Read off W(r) where there is one, so a depth or barrier does not
+        # carry the shell's entropy.
+        "summary": describe_pmf(
+            centres, free_energy if mean_force is None else mean_force,
+            covered, periodic=periodic,
+            errors=None if uncertainty is None else uncertainty.get("standard_error"),
+            closed=periodic and turn_is_tiled(covered[0], covered[1], len(ordered),
+                                              [w.centre for w in ordered])),
         "unsampled_bins": unsampled,
         "overlaps": overlaps,
         # Both carried whether or not they refused anything. A reader asking

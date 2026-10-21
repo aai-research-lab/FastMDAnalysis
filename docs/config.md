@@ -212,7 +212,14 @@ in the comparison report. Without one the systems are `s1`, `s2` and so on,
 which is harder to read six months later. Two systems cannot share an `id`.
 
 A phase block inside an entry overrides the top-level one **for that system
-only**, which is how you vary a single setting across a campaign.
+only**, which is how you vary a single setting across a campaign. It is checked
+as a top-level block is: a misspelt setting, or a value outside what the
+setting can be, is refused naming the entry.
+
+An entry holds `system`, `id` and a block for any phase (`setup`,
+`simulation`, `analysis`, `report`), and nothing else: another key, `name:` for
+one, is refused, as it would otherwise be read by nothing. The run's name is
+its `id`.
 
 ---
 
@@ -232,6 +239,18 @@ sweep:
 That is six runs — systems outermost, sweep axes inner. Settings merge lowest
 to highest: the top-level block, then the per-system block, then the sweep
 value.
+
+Each swept value is checked as the setting it sets is, and the sweep is
+refused where a run would not read it:
+
+- a value given twice on one axis, which would make two runs of one setting;
+- an axis a system entry also sets, whose value the sweep would replace for
+  every run of that system;
+- an axis whose other spelling the study also gives (`pressure_atm` beside
+  `pressure_bar`, `duration_ns` beside `production_steps`), of which a run
+  reads only one.
+
+For repeated runs of one setting, sweep `simulation.random_seed`.
 
 **`sweep` is Config-only.** There is no command-line flag for it, which is one
 of the reasons a real campaign lives in a file.

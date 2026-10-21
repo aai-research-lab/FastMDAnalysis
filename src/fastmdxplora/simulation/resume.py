@@ -447,7 +447,8 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
     if not _records.is_file(resolved):
         return Continuation(**empty, refusal="the study has no resolved_config.yml")
     try:
-        config = yaml.safe_load(_records.read_text(resolved, encoding="utf-8")) or {}
+        config = yaml.load(_records.read_text(resolved, encoding="utf-8"),
+                           Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
     except (OSError, yaml.YAMLError) as exc:
         return Continuation(**empty, refusal=f"the study's config could not be read: {exc}")
     verdict = segmentability(config)
@@ -654,6 +655,11 @@ def extended_production(study: str | Path) -> tuple[float, int] | None:
     try:
         # A piece a held read refuses is not a piece that is not there.
         _refuse_pieces(Path(study))
+        # No piece but the study's own: not extended, and its pieces are
+        # not surveyed (each one's Config read again for its digest).
+        if not any(folder.name[8:].isdigit()
+                   for folder in _records.glob(Path(study), "segment-*")):
+            return None
         ran = [piece for piece in survey_segments(study) if piece.trajectory is not None]
     except OutsideWorkspace:
         raise
@@ -732,7 +738,8 @@ def production_done_ns(study: str | Path) -> float:
                                       .get("stage") or "") != "production":
             continue
         try:
-            config = yaml.safe_load(_records.read_text(resolved, encoding="utf-8")) or {}
+            config = yaml.load(_records.read_text(resolved, encoding="utf-8"),
+                               Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
         except (OSError, yaml.YAMLError):
             continue
         piece = continuation_of(folder)

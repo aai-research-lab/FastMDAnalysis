@@ -68,7 +68,8 @@ def advise(structure: dict[str, Any] | None,
                   _a_switch_the_force_field_does_not_want,
                   _a_ligand_with_no_chemistry, _a_density_never_equilibrated,
                   _a_bilayer_near_or_below_its_transition,
-                  _a_bilayer_barely_equilibrated, _a_timestep_too_long):
+                  _a_bilayer_barely_equilibrated, _a_timestep_too_long,
+                  _frames_that_leave_steps_unsaved):
         said = check(structure, settings)
         if said is not None:
             found.append(said)
@@ -423,3 +424,43 @@ def _a_timestep_too_long(structure: dict[str, Any],
         detail=(f"With {held}, the fastest motions left are resolved in too few "
                 "steps, and such a run usually blows up, often in equilibration."),
         remedy=remedy + ".")
+
+
+def _frames_that_leave_steps_unsaved(structure: dict[str, Any],
+                                     settings: dict[str, Any]) -> Advisory | None:
+    """A trajectory interval that does not divide production writes a frame
+    each interval and none for the steps after the last: 500 steps at an
+    interval of 300 wrote one frame and left 200 steps unsaved, which no
+    check said."""
+    interval = settings.get("trajectory_interval_steps")
+    if isinstance(interval, bool) or not isinstance(interval, int) or interval < 1:
+        return None
+    from fastmdxplora.simulation.lengths import DEFAULT_TIMESTEP_FS
+    from fastmdxplora.simulation.runner import plan_stages
+
+    try:
+        production = plan_stages(
+            duration_ns=settings.get("duration_ns"),
+            timestep_fs=settings.get("timestep_fs") or DEFAULT_TIMESTEP_FS,
+            nvt_steps=None, npt_steps=None,
+            production_steps=settings.get("production_steps"),
+        )["production_steps"]
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    if production < interval or production % interval == 0:
+        return None  # longer than production is refused; a divisor is whole
+    frames = production // interval
+    unsaved = production - frames * interval
+    # The divisor of production nearest the interval asked for, over 1.
+    divisors = {d for i in range(1, int(production ** 0.5) + 1)
+                if production % i == 0 for d in (i, production // i)} - {1}
+    fitting = min(divisors, key=lambda d: (abs(d - interval), d), default=None)
+    such_as = f", such as {fitting:,}," if fitting and fitting != production else ""
+    return Advisory(
+        setting="trajectory_interval_steps",
+        summary=(f"An interval of {interval:,} steps does not divide the "
+                 f"{production:,} steps of production."),
+        detail=(f"{frames:,} frame{'' if frames == 1 else 's'} will be written, "
+                f"and the last {unsaved:,} steps of production are in none of them."),
+        remedy=(f"Give an interval that divides {production:,}{such_as} to keep "
+                "the end of the run."))

@@ -269,6 +269,7 @@ def _field_payload(field: Any, phase: str | None = None) -> dict[str, Any]:
         "choices": _jsonable(field.choices),
         "example": _jsonable(field.example),
         "minimum": field.minimum,
+        "exclusive_minimum": bool(getattr(field, "exclusive_minimum", False)),
         "maximum": field.maximum,
         "essential": field.name in ESSENTIAL.get(phase or "(top-level)", ()),
         "role": _ROLES.get(dotted),

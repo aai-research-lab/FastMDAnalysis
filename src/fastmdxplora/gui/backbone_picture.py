@@ -11,6 +11,10 @@ consecutive atoms are farther apart than a bond allows (a missing loop).
 Written as SVG from the PDB's own lines, in milliseconds and with no
 browser, and kept in memory by the file's size and time, never in the
 study's folder.
+
+Every file is read through `record_access`, so where the read is held to
+the study (All studies' cards, `/api/study-thumbnail`) a structure linked
+out of it, or one its records name outside it, is not read.
 """
 
 from __future__ import annotations
@@ -22,7 +26,10 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-__all__ = ["backbone_svg", "structure_for_picture"]
+from fastmdxplora import record_access
+
+__all__ = ["backbone_points", "backbone_svg", "molecule_structure", "start_outside",
+           "structure_for_picture"]
 
 WIDTH, HEIGHT, MARGIN = 480, 200, 14
 #: Consecutive Cα atoms are 3.8 Å apart; phosphorus atoms about 6 to 7.
@@ -48,18 +55,42 @@ _LOCK = threading.Lock()
 
 def structure_for_picture(folder: str | Path) -> Path | None:
     """The structure a card's picture is made from: the study's own, as the
-    Viewer would find it, else that of the first of its runs with one."""
-    from fastmdxplora.gui.protein_preview import find_structure
-
+    Viewer would find it (`protein_preview.find_structure`), else that of
+    the first of its runs with one."""
     base = Path(folder)
-    found = find_structure(base)
+    found = _structure_in(base)
     if found is not None and found.suffix.lower() == ".pdb":
         return found
     runs = base / "runs"
-    for run in sorted(runs.iterdir()) if runs.is_dir() else []:
-        found = find_structure(run) if run.is_dir() else None
+    for run in sorted(record_access.iterdir(runs)) if record_access.is_dir(runs) else []:
+        found = _structure_in(run) if record_access.is_dir(run) else None
         if found is not None and found.suffix.lower() == ".pdb":
             return found
+    return None
+
+
+def _structure_in(root: Path) -> Path | None:
+    """`protein_preview.find_structure`, its files read through
+    `record_access`: the same candidates in the same order, then the
+    structure the study's Manifest names, where it can be read (one outside
+    a held read is not looked at)."""
+    import json
+
+    from fastmdxplora.gui.protein_preview import STRUCTURE_CANDIDATES
+
+    for rel in STRUCTURE_CANDIDATES:
+        if record_access.is_file(root / rel):
+            return root / rel
+    try:
+        manifest = json.loads(record_access.read_text(root / "manifest.json", encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    system = manifest.get("system") if isinstance(manifest, dict) else None
+    if system:
+        for path in (Path(str(system)), root / str(system)):
+            if (path.suffix.lower() == ".pdb" and record_access.can_read(path)
+                    and record_access.is_file(path)):
+                return path
     return None
 
 
@@ -67,7 +98,7 @@ def _pieces(path: Path) -> tuple[list[np.ndarray], str]:
     """The backbone's atoms as pieces of consecutive residues, in Å."""
     atoms: dict[str, list[tuple[str, str, tuple[float, float, float]]]] = {"CA": [], "P": []}
     seen: set[tuple[str, str, str]] = set()
-    with path.open(encoding="utf-8", errors="replace") as lines:
+    with record_access.open_text(path, encoding="utf-8", errors="replace") as lines:
         for line in lines:
             if line.startswith("ENDMDL"):
                 break
@@ -175,7 +206,7 @@ def backbone_svg(folder: str | Path, scheme: str = "light") -> str | None:
     if path is None:
         return None
     try:
-        stat = path.stat()
+        stat = record_access.stat(path)
     except OSError:
         return None
     if stat.st_size > MOST_BYTES:
@@ -194,3 +225,132 @@ def backbone_svg(folder: str | Path, scheme: str = "light") -> str | None:
         while len(_KEPT) > MOST_KEPT:
             _KEPT.popitem(last=False)
     return picture
+
+
+# ---------------------------------------------------------------------------
+# The molecule on All studies' rows and cards
+# ---------------------------------------------------------------------------
+
+#: The points a row's or a card's picture is sent: enough for a protein's
+#: shape at 260 px, few enough that two hundred studies list quickly.
+LIST_POINTS = 360
+#: A structure larger than this is not read for the list (a solvated
+#: system written whole): the saved frames leave the water out.
+LIST_BYTES = 40 * 1024 * 1024
+_POINTS_KEPT: OrderedDict[tuple[str, int, int], dict | None] = OrderedDict()
+
+
+def molecule_structure(folder: str | Path) -> tuple[Path, str] | None:
+    """The structure a study's molecule is drawn from on All studies, and
+    what it is: the latest frame its run wrote (`simulation/live_frame.pdb`,
+    the run's last where it has ended), else the structure the Viewer draws
+    first, else the file it is to start from where nothing ran yet. For a
+    study of several runs, that of its first run with one."""
+    base = Path(folder)
+    runs = base / "runs"
+    for where in [base] + (sorted(p for p in record_access.iterdir(runs)
+                                  if record_access.is_dir(p))
+                           if record_access.is_dir(runs) else []):
+        latest = where / "simulation" / "live_frame.pdb"
+        if record_access.is_file(latest):
+            return latest, "latest frame"
+    found = structure_for_picture(base)
+    if found is not None:
+        return found, "structure"
+    path = _start_named(base)
+    if path is not None and record_access.can_read(path) and record_access.is_file(path):
+        return path, "start"
+    return None
+
+
+def _start_named(base: Path) -> Path | None:
+    """The .pdb the study's Config names to start from, where it names one."""
+    from fastmdxplora.gui.workspace import _read_yaml
+
+    config = _read_yaml(base / "resolved_config.yml") or _read_yaml(base / "exploration.yml")
+    systems = config.get("systems") if isinstance(config, dict) else None
+    first = (systems[0] if isinstance(systems, list) and systems
+             and isinstance(systems[0], dict) else {})
+    named = str(first.get("system") or "")
+    if not named.lower().endswith(".pdb"):
+        return None
+    path = Path(named).expanduser()
+    return path if path.is_absolute() else base / path
+
+
+def start_outside(folder: str | Path) -> str:
+    """The name of the .pdb a study is to start from where it is outside
+    the study, which a read held to the study does not open (nor where it
+    leads); '' otherwise. Told without opening it."""
+    import os
+
+    path = _start_named(Path(folder))
+    if path is None or record_access.can_read(path) or not os.path.lexists(path):
+        return ""
+    return path.name
+
+
+def backbone_points(folder: str | Path) -> dict | None:
+    """The study's backbone as the page draws it at any size: each piece's
+    points in the plane of the molecule's two widest axes (``x`` from 0 to
+    ``aspect``, ``y`` from 0 to 1, N terminus on the left), each with its
+    depth from 0 (far) to 1 (near) and its place along the chain from 0 (N)
+    to 1 (C). ``from`` says which structure (`molecule_structure`). Kept in
+    memory by the file's size and time; None where there is none to draw."""
+    found = molecule_structure(folder)
+    if found is None:
+        return None
+    path, source = found
+    try:
+        stat = record_access.stat(path)
+    except OSError:
+        return None
+    if stat.st_size > LIST_BYTES:
+        return None
+    key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+    with _LOCK:
+        if key in _POINTS_KEPT:
+            _POINTS_KEPT.move_to_end(key)
+            kept = _POINTS_KEPT[key]
+            return None if kept is None else {**kept, "from": source}
+    try:
+        drawn = _points(path)
+    except (OSError, ValueError, np.linalg.LinAlgError):
+        drawn = None
+    with _LOCK:
+        _POINTS_KEPT[key] = drawn
+        while len(_POINTS_KEPT) > MOST_KEPT:
+            _POINTS_KEPT.popitem(last=False)
+    return None if drawn is None else {**drawn, "from": source}
+
+
+def _points(path: Path) -> dict | None:
+    pieces, kind = _pieces(path)
+    count = sum(len(piece) for piece in pieces)
+    if count < 3:
+        return None
+    step = max(1, -(-count // LIST_POINTS))
+    pieces = [piece[::step] if len(piece) > step else piece for piece in pieces]
+    every = np.concatenate(pieces)
+    centre = every.mean(axis=0)
+    _, _, axes = np.linalg.svd(every - centre, full_matrices=False)
+    across, up = axes[0], axes[1]
+    if (every[0] - centre) @ across > (every[-1] - centre) @ across:
+        across = -across
+    toward = np.cross(across, up)
+    flat = [np.stack([(piece - centre) @ across, -((piece - centre) @ up),
+                      (piece - centre) @ toward], axis=1) for piece in pieces]
+    allflat = np.concatenate(flat)
+    low, high = allflat.min(axis=0), allflat.max(axis=0)
+    span = np.maximum(high - low, 1e-6)
+    total = max(len(allflat) - 1, 1)
+    out, done = [], 0
+    for piece in flat:
+        scaled = (piece - low) / span[1]
+        depth = (piece[:, 2] - low[2]) / span[2]
+        out.append([[round(float(x), 3), round(float(y), 3), round(float(d), 2),
+                     round((done + k) / total, 3)]
+                    for k, ((x, y, _), d) in enumerate(zip(scaled, depth))])
+        done += len(piece)
+    return {"pieces": out, "aspect": round(float(span[0] / span[1]), 3), "residues": count,
+            "atom": "CA" if kind == "CA" else "P"}

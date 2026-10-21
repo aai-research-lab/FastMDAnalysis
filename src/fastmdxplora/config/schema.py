@@ -134,6 +134,10 @@ class Field:
     #: that blows up, which is the honest place for that judgement.
     minimum: float | None = None
     maximum: float | None = None
+    #: The minimum itself refused too: a timestep or a tolerance of zero is
+    #: no more a value than a negative one, and an interval of steps is at
+    #: least one step.
+    exclusive_minimum: bool = False
     phase_sentinel: Any = _UNSET
 
     @property
@@ -324,7 +328,8 @@ SETUP = PhaseSchema(
               "uncertainty of the pKa calculation itself, so the band marks "
               "where the answer is unresolved rather than merely close. "
               "Narrow it only for a ligand whose protonation you know.",
-              example=0.5),
+              example=0.5,
+              minimum=0.0),
         Field("residue_states", dict, None,
               "Protonation states to use in place of the ones setup would "
               "choose, for residues named by chain and number as the "
@@ -452,7 +457,8 @@ SETUP = PhaseSchema(
               "(the provided coordinates must be a feasible bound pose)."),
         Field("ligand_clash_threshold_nm", float, 0.15,
               "Minimum allowed ligand-protein contact distance in nm; pairs "
-              "closer than this count as a clash."),
+              "closer than this count as a clash.",
+              minimum=0.0),
         Field("membrane", str, None,
               "Embed the protein in a lipid bilayer instead of a box of "
               "water. One of POPC, POPE, DLPC, DLPE, DMPC, DOPC or DPPC -- "
@@ -535,7 +541,8 @@ SETUP = PhaseSchema(
               example=1.0,
                     minimum=0.0),
         Field("ewald_error_tolerance", float, 0.0005,
-              "Ewald/PME error tolerance."),
+              "Ewald/PME error tolerance.",
+              minimum=0.0, exclusive_minimum=True),
         Field("use_switching_function", bool, None,
               "Apply a switching function near the cutoff (cutoff methods). "
               "Default: as the force field is developed, none for AMBER and "
@@ -546,7 +553,8 @@ SETUP = PhaseSchema(
               "Switching-function turn-on distance in nm. "
               "Default: the force field's own where it switches, otherwise "
               "0.9 × cutoff.",
-              example=0.9),
+              example=0.9,
+              minimum=0.0, exclusive_minimum=True),
         Field("dispersion_correction", bool, True,
               "Apply the long-range dispersion (vdW tail) correction."),
         Field("remove_cm_motion", bool, True,
@@ -558,8 +566,12 @@ SETUP = PhaseSchema(
               "Constrain water bond lengths and angles."),
         Field("hydrogen_mass_amu", (int, float), None,
               "Hydrogen-mass-repartitioning mass in amu (enables longer "
-              "timesteps). Default: off.",
-              example=4.0),
+              "timesteps): more than hydrogen's own 1.008 and at most 4.032, "
+              "four times it, "
+              "as the mass is taken from the heavy atom each hydrogen is "
+              "bonded to, which a larger one leaves negative. Default: off.",
+              example=4.0,
+              minimum=1.008, exclusive_minimum=True, maximum=4.032),
         Field("temperature_K", (int, float), 300.0,
               "Temperature in K for initial velocity assignment.",
                     minimum=0.0),
@@ -604,9 +616,11 @@ SIMULATION = PhaseSchema(
               example=2.0,
                     minimum=0.0),
         Field("nvt_steps", int, None,
-              "NVT step count (overrides nvt_duration_ns). Default: the steps "
+              "NVT step count (in place of nvt_duration_ns; both only where "
+              "they say the same length). Default: the steps "
               "500 ps takes at the timestep, 250,000 at 2 fs.",
-              example=250000),
+              example=250000,
+              minimum=0),
         Field("ensemble", str, None,
               "Which ensemble production runs in -- 'npt' at constant "
               "pressure, 'nvt' at constant volume. Absent means it is read "
@@ -628,13 +642,17 @@ SIMULATION = PhaseSchema(
               choices=("npt", "nvt"),
               example="nvt"),
         Field("npt_steps", int, None,
-              "NPT step count (overrides npt_duration_ns). Default: the steps "
+              "NPT step count (in place of npt_duration_ns; both only where "
+              "they say the same length). Default: the steps "
               "1 ns takes at the timestep, 500,000 at 2 fs.",
-              example=500000),
+              example=500000,
+              minimum=0),
         Field("production_steps", int, None,
-              "Production step count (overrides duration_ns). Default: the "
+              "Production step count (in place of duration_ns; both only where "
+              "they say the same length). Default: the "
               "steps 2 ns takes at the timestep, 1,000,000 at 2 fs.",
-              example=1000000),
+              example=1000000,
+              minimum=0),
         Field("setup_from", str, None,
               "A finished study or setup directory to simulate from instead "
               "of running setup again. Point it at the study -- "
@@ -658,7 +676,8 @@ SIMULATION = PhaseSchema(
               "remainder of what it planned is run, which is what resuming "
               "means. Absent here never means the default length -- a "
               "continuation with no length asked for finishes the plan.",
-              example=0.1),
+              example=0.1,
+              minimum=0.0),
         Field("stop_when", dict, None,
               "Run until what the study is for is determined, rather than for a "
               "length fixed in advance. A block with `measures` (each an "
@@ -715,14 +734,17 @@ SIMULATION = PhaseSchema(
                        "variable_langevin", "variable_verlet")),
         Field("integrator_error_tolerance", float, 0.001,
               "Error tolerance for the variable-timestep integrators "
-              "(variable_langevin / variable_verlet)."),
+              "(variable_langevin / variable_verlet).",
+              minimum=0.0, exclusive_minimum=True),
         Field("minimize_tolerance_kjmol_per_nm", (int, float), 10.0,
-              "Minimization force tolerance in kJ/mol/nm."),
+              "Minimization force tolerance in kJ/mol/nm.",
+              minimum=0.0, exclusive_minimum=True),
         Field("minimize_max_iterations", int, 0,
-              "Max minimization iterations (0 = until convergence)."),
+              "Max minimization iterations (0 = until convergence).",
+              minimum=0),
         Field("timestep_fs", (int, float), 2.0,
               "Integrator timestep in fs.",
-                    minimum=0.0),
+              minimum=0.0, exclusive_minimum=True),
         Field("temperature_K", (int, float), 300.0,
               "Production temperature in K.",
               minimum=0.0),
@@ -736,11 +758,14 @@ SIMULATION = PhaseSchema(
         Field("pressure_atm", (int, float), None,
               "Pressure in atm (converted to bar internally). Accepted as "
               "an alternative to pressure_bar; bar wins if both are given.",
-              example=1.0),
+              example=1.0,
+              minimum=0.0),
         Field("friction_per_ps", (int, float), 1.0,
-              "Langevin thermostat friction coefficient in 1/ps."),
+              "Langevin thermostat friction coefficient in 1/ps.",
+              minimum=0.0),
         Field("barostat_frequency", int, 25,
-              "MC barostat volume-move attempt interval in steps."),
+              "MC barostat volume-move attempt interval in steps.",
+              minimum=1),
         Field("random_seed", int, None,
               "Integrator random seed for reproducibility. Default: unset.",
               example=42),
@@ -756,9 +781,11 @@ SIMULATION = PhaseSchema(
         Field("trajectory_interval_steps", int, None,
               "DCD reporter interval in steps. Default: adaptive "
               "(~2000 frames per production run).",
-              example=1000),
+              example=1000,
+              minimum=1),
         Field("state_interval_steps", int, 1000,
-              "Energy/state reporter interval in steps."),
+              "Energy/state reporter interval in steps.",
+              minimum=1),
         Field("save_selection", str, "not water",
               "Which atoms go into the trajectory, in MDTraj's selection "
               "language. The default leaves the solvent out, because water "
@@ -778,7 +805,8 @@ SIMULATION = PhaseSchema(
               "cost. A run asked to stop (SIGTERM, Ctrl-C) during production "
               "writes one on its next frame first, where that is within "
               "`FASTMDX_STOP_GRACE_SECONDS` (20). 0 disables it, and with it "
-              "resuming."),
+              "resuming.",
+              minimum=0),
         Field("live_telemetry", bool, True,
               "Write live_status.json, live_metrics.csv, and live_events.log "
               "for the local live dashboard. Also writes a live-frame PDB so "
@@ -789,7 +817,8 @@ SIMULATION = PhaseSchema(
               "off saves is the ability to watch. Nothing leaves the machine "
               "-- these are files in the run directory that the GUI reads."),
         Field("telemetry_interval", int, 1000,
-              "Minimum step interval for live dashboard telemetry updates."),
+              "Minimum step interval for live dashboard telemetry updates.",
+              minimum=0),
         Field("dashboard_ligand_resname", str, None,
               "Override the ligand residue name surfaced in the dashboard's "
               "ligand tools pane. Auto-detected when omitted.",
@@ -797,12 +826,14 @@ SIMULATION = PhaseSchema(
         Field("dashboard_binding_pocket_cutoff_A", float, 5.0,
               "Default binding-pocket cutoff in angstrom for the dashboard "
               "molecular viewer (used by the 'show pocket' tools).",
-              example=5.0),
+              example=5.0,
+              minimum=0.0, exclusive_minimum=True),
         Field("dashboard_max_playback_frames", int, 2000,
               "Maximum frames of the trajectory the molecular viewer is sent, "
               "evenly spaced over the whole of it; a system over 5,000 atoms "
               "is sent fewer, ten million atoms times frames at most.",
-              example=2000),
+              example=2000,
+              minimum=1),
         Field("restrain", str, None,
               "What to hold still during equilibration, as an atom selection "
               "-- 'protein and not element H' is the usual choice. A "
@@ -959,13 +990,16 @@ ANALYSIS = PhaseSchema(
               example="solute"),
         Field("stride", int, None,
               "Load every Nth frame from the trajectory.",
-              example=1),
+              example=1,
+              minimum=1),
         Field("first", int, None,
               "First frame index to include.",
-              example=0),
+              example=0,
+              minimum=0),
         Field("last", int, None,
               "Last frame index (exclusive). Default: full trajectory.",
-              example=10000),
+              example=10000,
+              minimum=0),
         Field("figure_colours", str, "colour",
               "What every figure is plotted in. 'colour' uses the Okabe-Ito "
               "palette, which is chosen to stay distinguishable under the "
@@ -1065,7 +1099,8 @@ EXECUTION = PhaseSchema(
         Field("workers", int, None,
               "Parallel worker count. Default: one per device if `devices` "
               "is set, else the CPU count (capped at the number of runs).",
-              example=2),
+              example=2,
+              minimum=1),
         Field("devices", list, None,
               "GPU device indices to distribute parallel runs across, "
               "round-robin (one run per device). GPU runs only.",

@@ -26,6 +26,19 @@ class ReadScope:
     admitted: Callable[[Path], bool]
     denied: set[str] = field(default_factory=set)
     descriptor: int | None = None
+    #: Where each address led when first checked in this held read: a read
+    #: asks the same folders again and again (a card, a hundred times).
+    #: Kept for the read only; the bytes are still opened one part at a time
+    #: from the pinned folder without following a link (`_open`), so an
+    #: address retargeted since cannot lead a read out of the study.
+    leads: dict[str, Path] = field(default_factory=dict)
+
+    def resolved(self, path: Path) -> Path:
+        key = str(path)
+        found = self.leads.get(key)
+        if found is None:
+            found = self.leads[key] = path.resolve()
+        return found
 
     def checked(self, path: Path, *, remember: bool = True) -> Path:
         """Check both the requested address and its current destination."""
@@ -34,9 +47,11 @@ class ReadScope:
         missing: FileNotFoundError | None = None
         try:
             relative = path.relative_to(self.root)
-            resolved = path.resolve()
+            resolved = self.resolved(path)
             resolved.relative_to(self.root)
-            if self.admitted(path) and self.admitted(resolved):
+            # One check where the address is where it leads (no link on
+            # the way): the same answer, asked once.
+            if self.admitted(path) and (resolved == path or self.admitted(resolved)):
                 return resolved
             # Not there, where it would be is in the study: nothing is
             # refused, so it is not named as not read; the system's own
@@ -162,6 +177,56 @@ def open_text(path: Path, *, encoding: str = "utf-8", errors: str | None = None,
         scope.denied.add("a non-regular record")
         raise OutsideWorkspace("Only regular study records may be read.")
     return os.fdopen(descriptor, encoding=encoding, errors=errors, newline=newline)
+
+
+def read_bytes(path: Path) -> bytes:
+    """A record's bytes (a figure), held as `open_text` holds a record's
+    text."""
+    scope = _scope.get()
+    if scope is None:
+        return Path(path).read_bytes()
+    descriptor = _open(scope, Path(path))
+    if not stat_module.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        scope.denied.add("a non-regular record")
+        raise OutsideWorkspace("Only regular study records may be read.")
+    with os.fdopen(descriptor, "rb") as stream:
+        return stream.read()
+
+
+@contextmanager
+def refusals_noted() -> Iterator[set[str]]:
+    """The records this call's held read refuses within the block, each
+    named as `refused` names it, those it had refused before among them:
+    `refused` names each once, so a second refusal of one does not add to
+    it. Empty outside a held read."""
+    scope = _scope.get()
+    if scope is None:
+        yield set()
+        return
+    before = scope.denied
+    noted: set[str] = set()
+    scope.denied = noted
+    try:
+        yield noted
+    finally:
+        before |= noted
+        scope.denied = before
+
+
+def note_refused(names: frozenset[str] | set[str]) -> None:
+    """Name again records this call's held read refused before, where a
+    reader gives an answer it kept rather than read them again."""
+    scope = _scope.get()
+    if scope is not None:
+        scope.denied.update(names)
+
+
+def resolved(path: Path) -> Path:
+    """Where ``path`` leads, as this call's held read found it (`ReadScope`),
+    or now, outside a held read."""
+    scope = _scope.get()
+    return Path(path).resolve() if scope is None else scope.resolved(Path(path))
 
 
 def refused() -> frozenset[str]:

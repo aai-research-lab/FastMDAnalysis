@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/static/study-timeline.css">
   <link rel="stylesheet" href="/static/report-outline.css">
   <link rel="stylesheet" href="/static/builder-cost.css">
+  <link rel="stylesheet" href="/static/studies-table.css">
   <link rel="stylesheet" href="/static/analysis-cells.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
@@ -597,8 +598,8 @@
               <input type="search" class="studies-search" id="studies-search" autocomplete="off"
                      placeholder="Search by name, structure, kind, state, tag or note" aria-label="Search the studies"></span>
               <div class="seg studies-view" role="group" aria-label="Show the studies as">
-                <button type="button" class="seg-btn seg-icon active" data-studies-view="cards" aria-pressed="true" aria-label="Cards" title="As cards"><!--icon:cards:line-icon--></button>
-                <button type="button" class="seg-btn seg-icon" data-studies-view="table" aria-pressed="false" aria-label="Table" title="As a table"><!--icon:table:line-icon--></button>
+                <button type="button" class="seg-btn seg-icon" data-studies-view="cards" aria-pressed="false" aria-label="Cards" title="As cards, each with its molecule"><!--icon:cards:line-icon--></button>
+                <button type="button" class="seg-btn seg-icon active" data-studies-view="table" aria-pressed="true" aria-label="Table" title="As a list, one row a study"><!--icon:table:line-icon--></button>
               </div>
               <a href="#compare" class="line-btn" data-view-link="compare" id="studies-compare-page"
                  aria-label="Compare two studies" title="Compare two studies: choose two here, or open the page"><!--icon:compare:line-icon--></a>
@@ -631,16 +632,12 @@
             <button type="button" class="line-btn" id="studies-tag-filter-clear" aria-label="Every study"
                     title="Every study"><!--icon:close:line-icon--></button>
           </div>
+          <!-- Views of the studies, built in and saved, and the filters and
+               layout of the list (studies.js, studies-table.css). -->
+          <div class="studies-views" id="studies-views" role="tablist" aria-label="Views of the studies"></div>
+          <div class="studies-filters" id="studies-filters"></div>
           <datalist id="studies-tags-used"></datalist>
           <span class="sr-only" id="studies-chosen-heard" role="status" aria-live="polite"></span>
-          <div class="studies-compare-bar" id="studies-compare-bar" role="group"
-               aria-label="Compare or clear the studies chosen" hidden>
-            <span class="muted small" id="studies-chosen-said"></span>
-            <button type="button" class="line-btn" id="studies-compare" disabled aria-label="Compare"
-                    title="Compare"><!--icon:compare:line-icon--></button>
-            <button type="button" class="line-btn" id="studies-clear" aria-label="Clear"
-                    title="Clear"><!--icon:erase:line-icon--></button>
-          </div>
           <section class="card remote-jobs" id="remote-jobs" aria-labelledby="remote-jobs-title" hidden></section>
           <div class="studies-grid" id="studies-grid" role="list"></div>
           <!-- The same studies as rows, sorted by a column's head
@@ -648,7 +645,27 @@
           <div class="studies-table-wrap" id="studies-table-wrap" hidden>
             <table class="studies-table" id="studies-table"></table>
           </div>
+          <!-- What can be done with the studies chosen, at the foot of the
+               list while any is (studies.js, studies-table.css). -->
+          <div class="studies-bar" id="studies-bar" role="toolbar" aria-label="The studies chosen" hidden>
+            <div class="studies-bar-in" id="studies-bar-in">
+              <span class="studies-bar-count" id="studies-chosen-said"></span>
+              <button type="button" class="studies-bar-btn is-primary" id="studies-compare" disabled><!--icon:compare:line-icon--><span>Compare</span></button>
+              <span class="studies-bar-sep" aria-hidden="true"></span>
+              <button type="button" class="studies-bar-btn" id="studies-tag-chosen"><!--icon:tag:line-icon--><span>Tag</span></button>
+              <button type="button" class="studies-bar-btn" id="studies-files-chosen"><!--icon:files:line-icon--><span>Files</span></button>
+              <button type="button" class="studies-bar-btn" id="studies-archive"><!--icon:archive:line-icon--><span>Archive</span></button>
+              <span class="studies-bar-sep" aria-hidden="true"></span>
+              <button type="button" class="studies-bar-btn is-icon" id="studies-clear" aria-label="Clear"
+                      title="Clear (Esc)"><!--icon:erase:line-icon--></button>
+            </div>
+            <div class="studies-bar-in studies-bar-said" id="studies-bar-said" role="status" hidden></div>
+          </div>
           <p class="muted studies-empty" id="studies-empty" hidden></p>
+          <p class="studies-keys muted small" id="studies-keys" hidden><kbd>/</kbd> search
+            <kbd>j</kbd> <kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>x</kbd> choose
+            <kbd>c</kbd> compare two <kbd>t</kbd> tag the chosen <kbd>Esc</kbd> clear
+            <kbd>m</kbd> every mean</p>
         </section>
 
         <!-- Compare (compare.js, compare_view.py): two studies, or two runs,
@@ -2139,6 +2156,7 @@
   <script src="/static/stopping.js"></script>
   <script src="/static/fixes.js"></script>
   <script src="/static/stop-run.js"></script>
+  <script src="/static/run-progress.js"></script>
   <script src="/static/studies.js"></script>
   <script src="/static/remote.js"></script>
   <script src="/static/molecule-viewer.js"></script>
