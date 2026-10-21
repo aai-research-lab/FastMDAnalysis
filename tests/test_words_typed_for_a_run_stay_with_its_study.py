@@ -183,7 +183,11 @@ def test_a_study_another_window_opens_during_a_launch_takes_no_words(tmp_path, m
         time.sleep(1.0)
         _switch_elsewhere(session, other)
         _shows(page, study_key(other))
-        page.wait_for_selector("#agent-thread .agent-running >> nth=1", timeout=30000)
+        # The page on `other` reads its own thread, not the run's: what it
+        # says once the launch has answered is where the words went.
+        page.wait_for_function(
+            "(key) => !!sessionStorage.getItem('fmx.agentUnsent:' + key)",
+            arg=study_key(workspace / "run2"), timeout=30000)
         page.wait_for_timeout(1500)
         box = page.input_value("#agent-request")
         kept = _unsent(page)
