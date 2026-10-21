@@ -704,6 +704,11 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         try:
             fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
+            if exc.errno not in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                # A disk that keeps no locks (some cluster and network ones):
+                # shared as where there are none.
+                return _draft(study, archive, site=site, pack=pack, authors=authors,
+                              license_id=license_id, system=system, said=said)
             raise ShareRefused(
                 f"{study} is being shared already, by another command: share it again once "
                 "that one is done.", code="environment.share.not_finished",
@@ -783,7 +788,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                                              "sending", "record_written", "record_sending",
                                              "record_archive", "record_sums", "stale",
                                              "uploading", "made_as", "sums", "by_earlier",
-                                             "written_words", "record_words", "sending_words")
+                                             "written_words", "record_words", "sending_words",
+                                             "record_sending_words")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
@@ -793,6 +799,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 else earlier.get("written_words")
             if recorded_words:
                 kept[site]["written_words"] = kept[site]["record_words"] = recorded_words
+            # Sent for the record and its answer lost: what it holds may be that.
+            sent_words = earlier.get("record_sending_words") if found_as["begun_again"] \
+                else earlier.get("sending_words")
+            if sent_words:
+                kept[site]["sending_words"] = kept[site]["record_sending_words"] = sent_words
         # The archive the record holds, the study's: begun again, a draft of
         # it holds that one, not the one put on the draft deleted.
         # (And any it was replacing, or sent whose answer was lost: one of
@@ -1143,7 +1154,9 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 # title, names, keywords, licence, access) stays as it holds it.
                 wanted = {key: value for key, value in ours_said.items()
                           if key in ("description", "version", "prereserve_doi")
-                          or (not held.get(key) and not last and not sending)}
+                          or (not held.get(key) and not last
+                              and _written({"description": held.get("description")})
+                              not in words)}
                 if said and any(held.get(key) and _described({key: held.get(key)})
                                 != _described({key: ours_said.get(key)})
                                 for key in ("creators", "license", "keywords", "title",

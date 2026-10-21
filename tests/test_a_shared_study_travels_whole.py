@@ -3041,8 +3041,7 @@ def test_a_gateway_s_404_on_reserving_a_doi_is_not_said_gone(tmp_path, unsteady,
     assert "is gone from" not in capsys.readouterr().err
 
 
-def test_the_study_s_archive_stays_its_own_after_any_number_of_failed_uploads(tmp_path,
-                                                                             unsteady):
+def test_the_study_s_archive_stays_its_own_after_many_failed_uploads(tmp_path, unsteady):
     """Hands-on review of the twenty-seventh commit: after fifty failed
     uploads, the archive the draft held was forgotten as the study's."""
     study = _study(tmp_path / "study")
@@ -3126,3 +3125,56 @@ def test_a_kept_description_on_an_earlier_release_s_draft_says_the_rest_is_kept(
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert "as are its title, creators, keywords, licence and access" in \
         capsys.readouterr().out
+
+
+def test_a_description_sent_and_lost_on_an_earlier_release_s_draft_reaches_its_new_version(
+        tmp_path, unsteady, capsys):
+    """Review of the twenty-ninth commit: a description written there whose
+    answer was lost, the person then adding a name and publishing, left
+    every later version's description the person's."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _analysed_again(study, "Words of the second share.")
+    unsteady.faults = {"PUT metadata": ["applied"] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7]["creators"] = [{"name": "Aina, Adekunle"}, {"name": "New, Author"}]
+    unsteady.published_ids = {7}
+    report = study / "report" / "report.md"
+    report.write_text(report.read_text().replace("Words of the second share.",
+                                                 "Words of the third share."))
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+    assert "Words of the third share." in unsteady.meta[8]["description"]
+
+
+def test_a_disk_that_keeps_no_locks_still_shares(tmp_path, unsteady, monkeypatch):
+    import errno
+    import fcntl
+
+    study = _study(tmp_path / "study")
+
+    def no_locks(*_args, **_kwargs):
+        raise OSError(errno.ENOSYS, "Function not implemented")
+
+    monkeypatch.setattr(fcntl, "flock", no_locks)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+
+
+def test_an_earlier_release_s_part_way_draft_gets_what_it_lacks_after_a_failed_write(
+        tmp_path, unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.meta[7] = {"title": ""}
+    _as_2_6_0_kept_it(study)
+    unsteady.faults = {"PUT metadata": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7].get("creators") and unsteady.meta[7].get("keywords")
