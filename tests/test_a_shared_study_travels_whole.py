@@ -134,6 +134,8 @@ class _Unsteady(_Zenodo):
             type(self).gone.clear()
             if 7 in type(self).uploaded_to:
                 type(self).uploaded_to[8] = type(self).uploaded_to[7]
+            if 7 in type(self).files_of:
+                type(self).files_of[8] = [dict(f) for f in type(self).files_of[7]]
             if type(self).meta is not None:
                 # As Zenodo begins one: the latest version's description.
                 type(self).meta[8] = {k: v for k, v in type(self).meta.get(7, {}).items()
@@ -182,6 +184,12 @@ class _Unsteady(_Zenodo):
         if isinstance(fault, int):
             type(self).calls.append(("DELETE", self.path, self.headers.get("Authorization")))
             return self._status(fault)
+        # A file a test lists, taken away (as Zenodo takes it).
+        if "/files/" in self.path:
+            number, _, gone = self.path.split("/")[-3:]
+            for listed in (type(self).files, type(self).files_of.get(int(number))):
+                if listed is not None:
+                    listed[:] = [f for f in listed if str(f.get("id")) != gone]
         return super().do_DELETE()
 
     def do_PUT(self):  # noqa: N802
@@ -220,6 +228,11 @@ class _Unsteady(_Zenodo):
             for entry in listed:
                 if entry.get("filename") == name and "checksum" in entry:
                     entry["checksum"] = sent
+            # And one a test lists the draft's files by now holds it.
+            for holding in (type(self).files, type(self).files_of.get(
+                    int(bucket.lstrip("b")))):
+                if holding is not None and name not in {f.get("filename") for f in holding}:
+                    holding.append({"id": f"up-{name}", "filename": name})
             return None
         return super().do_PUT()
 
@@ -2144,7 +2157,8 @@ def test_an_empty_answer_to_the_description_leaves_it_the_study_s(tmp_path, unst
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     _analysed_again(study, "Words of the second share.")
     real = _empty_answer_to(monkeypatch, "PUT", "/api/deposit/depositions/7")
-    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    # Not known to be written: said so, to share again.
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     monkeypatch.setattr(zenodo, "_call", real)
     report = study / "report" / "report.md"
     report.write_text(report.read_text().replace("Words of the second share.",
@@ -3178,3 +3192,52 @@ def test_an_earlier_release_s_part_way_draft_gets_what_it_lacks_after_a_failed_w
     unsteady.faults = {}
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert unsteady.meta[7].get("creators") and unsteady.meta[7].get("keywords")
+
+
+def test_an_upload_answered_but_not_kept_is_not_said_done(tmp_path, unsteady, monkeypatch,
+                                                         capsys):
+    """Hands-on review of the twenty-ninth commit: an upload answered with
+    nothing, the file not kept, was taken as done and the draft said made."""
+    study = _study(tmp_path / "study")
+    _empty_answer_to(monkeypatch, "PUT", "/files/b7/shared.zip", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "does not hold it" in capsys.readouterr().err
+
+
+def test_an_archive_zenodo_said_it_took_away_and_did_not_is_said(tmp_path, unsteady,
+                                                                 monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.files = [{"id": "a", "filename": "a.zip"}]
+    _empty_answer_to(monkeypatch, "DELETE", "/files/a", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    assert "still holds a.zip" in capsys.readouterr().err
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["stale"] == [
+        "a.zip"]
+
+
+def test_a_description_answered_with_nothing_is_not_said_done(tmp_path, unsteady,
+                                                             monkeypatch, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _analysed_again(study, "Words of the second share.")
+    _empty_answer_to(monkeypatch, "PUT", "/api/deposit/depositions/7", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr()
+    assert "Draft made" not in said.out and "perhaps not yet written" in said.err
+
+
+def test_an_empty_answer_to_beginning_a_version_is_not_said_begun(tmp_path, unsteady,
+                                                                 monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    _empty_answer_to(monkeypatch, "POST", "/actions/newversion", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "Zenodo began the new version" not in said and "may have begun" in said

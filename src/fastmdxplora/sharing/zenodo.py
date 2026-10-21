@@ -1126,6 +1126,25 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                         and name != archive.name and name not in lagging
                         and name not in (_names(deposition) - {e.get("filename") or e.get("key")
                                                                for e in stale}))
+        if archive.name not in _names(again):
+            # Answered as kept, and not there: not kept.
+            lost = ShareRefused(
+                f"Zenodo answered the upload of {archive.name} but the draft {page} does not "
+                "hold it.", code="environment.service.unreachable", url=page)
+            lost.later = True
+            raise lost
+        if lagging:
+            # Asked to take them away, answered so, and still there: the study's
+            # still, to be taken away at the next share.
+            kept[site]["stale"] = sorted(lagging)
+            _keep(study, kept)
+            still = ShareRefused(
+                f"The draft {page} still holds {', '.join(sorted(lagging))}, which Zenodo was "
+                "asked to take away and said it had; a record of two archives opens as "
+                "neither. Share again before you publish, and it is taken away.",
+                code="environment.service.unreachable", url=page)
+            still.whole = still.later = True
+            raise still
         if now_sums.get(archive.name) == sent_md5:
             # Held as sent: the one checksum of that name the study need know.
             kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
@@ -1179,6 +1198,14 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
             described = True
+            if not (isinstance(answer, dict) and isinstance(answer.get("metadata"), dict)):
+                # Not said: whether it was written is not known.
+                unsaid = ShareRefused(
+                    f"Zenodo's answer to describing the draft {page} said nothing of it.",
+                    code="environment.service.unreachable", url=page)
+                unsaid.later = unsaid.unclear = True
+                described = False
+                raise unsaid
             if isinstance(answer, dict) and isinstance(answer.get("metadata"), dict):
                 kept[site]["written"] = _written(answer["metadata"])
                 if by_earlier:
@@ -1366,11 +1393,15 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
         asked = True
         newer = _call("POST", f"{depositions}/{published}/actions/newversion", token=token,
                       said=said)
-        answered = True
+        # Answered as Zenodo answers: begun. An empty answer may be either.
+        answered = isinstance(newer, dict) and bool(newer)
         latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
         if not latest:
-            raise ShareRefused("Zenodo named no draft of the new version it began.",
-                               code="environment.service.unreachable")
+            unnamed = ShareRefused("Zenodo's answer to beginning a new version named no "
+                                   "draft of it.", code="environment.service.unreachable")
+            # It may have begun one, or not.
+            unnamed.unclear = unnamed.later = True
+            raise unnamed
         deposition = _call("GET", latest, token=token, said=said)
         if not isinstance(deposition, dict):
             raise ShareRefused(f"Zenodo's answer for {latest} was no draft.",
