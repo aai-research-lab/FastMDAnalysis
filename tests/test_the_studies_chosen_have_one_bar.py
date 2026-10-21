@@ -341,8 +341,8 @@ def test_the_bar_leaves_the_last_row_in_view(tmp_path, width):
             page.locator("#studies-table tbody tr.studies-row .studies-pick input").first.click()
             page.wait_for_selector("#studies-bar-in:not([hidden])")
             # As far down as the page goes.
-            page.evaluate("""() => { document.querySelectorAll('.main, html')
-                .forEach((n) => { n.scrollTop = n.scrollHeight; }); }""")
+            page.evaluate("""() => { document.querySelectorAll('*').forEach((n) => {
+                if (n.scrollHeight > n.clientHeight + 1) n.scrollTop = n.scrollHeight; }); }""")
             page.wait_for_timeout(300)
             seen = page.evaluate(look)
             browser.close()

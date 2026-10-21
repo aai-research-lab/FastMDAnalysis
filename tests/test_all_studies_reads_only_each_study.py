@@ -302,6 +302,10 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
             page.evaluate(f"() => window.FastMDXStudies.load({str(space)!r})")
             page.wait_for_selector('#studies-table tr.studies-row[data-path$="/linked"]')
             linked = page.evaluate(look, "linked")
+            # Every record not read, and why, opened from the row.
+            page.click('#studies-table tr.studies-row[data-path$="/linked"] .studies-not-read')
+            linked["why"] = page.inner_text(".studies-means-pop")
+            page.keyboard.press("Escape")
             hidden = page.evaluate(look, "hidden")
             own = page.evaluate(look, "own")
             # Its runs unfolded: not read where its `runs` leads out of it.

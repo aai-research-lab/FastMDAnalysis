@@ -5,6 +5,12 @@
 /* A list wants the width a table needs, as New study's form does. */
 html[data-page="studies"] .page-shell { max-width: 1280px; }
 
+/* The count of studies kept whole beside the page's title, the folder
+   they are in shortened. */
+#studies-where:has(.studies-where-n) { display: inline-flex; min-width: 0; max-width: 100%; }
+.studies-where-n { flex: none; white-space: nowrap; }
+.studies-where-in { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Views. */
 .studies-views { display: flex; align-items: flex-end; gap: 2px; margin: 4px 0 10px; overflow-x: auto;
     border-bottom: 1px solid var(--border-subtle); scrollbar-width: none; }
@@ -61,8 +67,10 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-row-tag { font-size: var(--text-2xs); padding: 0 6px; }
 /* Records of a study not read (a link out of it, a hidden file): named
  * under its name, the why on hover; never a value taken from their absence. */
-.studies-not-read, .study-not-read { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: var(--status-waiting); }
+.studies-not-read, .study-not-read { display: block; max-width: 100%; padding: 0; border: 0; background: transparent;
+    font: inherit; text-align: left; white-space: normal; overflow-wrap: anywhere; cursor: pointer;
+    color: var(--status-waiting); text-decoration: underline dotted; text-underline-offset: 2px; }
+.studies-not-read-said { margin: 0 0 8px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .studies-means-unread { white-space: nowrap; }
 .studies-fold { flex: none; width: 18px; height: 18px; border: 0; padding: 0; background: transparent; color: var(--text-muted);
     cursor: pointer; font-size: 11px; line-height: 18px; border-radius: 4px; }
@@ -104,24 +112,50 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-group b { color: var(--text-secondary); font-weight: 600; }
 .studies-table.is-compact td { padding-top: 4px; padding-bottom: 4px; }
 
-/* A column narrower than the table wants (the side panel open on a
-   laptop): Active, said again in the card, left out, and the means and
-   the time left wrapped rather than pushed past the edge. */
+/* A column narrower than the table wants (studies.js `fitTheList`), given
+   way to in turn: Active (said under the name), the molecule, the name and
+   the means made narrow (a mean's value under its name), System (said
+   under the name), the name narrower still, Open, Tag and Files over the
+   row's end; each study in lines only where even then it does not fit,
+   and in a window under 1000 px. */
 .studies-table-wrap { container: studies-list / inline-size; }
-@container studies-list (width < 1000px) {
-    .studies-table .studies-th-active, .studies-table td.studies-active { display: none; }
-    .studies-name { min-width: 120px; max-width: 160px; }
-    .studies-table td.studies-acts { padding-left: 4px; padding-right: 6px; }
-    .studies-table .studies-actions { gap: 0; }
-    .studies-means { min-width: 0; }
-    .studies-mean-item { display: block; white-space: normal; }
-    .studies-mean-item .studies-mean-dot { margin-right: 5px; }
-    .studies-mean-item .studies-mean-k { margin-right: 5px; }
-    .studies-mean-n { white-space: nowrap; }
-    .studies-means-sort { max-width: 6.5em; }
-    .studies-state-more { white-space: normal; }
-    .studies-progress { width: 100%; max-width: 120px; }
-}
+.studies-also { display: none; gap: 8px; }
+.studies-also > span { display: none; }
+.studies-table-wrap:is(.drop-active, .drop-system, .is-lines) .studies-also { display: flex; flex-wrap: wrap; }
+.studies-table-wrap:is(.drop-active, .is-lines) .studies-active-said,
+.studies-table-wrap.drop-system:not(.is-lines) .studies-system-said { display: inline; }
+.studies-table-wrap.drop-active .studies-th-active, .studies-table-wrap.drop-active td.studies-active,
+.studies-table-wrap.drop-mol .studies-th-mol, .studies-table-wrap.drop-mol td.studies-mol,
+.studies-table-wrap.drop-system .studies-th-system, .studies-table-wrap.drop-system td.studies-system { display: none; }
+.studies-table-wrap.is-tight .studies-name { min-width: 120px; max-width: 200px; }
+.studies-table-wrap.is-tight td.studies-acts { padding-left: 4px; padding-right: 6px; }
+.studies-table-wrap.is-tight .studies-actions { gap: 0; }
+/* Last before lines: Open, Tag and Files over the row's end, on hover or
+   with the keyboard on the row, rather than a column of their own. */
+.studies-table-wrap.acts-over:not(.is-lines) tr.studies-row { position: relative; }
+.studies-table-wrap.acts-over:not(.is-lines) td.studies-acts,
+.studies-table-wrap.acts-over:not(.is-lines) th.studies-th-acts { width: 0; padding: 0; }
+.studies-table-wrap.acts-over:not(.is-lines) .studies-acts .studies-actions { position: absolute; right: 6px; top: 50%;
+    transform: translateY(-50%); padding: 2px; border-radius: 8px;
+    background: var(--background-elevated); box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.studies-table-wrap.acts-over:not(.is-lines) tr.studies-row:not(:hover):not(:focus-within) .studies-actions {
+    visibility: hidden; }
+.studies-table-wrap.is-tight .studies-means { min-width: 0; flex-direction: column; gap: 3px; }
+.studies-table-wrap.is-tight .studies-mean-item { display: grid; grid-template-columns: 12px auto; white-space: normal; }
+.studies-table-wrap.is-tight .studies-mean-v { grid-column: 2; }
+.studies-table-wrap.is-tight .studies-mean-n { white-space: nowrap; }
+.studies-table-wrap.is-tight .studies-means-sort { max-width: 6.5em; }
+.studies-table-wrap.is-tight .studies-state-more { white-space: normal; }
+.studies-table-wrap.is-tight .studies-progress { width: 100%; max-width: 120px; }
+.studies-table-wrap.is-narrow:not(.is-lines) .studies-name { min-width: 100px; max-width: 150px; }
+.studies-table-wrap.is-narrow:not(.is-lines) .studies-progress { max-width: 80px; }
+/* What the head does, where the rows are lines and it is not shown. */
+.studies-lines-tools { display: none; align-items: center; gap: 6px; }
+.page[data-page="studies"].has-lines .studies-lines-tools { display: inline-flex; }
+.studies-sort-select { height: 28px; border-radius: 8px; border: 1px solid var(--border-primary); background: var(--panel-glass);
+    color: var(--text-primary); font: inherit; font-size: var(--text-xs); padding: 0 6px; max-width: 14em; }
+.studies-sort-way { height: 28px; min-width: 28px; border-radius: 8px; border: 1px solid var(--border-primary);
+    background: transparent; color: var(--text-primary); cursor: pointer; }
 .studies-table.is-compact .studies-kind, .studies-table.is-compact .studies-state-more,
 .studies-table.is-compact .studies-length-each { display: none; }
 .studies-table.is-compact .studies-mol-frame { height: 26px; }
@@ -171,7 +205,8 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-table-wrap.is-lines .studies-table, .studies-table-wrap.is-lines .studies-table tbody { display: block; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row { display: grid;
     grid-template-columns: 26px 64px minmax(0, 1fr) auto;
-    grid-template-areas: "pick mol name state" "pick mol sys len" "pick mol means means"; align-items: center;
+    grid-template-areas: "pick mol name state" "pick mol sys len" "pick mol means means" "pick mol acts acts";
+    align-items: center;
     column-gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); }
 .studies-table-wrap.is-lines .studies-table tr.studies-row td { display: block; padding: 0; border: 0;
     white-space: normal; position: static; box-shadow: none; background: transparent; }
@@ -189,10 +224,14 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
     margin-top: 2px; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row .studies-means { flex-direction: column; gap: 2px; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row .studies-means > * { overflow-wrap: anywhere; }
-.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-active,
-.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-acts { display: none; }
+/* Active is said under the name; Open, Tag and Files on a last line;
+   how far a run going has got and its time left under its state. */
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-active { display: none; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-acts { grid-area: acts; justify-self: end;
+    width: auto; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-acts .studies-actions { opacity: 1; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row .studies-progress { width: 80px; }
-.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-more { display: none; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-more { white-space: normal; text-align: right; }
 .studies-table-wrap.is-lines .studies-means { min-width: 0; }
 .studies-table-wrap.is-lines .studies-table tr.studies-group,
 .studies-table-wrap.is-lines .studies-table tr.studies-editing,

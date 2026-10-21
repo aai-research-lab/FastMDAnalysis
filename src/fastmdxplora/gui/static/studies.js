@@ -410,11 +410,18 @@
     return (study.unread || []).indexOf(part) >= 0;
   }
 
-  /* The records of a study not read, named, the why on hover. */
+  /* The records of a study not read: the first two named, and how many
+   * more, on a button that opens them all with why (a click, a tap or the
+   * keyboard). It wraps under the name; it was cut, and its whole only on
+   * hover. */
   function notReadShown(study, cls) {
-    var said = make("span", cls, "Not read: " + (study.unavailable || []).join(", "));
-    said.title = study.not_read || "";
-    if (!(study.unavailable || []).length) said.textContent = study.not_read || "Not read";
+    var names = study.unavailable || [];
+    var said = make("button", cls, names.length ? "Not read: " + names.slice(0, 2).join(", ") +
+      (names.length > 2 ? " and " + (names.length - 2) + " more" : "") : "Not read");
+    said.type = "button";
+    said.setAttribute("aria-haspopup", "dialog");
+    said.title = "What was not read, and why";
+    said.addEventListener("click", function () { openNotRead(study, said); });
     return said;
   }
 
@@ -492,14 +499,56 @@
     return dd;
   }
 
-  function openMeans(study, anchor) {
-    var wasFor = popover && popover.dataset.path === study.path;
+  /* A popover by what opened it, placed under it (or over it where there
+   * is no room): the keyboard taken into it, Tab kept within it, and
+   * Escape giving it back to what opened it. ``key`` tells one from
+   * another: the same opened again closes it. */
+  function openPop(anchor, key, label, fill, backTo) {
+    var wasFor = popover && popover.dataset.key === key;
     closeMeans();
-    if (wasFor) return;
+    if (wasFor) return null;
     var box = make("div", "studies-means-pop");
-    box.dataset.path = study.path;
+    box.dataset.key = key;
+    box.tabIndex = -1;
     box.setAttribute("role", "dialog");
-    box.setAttribute("aria-label", "Every mean " + study.name + " recorded");
+    box.setAttribute("aria-label", label);
+    fill(box);
+    document.body.appendChild(box);
+    var r = anchor.getBoundingClientRect();
+    var w = box.offsetWidth, h = box.offsetHeight;
+    var left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    var top = r.bottom + 6 + h > window.innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6;
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+    popover = box;
+    popoverAt = { anchor: anchor, back: backTo || anchor, top: r.top, left: r.left };
+    box.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMeans();
+        (backTo || anchor).focus({ preventScroll: true });
+      } else if (event.key === "Tab") {
+        var stops = Array.prototype.filter.call(box.querySelectorAll("summary, button, a[href]"),
+          function (n) { return n.getClientRects().length; });
+        if (!stops.length) { event.preventDefault(); return; }
+        var at = stops.indexOf(document.activeElement);
+        event.preventDefault();
+        stops[(at + (event.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
+      }
+    });
+    var first = box.querySelector("summary, button, a[href]");
+    (first || box).focus({ preventScroll: true });
+    return box;
+  }
+
+  function openMeans(study, anchor, backTo) {
+    openPop(anchor, "means:" + study.path, "Every mean " + study.name + " recorded", function (box) {
+      fillMeans(box, study);
+    }, backTo);
+  }
+
+  function fillMeans(box, study) {
     box.appendChild(make("div", "studies-means-pop-head", study.name + ": every mean recorded"));
     var list = make("dl", "studies-means-pop-list");
     (study.means || []).forEach(function (m) {
@@ -510,15 +559,19 @@
     });
     box.appendChild(list);
     box.appendChild(make("div", "muted small", "A filled dot is a mean determined with its error; a ring, one not yet."));
-    document.body.appendChild(box);
-    var r = anchor.getBoundingClientRect();
-    var w = box.offsetWidth, h = box.offsetHeight;
-    var left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-    var top = r.bottom + 6 + h > window.innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6;
-    box.style.left = left + "px";
-    box.style.top = top + "px";
-    popover = box;
-    popoverAt = { anchor: anchor, top: r.top, left: r.left };
+  }
+
+  /* Every record of a study not read, and why: opened from its line under
+   * the study's name, by pointer, tap or keyboard. */
+  function openNotRead(study, anchor) {
+    openPop(anchor, "unread:" + study.path, "What of " + study.name + " was not read", function (box) {
+      box.appendChild(make("div", "studies-means-pop-head", study.name + ": not read"));
+      box.appendChild(make("p", "studies-not-read-said", study.not_read || ""));
+      var close = make("button", "studies-bar-btn", "Close");
+      close.type = "button";
+      close.addEventListener("click", function () { closeMeans(); anchor.focus({ preventScroll: true }); });
+      box.appendChild(close);
+    });
   }
 
   /* Closed once the page moves under it: not by a scroll that put its
@@ -532,7 +585,8 @@
   }
 
   document.addEventListener("click", function (event) {
-    if (popover && !popover.contains(event.target) && !event.target.closest(".studies-means-more")) closeMeans();
+    if (popover && !popover.contains(event.target) &&
+        !event.target.closest(".studies-means-more, .studies-not-read, .study-not-read")) closeMeans();
   });
   document.addEventListener("scroll", movedUnder, true);
 
@@ -922,6 +976,13 @@
     if (study.note) sub.push(study.note);
     sub = sub.filter(Boolean);
     if (sub.length) name.appendChild(make("span", "studies-kind muted small", sub.join(" · ")));
+    // Its system and when it was last active, said here where their
+    // columns give way to a narrow page (studies-table.css).
+    var also = make("span", "studies-also muted small");
+    if (shownId(study)) also.appendChild(make("span", "studies-system-said mono", shownId(study)));
+    var lastActive = timeSaid(study.last_active || study.when);
+    if (lastActive) also.appendChild(make("span", "studies-active-said", "active " + lastActive));
+    if (also.childNodes.length) name.appendChild(also);
     if (study.not_read) name.appendChild(notReadShown(study, "studies-not-read small"));
     tr.appendChild(name);
     tr.appendChild(cell("studies-state", stateShown(study)));
@@ -1284,6 +1345,52 @@
     return host;
   }
 
+  /* What the table's head does, where the rows are lines and the head is
+   * not shown (studies-table.css shows these then): the sort, by a column
+   * or a mean, and choosing every study shown. */
+  function linesTools() {
+    var host = make("span", "studies-lines-tools");
+    if (!beyondLoopback()) {
+      var all = make("label", "studies-chip-item studies-pick-all-lines");
+      var box = make("input", "studies-pick-all");
+      box.type = "checkbox";
+      box.addEventListener("click", function () { chooseEveryShown(box.checked); });
+      all.append(box, document.createTextNode(" All shown"));
+      all.title = "Choose every study shown";
+      host.appendChild(all);
+    }
+    var by = make("select", "studies-sort-select");
+    by.setAttribute("aria-label", "Sort the studies by");
+    [["active", "Active"], ["name", "Name"], ["state", "State"], ["system", "System"],
+     ["length", "Simulated"]].concat(meanNames(filtered()).map(function (n) { return ["mean:" + n, "Mean of " + n]; }))
+      .forEach(function (o) {
+        var option = make("option", "", "Sort: " + o[1]);
+        option.value = o[0];
+        option.selected = sortBy.key === o[0];
+        by.appendChild(option);
+      });
+    by.addEventListener("change", function () {
+      var first = by.value === "when" || by.value === "active" || by.value === "length";
+      sortBy = { key: by.value, down: first };
+      if (by.value.indexOf("mean:") === 0) meanSort = by.value.slice(5);
+      draw();
+      var again = document.querySelector(".studies-sort-select");
+      if (again) again.focus();
+    });
+    var way = make("button", "studies-sort-way", sortBy.down ? "\u2193" : "\u2191");
+    way.type = "button";
+    way.setAttribute("aria-label", sortBy.down ? "Largest first; sort smallest first" : "Smallest first; sort largest first");
+    way.title = way.getAttribute("aria-label");
+    way.addEventListener("click", function () {
+      sortBy = { key: sortBy.key, down: !sortBy.down };
+      draw();
+      var again = document.querySelector(".studies-sort-way");
+      if (again) again.focus();
+    });
+    host.append(by, way);
+    return host;
+  }
+
   function drawFilters() {
     var host = el("studies-filters");
     if (!host) return;
@@ -1313,6 +1420,7 @@
       host.appendChild(tags);
     }
     host.appendChild(make("span", "studies-filters-gap"));
+    if (view === "table") host.appendChild(linesTools());
     if (view === "table") {
       var g = make("label", "studies-group-by muted small", "Group by ");
       var select = make("select", "studies-group-select");
@@ -1387,7 +1495,12 @@
     var target = event.target;
     var typing = target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) &&
       !(target.type === "checkbox");
-    if (event.key === "Escape" && popover) { closeMeans(); return; }
+    if (event.key === "Escape" && popover) {
+      var back = popoverAt && popoverAt.back;
+      closeMeans();
+      if (back && document.body.contains(back)) back.focus({ preventScroll: true });
+      return;
+    }
     if (typing) {
       if (event.key === "Escape" && target === el("studies-search") && target.value) {
         target.value = "";
@@ -1434,7 +1547,7 @@
         }, null);
       if (study && (study.means || []).length) {
         event.preventDefault();
-        openMeans(study, here.querySelector(".studies-means") || here);
+        openMeans(study, here.querySelector(".studies-means") || here, document.activeElement);
       }
     }
   });
@@ -1460,10 +1573,28 @@
    * Agent beside, on a laptop, and a phone. The table is measured as it
    * would be laid out, what it holds and the column's width together; it
    * ran past its edge, its means and buttons under a sideways scroll. */
+  /* Given way to in turn where the column cannot hold the table: Active
+   * (said under the name), the molecule, the name and means made narrow,
+   * System (said under the name), the name narrower still, Open, Tag and
+   * Files over the row's end; lines only where even then it does not
+   * fit, and in a window under 1000 px. */
+  var GIVING_WAY = ["drop-active", "drop-mol", "is-tight", "drop-system", "is-narrow", "acts-over",
+                    "is-lines"];
+
+  var LINES_UNDER = 1000;
+
   function fitTheList(wrap) {
     if (!wrap || wrap.hidden) return;
-    wrap.classList.remove("is-lines");
-    if (wrap.scrollWidth > wrap.clientWidth + 1) wrap.classList.add("is-lines");
+    GIVING_WAY.forEach(function (step) { wrap.classList.remove(step); });
+    if (window.innerWidth < LINES_UNDER) {
+      // A small window, a phone: lines, as a phone reads a list.
+      GIVING_WAY.forEach(function (step) { wrap.classList.add(step); });
+    }
+    for (var k = 0; k < GIVING_WAY.length && wrap.scrollWidth > wrap.clientWidth + 1; k += 1) {
+      wrap.classList.add(GIVING_WAY[k]);
+    }
+    var page = document.querySelector('.page[data-page="studies"]');
+    if (page) page.classList.toggle("has-lines", wrap.classList.contains("is-lines"));
     if (!wrap.dataset.fitted && window.ResizeObserver) {
       wrap.dataset.fitted = "1";
       var width = wrap.clientWidth;
@@ -1613,13 +1744,13 @@
       var holder = b.closest(".studies-row, .study-card");
       if (holder) holder.classList.toggle("is-chosen", b.checked);
     });
-    var head = document.querySelector("#studies-table thead .studies-pick-all");
-    if (head) {
-      var paths = boxesShown().map(function (b) { return b.dataset.path; });
-      var on = paths.filter(function (p) { return chosen.indexOf(p) >= 0; }).length;
-      head.checked = paths.length > 0 && on === paths.length;
-      head.indeterminate = on > 0 && on < paths.length;
-    }
+    var shownPaths = boxesShown().map(function (b) { return b.dataset.path; });
+    var onShown = shownPaths.filter(function (p) { return chosen.indexOf(p) >= 0; }).length;
+    Array.prototype.forEach.call(document.querySelectorAll(
+      "#studies-table thead .studies-pick-all, .studies-pick-all-lines .studies-pick-all"), function (head) {
+      head.checked = shownPaths.length > 0 && onShown === shownPaths.length;
+      head.indeterminate = onShown > 0 && onShown < shownPaths.length;
+    });
     var table = el("studies-table");
     if (table) table.classList.toggle("is-choosing", chosen.length > 0);
     drawBar();
@@ -1994,9 +2125,15 @@
         chosen = chosen.filter(function (path) {
           return studies.some(function (s) { return s.path === path; });
         });
-        el("studies-where").textContent = studies.length + " stud" +
-          (studies.length === 1 ? "y" : "ies") + " in " + data.root +
-          (data.more ? ", the newest first; there are more than this shows." : ".");
+        // The count kept whole, the folder shortened where the head is
+        // narrow (the Agent beside): the count was what was cut.
+        var where = el("studies-where");
+        var count = make("span", "studies-where-n", studies.length + " stud" +
+          (studies.length === 1 ? "y" : "ies"));
+        var folder = make("span", "studies-where-in", "\u00a0in " + data.root +
+          (data.more ? ", the newest first; there are more than this shows." : "."));
+        where.title = count.textContent + folder.textContent;
+        where.replaceChildren(count, folder);
         draw();
       })
       .catch(function () {

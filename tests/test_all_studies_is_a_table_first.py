@@ -401,6 +401,12 @@ def test_why_a_mean_is_not_determined_is_reached_from_the_keyboard(tmp_path):
     replicas = _replicas(tmp_path / "chignolin")
     _members(replicas, [0.10, 0.12, 0.14], short=("seed2",))
     _study(tmp_path / "helix", means={"rmsd": (0.05, 0.01)})
+    short = _study(tmp_path / "short", means={"rmsd": (0.05, 0.01)})
+    options = short / "analysis" / "rmsd" / "options.json"
+    record = json.loads(options.read_text())
+    record["findings"]["mean"]["not_a_measurement"] = (
+        "Too short against its correlation time. It needs 40 ps more. Run it on.")
+    options.write_text(json.dumps(record))
     session = start_dashboard_session(output=str(tmp_path / "helix"), host="127.0.0.1", port=0)
     try:
         with sync_playwright() as pw:
@@ -423,21 +429,45 @@ def test_why_a_mean_is_not_determined_is_reached_from_the_keyboard(tmp_path):
             page.keyboard.press("Enter")
             page.wait_for_selector(".studies-means-pop")
             said = page.inner_text(".studies-means-pop")
+            page.keyboard.press("Escape")
+            # A reason of more than one sentence: the keyboard in it, on its
+            # first sentence; Enter opens the rest; Tab stays in it; Escape
+            # gives it back to "why".
+            page.focus('#studies-table tr.studies-row[data-path$="/short"] .studies-means-more')
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".studies-means-pop")
+            inside = page.evaluate("() => document.activeElement.tagName")
+            page.keyboard.press("Enter")
+            rest = page.evaluate("() => document.querySelector('.studies-means-pop details').open")
+            page.keyboard.press("Tab")
+            kept = page.evaluate("() => !!document.activeElement.closest('.studies-means-pop')")
+            page.keyboard.press("Escape")
+            back = page.evaluate("() => document.activeElement.className")
             browser.close()
     finally:
         session.server.shutdown()
     assert errors == []
     assert offered == 1 and determined == 0
+    assert inside == "SUMMARY" and rest is True and kept is True
+    assert back == "studies-means-more"
     assert "did not determine its own mean" in said
 
 
-@pytest.mark.parametrize("width, beside", [(1920, False), (1440, False), (1250, True),
-                                           (900, False), (390, False)])
-def test_no_row_runs_past_the_list_in_a_narrow_column(tmp_path, width, beside):
-    """In a column too narrow for the table (the side panel open at 1440,
-    the Agent beside at about 1250, a window of 900) it ran past its edge,
-    its means and buttons under a sideways scroll: there, as on a phone,
-    each study is two or three lines."""
+@pytest.mark.parametrize("width, beside, panel, rows", [
+    (1920, False, None, "table-row"), (1440, False, "open", "table-row"),
+    (1440, False, "folded", "table-row"), (1250, True, None, "table-row"),
+    (900, False, None, "grid"), (390, False, None, "grid")])
+def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside, panel, rows):
+    """The table ran past its column, its means and buttons under a
+    sideways scroll; then it was lines at every width a laptop has, which
+    left out the sort, the head's choose-all, Active, a run's time left and
+    the row's Open, Tag and Files. Columns now give way in turn (Active and
+    the molecule first, said under the name), the table kept at 1440 with
+    the side panel open or folded and at about 1250 with the Agent beside,
+    lines only in a window under about 1000, and lines keep all of it. A
+    long "Not read" list made every width lines and was cut; it wraps, and
+    its whole opens from it by keyboard or tap. The count of studies, cut
+    beside the title at 1250, is kept whole."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -447,6 +477,14 @@ def test_no_row_runs_past_the_list_in_a_narrow_column(tmp_path, width, beside):
            means={"rmsd": (0.0074123, 0.00071), "rg": (0.313961, 0.00096), "sasa": (12.0, 0.1)})
     _live(_study(tmp_path / "going", system="1UAO", started="2026-09-02T10:00:00+00:00"))
     _members(_replicas(tmp_path / "chignolin"), [0.10, 0.12, 0.14], short=("seed2",))
+    linked = _study(tmp_path / "a_study_with_a_long_name_linked_out", started="2026-09-04T10:00:00+00:00",
+                    means={n: (1.0, 0.01) for n in ("rmsd", "rg", "sasa", "hbonds", "end_to_end")})
+    outside = tmp_path.parent / (tmp_path.name + "_outside")
+    for path in sorted(p for p in linked.rglob("*") if p.is_file()):
+        target = outside / path.relative_to(linked)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        path.rename(target)
+        path.symlink_to(target)
     session = start_dashboard_session(output=str(tmp_path / "helix"), host="127.0.0.1", port=0)
     look = """() => {
         const wrap = document.getElementById('studies-table-wrap');
@@ -455,10 +493,23 @@ def test_no_row_runs_past_the_list_in_a_narrow_column(tmp_path, width, beside):
             const r = n.getBoundingClientRect();
             return r.width > 0 && r.right > edge + 1;
         }).map((n) => n.className);
+        const shown = (n) => !!n && n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
+        const going = document.querySelector('#studies-table tr.studies-row[data-path$="/going"]');
+        const helix = document.querySelector('#studies-table tr.studies-row[data-path$="/helix"]');
+        const count = document.querySelector('.studies-where-n');
         return {over: wrap.scrollWidth - wrap.clientWidth, past: past.slice(0, 4),
-                column: Math.round(wrap.getBoundingClientRect().width),
                 rows: getComputedStyle(wrap.querySelector('tr.studies-row')).display,
-                page: document.documentElement.scrollWidth - innerWidth};
+                page: document.documentElement.scrollWidth - innerWidth,
+                sort: shown(document.querySelector('#studies-table thead .studies-sort'))
+                    || shown(document.querySelector('.studies-sort-select')),
+                all: shown(document.querySelector('#studies-table thead .studies-pick-all'))
+                    || shown(document.querySelector('.studies-pick-all-lines')),
+                left: shown(going.querySelector('.studies-state-more'))
+                    ? going.querySelector('.studies-state-more').textContent : '',
+                active: shown(helix.querySelector('td.studies-active'))
+                    || shown(helix.querySelector('.studies-active-said')),
+                count: [count.textContent, count.scrollWidth <= count.clientWidth + 1,
+                        count.getBoundingClientRect().width > 0]};
     }"""
     try:
         with sync_playwright() as pw:
@@ -474,22 +525,33 @@ def test_no_row_runs_past_the_list_in_a_narrow_column(tmp_path, width, beside):
             if beside:
                 page.click("#agent-beside-open")
                 page.locator("#agent-drawer").wait_for()
-                page.wait_for_timeout(400)
-            elif width == 1440 and page.is_visible("#side-expand"):
-                # The side panel open beside the page, as a laptop has it.
+            elif panel == "open" and page.is_visible("#side-expand"):
                 page.click("#side-expand")
-                page.wait_for_timeout(400)
+            elif panel == "folded" and page.is_visible("#side-collapse"):
+                page.click("#side-collapse")
+            page.wait_for_timeout(500)
             seen = page.evaluate(look)
+            # The records not read, every one with why, from the keyboard.
+            said = page.locator('tr.studies-row[data-path$="_linked_out"] .studies-not-read')
+            said.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".studies-means-pop")
+            opened = page.evaluate("""() => [document.querySelector('.studies-means-pop').innerText,
+                !!document.activeElement.closest('.studies-means-pop')]""")
+            page.keyboard.press("Escape")
+            back = page.evaluate("() => document.activeElement.classList.contains('studies-not-read')")
             browser.close()
     finally:
         session.server.shutdown()
     assert errors == []
     assert seen["over"] <= 0 and seen["past"] == [] and seen["page"] <= 0, seen
-    # A table where the column holds it; lines where it does not.
-    if width == 1920:
-        assert seen["rows"] == "table-row", seen
-    if width == 390:
-        assert seen["rows"] == "grid", seen
+    assert seen["rows"] == rows, seen
+    assert seen["sort"] and seen["all"] and seen["active"], seen
+    assert "8 ps of 20 ps" in seen["left"] and "left" in seen["left"], seen
+    assert seen["count"] == ["4 studies", True, True], seen
+    assert "analysis/sasa/options.json" in opened[0] and opened[1]
+    assert "a link to a file outside the study" in opened[0]
+    assert back
 
 
 def test_a_study_that_ran_is_not_said_not_started(tmp_path):
