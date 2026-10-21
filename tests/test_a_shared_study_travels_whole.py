@@ -2862,3 +2862,74 @@ def test_no_folder_made_to_open_into_is_left_on_a_full_disk(tmp_path, monkeypatc
     with pytest.raises(ShareRefused):
         opening.open_shared(str(tmp_path / "x.zip"), into=tmp_path / "a" / "b" / "c")
     assert not (tmp_path / "a").exists()
+
+
+def test_a_gateway_s_404_page_is_not_taken_for_a_draft_gone(tmp_path, unsteady,
+                                                           monkeypatch, capsys):
+    """Hands-on review of the twenty-fifth commit: a gateway's HTML 404 for
+    the study's draft was taken as the draft gone, and a second made."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = urllib.request.urlopen
+
+    def gateway(request, timeout=None):
+        if request.get_method() == "GET" and request.full_url.endswith("/depositions/7"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
+                                         io.BytesIO(b"<html>Not Found</html>"))
+        return real(request, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "share again once Zenodo answers" in capsys.readouterr().err
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+def test_an_archive_uploaded_after_many_failed_uploads_is_still_the_study_s(tmp_path,
+                                                                            unsteady):
+    study = _study(tmp_path / "study")
+    out = tmp_path / "shared.zip"
+    assert _share_to_zenodo(study, out) == 0
+    unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": _md5_of(out)}]
+    report = study / "report" / "report.md"
+    for n in range(11):
+        report.write_text(report.read_text() + f"\nNote {n}.\n")
+        unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+        assert _share_to_zenodo(study, out) == 2
+    unsteady.faults = {}
+    assert _share_to_zenodo(study, out) == 0
+
+
+def test_names_changed_on_an_earlier_release_s_draft_leave_its_words_the_study_s(
+        tmp_path, unsteady):
+    """Hands-on review of the twenty-fifth commit: names the person set on a
+    draft 2.6.0 shared, as the share advised, made its description theirs."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["creators"] = [{"name": "Aina, Adekunle"}, {"name": "New, Author"}]
+    _analysed_again(study, "Words of the next share.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next share." in unsteady.meta[7]["description"]
+    assert len(unsteady.meta[7]["creators"]) == 2
+
+
+def test_a_licence_removed_on_an_earlier_release_s_draft_stays_removed(tmp_path, unsteady,
+                                                                       capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7].update(license="", access_right="closed")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert not unsteady.meta[7].get("license")
+    assert "licence and access are kept" in capsys.readouterr().out
