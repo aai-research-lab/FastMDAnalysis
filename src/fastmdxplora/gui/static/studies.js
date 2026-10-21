@@ -197,10 +197,16 @@
       if (adding.value.trim()) add();
       save.disabled = true;
       var before = { tags: (study.tags || []).slice(), note: study.note || "" };
+      // The change, not the whole list: what was put on and taken off
+      // here, applied by the server to the tags as kept, so a tag an AI
+      // app or another window kept since this list was read stays.
+      var change = tagsChanged(before.tags, tags);
+      before.change = { add: change.remove, remove: change.add };
       fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: study.path, tags: tags, note: note.value })
+        body: JSON.stringify({ path: study.path, add: change.add, remove: change.remove,
+                               note: note.value })
       }).then(function (r) { return r.json(); }).then(function (d) {
         save.disabled = false;
         if (!d || !d.ok) {
@@ -242,6 +248,15 @@
     });
   }
 
+  /* What was put on (``add``) and taken off (``remove``) between two lists
+   * of tags, a tag whatever its case. */
+  function tagsChanged(was, now) {
+    var key = function (t) { return String(t).toLowerCase(); };
+    var had = was.map(key), has = now.map(key);
+    return { add: now.filter(function (t) { return had.indexOf(key(t)) < 0; }),
+             remove: was.filter(function (t) { return has.indexOf(key(t)) < 0; }) };
+  }
+
   function offerUndoOfTags(study, before) {
     var board = window.FastMDXDashboard;
     if (!board || !board.toast) return;
@@ -250,7 +265,8 @@
       return fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: study.path, tags: before.tags, note: before.note })
+        body: JSON.stringify({ path: study.path, add: before.change.add,
+                               remove: before.change.remove, note: before.note })
       }).then(function (r) { return r.json(); }).then(function (d) {
         if (!d || !d.ok) {
           board.toast((d && (d.reason || d.error)) || "It could not be undone.", "warning");
@@ -1625,6 +1641,11 @@
     archive.querySelector("span").textContent = undoing ? "Unarchive" : "Archive";
     archive.title = undoing ? "Show them in All studies again"
       : "Leave them out of All studies; nothing is moved or deleted, and Archived shows them";
+    // A run of a study unfolded is not archived alone (study_tags.py says
+    // the same): the study is.
+    var aRun = chosen.some(function (p) { return !studies.some(function (s) { return s.path === p; }); });
+    archive.disabled = aRun;
+    if (aRun) archive.title = "A run of a study is archived with its study: archive the study.";
     el("studies-tag-chosen").title = "Add or take off a tag on every study chosen (T)";
   }
 
@@ -1672,14 +1693,16 @@
     window.FastMDXCompare.open(chosen[0], chosen[1]);
   }
 
-  /* Tags of the studies chosen, kept one study at a time as a card's are
-   * (POST /api/study-tags; its note and whether it is archived kept). */
+  /* Tags of the studies chosen, changed one study at a time: what is put
+   * on and what is taken off, applied by the server to the tags as kept
+   * (POST /api/study-tags), so a tag kept since the list was read (an AI
+   * app, another window) stays; its note and whether it is archived kept. */
   function keepTags(list) {
     return Promise.all(list.map(function (one) {
       return fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: one.path, tags: one.tags })
+        body: JSON.stringify({ path: one.path, add: one.add, remove: one.remove })
       }).then(function (r) { return r.json(); }).then(function (d) {
         if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
         var study = studyAt(one.path);
@@ -1789,20 +1812,21 @@
     var apply = make("button", "studies-bar-btn is-primary", "Apply");
     apply.type = "button";
     apply.addEventListener("click", function () {
-      var before = picked.map(function (s) { return { path: s.path, tags: (s.tags || []).slice() }; });
+      // Each study's change: the tags ticked it lacks, the tags cleared it
+      // has. Undo is the change the other way.
       var after = picked.map(function (s) {
-        var tags = (s.tags || []).slice();
-        Object.keys(want).forEach(function (t) {
-          var at = tags.findIndex(function (x) { return x.toLowerCase() === t.toLowerCase(); });
-          if (want[t] === "on" && at < 0) tags.push(t);
-          if (want[t] === "off" && at >= 0) tags.splice(at, 1);
-        });
-        return { path: s.path, tags: tags };
-      }).filter(function (one, k) { return one.tags.join("\n") !== before[k].tags.join("\n"); });
+        var has = function (t) {
+          return (s.tags || []).some(function (x) { return x.toLowerCase() === t.toLowerCase(); });
+        };
+        var keys = Object.keys(want);
+        return { path: s.path,
+                 add: keys.filter(function (t) { return want[t] === "on" && !has(t); }),
+                 remove: keys.filter(function (t) { return want[t] === "off" && has(t); }) };
+      }).filter(function (one) { return one.add.length || one.remove.length; });
       closeTagger();
       if (!after.length) { barSays("Nothing changed."); return; }
       apply.disabled = true;
-      var was = before.filter(function (b) { return after.some(function (a) { return a.path === b.path; }); });
+      var was = after.map(function (one) { return { path: one.path, add: one.remove, remove: one.add }; });
       keepTags(after).then(function (results) {
         afterTags(results, "Tags changed on " + after.length + (after.length === 1 ? " study." : " studies."),
           function () {
@@ -1831,7 +1855,8 @@
       return fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path: one.path, tags: one.tags || [], archived: on })
+        // Archived alone: the tags as kept are not sent, nor touched.
+        body: JSON.stringify({ path: one.path, archived: on })
       }).then(function (r) { return r.json(); }).then(function (d) {
         if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
         // A server that does not pass "archived" on keeps the tags alone.

@@ -1816,7 +1816,7 @@ def make_handler(
             if path == "/api/study-tags":
                 # A study's tags and note, as the person set them on its card,
                 # kept in its folder beside its records (study_tags.py).
-                from fastmdxplora.study_tags import set_tags
+                from fastmdxplora.study_tags import change_tags, set_tags
 
                 named = self._path_for(str(payload.get("path") or ""))
                 if named is None:
@@ -1824,10 +1824,17 @@ def make_handler(
                 if not is_study(Path(named)):
                     self._send_json({"ok": False, "reason": f"{named} is not a study."})
                     return
-                # Archived or not where the page says (All studies' bar);
-                # left as it was otherwise.
-                self._send_json(set_tags(named, payload.get("tags"), payload.get("note"),
-                                         archived=payload.get("archived")))
+                # The page sends a change (tags added and taken off, archived
+                # or not), applied to the tags as kept: a tag kept since it
+                # read the study, by an AI app or another window, stays. A
+                # whole list given replaces them, as before.
+                if "tags" in payload:
+                    self._send_json(set_tags(named, payload.get("tags"), payload.get("note"),
+                                             archived=payload.get("archived")))
+                else:
+                    self._send_json(change_tags(named, payload.get("add"), payload.get("remove"),
+                                                payload.get("note"),
+                                                archived=payload.get("archived")))
                 return
             if path == "/api/movies":
                 # A movie of the study's frames started: ffmpeg on this

@@ -25,10 +25,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-__all__ = ["MOST_TAGS", "NOTE_LENGTH", "TAG_LENGTH", "TAGS_FILE", "add_tags", "set_tags",
-           "tags_of"]
+__all__ = ["MOST_TAGS", "NOTE_LENGTH", "TAG_LENGTH", "TAGS_FILE", "add_tags", "change_tags",
+           "set_tags", "tags_of"]
 
 TAGS_FILE = "study_tags.json"
+#: Why a run of a study of several is not archived alone: All studies
+#: lists its runs under the study, and leaves out the study it archives.
+A_RUN_IS_ARCHIVED_WITH_ITS_STUDY = ("A run of a study is archived with its study: "
+                                    "archive the study.")
 TAG_LENGTH = 40
 MOST_TAGS = 20
 NOTE_LENGTH = 200
@@ -97,6 +101,8 @@ def _write(folder: Path, tags: list[str], note: str,
 
     if not folder.is_dir() or not is_study(folder):
         return {"ok": False, "reason": f"{folder} is not a study."}
+    if archived is True and folder.parent.name == "runs" and is_study(folder.parent.parent):
+        return {"ok": False, "reason": A_RUN_IS_ARCHIVED_WITH_ITS_STUDY}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     record: dict[str, Any] = {"tags": tags, "note": note, "updated": now}
     when = _archived_at(_kept(folder))
@@ -135,6 +141,35 @@ def set_tags(folder: str | Path, tags: Any, note: Any = None,
             return {"ok": False, "reason": f"A note is one line of up to {NOTE_LENGTH} "
                                            "characters."}
     return _write(base, checked, kept_note, archived if isinstance(archived, bool) else None)
+
+
+def change_tags(folder: str | Path, add: Any = None, remove: Any = None, note: Any = None,
+                archived: Any = None) -> dict[str, Any]:
+    """A change to a study's tags, applied to the tags as kept now: those
+    in ``remove`` taken off (whatever their case), those in ``add`` put on;
+    its note where one is given; archived or not where that is given (True
+    or False). A tag another writer kept since the page read the study (an
+    AI app through `fastmdx mcp`, another window) stays."""
+    base = Path(folder)
+    adding, reason = _checked_tags([] if add is None else add)
+    if adding is None:
+        return {"ok": False, "reason": reason}
+    taking, reason = _checked_tags([] if remove is None else remove)
+    if taking is None:
+        return {"ok": False, "reason": reason}
+    now = tags_of(base)
+    off = {t.casefold() for t in taking}
+    merged, why = _checked_tags([t for t in now["tags"] if t.casefold() not in off] + adding)
+    if merged is None:
+        return {"ok": False, "reason": why}
+    if note is None:
+        kept_note = now["note"]
+    else:
+        kept_note = _clean(note, NOTE_LENGTH)
+        if kept_note is None:
+            return {"ok": False, "reason": f"A note is one line of up to {NOTE_LENGTH} "
+                                           "characters."}
+    return _write(base, merged, kept_note, archived if isinstance(archived, bool) else None)
 
 
 def add_tags(folder: str | Path, tags: Any) -> dict[str, Any]:
