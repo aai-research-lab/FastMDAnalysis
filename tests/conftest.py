@@ -161,6 +161,20 @@ def _a_test_file_reads_the_insertion_codes_of_its_own_structures():
 
 
 @pytest.fixture(autouse=True)
+def _a_test_has_a_presenter_of_its_own():
+    """The presenter one test made is not the next one's. It is kept for the
+    process and decides once, when it is made, whether to be quiet: made
+    inside a batch, which sets FASTMDX_LOG_STYLE=plain while it runs, it said
+    nothing for every test after, so a test reading what a command said
+    failed when a batch test had run before it in the same process."""
+    from fastmdxplora.utils import presenter
+
+    presenter.reset_presenter()
+    yield
+    presenter.reset_presenter()
+
+
+@pytest.fixture(autouse=True)
 def _a_test_has_settings_of_its_own(monkeypatch, tmp_path_factory):
     """And each test starts from none: a calibration or a chosen model one
     test records is not there for the next, which found "measured on
