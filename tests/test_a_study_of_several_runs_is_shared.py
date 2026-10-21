@@ -284,7 +284,8 @@ def test_a_run_s_conversation_in_an_archive_is_never_opened(tmp_path):
     with pytest.raises(ShareRefused) as refused:
         open_shared(str(crafted), into=tmp_path / "elsewhere")
     assert refused.value.refusal.code == "environment.share.unsafe"
-    assert not any((tmp_path / "elsewhere").iterdir())
+    # Nothing unpacked; the folder made to open it into is not left either.
+    assert not (tmp_path / "elsewhere").exists()
 
 
 def _of_one_run(root: Path, run: str = "a") -> None:

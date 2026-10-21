@@ -13,6 +13,7 @@ place whole. Nothing in an archive is run.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import http.client
 import json
@@ -41,6 +42,9 @@ MOST_BYTES = 2 * 1024 ** 3
 MOST_FILES = 200_000
 SHARED_FROM = "shared_from.json"
 _AGENT = "FastMDXplora (https://github.com/aai-research-lab/FastMDXplora)"
+#: How long a download waits for a byte more before it counts as stalled,
+#: and is asked for again from where it stopped.
+STALLED_S = 30
 
 
 def unpacked_limit(most_bytes: int) -> int:
@@ -49,13 +53,22 @@ def unpacked_limit(most_bytes: int) -> int:
     return 4 * most_bytes
 
 
+def _range_start(answer: Any) -> int | None:
+    """Where the bytes of a 206 answer start in the file, by its
+    `Content-Range` (`bytes 1000-2999/3000`); None where it names none."""
+    found = re.match(r"\s*bytes\s+(\d+)-", str(answer.headers.get("Content-Range") or ""))
+    return int(found.group(1)) if found else None
+
+
 def _download(url: str, to: Path, *, most: int, md5: str,
               said: Callable[[str], None] | None, size: int = 0) -> None:
     """``url`` written to ``to``, checked against ``md5`` as it lands. A
     download cut short goes on from where it stopped (an HTTP range), one
     Zenodo says to ask again for is asked again after a wait, each up to
     :data:`~fastmdxplora.sharing.zenodo.TRIES` times in a row without a byte
-    more; a server that sends the whole file again is read from its start."""
+    more; a server that sends the whole file again is read from its start.
+    A piece is counted only once it is written: one this computer could not
+    write is said as the system says it, never asked for again."""
     from fastmdxplora.sharing import zenodo
 
     digest = hashlib.md5()  # noqa: S324 - Zenodo's own checksum, not a protection
@@ -63,48 +76,71 @@ def _download(url: str, to: Path, *, most: int, md5: str,
     # a server that sends the file from its start each time, cut at the
     # same place, is asked no more than the tries.
     read, furthest, tenth, failures = 0, 0, 0, 0
+    # This computer's disk, not the connection (full, say): no try again
+    # would mend it.
+    unwritten: OSError | None = None
     with to.open("wb") as out:
         while True:
             headers = {"User-Agent": _AGENT}
             if read:
                 headers["Range"] = f"bytes={read}-"
+            why = ""
             try:
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
-                                            timeout=120) as answer:
-                    if read and answer.status != 206:
-                        # The whole file again, not the rest of it.
-                        out.seek(0)
-                        out.truncate()
-                        digest, read = hashlib.md5(), 0  # noqa: S324
-                    for piece in iter(lambda: answer.read(1 << 20), b""):
-                        read += len(piece)
-                        if read > most:
-                            raise ShareRefused(
-                                f"{url} sent more than {most / 1e9:.1f} GB; nothing was kept. "
-                                "Allow more with --open-most-gb.",
-                                code="environment.share.too_large", url=url)
-                        digest.update(piece)
-                        out.write(piece)
-                        if said and size >= 10 << 20 and read * 10 // size > tenth:
-                            tenth = min(read * 10 // size, 9)
-                            if tenth and read < size:
-                                said(f"Downloaded {read / 1e6:.0f} of {size / 1e6:.0f} MB.")
-                if not size or read >= size:
-                    break
-                # Ended before the file did: the connection was cut.
-                why = f"the answer ended at {read} of {size} bytes"
+                                            timeout=STALLED_S) as answer:
+                    start = _range_start(answer) if answer.status == 206 else 0
+                    if start is None and answer.status == 206:
+                        # A part, not saying of what: taken as following
+                        # what is here only where that was asked for.
+                        start = read
+                    if start != read and start:
+                        # The file from somewhere else: no part of it is
+                        # known to follow what is here.
+                        why = f"it sent the file from byte {start}, not {read}"
+                    else:
+                        if start != read:
+                            # The whole file again, not the rest of it.
+                            out.seek(0)
+                            out.truncate()
+                            digest, read, tenth = hashlib.md5(), 0, 0  # noqa: S324
+                        # What has come, as it comes: a stall then loses none
+                        # of what came before it.
+                        reader = getattr(answer, "read1", answer.read)
+                        for piece in iter(functools.partial(reader, 1 << 20), b""):
+                            if read + len(piece) > most:
+                                raise ShareRefused(
+                                    f"{url} sent more than {most / 1e9:.1f} GB; nothing was "
+                                    "kept. Allow more with --open-most-gb.",
+                                    code="environment.share.too_large", url=url)
+                            try:
+                                out.write(piece)
+                                out.flush()
+                            except OSError as exc:
+                                unwritten = exc
+                                break
+                            read += len(piece)
+                            digest.update(piece)
+                            if said and size >= 10 << 20 and read * 10 // size > tenth:
+                                tenth = min(read * 10 // size, 9)
+                                if tenth and read < size:
+                                    said(f"Downloaded {read / 1e6:.0f} of "
+                                         f"{size / 1e6:.0f} MB.")
+                        if unwritten is not None or not size or read >= size:
+                            break
+                        # Ended before the file did: the connection was cut.
+                        why = "the answer ended early"
             except urllib.error.HTTPError as exc:
                 if exc.code == 416 and size and read == size:
                     break
                 failures = 0 if read > furthest else failures + 1
                 furthest = max(furthest, read)
                 if exc.code in zenodo.AGAIN and failures < zenodo.TRIES:
-                    _again(f"{url} answered HTTP {exc.code}", failures,
-                           exc.headers.get("Retry-After") if exc.headers else None, said)
+                    _again(f"{url} answered HTTP {exc.code}", failures, exc.headers, said)
                     continue
                 raise ShareRefused(
                     f"The shared study could not be downloaded from {url}: HTTP {exc.code}"
-                    + (f", still after {failures} tries" if failures > 1 else "") + ".",
+                    + (f", still after {failures} tries" if failures > 1 else "")
+                    + _got(read, size) + ".",
                     code="environment.service.unreachable", url=url) from exc
             except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
                 # A connection cut mid-file reads as an incomplete answer.
@@ -114,10 +150,13 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             if failures >= zenodo.TRIES:
                 raise ShareRefused(
                     f"The shared study could not be downloaded from {url}: {why}"
-                    + (f", still after {failures} tries" if failures > 1 else "") + ".",
+                    + (f", still after {failures} tries" if failures > 1 else "")
+                    + _got(read, size) + ".",
                     code="environment.service.unreachable", url=url)
-            _again(f"The download from {url} stopped at {read / 1e6:.1f} MB ({why})",
+            _again(f"The download from {url} stopped{_got(read, size, 'at')} ({why})",
                    failures, None, said)
+    if unwritten is not None:
+        raise unwritten
     if md5 and digest.hexdigest() != md5:
         raise ShareRefused(
             f"What {url} sent is not the file Zenodo recorded (MD5 {digest.hexdigest()}, "
@@ -126,11 +165,20 @@ def _download(url: str, to: Path, *, most: int, md5: str,
         said(f"Downloaded {read / 1e6:.1f} MB.")
 
 
-def _again(what: str, failures: int, retry_after: str | None,
+def _got(read: int, size: int, how: str = "having") -> str:
+    """How far a download got, in MB: ", with 30.0 of 111.5 MB downloaded"."""
+    if not read and how == "having":
+        return ""
+    whole = f" of {size / 1e6:.1f}" if size else ""
+    return f" {how} {read / 1e6:.1f}{whole} MB" if how == "at" else \
+        f", with {read / 1e6:.1f}{whole} MB downloaded"
+
+
+def _again(what: str, failures: int, headers: Any,
            said: Callable[[str], None] | None) -> None:
     from fastmdxplora.sharing import zenodo
 
-    wait = zenodo.wait_before(max(failures, 1), retry_after)
+    wait = zenodo.wait_before(max(failures, 1), headers)
     if said:
         said(f"{what}; trying again in {wait:.0f} s.")
     zenodo._sleep(wait)
@@ -297,9 +345,24 @@ def open_shared(source: str, *, into: str | Path | None = None,
     here), checked and unpacked into ``into`` (else a folder of its own in
     ``workspace``); the folder it is in."""
     given = Path(str(source)).expanduser()
-    record: dict[str, Any] = {}
     parent = Path(into).expanduser() if into else Path(workspace).expanduser()
+    made = not parent.exists()
     parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return _opened(source, given, parent, most_bytes, said)
+    except BaseException:
+        # A folder made only to open this into is not left behind, empty.
+        if made:
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
+        raise
+
+
+def _opened(source: str, given: Path, parent: Path, most_bytes: int,
+            said: Callable[[str], None] | None) -> Path:
+    record: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(prefix=".fastmdx-opening-", dir=parent) as work:
         work_dir = Path(work)
         if given.is_file():
@@ -312,7 +375,7 @@ def open_shared(source: str, *, into: str | Path | None = None,
             from fastmdxplora.sharing.zenodo import archive_of, record_of
 
             site, number = record_of(str(source))
-            record = archive_of(site, number)
+            record = archive_of(site, number, said)
             if record["size"] and record["size"] > most_bytes:
                 raise ShareRefused(
                     f"Zenodo's record {number} holds {record['name']} of "

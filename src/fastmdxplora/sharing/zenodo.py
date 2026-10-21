@@ -16,11 +16,14 @@ under `/api/deposit/depositions`, a file put into a deposition's bucket,
 records under `/api/records/<id>`. `FASTMDXPLORA_ZENODO_URL` points both
 sites elsewhere (a test's own server).
 
-Zenodo limits how often it is asked (429, with how long to wait in
+Zenodo limits how often it is asked, in requests a minute (429, with when
+it may be asked again in `X-RateLimit-Reset`, or how long to wait in
 `Retry-After`) and is at times briefly unable to answer (502, 503, 504):
 each request is asked again after a wait, up to :data:`TRIES` times. A
 request that makes something (a new draft) is asked again only after a 429,
-which Zenodo answers before doing anything, so a draft is never made twice.
+which Zenodo answers before doing anything; one whose answer was lost after
+Zenodo may have made the draft is followed by a look at the person's drafts,
+and a draft made then is taken as this one, so a draft is never made twice.
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ _PREFIXES = {"10.5281": "zenodo", "10.5072": "zenodo-sandbox"}
 #: Where a study keeps the Zenodo record it was shared as.
 SHARED_TO = "shared_to.json"
 TIMEOUT_S = 120
+UPLOAD_TIMEOUT_S = 900
 _AGENT = "FastMDXplora (https://github.com/aai-research-lab/FastMDXplora)"
 #: How many times a request is asked before Zenodo's answer is taken.
 TRIES = 5
@@ -60,14 +64,28 @@ _LONGEST_WAIT_S = 60.0
 _sleep = time.sleep
 
 
-def wait_before(attempt: int, retry_after: str | None = None) -> float:
+def wait_before(attempt: int, answer: Any = None) -> float:
     """How long to wait before try ``attempt + 1`` (``attempt`` counting from
-    1): what `Retry-After` asks, in seconds, else 1, 2, 4, 8 s."""
-    try:
-        asked = float(retry_after) if retry_after else None
-    except ValueError:
-        asked = None
-    wait = asked if asked is not None and asked >= 0 else 2.0 ** (attempt - 1)
+    1), by the answer's headers (or its `Retry-After` alone): the seconds
+    `Retry-After` asks, else until the time `X-RateLimit-Reset` gives (Unix
+    seconds), else 1, 2, 4, 8 s; never over a minute."""
+    headers = {"Retry-After": answer} if isinstance(answer, str) or answer is None \
+        else answer
+
+    def number(name: str) -> float | None:
+        try:
+            found = float(str(headers.get(name) or ""))
+        except (TypeError, ValueError):
+            return None
+        return found if found == found and found >= 0 else None  # NaN is not one
+
+    wait = number("Retry-After")
+    if wait is None:
+        reset = number("X-RateLimit-Reset")
+        if reset is not None and reset > 1e9:
+            wait = max(reset - time.time(), 0.0) + 1.0
+    if wait is None:
+        wait = 2.0 ** (attempt - 1)
     return min(wait, _LONGEST_WAIT_S)
 
 
@@ -124,7 +142,10 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
         data: Any = _Progress(upload, said) if upload is not None else sent
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT_S) as answer:
+            # Zenodo answers an upload once it has kept the file, which for
+            # gigabytes takes longer than an answer otherwise does.
+            with urllib.request.urlopen(request, timeout=TIMEOUT_S if upload is None
+                                        else UPLOAD_TIMEOUT_S) as answer:
                 text = answer.read().decode("utf-8", errors="replace")
             break
         except urllib.error.HTTPError as exc:
@@ -132,7 +153,7 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
                 return None
             if exc.code in AGAIN and attempt < TRIES and (not makes or exc.code == 429):
                 _again(f"Zenodo answered {method} {url} with HTTP {exc.code}", attempt,
-                       exc.headers.get("Retry-After") if exc.headers else None, said)
+                       exc.headers, said)
                 continue
             answered = exc.read().decode("utf-8", errors="replace")[:400]
             why = {401: "the token was refused", 403: "the token may not do this (its scopes)",
@@ -144,9 +165,12 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
                                code="environment.service.unreachable", url=url) from exc
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             if attempt < TRIES and not makes:
-                _again(f"Zenodo could not be reached at {url} ({exc})", attempt, None, said)
+                _again(f"The connection to Zenodo at {url} was lost or not made ({exc})",
+                       attempt, None, said)
                 continue
-            raise ShareRefused(f"Zenodo could not be reached at {url}: {exc}.",
+            raise ShareRefused(f"The connection to Zenodo at {url} was lost or not made: "
+                               f"{exc}" + (f", still after {attempt} tries" if attempt > 1
+                                           else "") + ".",
                                code="environment.service.unreachable", url=url) from exc
         finally:
             if isinstance(data, _Progress):
@@ -162,9 +186,9 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
 
 # -- reading a record --------------------------------------------------------
 
-def _again(what: str, attempt: int, retry_after: str | None,
+def _again(what: str, attempt: int, answer: Any,
            said: Callable[[str], None] | None) -> None:
-    wait = wait_before(attempt, retry_after)
+    wait = wait_before(attempt, answer)
     if said:
         said(f"{what}; asking again in {wait:.0f} s ({attempt + 1} of {TRIES}).")
     _sleep(wait)
@@ -197,11 +221,12 @@ def record_of(source: str) -> tuple[str, str]:
         "address (https://zenodo.org/records/N).", code="environment.share.not_a_study")
 
 
-def archive_of(site: str, record: str) -> dict[str, Any]:
+def archive_of(site: str, record: str,
+               said: Callable[[str], None] | None = None) -> dict[str, Any]:
     """The record's archive: its `name`, `size`, `md5`, the `url` it is
     downloaded from, and the record's `doi`, `id` and `version`."""
     base = base_url(site)
-    found = _call("GET", f"{base}/api/records/{record}")
+    found = _call("GET", f"{base}/api/records/{record}", said=said)
     if not isinstance(found, dict):
         raise ShareRefused(f"Zenodo has no record {record}.",
                            code="environment.share.not_a_study")
@@ -236,6 +261,44 @@ def archive_of(site: str, record: str) -> dict[str, Any]:
 
 
 # -- making a draft ----------------------------------------------------------
+
+def _drafts(depositions: str, token: str,
+            said: Callable[[str], None] | None) -> set[str] | None:
+    """The ids of the person's newest drafts; None where Zenodo does not
+    list them."""
+    try:
+        found = _call("GET", f"{depositions}?status=draft&sort=mostrecent&size=100",
+                      token=token, missing_ok=True, said=said)
+    except ShareRefused:
+        return None
+    if not isinstance(found, list):
+        return None
+    return {str(entry.get("id")) for entry in found if isinstance(entry, dict)}
+
+
+def _new_draft(depositions: str, token: str,
+               said: Callable[[str], None] | None) -> dict[str, Any]:
+    """A new draft, made once: where Zenodo's answer to making it is lost,
+    a draft that has appeared among the person's since is the one made."""
+    known = _drafts(depositions, token, said)
+    try:
+        return _call("POST", depositions, token=token,
+                     body={"metadata": {"prereserve_doi": True}}, said=said)
+    except ShareRefused as exc:
+        now = _drafts(depositions, token, said) if known is not None else None
+        made = sorted((now or set()) - (known or set()))
+        if len(made) != 1:
+            if known is None:
+                raise ShareRefused(
+                    f"{exc} Zenodo may have made the draft before its answer was lost: look "
+                    f"among your uploads ({depositions.rsplit('/api/', 1)[0]}/me/uploads) "
+                    "and delete an empty one before sharing again.",
+                    code=exc.refusal.code) from exc
+            raise
+        if said:
+            said(f"Zenodo's answer was lost, but it made draft {made[0]}; taking that one.")
+        return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
+
 
 def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
     out = []
@@ -307,7 +370,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     version = int(earlier.get("version") or 0) + 1
     deposition: dict[str, Any] | None = None
     if earlier.get("id"):
-        found = _call("GET", f"{depositions}/{earlier['id']}", token=token, missing_ok=True)
+        found = _call("GET", f"{depositions}/{earlier['id']}", token=token, missing_ok=True, said=said)
         if not isinstance(found, dict):
             if said:
                 said(f"The draft or record {earlier['id']} this study was shared as is gone "
@@ -318,15 +381,14 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             deposition, version = found, int(earlier.get("version") or 1)
         else:
             newer = _call("POST", f"{depositions}/{found['id']}/actions/newversion",
-                          token=token)
+                          token=token, said=said)
             latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
             if not latest:
                 raise ShareRefused("Zenodo made no new version of the record.",
                                    code="environment.service.unreachable")
-            deposition = _call("GET", latest, token=token)
+            deposition = _call("GET", latest, token=token, said=said)
     if deposition is None:
-        deposition = _call("POST", depositions, token=token,
-                           body={"metadata": {"prereserve_doi": True}})
+        deposition = _new_draft(depositions, token, said)
     if not isinstance(deposition, dict) or not deposition.get("id"):
         raise ShareRefused("Zenodo made no draft.", code="environment.service.unreachable")
     identifier = str(deposition["id"])
@@ -338,7 +400,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     doi = str(((deposition.get("metadata") or {}).get("prereserve_doi") or {}).get("doi") or "")
     if not doi:
         reserved = _call("PUT", f"{depositions}/{identifier}", token=token,
-                         body={"metadata": {**inherited, "prereserve_doi": True}})
+                         body={"metadata": {**inherited, "prereserve_doi": True}}, said=said)
         doi = str((((reserved or {}).get("metadata") or {}).get("prereserve_doi") or {})
                   .get("doi") or "")
     if doi:
@@ -349,22 +411,34 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     if not bucket:
         raise ShareRefused("Zenodo's draft has no bucket to upload into.",
                            code="environment.service.unreachable")
-    for entry in deposition.get("files") or []:
-        if isinstance(entry, dict) and entry.get("id"):
-            # Gone already is what was asked: a try that did it, then lost
-            # its answer, is asked again.
-            _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}", token=token,
-                  missing_ok=True)
-    if said:
-        said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to {site}...")
-    _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token, upload=archive,
-          said=said)
-    ours = _metadata(packed["crate"], authors=authors, license_id=license_id, system=system,
-                     version=version)
-    _call("PUT", f"{depositions}/{identifier}", token=token,
-          body={"metadata": {**inherited, **ours}})
     page = str((deposition.get("links") or {}).get("html")
                or f"{base}/uploads/{identifier}")
+    earlier_files = [entry for entry in deposition.get("files") or []
+                     if isinstance(entry, dict) and entry.get("id")]
+    try:
+        if said:
+            said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to "
+                 f"{site}...")
+        # The new archive first: one of the same name is replaced by it, and
+        # the draft keeps the one it had until the new one is there.
+        _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
+              upload=archive, said=said)
+        for entry in earlier_files:
+            if str(entry.get("filename") or entry.get("key") or "") != archive.name:
+                # Gone already is what was asked: a try that did it, then
+                # lost its answer, is asked again.
+                _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}",
+                      token=token, missing_ok=True, said=said)
+        ours = _metadata(packed["crate"], authors=authors, license_id=license_id,
+                         system=system, version=version)
+        _call("PUT", f"{depositions}/{identifier}", token=token,
+              body={"metadata": {**inherited, **ours}}, said=said)
+    except ShareRefused as exc:
+        kept_as = ("with the archive it had" if earlier_files else "with no archive yet")
+        raise ShareRefused(
+            f"{exc} The draft {page} is kept, {kept_as}: share again once Zenodo answers, "
+            "and that draft is finished, not another made.",
+            code=exc.refusal.code, url=page) from exc
     if said:
         said(f"Draft {f'of version {version} ' if version > 1 else ''}made: {page}"
              + (f" (DOI {doi}, reserved until you publish)." if doi else ".")

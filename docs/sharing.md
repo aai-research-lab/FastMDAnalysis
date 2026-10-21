@@ -213,14 +213,19 @@ be shared leaves no draft behind, and the draft is recorded in the study as
 soon as it exists, so a share that fails part way is finished by the next
 one rather than leaving a second draft.
 
-Zenodo limits how often it is asked (it answers 429, saying how long to
-wait) and is at times briefly unable to answer (502, 503, 504). Each request
-is then asked again, after the wait Zenodo asks for (else 1, 2, 4 and 8
-seconds, never more than a minute), up to five times; so is one that could
-not reach Zenodo at all, the upload included. A request that makes a draft
-or a new version is asked again only after a 429, which Zenodo gives before
-doing anything, so a draft is never made twice. An archive of 10 MB or more
-says how much of it has gone at each tenth.
+Zenodo limits how many requests it takes a minute (it answers 429, saying
+when it may be asked again) and is at times briefly unable to answer (502,
+503, 504). Each request is then asked again, once the time Zenodo gives has
+come (else after 1, 2, 4 and 8 seconds, never more than a minute), up to
+five times; so is one whose connection was lost or not made, the upload
+included. A request that makes a draft or a new version is asked again
+only after a 429, which Zenodo gives before doing anything. Where the
+answer to making a draft is lost (Zenodo may have made it), your drafts are
+looked at again, and one made since is taken as this one, so a draft is
+never made twice. The new archive is uploaded before the draft's earlier
+one is taken away: a share that Zenodo stops part way keeps the draft as it
+was, says so with its address, and sharing again finishes that draft. An
+archive of 10 MB or more says how much of it has gone at each tenth.
 
 It needs a Zenodo token in `ZENODO_TOKEN` (`ZENODO_SANDBOX_TOKEN` for
 `--share-to zenodo-sandbox`) with the **deposit:write** scope, made under
@@ -263,7 +268,13 @@ FastMDXplora:
    one Zenodo says to ask again for is asked again after the wait it asks
    for, each up to five times in a row without a byte more
    (`environment.service.unreachable`, saying how far it got); a server
-   that sends the whole file again is read from its start. An archive of
+   that sends the whole file again is read from its start, and a part of
+   it from anywhere but where the download stopped is asked for again. A
+   piece is counted only once it is written here: a disk that fills says
+   so, and is never taken for a connection lost. A download that has had
+   nothing for 30 seconds counts as stalled, and is asked for again from
+   where it stopped. A folder made to open into is not left behind when
+   the study is refused. An archive of
    10 MB or more says how much of it has come at each tenth.
 3. **Unpacks it into a folder of its own**, named from its title, in
    `--open-into` (else the current folder; in the GUI, where new studies
