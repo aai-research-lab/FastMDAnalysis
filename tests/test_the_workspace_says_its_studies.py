@@ -350,8 +350,9 @@ def test_the_page(workspace) -> None:
             page.goto(session.url + "#overview", wait_until="domcontentloaded")
             page.wait_for_selector("body.state-ready")
             page.click('[data-view-link="studies"]')
-            page.wait_for_function(
-                "() => document.getElementById('studies-where').textContent.includes(' in ')")
+            # The count and its folder are two spans, a no-break space between.
+            page.wait_for_function("() => document.getElementById('studies-where').textContent"
+                                   ".replace(/\\u00a0/g, ' ').includes(' in ')")
             browser.close()
     finally:
         session.server.shutdown()
