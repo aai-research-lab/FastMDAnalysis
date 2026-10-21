@@ -732,9 +732,8 @@ class TestTheInterfaceIsCalledTheGUI:
         for page in ("docs/gui.md", "docs/studies.md", "README.md"):
             text = (root / page).read_text(encoding="utf-8")
             for line in text.splitlines():
-                if "browser" not in literal.sub("", line):
-                    continue
-                assert False, f"{page}: {line.strip()[:80]}"
+                assert "browser" not in literal.sub("", line), (
+                    f"{page}: {line.strip()[:80]}")
 
 
 def test_the_source_names_the_software_too():
