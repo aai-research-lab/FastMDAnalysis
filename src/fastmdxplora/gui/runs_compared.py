@@ -233,17 +233,25 @@ def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, A
 
 def mean_of_replicas(entry: dict[str, Any]) -> dict[str, Any] | None:
     """One quantity of replicas, from its entry in their comparison
-    (`batch.aggregate.aggregate_members`, or the `members.json` it is
-    written as): the mean of their means and its error, the spread of the
-    means (their standard deviation) over the square root of their number,
-    with the spread and how many runs. None where fewer than two means or
-    no spread are recorded. The one derivation of it, which the runs'
-    table and All studies both give."""
+    (`batch.aggregate.aggregate_members`): the mean of their means and its
+    error, the spread of the means (their standard deviation) over the
+    square root of their number, with the spread and how many runs. Where
+    the runs' own errors do not back the spread (aggregate's
+    ``spread_not_an_error``), no error, and ``withheld`` says why. None
+    where fewer than two means or no spread are recorded. The one
+    derivation of it, which the runs' table, the written comparison and All
+    studies all give."""
     members = len(entry.get("members") or [])
     mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
     if mean is None or spread is None or members < 2:
         return None
-    return {"mean": mean, "error": spread / math.sqrt(members), "spread": spread, "runs": members}
+    withheld = entry.get("spread_not_an_error") or None
+    if withheld is None and entry.get("qualified_by_their_own_runs"):
+        # A comparison written before the reason was: the runs it names.
+        withheld = (f"{len(entry['qualified_by_their_own_runs'])} of the {members} replicas did "
+                    "not determine their own mean, so their spread is not yet an error.")
+    return {"mean": mean, "error": None if withheld else spread / math.sqrt(members),
+            "spread": spread, "runs": members, "withheld": withheld}
 
 
 def _finite(value: Any) -> float | None:

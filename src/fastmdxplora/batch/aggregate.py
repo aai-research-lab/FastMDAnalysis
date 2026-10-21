@@ -175,6 +175,17 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
+def _spread_not_an_error(unbacked: int, runs: int) -> str:
+    """Why replicas' spread is not yet their error: ``unbacked`` of the
+    ``runs`` did not determine their own mean with an error of its own."""
+    which = (f"None of the {runs} replicas determined its own mean" if unbacked == runs
+             else f"{unbacked} of the {runs} replicas did not determine "
+                  f"{'its' if unbacked == 1 else 'their'} own mean")
+    return (f"{which} with an error of its own, so their spread is not yet an "
+            "error: begun from one structure, runs too short to resolve their "
+            "correlation time are not yet independent samples.")
+
+
 def _finite_or_none(value: Any) -> float | None:
     try:
         number = float(value)
@@ -198,17 +209,28 @@ def _share_the_start(root: Path, runs: list[dict[str, Any]]) -> None:
         share_the_start(members, name)
 
 
-def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
+def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str, Any]:
     """Collect a campaign's members into one comparison.
 
     Returns the per-member values for every analysis that reported a
     recorded mean, and, where the members are replicas, the comparison
     between the error each run estimated for itself and the spread the
-    replicas actually show.
+    replicas actually show. Replicas are given the start they share first
+    (written into their records); with ``share`` False their records are
+    read as they stand and nothing is written (All studies' rows).
+
+    The spread of replicas' means is their error only where each run
+    determined its own mean, with an error of its own: begun from one
+    structure, runs each too short to resolve their correlation time are
+    not yet independent samples, however close their means fall. Where any
+    run did not, the entry names those runs (``qualified_by_their_own_runs``)
+    and says why the spread is not yet an error (``spread_not_an_error``).
     """
+    from fastmdxplora import record_access
+
     root = Path(batch_dir)
     manifest_path = root / "batch_manifest.json"
-    if not manifest_path.is_file():
+    if not record_access.is_file(manifest_path):
         return {"members": [], "refused": (
             f"No batch_manifest.json in {root}, so there is no campaign here "
             "to aggregate. A single run is not a campaign."
@@ -222,7 +244,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
         )}
 
     replicas, why = _members_are_replicas(manifest)
-    if replicas:
+    if replicas and share:
         _share_the_start(root, runs)
 
     per_analysis: dict[str, list[dict[str, Any]]] = {}
@@ -269,6 +291,13 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
         # factor" of "nan" and the error "supported by repeating it".
         errors = [r["standard_error"] for r in rows
                   if r["standard_error"] is not None and r["standard_error"] > 0]
+        # The runs whose own errors do not back the spread: one that said
+        # its mean is not a measurement, or gave no error of its own.
+        unbacked = [r["member"] for r in rows if r["not_a_measurement"]
+                    or r["standard_error"] is None or r["standard_error"] <= 0]
+        if replicas and unbacked:
+            entry["qualified_by_their_own_runs"] = unbacked
+            entry["spread_not_an_error"] = _spread_not_an_error(len(unbacked), len(rows))
         if replicas and not errors:
             observed = float(np.std(means, ddof=1))
             entry["predicted_standard_error"] = None
@@ -277,8 +306,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
             entry["calibration"] = (
                 f"The replicas spread {observed:.3g}. No run gave an error "
                 "of its own for this observable, so there is nothing to "
-                "check the spread against: the spread is the only error "
-                "there is."
+                "check the spread against. " + entry["spread_not_an_error"]
             )
         elif replicas and errors:
             predicted = float(np.mean(errors))
@@ -286,9 +314,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
             entry["predicted_standard_error"] = predicted
             entry["observed_standard_error"] = observed
             entry["ratio_observed_to_predicted"] = float(observed / predicted)
-            qualified = [r["member"] for r in rows if r["not_a_measurement"]]
-            if qualified:
-                entry["qualified_by_their_own_runs"] = qualified
+            qualified = entry.get("qualified_by_their_own_runs") or []
             # A prediction from some of the runs is said as such.
             some = ("" if len(errors) == len(rows) else
                     f" (from the {len(errors)} of {len(rows)} runs that "
@@ -300,18 +326,20 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
                     f"{CALIBRATION_FACTOR:g} that ten replicas can resolve. "
                     "The single-run estimate reads the correlation time off "
                     "a trajectory too short to contain it, so the error bars "
-                    "printed for this observable are too tight and the "
-                    "replicas are the honest figure."
-                    + (" The runs said as much themselves."
-                       if qualified else "")
+                    "printed for this observable are too tight"
+                    + (". The runs said as much themselves. "
+                       + entry["spread_not_an_error"]
+                       if qualified else " and the replicas are the honest figure.")
                 )
             else:
                 entry["calibration"] = (
                     f"The replicas spread {observed:.3g} against a predicted "
                     f"{predicted:.3g}{some}, within the factor of "
                     f"{CALIBRATION_FACTOR:g} that this many replicas can "
-                    "resolve: the error this observable reports for itself "
-                    "is supported by repeating it."
+                    "resolve"
+                    + (". " + entry["spread_not_an_error"] if qualified else
+                       ": the error this observable reports for itself "
+                       "is supported by repeating it.")
                 )
         table[analysis] = entry
 

@@ -166,7 +166,14 @@
       together.appendChild(el("td", "", ""));
       measures.forEach(function (m) {
         var td = el("td", "is-number mono");
-        if (m.ensemble) {
+        if (m.ensemble && m.ensemble.withheld) {
+          // Not determined: their spread is not yet an error, as All
+          // studies and the written comparison say (runs_compared.py).
+          td.textContent = figure(m.ensemble.mean);
+          td.classList.add("is-withheld");
+          td.title = "Not determined: " + m.ensemble.withheld + " Their spread: "
+            + figure(m.ensemble.spread) + ".";
+        } else if (m.ensemble) {
           td.textContent = withError(m.ensemble.mean, m.ensemble.error);
           td.title = "Mean of " + m.ensemble.runs + " runs' means ± the error between them (their "
             + "spread, " + figure(m.ensemble.spread) + ", over √" + m.ensemble.runs + ")";

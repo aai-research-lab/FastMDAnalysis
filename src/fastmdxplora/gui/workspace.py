@@ -938,48 +938,33 @@ def _runs_count(batch: dict[str, Any]) -> int:
 
 
 def _ensemble_means(base: Path) -> list[dict[str, Any]]:
-    """The means of a study of replicas, as its comparison recorded them
-    (`members.json`): the mean of the replicas' means, the spread of those
-    means (their standard deviation, which `batch/aggregate.py` records as
-    the error of one run's estimate) and the error of the mean of means,
-    as the runs' table gives it (`runs_compared.mean_of_replicas`, the one
-    derivation). Said as determined only where every replica determined
-    its own: runs each too short to resolve their correlation time, begun
-    from one structure, are not yet independent samples, however close
-    their means fall."""
+    """The means of a study of replicas, as the runs' table gives them
+    (`runs_compared`): its runs' records together (`batch.aggregate`, read
+    as they stand, nothing written), each quantity's mean of means with its
+    error and the spread, or without an error and why, by the one
+    derivation (`runs_compared.mean_of_replicas`). The study's
+    `members.json` is not read: written when its runs ended, it can say
+    less than their records now do, and a study need not keep one."""
+    from fastmdxplora.batch.aggregate import aggregate_members
     from fastmdxplora.gui.report_dashboard import unit_of
     from fastmdxplora.gui.runs_compared import mean_of_replicas
 
-    record = _read_json(base / "members.json")
-    if not isinstance(record, dict) or not record.get("replicas"):
+    summary = aggregate_members(base, share=False)
+    if summary.get("refused") or not summary.get("replicas"):
         return []
-    analyses = record.get("analyses") if isinstance(record.get("analyses"), dict) else {}
+    analyses = summary.get("analyses") if isinstance(summary.get("analyses"), dict) else {}
     out = []
     for name in _in_order(analyses):
         found = analyses.get(name)
-        if not isinstance(found, dict):
+        together = mean_of_replicas(found) if isinstance(found, dict) else None
+        if together is None:
             continue
-        mean = _finite(found.get("mean_of_means"))
-        if mean is None:
-            continue
-        together = mean_of_replicas(found)
-        spread = _finite(found.get("spread_of_means"))
-        members = found.get("members") if isinstance(found.get("members"), list) else []
-        own = [m for m in members if isinstance(m, dict)]
-        qualified = [str(q) for q in found.get("qualified_by_their_own_runs") or []]
-        withheld = None
-        if spread is None:
-            withheld = "Its replicas' spread is not recorded."
-        elif together is None:
-            withheld = "Fewer than two replicas' means are recorded."
-        elif qualified:
-            withheld = (f"The spread of {len(own) or 'its'} replicas' means; "
-                        f"{len(qualified)} of them could not determine their own mean, "
-                        "so the spread is not yet an error.")
-        unit = unit_of(name, own[0]) if own else ""
-        out.append({"analysis": name, "label": _label_of(name), "mean": mean,
-                    "error": None if withheld or together is None else together["error"],
-                    "spread": spread, "replicas": len(own), "unit": unit, "withheld": withheld})
+        members = [m for m in found.get("members") or [] if isinstance(m, dict)]
+        out.append({"analysis": name, "label": _label_of(name), "mean": together["mean"],
+                    "error": together["error"], "spread": together["spread"],
+                    "replicas": together["runs"],
+                    "unit": unit_of(name, members[0]) if members else "",
+                    "withheld": together["withheld"]})
     return out
 
 

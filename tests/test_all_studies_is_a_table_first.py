@@ -51,20 +51,20 @@ def _live(folder, *, status="running", current=6000, elapsed=381.555):
     return folder
 
 
-def _members(folder, means, *, short=()):
-    rows = [{"member": f"seed{n}", "mean": m,
-             "standard_error": None if f"seed{n}" in short else 0.01,
-             "not_a_measurement": "Too short." if f"seed{n}" in short else None}
-            for n, m in enumerate(means, start=1)]
-    average = sum(means) / len(means)
-    spread = (sum((m - average) ** 2 for m in means) / (len(means) - 1)) ** 0.5
-    entry = {"members": rows, "mean_of_means": sum(means) / len(means), "spread_of_means": spread,
-             "spread_is": "the error on one estimate", "observed_standard_error": spread}
-    if short:
-        entry["qualified_by_their_own_runs"] = list(short)
-    (folder / "members.json").write_text(json.dumps(
-        {"members": [r["member"] for r in rows], "replicas": True, "analyses": {"rmsd": entry}}),
-        encoding="utf-8")
+def _members(folder, means, *, short=(), unit="nm"):
+    """Each replica's own record of its RMSD, as its analysis writes it: a
+    run in ``short`` too short against its correlation time (no error of
+    its own, its mean not a measurement). No `members.json`: a study need
+    not keep one, and the runs' table reads the runs."""
+    for n, m in enumerate(means, start=1):
+        run = folder / "runs" / f"seed{n}" / "analysis" / "rmsd"
+        run.mkdir(parents=True, exist_ok=True)
+        too_short = f"seed{n}" in short
+        (run / "options.json").write_text(json.dumps({"analysis": "rmsd", "findings": {"mean": {
+            "mean": m, "standard_error": None if too_short else 0.01, "unit": unit,
+            "effective_samples": 3 if too_short else 40,
+            "not_a_measurement": "Too short against its correlation time." if too_short
+            else None}}}), encoding="utf-8")
 
 
 def test_a_run_going_says_how_far_and_how_long_it_has_left(tmp_path):
@@ -122,23 +122,41 @@ def test_a_study_of_replicas_gives_its_mean_of_means(tmp_path):
     _members(study, [0.10, 0.12, 0.14], short=("seed2",))
     rmsd = card_of(study)["means"][0]
     assert rmsd["error"] is None and rmsd["spread"] == pytest.approx(0.02)
-    assert rmsd["withheld"] == ("The spread of 3 replicas' means; 1 of them could not determine "
-                                "their own mean, so the spread is not yet an error.")
+    assert rmsd["withheld"] == (
+        "1 of the 3 replicas did not determine its own mean with an error of its own, so "
+        "their spread is not yet an error: begun from one structure, runs too short to "
+        "resolve their correlation time are not yet independent samples.")
+    # None of them determined its own: not an error either (it was said
+    # determined, the qualification written only where one run gave one).
+    _members(study, [0.10, 0.12, 0.14], short=("seed1", "seed2", "seed3"))
+    rmsd = card_of(study)["means"][0]
+    assert rmsd["error"] is None and rmsd["withheld"].startswith(
+        "None of the 3 replicas determined its own mean")
 
 
 def test_the_replicas_mean_and_error_are_the_runs_tables(tmp_path, monkeypatch):
-    """One derivation: the replicas' mean and its error as the runs' table
-    gives them (`runs_compared.mean_of_replicas`), not a second formula."""
+    """One derivation: All studies gives the replicas' mean, its error, or
+    why it has none, as the runs' table (`runs_compared`) and the written
+    comparison (`batch.compare`) give them, from the runs' records and
+    with no `members.json`. The row said "no mean recorded" for a study
+    that kept none, and withheld an error the runs' table gave."""
+    from fastmdxplora.batch.compare import _across_the_replicas
     from fastmdxplora.gui import runs_compared
     from fastmdxplora.gui.workspace import card_of
 
     study = _replicas(tmp_path / "chignolin")
-    _members(study, [0.10, 0.12, 0.14])
-    entry = json.loads((study / "members.json").read_text(encoding="utf-8"))["analyses"]["rmsd"]
-    together = runs_compared.mean_of_replicas(entry)
-    rmsd = card_of(study)["means"][0]
-    assert (rmsd["mean"], rmsd["error"], rmsd["spread"]) == (
-        together["mean"], together["error"], together["spread"])
+    for short in ((), ("seed2",), ("seed1", "seed2", "seed3")):
+        _members(study, [0.10, 0.12, 0.14], short=short)
+        table = {m["analysis"]: m for m in runs_compared.runs_compared(study)["measures"]}
+        rmsd = card_of(study)["means"][0]
+        together = table["rmsd"]["ensemble"]
+        assert (rmsd["mean"], rmsd["error"], rmsd["spread"], rmsd["withheld"]) == (
+            together["mean"], together["error"], together["spread"], together["withheld"]), short
+        written = "\n".join(_across_the_replicas(study))
+        if short:
+            assert together["withheld"] in written and together["withheld"] in table["rmsd"]["said"]
+        else:
+            assert "is not yet an error" not in written
     monkeypatch.setattr(runs_compared, "mean_of_replicas", lambda found: {**together, "error": 0.5})
     assert card_of(study)["means"][0]["error"] == 0.5
 
@@ -340,7 +358,7 @@ def test_why_a_mean_is_not_determined_is_reached_from_the_keyboard(tmp_path):
         session.server.shutdown()
     assert errors == []
     assert offered == 1 and determined == 0
-    assert "could not determine their own mean" in said
+    assert "did not determine its own mean" in said
 
 
 @pytest.mark.parametrize("width, beside", [(1920, False), (1440, False), (1250, True),
