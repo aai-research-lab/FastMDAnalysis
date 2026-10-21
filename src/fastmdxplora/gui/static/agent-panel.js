@@ -1462,6 +1462,11 @@
     var key = study && study.key;
     if (!validStudyKey(key)) return;
     var title = (study && study.title) || "";
+    /* Named with its folder: a study is named from its manifest until its
+     * results are read, and several studies may be of one system (CI-774
+     * review L6). */
+    var folder = (study && study.folder) || "";
+    if (folder && folder !== title) title = title ? title + " (" + folder + ")" : folder;
     if (key === unsentKey) {
       seenWhileLaunching = null;
       unsentTitle = title || unsentTitle;
