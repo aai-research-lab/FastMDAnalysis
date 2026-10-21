@@ -431,14 +431,6 @@
     return Number(ns.toPrecision(4)) + " ns";
   }
 
-  function durationSaid(seconds) {
-    if (seconds == null || !isFinite(seconds)) return "";
-    if (seconds < 90) return Math.max(1, Math.round(seconds)) + " s";
-    if (seconds < 5400) return Math.round(seconds / 60) + " min";
-    if (seconds < 129600) return (seconds / 3600).toFixed(1) + " h";
-    return (seconds / 86400).toFixed(1) + " days";
-  }
-
   /* A mean as a row says it: with its error where determined; a study of
    * replicas, the mean of their means and their spread. */
   function meanShort(m) {
@@ -573,6 +565,37 @@
     return mark;
   }
 
+  /* How far a running study has got and its time left, as the Overview
+   * and the status bar work them out (run-progress.js): null where it is
+   * not running, each part null where not known. */
+  function paceOf(study) {
+    var progress = window.FastMDXRunProgress;
+    if (study.state !== "running" || !study.pace || !progress) return null;
+    return progress.ofPace(study.pace);
+  }
+
+  function progressBar(percent) {
+    var bar = make("span", "studies-progress");
+    var fill = make("i");
+    fill.style.width = Math.round(percent) + "%";
+    bar.appendChild(fill);
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-valuenow", String(Math.round(percent)));
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    return bar;
+  }
+
+  /* "8 ps of 20 ps · 5m 0s left": the production simulated of that
+   * planned, and the time left, or that it is not known. */
+  function paceSaid(study, pace) {
+    var said = [];
+    if (study.planned_ns) said.push(lengthSaid(study.simulated_ns || 0) + " of " + lengthSaid(study.planned_ns));
+    said.push(pace.seconds != null ? window.FastMDXRunProgress.durationSaid(pace.seconds) + " left"
+      : "time left not known");
+    return said.join(" · ");
+  }
+
   /* Where it stands: its light and word, and for a run going how far. */
   function stateShown(study) {
     var host = make("div", "studies-state-said");
@@ -581,23 +604,13 @@
     light.dataset.state = String(study.state || "").toLowerCase();
     light.setAttribute("aria-hidden", "true");
     var word = study.state || "";
-    if (study.state === "running" && study.progress != null) word += ", " + Math.round(study.progress * 100) + "%";
+    var pace = paceOf(study);
+    if (pace && pace.percent != null) word += ", " + Math.round(pace.percent) + "%";
     line.append(light, document.createTextNode(" " + word));
     host.appendChild(line);
-    if (study.state === "running" && study.progress != null) {
-      var bar = make("span", "studies-progress");
-      var fill = make("i");
-      fill.style.width = Math.round(study.progress * 100) + "%";
-      bar.appendChild(fill);
-      bar.setAttribute("role", "progressbar");
-      bar.setAttribute("aria-valuenow", String(Math.round(study.progress * 100)));
-      bar.setAttribute("aria-valuemin", "0");
-      bar.setAttribute("aria-valuemax", "100");
-      host.appendChild(bar);
-      var said = [];
-      if (study.planned_ns) said.push(lengthSaid(study.simulated_ns || 0) + " of " + lengthSaid(study.planned_ns));
-      if (study.seconds_left != null) said.push(durationSaid(study.seconds_left) + " left");
-      if (said.length) host.appendChild(make("span", "studies-state-more muted small", said.join(" · ")));
+    if (pace) {
+      if (pace.percent != null) host.appendChild(progressBar(pace.percent));
+      host.appendChild(make("span", "studies-state-more muted small", paceSaid(study, pace)));
     }
     return host;
   }
@@ -620,9 +633,14 @@
       return host;
     }
     host.appendChild(make("span", "mono", lengthSaid(study.simulated_ns)));
-    if (study.runs > 1 && study.planned_ns) {
-      host.appendChild(make("span", "studies-length-each muted small",
-        study.runs + " × " + lengthSaid(study.planned_ns / study.runs)));
+    // Each run's: "3 × 40 ps" only where all three ran as long; else the
+    // range, never an average said as if each ran it.
+    var each = (study.lengths || []).filter(function (n) { return n != null; });
+    if (study.runs > 1 && each.length) {
+      var low = Math.min.apply(null, each), high = Math.max.apply(null, each);
+      host.appendChild(make("span", "studies-length-each muted small", low === high
+        ? each.length + " × " + lengthSaid(low)
+        : each.length + " runs, " + lengthSaid(low) + " to " + lengthSaid(high)));
     }
     return host;
   }
@@ -656,19 +674,18 @@
     var body = make("div", "study-body");
     var head = make("div", "study-head");
     head.appendChild(make("span", "study-name", study.name));
-    head.appendChild(make("span", "study-state", study.state === "running" && study.progress != null
-      ? "running, " + Math.round(study.progress * 100) + "%" : study.state));
+    var pace = paceOf(study);
+    head.appendChild(make("span", "study-state", pace && pace.percent != null
+      ? "running, " + Math.round(pace.percent) + "%" : study.state));
     body.appendChild(head);
     var what = [shownId(study), study.kind, lengthSaid(study.simulated_ns), timeSaid(study.last_active || study.when)];
     body.appendChild(make("div", "study-what", what.filter(Boolean).join(" · ")));
     if (clashes(study)) body.appendChild(make("div", "study-folder-said muted small mono", folderSaid(study)));
     if (study.not_read) body.appendChild(notReadShown(study, "study-not-read small"));
-    if (study.state === "running" && study.progress != null) {
-      var bar = make("span", "studies-progress");
-      var fill = make("i");
-      fill.style.width = Math.round(study.progress * 100) + "%";
-      bar.appendChild(fill);
-      body.appendChild(bar);
+    if (pace) {
+      // As on a row: how far, and the time left.
+      if (pace.percent != null) body.appendChild(progressBar(pace.percent));
+      body.appendChild(make("div", "studies-state-more muted small", paceSaid(study, pace)));
     }
     if ((study.means || []).length) body.appendChild(meansShown(study, 2));
     else if (unread(study, "means")) body.appendChild(notReadMark(study));

@@ -243,7 +243,8 @@ FastMDXplora/
 │       │   │                      #   steps before a start, its quiet Run and what it costs),
 │       │   │                      #   studies-table.css (All studies: views, chips, the list's
 │       │   │                      #   rows with their molecules, the gallery, a phone's rows,
-│       │   │                      #   the bar for the studies chosen),
+│       │   │                      #   the bar for the studies chosen), run-progress.js (a run's
+│       │   │                      #   progress and time left as the status bar says them),
 │       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,

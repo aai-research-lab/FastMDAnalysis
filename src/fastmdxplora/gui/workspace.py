@@ -405,7 +405,7 @@ def _card_read(base: Path) -> dict[str, Any]:
     simulation = (config or {}).get("simulation") if isinstance(config, dict) else None
     from fastmdxplora.simulation.resume import extended_production
 
-    far = part("length", lambda: _how_far(base, batch, card, seen), {})
+    far = part("length", lambda: _how_far(base, batch, card, seen, config), {})
     # An extended study's config carries its last piece's length after the
     # join, so its pieces are what say how long it ran: as its production
     # was read for how far it got (`simulated_times`, which reads its
@@ -970,65 +970,111 @@ def _ensemble_means(base: Path) -> list[dict[str, Any]]:
     return out
 
 
+#: Sweep axes that can make one run of a study longer than another: where
+#: one is swept, a run not begun is not taken to be as long as those begun.
+_LENGTH_AXES = ("duration", "steps", "timestep", "equilibration", "nvt", "npt", "stop_when")
+
+#: How many of a run's newest samples the page's rate is read from: as many
+#: as the Overview's time left reads (run-progress.js `stepsPerSecond`).
+_SAMPLES_FOR_THE_RATE = 12
+
+
 def _how_far(base: Path, batch: Any, card: dict[str, Any],
-             seen: dict[str, Any] | None = None) -> dict[str, Any]:
+             seen: dict[str, Any] | None = None, config: Any = None) -> dict[str, Any]:
     """How much the study has simulated and was to, as each run's Overview
     reads it (`simulated_time.simulated_times`): ``simulated_ns`` (its
-    production, every run's), ``planned_ns``, and for a study running its
-    ``progress`` (production simulated over production planned, 0 to 1, so
-    that it reads as the ns beside it) and ``seconds_left``: the
-    nanoseconds each run going has still to take, equilibration included,
-    at the one speed its cost is read at (`overview_view._production_speed`,
-    its production's own steps and times, not its whole time so far with
-    setup in it). Not said where a run going has no speed yet. For a study
-    of one run, what was read of it is put in ``seen`` (``times``,
+    production, every run's), ``planned_ns`` (every run's planned, begun or
+    not; not said where a run not begun cannot be told), ``lengths`` (each
+    run's production so far, for a study of several), and ``pace``: what
+    the page works out its progress and time left from, as the Overview and
+    the status bar do (run-progress.js): each run's steps taken and planned,
+    and for a run going its record and its newest samples; how the study
+    runs them (``mode``, ``workers``, from its Config's ``execution``). For
+    a study of one run, what was read of it is put in ``seen`` (``times``,
     ``running``)."""
     from fastmdxplora import record_access
-    from fastmdxplora.gui.overview_view import _production_speed
+    from fastmdxplora.gui.overview_view import thinned_metrics
+    from fastmdxplora.gui.server import MOST_CHART_SAMPLES
     from fastmdxplora.gui.simulated_time import simulated_times
-    from fastmdxplora.gui.telemetry import status_as_it_stands
+    from fastmdxplora.gui.telemetry import read_metrics, status_as_it_stands
 
-    out: dict[str, Any] = {}
+    of_runs = isinstance(batch, dict)
     runs = base / "runs"
-    folders = ([p for p in sorted(record_access.iterdir(runs)) if record_access.is_dir(p)]
-               if isinstance(batch, dict) and record_access.is_dir(runs) else [base])
-    done = planned = left = 0.0
-    known = going = timed = False
-    untimed = False
+    if of_runs:
+        named = [str(p.get("run_id")) for p in batch.get("planned") or []
+                 if isinstance(p, dict) and p.get("run_id")]
+        if not named and record_access.is_dir(runs):
+            named = [p.name for p in sorted(record_access.iterdir(runs))
+                     if record_access.is_dir(p)]
+        folders = [runs / name for name in named]
+    else:
+        folders = [base]
+    done = planned = 0.0
+    known = True
+    lengths: list[float] = []
+    paced: list[dict[str, Any]] = []
+    begun: list[dict[str, Any]] = []
     for folder in folders:
         if not record_access.is_dir(folder / "simulation"):
+            paced.append({"state": "waiting"})
             continue
         status = status_as_it_stands(folder)
         times = simulated_times(folder, status, wall=False) or {}
-        going_here = str(status.get("status") or "").lower() in ("running", "starting", "paused")
+        going = str(status.get("status") or "").lower() in ("running", "starting", "paused")
         if seen is not None and folder == base:
-            seen.update(times=times, running=going_here)
+            seen.update(times=times, running=going)
         to_run = _finite(times.get("production_planned_ns"))
         if to_run is None or times.get("production_not_read"):
+            known = False
+            paced.append({"state": "not known"})
             continue
-        known = True
         so_far = _finite(times.get("production_ns")) or 0.0
         done += so_far
         planned += to_run
-        if not going_here:
+        lengths.append(round(so_far, 6))
+        run = {"state": "going" if going else "ended",
+               "steps": _finite(status.get("total_planned_steps")),
+               "taken": _finite(status.get("current_step")),
+               "production_ns": to_run}
+        if going:
+            # As the status bar reads it: only what the record says.
+            run["status"] = {key: status[key] for key in
+                             ("current_step", "total_planned_steps", "progress_percent")
+                             if status.get(key) is not None}
+            rows = thinned_metrics(read_metrics(folder, limit=None), MOST_CHART_SAMPLES)
+            run["samples"] = [{"step": row.get("step"), "timestamp": row.get("timestamp")}
+                              for row in rows][-_SAMPLES_FOR_THE_RATE:]
+        paced.append(run)
+        begun.append(run)
+    # A run not begun: as long as those begun, where they are alike and
+    # nothing that sets a run's length is swept; else not known.
+    swept = [str(axis) for axis in (batch.get("sweep") or {})] if of_runs else []
+    alike = (begun and not any(word in axis for axis in swept for word in _LENGTH_AXES)
+             and len({(r["steps"], r["production_ns"]) for r in begun}) == 1)
+    for run in paced:
+        if run["state"] != "waiting":
             continue
-        going = True
-        speed = _production_speed(folder)
-        if not speed or speed <= 0:
-            untimed = True
-            continue
-        rest = max(0.0, to_run - so_far) + max(
-            0.0, (_finite(times.get("equilibration_planned_ns")) or 0.0)
-            - (_finite(times.get("equilibration_ns")) or 0.0))
-        left += rest / speed * 86400.0
-        timed = True
-    if known:
+        if alike:
+            run["steps"], run["production_ns"] = begun[0]["steps"], begun[0]["production_ns"]
+            planned += begun[0]["production_ns"]
+        else:
+            run["steps"] = run["production_ns"] = None
+            known = False
+    out: dict[str, Any] = {}
+    if begun:
         out["simulated_ns"] = round(done, 6)
-        out["planned_ns"] = round(planned, 6)
-    if going and card.get("state") == "running" and planned > 0:
-        out["progress"] = round(min(1.0, done / planned), 4)
-        if timed and not untimed:
-            out["seconds_left"] = round(left)
+        if known:
+            out["planned_ns"] = round(planned, 6)
+    if of_runs:
+        out["lengths"] = lengths
+    if card.get("state") == "running" and any(r["state"] == "going" for r in paced):
+        execution = config.get("execution") if isinstance(config, dict) else None
+        execution = execution if isinstance(execution, dict) else {}
+        devices = execution.get("devices")
+        workers = execution.get("workers") or (len(devices) if isinstance(devices, list) else None)
+        mode = execution.get("mode") or ("parallel" if workers else "sequential")
+        out["pace"] = {"runs": paced, "mode": mode if of_runs else "one",
+                       "workers": int(workers) if isinstance(workers, (int, float)) else None}
     return out
 
 

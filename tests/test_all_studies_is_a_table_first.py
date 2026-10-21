@@ -67,6 +67,26 @@ def _members(folder, means, *, short=(), unit="nm"):
             else None}}}), encoding="utf-8")
 
 
+def _paced(pace):
+    """A study's progress and time left as the page works them out, by the
+    Overview's and the status bar's own functions (run-progress.js)."""
+    from pathlib import Path
+
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    import fastmdxplora.gui as gui
+
+    script = Path(gui.__file__).parent / "static" / "run-progress.js"
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page()
+        page.add_script_tag(path=str(script))
+        said = page.evaluate("(pace) => window.FastMDXRunProgress.ofPace(pace)", pace)
+        browser.close()
+    return said
+
+
 def test_a_run_going_says_how_far_and_how_long_it_has_left(tmp_path):
     from fastmdxplora.gui.workspace import card_of
 
@@ -76,13 +96,14 @@ def test_a_run_going_says_how_far_and_how_long_it_has_left(tmp_path):
     assert card["state"] == "running"
     assert card["simulated_ns"] == pytest.approx(0.008)
     assert card["planned_ns"] == pytest.approx(0.02)
-    assert card["progress"] == pytest.approx(0.4)
-    # 6,000 steps more at production's own 20 steps a second, as the
-    # Overview's time left reads it; not at the whole time's 381.555 s a
-    # 6,000, setup in it, which said 382.
-    assert card["seconds_left"] == 300
+    # As the status bar says it: 6,000 of 12,000 steps (it said 40%, of the
+    # production alone, under a status bar's 50%), and 6,000 steps more at
+    # the rate of its newest samples, 20 a second, as the Overview's time
+    # left reads it; not at the whole time's 381.555 s a 6,000, setup in it.
+    said = _paced(card["pace"])
+    assert said["percent"] == pytest.approx(50.0) and said["seconds"] == pytest.approx(300)
     ended = card_of(_live(_study(tmp_path / "ended"), status="completed", current=12000))
-    assert ended["simulated_ns"] == pytest.approx(0.02) and "progress" not in ended
+    assert ended["simulated_ns"] == pytest.approx(0.02) and "pace" not in ended
     # Stopped once its quantities were determined, short of the ceiling:
     # what it ran, as its Overview says, not the 20 ps it might have.
     early = _live(_study(tmp_path / "early"), status="completed", current=8000)
@@ -91,6 +112,46 @@ def test_a_run_going_says_how_far_and_how_long_it_has_left(tmp_path):
     early = card_of(early)
     assert early["simulated_ns"] == pytest.approx(0.012)
     assert early["planned_ns"] == pytest.approx(0.02)
+
+
+def test_a_study_of_runs_counts_every_run_as_it_runs_them(tmp_path):
+    """Three replicas of 20 ps, one ended, one going at 8 ps, one not
+    begun: it said 28 ps of 40 ps, 70%, five minutes left, the run not begun
+    left out of what was planned and of the time; three going side by side
+    were said the sum of their times left."""
+    import yaml
+
+    from fastmdxplora.gui.workspace import _how_far
+
+    study = _replicas(tmp_path / "reps")
+    batch = json.loads((study / "batch_manifest.json").read_text())
+    _live(study / "runs" / "seed1", status="completed", current=12000)
+    _live(study / "runs" / "seed2")
+    one_after_another = _how_far(study, batch, {"state": "running"},
+                                 config={"execution": {"mode": "sequential"}})
+    assert one_after_another["simulated_ns"] == pytest.approx(0.028)
+    assert one_after_another["planned_ns"] == pytest.approx(0.06)
+    assert one_after_another["lengths"] == [pytest.approx(0.02), pytest.approx(0.008)]
+    said = _paced(one_after_another["pace"])
+    # 18,000 of 36,000 steps; 300 s for the run going, 600 for the next.
+    assert said["percent"] == pytest.approx(50.0) and said["seconds"] == pytest.approx(900)
+    _live(study / "runs" / "seed1")
+    _live(study / "runs" / "seed3")
+    side_by_side = _how_far(study, batch, {"state": "running"},
+                            config={"execution": {"workers": 3}})
+    assert side_by_side["pace"]["mode"] == "parallel"
+    assert _paced(side_by_side["pace"])["seconds"] == pytest.approx(300)
+    # Side by side on as many workers as nobody said: not known.
+    unknown = _how_far(study, batch, {"state": "running"},
+                       config={"execution": {"mode": "parallel"}})
+    assert _paced(unknown["pace"])["seconds"] is None
+    # A run not begun where a length is swept: what was planned not known.
+    (study / "runs" / "seed3" / "simulation" / "live_status.json").unlink()
+    (study / "runs" / "seed3" / "simulation" / "live_metrics.csv").unlink()
+    (study / "runs" / "seed3" / "simulation").rmdir()
+    batch["sweep"] = {"simulation.duration_ns": [0.02, 0.04, 0.06]}
+    swept = _how_far(study, batch, {"state": "running"}, config=yaml.safe_load("execution: {}"))
+    assert "planned_ns" not in swept and _paced(swept["pace"])["seconds"] is None
 
 
 def test_a_trajectory_analysed_is_analysed_and_every_mean_is_sent(tmp_path):
@@ -235,6 +296,7 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
             page.wait_for_selector("#studies-table tbody tr.studies-row")
             first = page.evaluate(LOOK)
@@ -265,6 +327,9 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
             page.keyboard.press("Enter")
             page.wait_for_selector('#studies-views .studies-view-tab.is-saved:has-text("Trp-cage")')
             page.reload(wait_until="domcontentloaded")
+            # Settled: the list read again as the page opens is drawn before
+            # the keys go to a row.
+            page.wait_for_selector("body.state-ready")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
             page.wait_for_selector("#studies-table tbody tr.studies-row")
             page.click('#studies-views .studies-view-tab:has-text("Trp-cage")')
@@ -272,6 +337,7 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
             page.click('#studies-views .studies-view-tab:has-text("All")')
             # The keys: j moves down the rows, x chooses, m every mean.
             page.click("#studies-views .studies-view-tab[aria-selected='true']")
+            page.keyboard.press("j")
             page.keyboard.press("j")
             page.keyboard.press("j")
             moved = page.evaluate(LOOK)
@@ -305,13 +371,14 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
     assert first["rows"][-1] == "begun" and first["groups"] == ["Not started"]
     assert first["tabs"][:4] == ["All 4", "Running 1", "Needs more sampling 1", "Not started 1"]
     assert molecule == ["molecule", 19]
-    assert going.strip().startswith("running, 40%") and "8 ps of 20 ps · 5 min left" in going
-    assert bar == "40"
+    assert going.strip().startswith("running, 50%") and "8 ps of 20 ps · 5m 0s left" in going
+    assert bar == "50"
     assert means == [["false", "0.120 nm, spread 0.020"]]
     assert unfolded["children"] == 3
     assert running["rows"] == ["going"] and running["selected"].startswith("Running")
     assert saved["rows"] == ["helix"] and saved["selected"].startswith("Trp-cage")
-    assert moved["focused"] == moved["paths"][1]
+    # The replicas, the oldest, last: the third row.
+    assert moved["focused"] == moved["paths"][2]
     assert len(chosen) == 1 and chosen[0] == moved["focused"]
     assert "every mean recorded" in popped["pop"]
     assert searching == "studies-search"
