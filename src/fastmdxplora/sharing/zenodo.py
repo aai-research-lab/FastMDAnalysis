@@ -312,7 +312,7 @@ def _marked(depositions: str, token: str, title: str,
     try:
         found = _call("GET", f"{depositions}?status=draft&sort=mostrecent&size=100",
                       token=token, missing_ok=True, said=said, tries=tries,
-                      timeout=_LOOK_TIMEOUT_S)
+                      timeout=_LOOK_TIMEOUT_S if tries == 1 else None)
     except ShareRefused as exc:
         if not getattr(exc, "later", False):
             # The token refused, say: no waiting mends it.
@@ -391,13 +391,23 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
     link = str((found.get("links") or {}).get("latest") or "")
     if not link:
         return found
-    record = _call("GET", link, token=token, missing_ok=True, said=said)
-    newest = str((record or {}).get("id") or "") if isinstance(record, dict) else ""
-    if not newest or newest == str(found.get("id")):
+    record = _call("GET", link, token=token, missing_ok=True, said=said, gone=_GONE)
+    if record is _GONE:
+        return found
+    newest = str(record.get("id") or "") if isinstance(record, dict) else ""
+    if not newest:
+        # An answer naming no version: the latest is not known, and a new
+        # version begun from another would be counted wrong.
+        raise ShareRefused(f"Zenodo's answer for {link} named no record.",
+                           code="environment.service.unreachable")
+    if newest == str(found.get("id")):
         return found
     deposition = _call("GET", f"{depositions}/{newest}", token=token, missing_ok=True,
                        said=said)
-    return deposition if isinstance(deposition, dict) else found
+    if not isinstance(deposition, dict):
+        raise ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no record.",
+                           code="environment.service.unreachable")
+    return deposition
 
 
 def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
@@ -409,7 +419,7 @@ def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
         return []
     try:
         found = _call("GET", f"{depositions}?status=draft&sort=mostrecent&size=100",
-                      token=token, missing_ok=True, said=said, timeout=_LOOK_TIMEOUT_S)
+                      token=token, missing_ok=True, said=said)
     except ShareRefused as exc:
         if not getattr(exc, "later", False):
             raise
@@ -475,6 +485,25 @@ def _bumped(label: str) -> str:
         return ""
     last = found[-1]
     return f"{label[:last.start()]}{int(last.group()) + 1}{label[last.end():]}"
+
+
+def _md5(checksum: Any) -> str:
+    """A checksum as Zenodo gives it ("md5:<hex>", or the hex alone), as hex."""
+    return str(checksum or "").rsplit(":", 1)[-1].lower()
+
+
+def _sums_kept(kept: Any) -> dict[str, str]:
+    return {str(k): _md5(v) for k, v in kept.items() if v} if isinstance(kept, dict) else {}
+
+
+def _md5_of(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.md5()  # noqa: S324 (Zenodo's own checksum)
+    with path.open("rb") as source:
+        for piece in iter(lambda: source.read(1 << 20), b""):
+            digest.update(piece)
+    return digest.hexdigest()
 
 
 def _names_kept(kept: Any) -> list[str]:
@@ -648,7 +677,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                   **{k: earlier[k] for k in ("archive", "written", "doi", "record", "asked_as",
                                              "sending", "record_written", "record_sending",
                                              "record_archive", "record_sums", "stale",
-                                             "uploading", "made_as")
+                                             "uploading", "made_as", "sums")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
@@ -690,8 +719,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                         and not any(made_with.get(key) for key in _SOMEONE_S)):
             # As Zenodo made it: seen in its answer, or found by its title
             # with no one's words or names in it yet.
+            # (Its kind Zenodo does not choose: one found set is the person's.)
             kept[site]["made_as"] = {key: made_with.get(key) for key in _MADE_WITH
-                                     if made_with.get(key)}
+                                     if answered or (made_with.get(key)
+                                                     and key != "upload_type")}
     try:
         _keep(study, kept)
     except ShareRefused as exc:
@@ -725,6 +756,11 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                              body={"metadata": {**inherited, "prereserve_doi": True}},
                              said=said)
         except ShareRefused as exc:
+            if getattr(exc, "status", 0) in (404, 410):
+                raise ShareRefused(
+                    f"{exc} The draft {page} is gone from {site} (deleted there during this "
+                    "share): share again and a new one is made.",
+                    code="environment.service.unusable_response", url=page) from exc
             mend = "share again once Zenodo answers" if getattr(exc, "later", False) \
                 else "share again once that is mended"
             raise ShareRefused(
@@ -732,7 +768,13 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 f"{mend}, and that draft is finished, not another made.",
                 code=exc.refusal.code, url=page) from exc
         doi = str((((reserved or {}).get("metadata") or {}).get("prereserve_doi") or {})
-                  .get("doi") or "")
+                  .get("doi") or "") if isinstance(reserved, dict) else ""
+        if not doi:
+            raise ShareRefused(
+                f"Zenodo reserved no DOI for the draft {page} (its answer named none). The "
+                "draft is kept as it was: share again once Zenodo answers, and that draft is "
+                "finished, not another made.", code="environment.service.unreachable",
+                url=page)
     if doi:
         try:
             packed = pack(f"https://doi.org/{doi}")
@@ -758,22 +800,26 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         replacing.add(str(earlier["uploading"]))
     # Each the study put on the record a new version is of, whichever it was
     # published with.
-    sums = kept[site].get("record_sums") if isinstance(kept[site].get("record_sums"), dict) \
-        else {}
-    held_sums = dict(_contents(deposition))
-    replacing |= {name for name in _names_kept(kept[site].get("record_archive"))
-                  if not sums.get(name) or not held_sums.get(name)
-                  or sums[name] == held_sums[name]}
-    replacing -= {archive.name}
+    replacing |= set(_names_kept(kept[site].get("record_archive")))
+    # What each archive of the study's holds, where known (as uploaded, or as
+    # the record holds it): one of its name holding anything else is not the
+    # study's, but put there by the person.
+    known = {**_sums_kept(kept[site].get("sums")), **_sums_kept(kept[site].get("record_sums"))}
+    held_sums = {name: _md5(checksum) for name, checksum in _contents(deposition)}
+
+    def _its(name: str) -> bool:
+        return not known.get(name) or not held_sums.get(name) or known[name] == held_sums[name]
+
+    replacing = {name for name in replacing if _its(name)} - {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
-             and ours and ours != archive.name]
+             and ours and ours != archive.name and _its(ours)]
     stale += [entry for entry in earlier_files
               if str(entry.get("filename") or entry.get("key") or "") in replacing
               and entry not in stale]
     foreign = sorted(name for name in _names(deposition)
                      if name.lower().endswith(".zip")
-                     and name not in {archive.name, ours, *replacing})
+                     and (name not in {archive.name, ours, *replacing} or not _its(name)))
     if foreign:
         raise ShareRefused(
             f"The draft {page} holds {', '.join(foreign)}, which this study did not put "
@@ -812,6 +858,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         # The new archive first: one of the same name is replaced by it, and
         # the draft keeps the one it had until the new one is there.
         kept[site]["uploading"] = archive.name
+        kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
+                              archive.name: _md5_of(archive)}
         _keep(study, kept)
         _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
               upload=archive, said=said)
@@ -854,9 +902,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             _keep(study, kept)
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
-            kept[site]["written"] = _written((answer or {}).get("metadata")
-                                             if isinstance(answer, dict) else {})
-            kept[site].pop("sending", None)
+            if isinstance(answer, dict) and isinstance(answer.get("metadata"), dict):
+                kept[site]["written"] = _written(answer["metadata"])
+                kept[site].pop("sending", None)
+            # Else what it holds is not known: what was sent stays the study's.
         else:
             # The person's words, kept; the version is the study's to say.
             if str(held.get("version") or "") != str(version):
@@ -1024,6 +1073,9 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             raise ShareRefused("Zenodo named no draft of the new version it began.",
                                code="environment.service.unreachable")
         deposition = _call("GET", latest, token=token, said=said)
+        if not isinstance(deposition, dict):
+            raise ShareRefused(f"Zenodo's answer for {latest} was no draft.",
+                               code="environment.service.unreachable")
     except ShareRefused as exc:
         if exc.refusal.code == "environment.service.unusable_response" \
                 or "did not list your drafts" in str(exc):

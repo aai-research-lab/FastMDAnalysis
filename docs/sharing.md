@@ -247,7 +247,8 @@ written nowhere.
 The study keeps the record it was shared as in `shared_to.json`. Shared
 again before you publish, the same draft is made again with the new
 archive; the archive the study put there before is taken away, a file you
-put beside it (a paper, a figure) stays, and a description written there
+put beside it (a paper, a figure, or a `.zip` of the study's name holding
+something else, which keeps the share back) stays, and a description written there
 by you, not the study, is kept as you left it, as are creators,
 keywords, an embargo, a licence or a kind you gave a draft the study had
 not described yet, or wrote there while its archive was uploading (only
@@ -496,4 +497,4 @@ The packing list of the demo study, cut to one file of each kind:
 | `environment.share.too_large` | The archive is over the download limit, or the disk it is opened into has no room for it. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |
 | `environment.service.unreachable` | Zenodo could not be reached, refused the token, or did not answer as it documents, still after five tries where it said to ask again. |
-| `environment.service.unusable_response` | Zenodo holds what a share cannot take as its own: two drafts under the title it asked for one with (delete all but one); a draft of a new version there already, or one changed since it was begun (publish or delete it); or a `.zip` on the draft the study did not put there (delete it, or keep it in a record of its own); or an answer for the study's draft or record that is neither (share again later). |
+| `environment.service.unusable_response` | Zenodo holds what a share cannot take as its own: two drafts under the title it asked for one with (delete all but one); a draft of a new version there already, or one changed since it was begun (publish or delete it); or a `.zip` on the draft the study did not put there (delete it, or keep it in a record of its own); or an answer for the study's draft or record that is neither (share again later); or the draft deleted on Zenodo during the share (share again, and a new one is made). |

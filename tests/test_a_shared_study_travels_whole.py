@@ -2026,7 +2026,8 @@ def test_a_file_the_person_names_as_the_record_s_archive_is_not_taken_away(tmp_p
     unsteady.files_of = {n: [{"id": "a", "filename": "a.zip", "checksum": "md5:1"}]
                          for n in (7, 8)}
     assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
-    unsteady.files_of[8] = [{"id": "b", "filename": "b.zip", "checksum": "md5:2"},
+    sent = hashlib.md5((tmp_path / "b.zip").read_bytes()).hexdigest()  # noqa: S324
+    unsteady.files_of[8] = [{"id": "b", "filename": "b.zip", "checksum": sent},
                             {"id": "m", "filename": "a.zip", "checksum": "md5:9"}]
     unsteady.calls.clear()
     capsys.readouterr()
@@ -2047,7 +2048,7 @@ def test_a_draft_found_by_its_title_with_another_licence_zenodo_gave_is_the_stud
     def listed(self):
         for draft in type(self).drafts:
             type(self).meta.setdefault(draft["id"], {"title": draft["title"],
-                                                     "license": "cc-nc", "upload_type": "other"})
+                                                     "license": "cc-nc"})
         return real(self)
 
     _Unsteady._list = listed
@@ -2088,3 +2089,146 @@ def test_an_empty_answer_to_making_a_draft_says_it_may_be_made(tmp_path, unstead
     unsteady.calls.clear()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+def _empty_answer_to(monkeypatch, method: str, ending: str, *, after: bool = True):
+    """Zenodo, asked ``method`` of a URL ending in ``ending``, does it (where
+    ``after``) and answers 200 with nothing; the steady ``_call`` returned."""
+    real = zenodo._call
+
+    def empty(m, url, **kwargs):
+        if m == method and url.endswith(ending):
+            if after:
+                real(m, url, **kwargs)
+            return None
+        return real(m, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", empty)
+    return real
+
+
+def test_an_empty_answer_to_the_description_leaves_it_the_study_s(tmp_path, unsteady,
+                                                                  monkeypatch, capsys):
+    """Review of the seventeenth commit: one empty answer to the study's
+    description left it the person's for good, never written again."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _analysed_again(study, "Words of the second share.")
+    real = _empty_answer_to(monkeypatch, "PUT", "/api/deposit/depositions/7")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    monkeypatch.setattr(zenodo, "_call", real)
+    report = study / "report" / "report.md"
+    report.write_text(report.read_text().replace("Words of the second share.",
+                                                 "Words of the third share."))
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+    assert "Words of the third share." in unsteady.meta[7]["description"]
+
+
+
+def test_an_empty_answer_for_a_new_version_begun_is_a_refusal(tmp_path, unsteady,
+                                                             monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    _empty_answer_to(monkeypatch, "GET", "/api/deposit/depositions/8", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "Zenodo began the new version of record 7 (8)" in capsys.readouterr().err
+
+
+def test_a_kind_given_a_draft_found_by_its_title_is_the_person_s(tmp_path, unsteady):
+    """Hands-on review of the seventeenth commit: a kind the person gave a
+    draft whose answer was lost, before the share that found it, was taken
+    as Zenodo's and written over."""
+    unsteady.meta = {}
+    study, out = _studied(tmp_path, "study")
+    unsteady.late = len(zenodo._LOOKS_S)
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, out) == 2
+    unsteady.faults = {}
+    unsteady.meta[7] = {"title": unsteady.drafts[0]["title"], "upload_type": "software"}
+    assert _share_to_zenodo(study, out) == 0
+    assert unsteady.meta[7]["upload_type"] == "software"
+
+
+def test_an_empty_answer_for_the_latest_version_is_not_taken_for_none(tmp_path, unsteady,
+                                                                     monkeypatch, capsys):
+    """Hands-on review of the seventeenth commit: an empty answer for the
+    latest version was taken as no newer one, and a new version asked of an
+    older version."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "10"}, "files": []}
+    _empty_answer_to(monkeypatch, "GET", "/api/records/latest", after=False)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "named no record" in capsys.readouterr().err
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_a_licence_alone_on_a_draft_made_and_answered_is_the_person_s(tmp_path, unsteady):
+    """Review of the seventeenth commit: a licence the person set alone on a
+    draft whose making was answered, to one Zenodo gives others, was written
+    over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7]["license"] = "cc-zero"
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["license"] == "cc-zero"
+
+
+def test_a_doi_reserved_for_a_draft_gone_or_unanswered_is_said(tmp_path, unsteady,
+                                                              monkeypatch, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["prereserve_doi"] = {}
+    unsteady.faults = {"PUT metadata": [404]}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "is gone from zenodo-sandbox" in capsys.readouterr().err
+    unsteady.faults = {}
+    _empty_answer_to(monkeypatch, "PUT", "/api/deposit/depositions/7", after=False)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "Zenodo reserved no DOI" in capsys.readouterr().err
+
+
+def test_the_person_s_file_named_as_the_study_s_archive_is_not_taken_away(tmp_path,
+                                                                          unsteady,
+                                                                          capsys):
+    """Review of the seventeenth commit: a new version's upload failing, the
+    person put their own a.zip in place of the record's, and the next share
+    deleted it without a word."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    sent = hashlib.md5((tmp_path / "a.zip").read_bytes()).hexdigest()  # noqa: S324
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip", "checksum": f"md5:{sent}"}]
+                         for n in (7, 8)}
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    unsteady.faults = {}
+    unsteady.files_of[8] = [{"id": "m", "filename": "a.zip", "checksum": "md5:9"}]
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    assert "holds a.zip, which this study did not put there" in capsys.readouterr().err
+    assert not any(c[0] == "DELETE" for c in unsteady.calls)
+
+
+def test_the_listing_a_share_decides_on_may_take_its_time(monkeypatch):
+    asked = []
+    monkeypatch.setattr(zenodo, "_call", lambda *a, **k: asked.append(k) or [])
+    zenodo._marked("http://z/api/deposit/depositions", "t", "x", None, tries=zenodo.TRIES)
+    zenodo._concept_drafts("http://z/api/deposit/depositions", "t",
+                           {"conceptrecid": "c7", "id": 7}, None)
+    assert [k.get("timeout") for k in asked] == [None, None]
