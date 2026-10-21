@@ -706,3 +706,28 @@ def test_a_card_is_read_once_while_its_records_stand(tmp_path, monkeypatch):
     workspace.card_of(going)
     workspace.card_of(going)
     assert reads[3:] == ["going", "going"]
+
+
+def test_a_card_kept_sees_its_start_structure_replaced(tmp_path):
+    """A study whose Config names its start in a folder of its own
+    (``inputs/start.pdb``): its molecule is drawn from it, and a card kept
+    by its stamp went on drawing the start it had once that file was
+    replaced in place, until the GUI restarted."""
+    import os
+
+    from fastmdxplora.gui import workspace
+
+    study = tmp_path / "prepared"
+    _pdb(study / "inputs" / "start.pdb", _helix(10, "A", 1))
+    (study / "exploration.yml").write_text("systems:\n  - system: inputs/start.pdb\n",
+                                           encoding="utf-8")
+    first = workspace.card_of(study)["molecule"]
+    assert (first["from"], first["residues"]) == ("start", 10)
+    start = study / "inputs" / "start.pdb"
+    folder = os.stat(start.parent).st_mtime_ns
+    _pdb(start, _helix(40, "A", 1))
+    later = os.stat(start).st_mtime_ns + 10_000_000
+    os.utime(start, ns=(later, later))
+    os.utime(start.parent, ns=(folder, folder))
+    assert workspace.card_of(study)["molecule"]["residues"] == 40
+    assert "_drawn_from" not in workspace.card_of(study)

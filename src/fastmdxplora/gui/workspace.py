@@ -362,13 +362,21 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     stamp = _stamp_of(base)
     with _CARDS_LOCK:
         kept = _CARDS_KEPT.get(str(base))
-        if kept is not None and stamp is not None and kept[0] == stamp:
-            _CARDS_KEPT.move_to_end(str(base))
-            return copy.deepcopy(kept[1])
+    if (kept is not None and stamp is not None and kept[0] == stamp
+            and _stamp_of_files(kept[2]) == kept[3]):
+        with _CARDS_LOCK:
+            if str(base) in _CARDS_KEPT:
+                _CARDS_KEPT.move_to_end(str(base))
+        return copy.deepcopy(kept[1])
     card = _card_of(base)
+    # The structures its molecule is drawn from, or would be, wherever in
+    # the study they are (a start the Config names in a folder of its own):
+    # stamped too, so a structure replaced is drawn again.
+    watched = tuple(card.pop("_drawn_from", ()))
     if stamp is not None and card.get("state") != "running" and "pace" not in card:
         with _CARDS_LOCK:
-            _CARDS_KEPT[str(base)] = (stamp, copy.deepcopy(card))
+            _CARDS_KEPT[str(base)] = (stamp, copy.deepcopy(card), watched,
+                                      _stamp_of_files(watched))
             while len(_CARDS_KEPT) > _MOST_CARDS_KEPT:
                 _CARDS_KEPT.popitem(last=False)
     return card
@@ -376,12 +384,25 @@ def card_of(folder: Path | str) -> dict[str, Any]:
 
 #: Cards kept in memory by their study's records' places, sizes and times.
 _MOST_CARDS_KEPT = 1024
-_CARDS_KEPT: "OrderedDict[str, tuple[tuple, dict[str, Any]]]" = OrderedDict()
+_CARDS_KEPT: "OrderedDict[str, tuple[tuple, dict[str, Any], tuple, tuple]]" = OrderedDict()
 _CARDS_LOCK = threading.Lock()
 #: The folders of a study whose files a card reads, looked into for its
 #: stamp; a run's folder under `runs`, and an analysis's under `analysis`.
 _STAMPED = {"analysis", "simulation", "setup", "report", "runs", "pmf", "agent",
             "conversations", "free_energy", "comparison"}
+
+
+def _stamp_of_files(paths: tuple) -> tuple:
+    """Each file's place, mode, size and time, the link itself where one is
+    (nothing read, no link at its end followed); None for one not there."""
+    seen = []
+    for path in paths:
+        try:
+            info = os.lstat(path)
+            seen.append((path, info.st_mode, info.st_size, info.st_mtime_ns))
+        except OSError:
+            seen.append((path, None))
+    return tuple(seen)
 
 
 def _stamp_of(base: Path) -> tuple | None:
@@ -568,6 +589,7 @@ def _card_read_once(base: Path) -> dict[str, Any]:
         outside = start_outside(base)
         if outside:
             card["molecule_outside"] = outside
+    card["_drawn_from"] = _drawn_from(base)
     pmf = _read_json(base / "pmf.json")
     if isinstance(pmf, dict):
         # Whether the windows gave a free energy, and if not the first
@@ -579,6 +601,24 @@ def _card_read_once(base: Path) -> dict[str, Any]:
     if kept:
         card["unread"] = kept
     return card
+
+
+def _drawn_from(base: Path) -> list[str]:
+    """The structure the card's molecule is drawn from and the start its
+    Config names, those in the study, for `card_of` to stamp: either can be
+    in a folder the study's stamp does not look in."""
+    from fastmdxplora import record_access
+    from fastmdxplora.gui.backbone_picture import _start_named, molecule_structure
+
+    paths: list[str] = []
+    try:
+        found = molecule_structure(base)
+    except OSError:
+        found = None
+    for path in (found[0] if found else None, _start_named(base)):
+        if path is not None and record_access.can_read(path) and str(path) not in paths:
+            paths.append(str(path))
+    return paths
 
 
 def _picture_of(base: Path) -> str | None:
