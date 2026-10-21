@@ -257,3 +257,16 @@ def test_the_archive_is_a_zip(tmp_path, capsys):
     assert main(["report", "--output", str(study), "--share", str(tmp_path / "s.tar"),
                  "--share-author", "A Person"]) == 2
     assert "ending in .zip" in capsys.readouterr().err
+
+
+def test_a_folder_never_shared_kept_as_a_link_does_not_stop_it(tmp_path):
+    """Review of the series of several runs: what `--rerun` set aside, kept as
+    a link to scratch, refused a study that never carries it."""
+    root = _study(tmp_path / "study")
+    scratch = tmp_path / "scratch" / "previous"
+    scratch.parent.mkdir()
+    (root / "previous").rename(scratch)
+    (root / "previous").symlink_to(scratch)
+    share_study(root, tmp_path / "shared.zip", authors=AUTHORS)
+    assert not any(n.startswith("previous") for n in
+                   zipfile.ZipFile(tmp_path / "shared.zip").namelist())

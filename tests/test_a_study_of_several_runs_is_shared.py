@@ -1596,16 +1596,19 @@ def test_a_carried_folder_named_with_the_computer_s_name_is_renamed(tmp_path):
     folder as the placeholder, so the run opened with no system."""
     from fastmdxplora.simulation.pipeline import setup_records_of
 
-    prep = _prepared(tmp_path / f"{COMPUTER}.old" / "setup")
-    root = tmp_path / "campaign"
-    _run(root, "a", prep, str(prep.parent))
-    _of_one_run(root)
-    out = tmp_path / "o.zip"
-    share_study(root, out, authors=AUTHORS)
-    assert not any(COMPUTER in n for n in zipfile.ZipFile(out).namelist())
-    opened = open_shared(str(out), into=tmp_path / "x")
-    assert setup_records_of(opened / "runs" / "a") == \
-        (opened / "prepared" / "preparation" / "setup").resolve()
+    for n, folder in enumerate((f"{COMPUTER}.old", f"prep-{COMPUTER.upper()}",
+                                f"{Path.home().name}.old")):
+        prep = _prepared(tmp_path / str(n) / folder / "setup")
+        root = tmp_path / str(n) / "campaign"
+        _run(root, "a", prep, str(prep.parent))
+        _of_one_run(root)
+        out = tmp_path / str(n) / "o.zip"
+        share_study(root, out, authors=AUTHORS)
+        names = zipfile.ZipFile(out).namelist()
+        assert not any(folder.casefold() in name.casefold() for name in names), folder
+        opened = open_shared(str(out), into=tmp_path / str(n) / "x")
+        assert setup_records_of(opened / "runs" / "a") == \
+            (opened / "prepared" / "preparation" / "setup").resolve()
 
 
 def _fetched(tmp_path: Path, name: str, given: Path, remote: str) -> Path:
@@ -1736,3 +1739,85 @@ def test_an_archive_that_cannot_be_read_says_so(tmp_path, monkeypatch):
         open_shared(str(out), into=tmp_path / "x")
     assert str(refused.value) == (f"{out} could not be read (Permission denied); nothing was "
                                   "opened. Make it readable and open it again.")
+
+
+def test_a_link_only_to_what_is_never_shared_does_not_stop_it(tmp_path):
+    """Review of series 4: a link to a folder a shared study never carries
+    (the Agent's, `previous/`, the Viewer's snapshots), or to a file it
+    leaves out unless all is asked for, refused the study."""
+    root, _ = _campaign(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (root / "runs" / "a" / "previous").symlink_to(scratch)
+    (root / "runs" / "a" / "simulation" / "live_frames").symlink_to(scratch)
+    (root / "agent" / "conversations").rename(scratch / "conversations")
+    (root / "agent" / "conversations").symlink_to(scratch / "conversations")
+    (scratch / "cluster_medoid_0.pdb").write_text("END\n")
+    (root / "runs" / "a" / "analysis" / "cluster_medoid_0.pdb").symlink_to(
+        scratch / "cluster_medoid_0.pdb")
+    (root / "runs" / "a" / "simulation" / "x.tmp").symlink_to(scratch / "cluster_medoid_0.pdb")
+    share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "all.zip", authors=AUTHORS, everything=True)
+    assert "runs/a/analysis/cluster_medoid_0.pdb" in str(refused.value)
+    assert "previous" not in str(refused.value) and "x.tmp" not in str(refused.value)
+
+
+def test_a_carried_folder_that_cannot_be_entered_is_said_by_its_name(tmp_path, monkeypatch):
+    """Review of series 4: a preparation's folder that could not be entered
+    was said by the `system.xml` in it, which cannot be made readable while
+    the folder holding it cannot be entered."""
+    import os
+
+    root, elsewhere = _campaign(tmp_path)
+    folder = str(elsewhere / "setup")
+    real_stat, real_scandir = os.stat, os.scandir
+
+    def shut(path) -> bool:
+        return not isinstance(path, int) and (
+            os.fspath(path) in (folder, os.path.join(folder, "."))
+            or os.fspath(path).startswith(folder + "/"))
+
+    def stat(path, *args, **kwargs):
+        if shut(path) and os.fspath(path) != folder:
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_stat(path, *args, **kwargs)
+
+    def scandir(path="."):
+        if shut(path):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "stat", stat)
+    monkeypatch.setattr(os, "scandir", scandir)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value).startswith(f"{folder}, which the study's runs simulated from, "
+                                         "could not be read (Permission denied)")
+
+
+def test_a_fetched_input_beside_the_system_is_not_said_as_carried(tmp_path):
+    """Review of series 4: an input sent from the folder carried but not from
+    the system in it (a ligand beside it) was said as a path in the archive
+    that holds nothing."""
+    from fastmdxplora.simulation import pipeline
+
+    prep = _prepared(tmp_path / "preps" / "wt-prep" / "setup")
+    (prep.parent / "ligs").mkdir()
+    (prep.parent / "ligs" / "x.sdf").write_text("X\n\nM  END\n")
+    root = _fetched(tmp_path, "wt-prep", prep.parent, "/scratch/kaina/fastmdxplora-jobs/job42")
+    record = json.loads((root / pipeline.FETCHED_RECORD).read_text())
+    record["inputs"]["x.sdf"] = str(prep.parent / "ligs" / "x.sdf")
+    (root / pipeline.FETCHED_RECORD).write_text(json.dumps(record))
+    with (root / "runs" / "a" / "resolved_config.yml").open("a") as config:
+        config.write("ligand: inputs/x.sdf\n")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    assert "ligand: inputs/x.sdf\n" in _texts_of(out)["runs/a/resolved_config.yml"]
+
+
+def test_indented_code_after_a_heading_is_left_as_code_shows_it():
+    from fastmdxplora.sharing.pack import _markdown_plain
+
+    text = "## Host\n    host __FASTMDX_HOST__\n"
+    assert _markdown_plain(text) == text

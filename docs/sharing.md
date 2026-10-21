@@ -87,7 +87,7 @@ it). A system kept outside the study, or in a folder of it a shared study leaves
 out (one whose name begins with a dot, one set aside such as `previous/`, a
 run's folder the record of runs does not name), is carried once, however many runs used it, in `prepared/<name>/`,
 named from the folder the runs name it by (`prepared/preparation/` where that
-folder is named for the person or the computer), and every path to that folder is said as the
+folder's name holds the person's or the computer's), and every path to that folder is said as the
 folder it is carried in (`__FASTMDX_STUDY__/prepared/<name>`, below): as the
 runs name it, typed from a home folder (`~/prep`) included, and where its setup
 record says it was made, from the structure setup kept beside what it made
@@ -132,8 +132,9 @@ carried the same way.
 A file or folder of the study kept as a link (a trajectory linked to scratch,
 say) is never packed, and keeps the study back (`environment.share.not_finished`,
 naming each): shared without it, the study would be opened missing what it
-leads to. Put the files it leads to in its place. So does a file or folder that
-would be packed and cannot be read: make it readable.
+leads to. Put the files it leads to in its place (or remove one that leads
+nowhere). So does a file or folder that would be packed and cannot be read:
+make it readable.
 
 Settings of the installation itself, the model the Agent uses and any key for it,
 live outside the study and are never read.
