@@ -32,10 +32,20 @@
     window.dispatchEvent(new CustomEvent("dashboard:problems-counted",
       { detail: { count: count, partial: Boolean(partial) } }));
   }
-  function message(words) {
+  /* Where the tab stands, in its summary, and below it the page's one
+   * block (page-states.js): reading, nothing open, or not read with Try
+   * again. */
+  function message(words, kind) {
     counted(null);
     byId("problems-summary").textContent = words;
-    byId("problems-body").replaceChildren();
+    var body = byId("problems-body");
+    body.replaceChildren();
+    if (kind && window.FastMDXPageState) {
+      body.appendChild(window.FastMDXPageState.block(kind === "error" ? {
+        kind: "error", title: "The problems could not be read", detail: words,
+        action: { label: "Try again", run: function () { load(true); } },
+      } : kind === "loading" ? { kind: "loading", title: words } : { kind: "empty", title: words }));
+    }
     rendered = "";
   }
   function clear() {
@@ -47,7 +57,8 @@
     study = "";
     liveSeen = null;
     eventsSeen = null;
-    message(active ? "Reading the study's records..." : "Open a study to read its problems.");
+    message(active ? "Reading the study's records..." : "Open a study to read its problems.",
+            active ? "loading" : "empty");
   }
   function render(data) {
     var key = JSON.stringify(data);
@@ -127,11 +138,11 @@
       /* No study open has no key. A folder open that is not yet a study
        * (one a run has just begun in) has its key, and no run named. */
       if (data.ok && data.active_run === null && !data.study) {
-        message("Open a study to read its problems.");
+        message("Open a study to read its problems.", "empty");
         return;
       }
       if (data.study !== wanted || (data.active_run !== null && data.active_run !== root)) {
-        message("The open study changed. Waiting for its records...");
+        message("The open study changed. Waiting for its records...", "loading");
         return;
       }
       if (!data.ok) throw new Error(data.reason || "Could not read the study's problems.");
@@ -144,7 +155,7 @@
       render(data);
     }).catch(function (error) {
       if (at !== generation || error.name === "AbortError") return;
-      message("Could not read problems. Use Refresh to try again.");
+      message("Could not read problems.", "error");
     }).finally(function () {
       if (pending !== controller) return;
       pending = null;
