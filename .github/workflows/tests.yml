@@ -248,14 +248,20 @@ jobs:
           # The coverage leg runs the browser tests too, traced, and grew
           # past its 150 minutes: from 82 at 1094e1c9 (10-16) to past 145 by
           # 10-18, cancelled at about 78% on every push since, so main read
-          # red on all of them. Its tests run on every core of the runner
-          # (-n auto, pytest-xdist), a file's tests on one worker
-          # (--dist loadfile) so a module's browser and server are its own;
-          # pytest-cov combines what each traced. On a workstation, four
-          # workers, coverage and the browser tests took the whole suite
-          # 26 minutes.
+          # red on all of them. The tests that drive no browser run on every
+          # core of the runner (pytest-xdist, a file's tests on one worker);
+          # the files that drive Chromium run after them one at a time, as
+          # before: four browsers on the runner's four cores, traced, timed
+          # out on waits that pass alone (16 of them in the first try, on
+          # #65). pytest-cov appends the second run to the first.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python-version }}" = "3.11" ]; then
-            pytest -rfEs -n auto --dist loadfile --cov=fastmdxplora --cov-report=term-missing --cov-report=xml
+            browser=$(grep -l playwright tests/*.py)
+            status=0
+            pytest -rfEs -n auto --dist loadfile --cov=fastmdxplora --cov-report= \
+              $(printf -- '--ignore=%s ' $browser) || status=1
+            pytest -rfEs --cov=fastmdxplora --cov-append \
+              --cov-report=term-missing --cov-report=xml $browser || status=1
+            exit $status
           else
             pytest -rfEs
           fi
