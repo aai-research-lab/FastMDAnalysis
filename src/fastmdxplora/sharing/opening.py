@@ -50,6 +50,11 @@ STALLED_S = 30
 _NO_ROOM = frozenset({errno.ENOSPC, errno.EDQUOT})
 
 
+
+def _gb(size: float) -> str:
+    """A size as said to the person: in GB, or in MB below a tenth of one."""
+    return f"{size / 1e9:.1f} GB" if size >= 1e8 else f"{size / 1e6:.0f} MB"
+
 def unpacked_limit(most_bytes: int) -> int:
     """How much an archive may unpack to: compressed text unpacks to several
     times its size, and a crafted archive to thousands."""
@@ -119,7 +124,7 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                         size = _whole_size(answer, start or 0)
                         if size > most:
                             raise ShareRefused(
-                                f"{url} holds {size / 1e9:.1f} GB, over {most / 1e9:.1f} GB; "
+                                f"{url} holds {_gb(size)}, over {_gb(most)}; "
                                 "nothing was kept. Allow more with --open-most-gb.",
                                 code="environment.share.too_large", url=url)
                     if start is None and answer.status == 206:
@@ -145,7 +150,7 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                         for piece in iter(functools.partial(reader, 1 << 20), b""):
                             if read + len(piece) > most:
                                 raise ShareRefused(
-                                    f"{url} sent more than {most / 1e9:.1f} GB; nothing was "
+                                    f"{url} sent more than {_gb(most)}; nothing was "
                                     "kept. Allow more with --open-most-gb.",
                                     code="environment.share.too_large", url=url)
                             try:
@@ -275,7 +280,7 @@ def _members(archive: zipfile.ZipFile, most_bytes: int) -> list[zipfile.ZipInfo]
         total += info.file_size
         if total > unpacked_limit(most_bytes):
             raise ShareRefused(
-                f"The archive unpacks to more than {unpacked_limit(most_bytes) / 1e9:.1f} GB; "
+                f"The archive unpacks to more than {_gb(unpacked_limit(most_bytes))}; "
                 "nothing was opened.", code="environment.share.unsafe")
         members.append(info)
     return members
@@ -435,7 +440,7 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             archive = given
             if archive.stat().st_size > most_bytes:
                 raise ShareRefused(
-                    f"{archive} is over {most_bytes / 1e9:.1f} GB; allow more with "
+                    f"{archive} is over {_gb(most_bytes)}; allow more with "
                     "--open-most-gb.", code="environment.share.too_large")
         else:
             from fastmdxplora.sharing.zenodo import archive_of, record_of
@@ -455,7 +460,7 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             if record["size"] and record["size"] > most_bytes:
                 raise ShareRefused(
                     f"Zenodo's record {number} holds {record['name']} of "
-                    f"{record['size'] / 1e9:.1f} GB, over {most_bytes / 1e9:.1f} GB; allow "
+                    f"{_gb(record['size'])}, over {_gb(most_bytes)}; allow "
                     "more with --open-most-gb.", code="environment.share.too_large")
             if said:
                 said(f"Downloading {record['name']} from Zenodo's record {record['id']}"

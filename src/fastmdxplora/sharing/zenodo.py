@@ -787,7 +787,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                    "answer was lost" if getattr(exc, "unclear", False)
                    else "with no archive yet")
         mend = ("share again once there is room" if exc.refusal.code
-                == "environment.share.too_large" else "share again once Zenodo answers")
+                == "environment.share.too_large" else "share again once Zenodo answers"
+                if getattr(exc, "later", False) else "share again once that is mended")
         raise ShareRefused(
             f"{exc} The draft {page} is kept, {kept_as}: {mend}, and that draft is finished, "
             "not another made.", code=exc.refusal.code, url=page) from exc
@@ -824,7 +825,7 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
     if not earlier.get("id"):
         return out
     published = out["published"]
-    again_from = False
+    again_from = asked = False
     try:
         found = _call("GET", f"{depositions}/{earlier['id']}", token=token, missing_ok=True,
                       said=said)
@@ -852,6 +853,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                            f"as is as it was{again}", code=exc.refusal.code) from exc
     # Published: a new version, begun from the latest one published (which
     # may be one the person published by hand since), and counted on from it.
+    # Until the latest is known, the record is the one the study was shared as.
+    published = str(found.get("id") or earlier["id"]) if not again_from else published
     try:
         newest = _latest_published(found, depositions, token, said)
         published = str(newest.get("id") or found["id"])
@@ -878,6 +881,10 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                 "delete it there, then share again.",
                 code="environment.service.unusable_response",
                 url=str((begun[0].get("links") or {}).get("html") or ""))
+        # Where the study is written, written first: a disk with no room
+        # refuses before Zenodo begins a version the study could not remember.
+        _keep(study, kept)
+        asked = True
         newer = _call("POST", f"{depositions}/{published}/actions/newversion", token=token,
                       said=said)
         latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
@@ -889,7 +896,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
         if exc.refusal.code == "environment.service.unusable_response" \
                 or "did not list your drafts" in str(exc):
             raise
-        began = getattr(exc, "unclear", False)
+        # Only a request to begin one may have begun one.
+        began = asked and getattr(exc, "unclear", False)
         again = "; share again once Zenodo answers." if getattr(exc, "later", False) else "."
         raise ShareRefused(
             f"{exc} "

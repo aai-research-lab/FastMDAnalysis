@@ -1603,3 +1603,67 @@ def test_a_description_that_landed_is_the_study_s_whatever_zenodo_added(tmp_path
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert "Words of the next share." in unsteady.meta[7]["description"]
     assert unsteady.meta[7]["imprint_publisher"] == "Zenodo"
+
+
+def test_a_full_disk_refuses_before_a_new_version_is_begun(tmp_path, unsteady, monkeypatch,
+                                                            capsys):
+    """Hands-on review of the ninth commit: a published study whose disk
+    was full began a new version it could not remember, then refused it at
+    the next share as one the person began."""
+    import errno
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = Path.write_text
+
+    def full(self, *args, **kwargs):
+        if self.name.startswith(f".{zenodo.SHARED_TO}."):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", full)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "the disk has no room" in capsys.readouterr().err
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+    monkeypatch.setattr(Path, "write_text", real)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+
+
+def test_a_record_zenodo_did_not_answer_for_is_not_said_begun(tmp_path, unsteady,
+                                                             monkeypatch, capsys):
+    """Hands-on review of the ninth commit: a record's GET answering 503 was
+    said to have perhaps begun a new version, though none was asked for."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+
+    def unanswered(*_args, **_kwargs):
+        refused = ShareRefused("Zenodo answered HTTP 503, still after 5 tries.",
+                               code="environment.service.unreachable")
+        refused.unclear = refused.later = True
+        raise refused
+
+    monkeypatch.setattr(zenodo, "_latest_published", unanswered)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "may have begun" not in said
+    assert "Record 7 is as it was; share again once Zenodo answers." in said
+
+
+def test_a_token_refused_part_way_is_not_told_to_wait(tmp_path, unsteady, capsys):
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [401]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "once Zenodo answers" not in said and "share again once that is mended" in said
+
+
+def test_a_small_limit_is_said_in_megabytes(tmp_path, unsteady):
+    unsteady.payload = os.urandom(12 << 20)
+    with pytest.raises(ShareRefused) as refused:
+        _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
+                  tmp_path / "got.zip", most=10 ** 7, md5="", said=None, size=0)
+    assert "over 10 MB" in str(refused.value) and "0.0 GB" not in str(refused.value)
