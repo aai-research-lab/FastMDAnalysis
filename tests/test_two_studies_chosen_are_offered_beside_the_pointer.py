@@ -63,6 +63,12 @@ def _page(pw, session, many, width=1400, height=800):
     page.on("requestfinished", lambda r: asked.discard(r))
     page.on("requestfailed", lambda r: asked.discard(r))
     page.goto(session.url + "#studies", wait_until="domcontentloaded")
+    # The page lists its studies itself once it has its route, which can be
+    # after these were listed: the cards drawn again, a box held here was no
+    # longer in the page. That listing first, then these.
+    page.wait_for_function("() => window.FastMDXDashboard"
+                           " && window.FastMDXDashboard.state.initialRouteResolved")
+    page.evaluate("() => window.FastMDXStudies.load()")
     page.evaluate(f"() => window.FastMDXStudies.load({str(many)!r})")
     page.wait_for_selector(".study-card")
     # The cards are drawn again as their series arrive: wait for the last.
