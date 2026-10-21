@@ -53,11 +53,19 @@ class _Unsteady(_Zenodo):
     files_of: dict = {}
     # Drafts of a new version of record 7 there is (Zenodo keeps one).
     versions_begun: list = []
+    # Set by a test: each draft keeps the metadata it was made and written
+    # with, as Zenodo does, and only the drafts named are published.
+    meta: dict | None = None
+    published_ids: set | None = None
 
     def _deposition(self, number):
         made = super()._deposition(number)
         if type(self).files is not None:
             made["files"] = type(self).files
+        if type(self).meta is not None:
+            made["metadata"].update(type(self).meta.get(number, {}))
+        if type(self).published_ids is not None:
+            made["submitted"] = number in type(self).published_ids
         made["metadata"].update(type(self).edited.get(number, {}))
         if number in type(self).files_of:
             made["files"] = type(self).files_of[number]
@@ -113,6 +121,10 @@ class _Unsteady(_Zenodo):
         if self.path.endswith("/actions/newversion"):
             # A new version's draft begun again, the one deleted replaced.
             type(self).gone.clear()
+            if type(self).meta is not None:
+                # As Zenodo begins one: the latest version's description.
+                type(self).meta[8] = {k: v for k, v in type(self).meta.get(7, {}).items()
+                                      if k not in ("doi", "publication_date", "version")}
             if self._fault("POST newversion") == "made":
                 type(self).versions_begun.append(8)
                 type(self).calls.append(("POST", self.path, None))
@@ -134,7 +146,10 @@ class _Unsteady(_Zenodo):
             return self._status(504)
         if self.path == "/api/deposit/depositions" and fault is None:
             type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
-            return self._json(self._deposition(type(self).drafts[-1]["id"]), 201)
+            made = type(self).drafts[-1]
+            if type(self).meta is not None:
+                type(self).meta[made["id"]] = {"title": made["title"]}
+            return self._json(self._deposition(made["id"]), 201)
         if fault == "504 cut":
             type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
             self._body()
@@ -163,6 +178,18 @@ class _Unsteady(_Zenodo):
                 type(self).calls.append(("PUT", self.path, self.headers.get("Authorization")))
                 self._body()
                 return self._status(fault)
+            if type(self).meta is not None:
+                body = self._body()
+                number = int(self.path.rsplit("/", 1)[1])
+                sent = dict(json.loads(body)["metadata"])
+                sent.pop("prereserve_doi", None)
+                type(self).meta[number] = {**type(self).meta.get(number, {}), **sent}
+                type(self).stored["metadata"] = json.loads(body)["metadata"]
+                type(self).calls.append(("PUT", self.path, self.headers.get("Authorization")))
+                if fault == "applied":
+                    # Kept, and its answer lost.
+                    return self._status(500)
+                return self._json(self._deposition(number))
         if self.path.startswith("/files/"):
             fault = self._fault("PUT file")
             if isinstance(fault, int):
@@ -248,6 +275,7 @@ def unsteady(monkeypatch):
     _Unsteady.payload, _Unsteady.drafts, _Unsteady.files = None, [], None
     _Unsteady.late, _Unsteady.gone, _Unsteady.edited = 2, set(), {}
     _Unsteady.latest, _Unsteady.files_of, _Unsteady.versions_begun = None, {}, []
+    _Unsteady.meta, _Unsteady.published_ids = None, None
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Unsteady)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -493,7 +521,8 @@ def test_a_draft_keeps_its_archive_until_the_new_one_is_there(tmp_path, unsteady
     assert not any(c[0] == "DELETE" for c in unsteady.calls)
     assert unsteady.stored["archive"] == b"the archive it had"
     said = capsys.readouterr().err
-    assert "/uploads/7 is kept, with the archive it had: share again once Zenodo answers" in said
+    assert "/uploads/7 is kept, with the archive it had" in said
+    assert "share again once Zenodo answers" in said
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert not any(c[0] == "POST" for c in unsteady.calls)
 
@@ -696,7 +725,8 @@ def test_the_looks_for_a_lost_draft_are_few_and_short(tmp_path, unsteady, monkey
     monkeypatch.setattr(zenodo.urllib.request, "urlopen", urlopen)
     study, out = _studied(tmp_path, "study")
     assert _share_to_zenodo(study, out) == 0
-    assert len(timeouts) == len(zenodo._LOOKS_S)
+    # The looks, and one more once the share is done, for a draft made twice.
+    assert len(timeouts) == len(zenodo._LOOKS_S) + 1
     assert set(timeouts) == {zenodo._LOOK_TIMEOUT_S}
     assert sum(unsteady.waits) == sum(zenodo._LOOKS_S)
     unsteady.calls.clear()
@@ -891,7 +921,8 @@ def test_a_new_version_s_draft_deleted_is_begun_again_from_its_record(tmp_path, 
     unsteady.submitted = True
     unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
-    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"] == {
+    kept = json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]
+    assert {k: kept[k] for k in ("id", "version", "record", "doi", "archive")} == {
         "id": "8", "version": 2, "record": "7", "doi": "10.5072/zenodo.8",
         "archive": "shared.zip"}
     unsteady.gone = {8}
@@ -1243,3 +1274,153 @@ def test_a_disk_with_room_for_one_archive_makes_it_again(tmp_path, monkeypatch):
     monkeypatch.setattr(pack.zipfile, "ZipFile", opened)
     pack.share_study(study, out, authors=[("A B", "")])
     assert there == [False]
+
+
+def test_a_draft_the_study_made_is_described_once_a_share_stopped_after_making_it(
+        tmp_path, unsteady):
+    """Review of the seventh commit: a draft the study made, its share
+    stopped before describing it, was left titled as it was asked for,
+    with no description, at every later share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert unsteady.meta[7]["title"].startswith("FastMDXplora: sharing study (")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["title"] == "The 1ABC study"
+    assert unsteady.meta[7]["description"]
+
+
+def test_a_new_draft_after_one_deleted_is_described(tmp_path, unsteady):
+    """Review of the seventh commit: a new draft, made after the person
+    deleted the one the study was shared as, was held against the deleted
+    one's description and never described."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.gone = {7}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["title"] == "The 1ABC study"
+
+
+def test_a_new_version_shared_again_and_deleted_is_begun_again_from_its_record(tmp_path,
+                                                                               unsteady):
+    """Review of the seventh commit: a draft of a new version shared again
+    forgot its record, so once deleted the next share made a record of its
+    own."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"][
+        "record"] == "7"
+    unsteady.gone = {8}
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert any(c[1].endswith("/7/actions/newversion") for c in unsteady.calls)
+    assert not any(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+                   for c in unsteady.calls)
+
+
+def _analysed_again(study: Path, words: str) -> None:
+    """The study's report sums it up in ``words`` now, and so does its
+    description."""
+    report = study / "report" / "report.md"
+    text = report.read_text()
+    assert "The system was simulated for 4 ps." in text
+    report.write_text(text.replace("The system was simulated for 4 ps.", words))
+
+
+def test_a_description_written_whose_answer_was_lost_is_still_the_study_s(tmp_path,
+                                                                           unsteady):
+    """Hands-on review of the seventh commit: a description Zenodo kept,
+    its answer a 500, was taken for the person's at every later share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT metadata": ["applied"] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    before = unsteady.meta[7].get("description")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["title"] == "The 1ABC study" and unsteady.meta[7]["description"]
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["written"]
+    assert before is not None
+
+
+def test_a_new_version_whose_share_failed_is_described_at_the_next(tmp_path, unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    _analysed_again(study, "Analysed again, a longer run.")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8].get("version") == "2"
+    assert "Analysed again, a longer run." in unsteady.meta[8]["description"]
+
+
+def test_an_archive_being_replaced_stays_the_study_s_until_it_is_gone(tmp_path, unsteady):
+    """Hands-on review of the seventh commit: the old archive Zenodo would
+    not take away refused every later share as not the study's."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.files = [{"id": "a", "filename": "a.zip"}]
+    unsteady.faults = {"DELETE": [500] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    unsteady.faults = {}
+    unsteady.files = [{"id": "a", "filename": "a.zip"}, {"id": "b", "filename": "b.zip"}]
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
+    assert [c[1] for c in unsteady.calls if c[0] == "DELETE"] == [
+        "/api/deposit/depositions/7/files/a"]
+
+
+def test_a_version_labelled_with_letters_is_counted_by_its_number(tmp_path, unsteady):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "v5"},
+                       "files": [{"key": "shared.zip"}]}
+    unsteady.files_of = {8: [{"id": "z", "filename": "shared.zip"}]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.stored["metadata"]["version"] == "6"
+
+
+def test_where_a_study_is_shared_is_written_whole_or_not_at_all(tmp_path, monkeypatch):
+    import errno
+
+    study = tmp_path / "study"
+    study.mkdir()
+    (study / "shared_to.json").write_text('{"zenodo": {"id": "7"}}')
+    real = Path.write_text
+
+    def full(self, *args, **kwargs):
+        if self.name.endswith(".tmp"):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", full)
+    with pytest.raises(ShareRefused):
+        zenodo._keep(study, {"zenodo": {"id": "7", "record": "5"}})
+    assert json.loads((study / "shared_to.json").read_text()) == {"zenodo": {"id": "7"}}
+    assert not list(study.glob(".*.tmp"))
+
+
+def test_a_new_version_begun_again_is_described_by_the_study(tmp_path, unsteady):
+    """Hands-on review of the seventh commit: a new version begun again
+    after the person deleted the share's kept the record's description, its
+    own held against the deleted draft's."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    _analysed_again(study, "Analysed again, a longer run.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.gone = {8}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8].get("version") == "2"
+    assert "Analysed again, a longer run." in unsteady.meta[8]["description"]

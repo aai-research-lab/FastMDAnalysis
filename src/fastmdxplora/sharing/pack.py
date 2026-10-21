@@ -1338,8 +1338,9 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                 code="environment.share.too_large", path=str(spooled)) from exc
         raise ShareRefused(
             f"The shared study could not be written to {where}: the disk there has no room "
-            f"for it ({exc.strerror}); nothing was written. Make room there, or write it "
-            "elsewhere.", code="environment.share.too_large", path=str(where)) from exc
+            f"for it ({exc.strerror}); no archive is there now (one packed before was taken "
+            "away first, to make room). Make room there, or write it elsewhere.",
+            code="environment.share.too_large", path=str(where)) from exc
 
 
 def _packed(root: str | Path, to: str | Path, *, everything: bool, license_id: str,
