@@ -73,6 +73,14 @@ def _other(workspace):
     return other
 
 
+def _when_known(page):
+    """Once the page has read which study is open after a launch: Send is
+    offered then, not while the run starts (CI-774 round 3)."""
+    page.wait_for_function("() => { const d = window.FastMDXDashboard;"
+                           " return d.studyKnown() && d.viewKnown(); }", timeout=30000)
+    page.wait_for_timeout(300)
+
+
 def _said(page):
     return page.evaluate("() => (document.getElementById('agent-unsent-note') || {}).textContent || ''")
 
@@ -129,6 +137,7 @@ def test_words_typed_once_a_run_from_a_study_started_stay_with_it(tmp_path, monk
         page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
         _shows(page, study_key(workspace / "run1"))
         page.wait_for_selector("#agent-thread .agent-running")
+        _when_known(page)
         _say(page, "again")
         page.wait_for_function(
             "() => document.querySelectorAll('#agent-thread .agent-study:not([hidden])').length === 2")
@@ -173,6 +182,7 @@ def test_a_study_another_window_opens_during_a_launch_takes_no_words(tmp_path, m
         left = study_key(workspace / "run1")
         _shows(page, left)
         page.wait_for_selector("#agent-thread .agent-running")
+        _when_known(page)
         _say(page, "again")
         page.wait_for_function(
             "() => document.querySelectorAll('#agent-thread .agent-study:not([hidden])').length === 2")

@@ -1100,6 +1100,9 @@
     const asked = studyInAddress();
     const was = state.studyShown;
     state.studyShown = key;
+    // The study this page opened on, read with its view in one poll: the
+    // view is the study's (`viewKnown`); one changed under it is read again.
+    if (!was && key && !viewFor) viewFor = `${key}|${state.appState?.active_run || ""}`;
     // The study changed under this window, not by a way of its own (each
     // of those loads the page again) nor by a run it started: said, with
     // the study now shown.
@@ -1187,13 +1190,14 @@
    * the study shown: a poll reads them side by side, and a study opened
    * elsewhere between two of its reads is told and named by the study
    * before (CI-774 review L8 M2). `viewKnown` says whether the view the
-   * page holds is such a read of the study shown. */
+   * page holds is such a read of the study shown; with no study shown
+   * there is none. */
   let viewFor = "";
   let viewNamed = {key: "", name: ""};
   let viewRead = null;
   function viewKnown() {
-    return Boolean(state.studyShown)
-      && viewFor === `${state.studyShown}|${state.appState?.active_run || ""}`;
+    return !state.studyShown
+      || viewFor === `${state.studyShown}|${state.appState?.active_run || ""}`;
   }
   function readView() {
     const key = state.studyShown;

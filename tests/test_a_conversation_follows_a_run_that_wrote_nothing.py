@@ -178,6 +178,7 @@ def test_a_slow_disk_loses_nothing_across_two_runs(tmp_path, monkeypatch) -> Non
             page.wait_for_selector("#agent-thread .agent-study:not([hidden]) [data-role=run]")
             page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
             say("how is it going?")
+            _sent_once_offered(page)
             page.wait_for_selector("#agent-thread .agent-answer:has-text('just begun')")
             say("make it 4 ns")
             page.wait_for_function(
@@ -414,6 +415,19 @@ def _say(page, text):
     page.keyboard.press("Enter")
 
 
+def _sent_once_offered(page, timeout=30000):
+    """Send sends nothing while a run starts, and says so (CI-774 round 3):
+    the words stay in the box, and the person sends them once Send is
+    offered again. Nothing left in the box: it was sent at once."""
+    page.wait_for_function(
+        "() => !document.getElementById('agent-request').value.trim()"
+        " || document.getElementById('agent-propose').getAttribute('aria-disabled') === 'false'",
+        timeout=timeout)
+    if page.input_value("#agent-request").strip():
+        page.focus("#agent-request")
+        page.keyboard.press("Enter")
+
+
 _CONFIG = {"ok": True, "cycles": 1, "yaml": "systems:\n- system: 1UAO\n",
            "config": {"systems": [{"system": "1UAO"}]}, "plan": [], "attempts": []}
 
@@ -573,8 +587,9 @@ def test_the_thread_is_left_alone_while_its_run_starts(tmp_path, monkeypatch):
                 ".length === n", arg=n)
             page.click("#agent-thread .agent-study:not([hidden]) [data-role=run] >> nth=-1")
             if n == 2:
-                # Asked while it starts: its answer is shown (eighteenth
-                # review, 10-08: without the guard it never was).
+                # Asked while it starts: sent once Send is offered again,
+                # and its answer is shown (eighteenth review, 10-08: without
+                # the guard it never was).
                 _say(page, "asked while it starts")
             # Asked for the GUI's state again and again while the run
             # starts: one answer falls between the switch and the move.
@@ -584,6 +599,10 @@ def test_the_thread_is_left_alone_while_its_run_starts(tmp_path, monkeypatch):
             page.wait_for_function(
                 "n => document.querySelectorAll('#agent-thread .agent-running').length"
                 " >= n", arg=n, timeout=20000)
+            if n == 2:
+                _sent_once_offered(page)
+                page.wait_for_selector("#agent-thread .agent-answer:has-text('While it starts.')",
+                                       timeout=20000)
         # The fake runs have no process, so their summaries soon say they
         # ended: their lines stay, said as run.
         lines = page.locator("#agent-thread .agent-running").count()
@@ -666,6 +685,7 @@ def test_a_reload_while_a_run_starts_keeps_what_was_said(tmp_path, monkeypatch):
         page.wait_for_selector("#agent-thread .agent-study:not([hidden]) [data-role=run]")
         page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
         _say(page, "asked while it starts")
+        _sent_once_offered(page)
         page.wait_for_selector("#agent-thread .agent-answer:has-text('Starting.')")
         page.reload(wait_until="domcontentloaded")
         page.wait_for_selector("#agent-request", state="visible")
@@ -1858,6 +1878,8 @@ def test_a_retry_as_a_run_starts_then_no_answer_keeps_the_run(tmp_path, monkeypa
         _say(page, "chignolin")
         page.wait_for_selector("#agent-thread .agent-study:not([hidden]) [data-role=run]")
         page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
+        page.wait_for_selector("text=I could not read the software's answer", timeout=30000)
+        _sent_once_offered(page)
         page.wait_for_selector("#agent-thread .agent-answer:has-text('A1 again.')")
         page.wait_for_timeout(3000)
         close()
