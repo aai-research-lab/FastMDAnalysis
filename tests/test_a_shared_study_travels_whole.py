@@ -3499,3 +3499,63 @@ def test_an_archive_kept_damaged_is_the_study_s_to_replace(tmp_path, unsteady,
     monkeypatch.setattr(zenodo, "_call", real)
     unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": "md5:dead"}]
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+
+
+def _answered_for(monkeypatch, ending: str, odd) -> None:
+    real = zenodo._call
+
+    def strange(method, url, **kwargs):
+        if method == "GET" and url.endswith(ending):
+            return odd
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", strange)
+
+
+@pytest.mark.parametrize("odd", [{"x": 1}, {"id": 5}])
+def test_an_answer_for_the_latest_version_not_zenodo_s_begins_nothing(tmp_path, unsteady,
+                                                                      monkeypatch, odd):
+    """Hands-on review of the thirty-third commit: the latest version's read
+    answered with what is not a deposition was taken as one, and a new
+    version asked of another."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"}, "files": []}
+    _answered_for(monkeypatch, "/api/deposit/depositions/9", odd)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_a_begun_version_not_read_whole_is_not_said_to_be_published(tmp_path, unsteady,
+                                                                    monkeypatch, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    unsteady.versions_begun = [8]
+    _answered_for(monkeypatch, "/api/deposit/depositions/8", {"x": 1})
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "publish it" not in said and "share again once Zenodo answers" in said
+
+
+def test_a_version_an_earlier_release_began_is_counted_from_the_record(tmp_path, unsteady):
+    """Hands-on review of the thirty-third commit: a draft of a new version
+    2.6.0 began, its record published as 1.0, was given 2, not 1.1."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["version"] = "1.0"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": dict(unsteady.meta[7]),
+                       "files": [{"key": "shared.zip"}]}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    unsteady.meta[8]["version"] = "2"
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "8", "version": 2, "doi": "10.5072/zenodo.8"}}))
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.1"

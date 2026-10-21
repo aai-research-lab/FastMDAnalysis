@@ -484,7 +484,9 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
         return found
     deposition = _call("GET", f"{depositions}/{newest}", token=token, missing_ok=True,
                        said=said)
-    if not isinstance(deposition, dict):
+    concept = str(found.get("conceptrecid") or "")
+    if not _a_draft(deposition, newest) or (
+            concept and str(deposition.get("conceptrecid") or concept) != concept):
         unread = ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no "
                               "record.", code="environment.service.unreachable")
         unread.later = True
@@ -896,6 +898,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 of = deposition
             if str(of.get("id") or "") not in ("", identifier):
                 kept[site]["record"] = str(of["id"])
+                # Its version counted on from the record's, as a new version
+                # begun here is (that release counted its own).
+                counted = _bumped(str((of.get("metadata") or {}).get("version") or ""))
+                if counted:
+                    version = kept[site]["version"] = counted
     if made_here and title:
         # The title it was asked for under: a draft Zenodo lists under it
         # later is one made twice, to be named.
@@ -1458,7 +1465,18 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             # the record again, and publishing it adds nothing.
             whole = _call("GET", f"{depositions}/{draft_id}", token=token, said=said,
                           missing_ok=True)
-            seen = whole if isinstance(whole, dict) else begun[0]
+            if not _a_draft(whole, draft_id):
+                # Not read whole: what it holds is not known, and nothing is said
+                # of it but that it is there.
+                unread = ShareRefused(
+                    f"Zenodo holds a draft of a new version of record {published} "
+                    f"({draft_id}), begun on its site or by a share whose answer was lost, "
+                    "and its answer for it held not the draft: share again once Zenodo "
+                    "answers.", code="environment.service.unreachable",
+                    url=str((begun[0].get("links") or {}).get("html") or ""))
+                unread.later = True
+                raise unread
+            seen = whole
             what = ("delete it there (it holds the record as it was), then share again"
                     if not _changed_since(newest, seen)
                     else "publish it, or delete it there, then share again")
