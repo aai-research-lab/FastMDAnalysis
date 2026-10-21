@@ -238,7 +238,15 @@ against another tool.
   `equilibrated` by default). A loop relaxing 0.4 nm
   in the first fifth of a run read 0.082 nm averaged over every frame, against
   0.052 nm once relaxed. Results change from earlier releases on any run that
-  relaxed.
+  relaxed. `bfactor_comparison` takes the same frames, with the same `start`,
+  so with the default selection and `ref` its simulated column is the RMSF's;
+  `ligand_rmsf` starts after the later of the receptor's equilibration and the
+  ligand's, the ligand's found on its heavy-atom, symmetry-corrected RMSD in
+  the receptor frame (over every frame, a ligand settling 0.4 nm over the
+  first fifth of a run read 1.7 times its fluctuation over the settled
+  frames). Where that start leaves out more than a third of the run, which a
+  change of pose or an unbinding also causes, it is said, and the value over
+  every frame is recorded beside it.
 
 - **Radius of gyration** is mass-weighted by default, which is the physical
   definition; `mass_weighted: false` gives the geometric one. A virtual site

@@ -186,6 +186,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   developed with, rather than plain TIP3P, and the records, the Methods, the
   slides and the GUI name it. A study prepared before keeps its recorded
   `force_field` list, and so its TIP3P, when it is run again.
+
+- `bfactor_comparison` and `ligand_rmsf` leave out the equilibration, as
+  `rmsf` does (`start`, `equilibrated` by default, recorded under
+  `findings.frames`, said on the figures). The B-factor comparison read every
+  frame, so a loop relaxing 0.4 nm over the first fifth of a run read 57%
+  higher there than in `rmsf.dat`; the ligand RMSF read 1.7 times the
+  fluctuation of the settled frames for a ligand still settling, and now
+  starts once both the receptor's RMSD and its own, in the receptor frame,
+  equilibrate, saying so where that leaves out more than a third of the run.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

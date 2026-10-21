@@ -163,3 +163,27 @@ def first_frame(traj: md.Trajectory, atom_idx: np.ndarray,
                 "period to leave out.")
     record["said"] = said
     return first, record
+
+
+def which_frames(record: Any) -> str | None:
+    """The frames a figure's numbers are over, said on the figure."""
+    if not isinstance(record, dict):
+        return None
+    frames, n = record["first_frame"], record["n_frames_given"]
+    if not frames:
+        return f"over all {n:,} frames"
+    span = (f" ({record['first_time_ns']:.4g} ns)"
+            if record.get("first_time_ns") is not None else "")
+    left = "left out as equilibration" if record.get("start") == EQUILIBRATED \
+        else "left out"
+    return f"over frames {frames:,} to {n - 1:,}; the first {frames:,}{span} {left}"
+
+
+def too_few_frames(n: int) -> None:
+    """Refuse a fluctuation over fewer than two frames, as the RMSF does."""
+    if n < 2:
+        raise StudyError(
+            f"{n} frame: a fluctuation is a spread over frames, and one "
+            "frame has none, so every RMSF would read zero. At least two "
+            "frames are needed.",
+            code="analysis.sampling.too_few_frames", found=n, needed=2)
