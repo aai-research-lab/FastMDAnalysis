@@ -680,7 +680,7 @@ def test_a_preparation_outside_holding_a_link_is_refused(tmp_path):
     with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert refused.value.refusal.code == "environment.share.not_finished"
-    assert "holds 4 links" in str(refused.value)
+    assert "which the run a simulated from, holds 4 links" in str(refused.value)
     for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
         assert str(prep / name) in str(refused.value)
 
@@ -1044,6 +1044,12 @@ def test_a_seed_holding_its_own_setup_record_is_shared(tmp_path):
     _run(root, "w0", seed, str(seed))
     _of_one_run(root, "w0")
     share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    shutil.rmtree(tmp_path / "pull")
+    opened = open_shared(str(tmp_path / "o.zip"), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "w0") == \
+        (opened / "seeds" / "window-00").resolve()
 
 
 def test_a_linked_system_two_runs_used_names_both(tmp_path):
@@ -1064,4 +1070,62 @@ def test_a_linked_system_two_runs_used_names_both(tmp_path):
     with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert str(refused.value).startswith(f"The runs a, c of the study in {root} simulated "
-                                         "the prepared system in linked, and its ")
+                                         f"the prepared system in {root / 'linked'}, and its ")
+
+
+def test_a_ligand_given_from_another_study_is_kept_as_written(tmp_path):
+    """Review of series 3: a ligand the person gave from another study's
+    `setup/ligands/` made that folder taken for where the preparation was
+    made, and every path under it said as the carried system."""
+    import shutil
+
+    older = tmp_path / "older_study" / "setup"
+    (older / "ligands").mkdir(parents=True)
+    (older / "ligands" / "BEN.sdf").write_text("BEN\n\nM  END\n")
+    prep = _prepared(tmp_path / "prep" / "setup")
+    shutil.copy2(older / "ligands" / "BEN.sdf", prep / "ligands" / "BEN.sdf")
+    record = json.loads((prep / "setup_parameters.json").read_text())
+    record["resolved_forcefield"]["ligand"]["files"] = [f"{older}/ligands/BEN.sdf"]
+    record["input"] = {"system": f"{older}/input.pdb"}
+    (prep / "setup_parameters.json").write_text(json.dumps(record))
+    root = tmp_path / "campaign"
+    _run(root, "a", prep, str(prep.parent))
+    _of_one_run(root)
+    with (root / "runs" / "a" / "report" / "report.md").open("a") as report:
+        report.write(f"\nSee {older}/notes.txt.\n")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert f"{older}/notes.txt" in texts["runs/a/report/report.md"]
+    record = json.loads(texts["prepared/prep/setup/setup_parameters.json"])
+    assert record["input"]["system"] == f"{older}/input.pdb"
+    assert record["resolved_forcefield"]["ligand"]["files"] == [f"{older}/ligands/BEN.sdf"]
+
+
+def test_a_copy_of_the_study_s_own_system_takes_none_of_its_paths(tmp_path):
+    """Review of series 3: a copy kept outside of the study's own shared
+    system, used by one run, had the original's paths said as the copy's."""
+    import shutil
+
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    root = tmp_path / "campaign"
+    shared = _prepared(root / "shared_setup" / "setup")
+    copy = tmp_path / "elsewhere" / "setup"
+    shutil.copytree(shared, copy)
+    _run(root, "a", copy, str(copy))
+    _run(root, "b", shared, str(shared))
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = [{"run_id": "a"}, {"run_id": "b"}]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    record = json.loads(texts["runs/b/simulation/simulation_parameters.json"])
+    assert record["parameters"]["setup_from"] == f"{STUDY}/shared_setup/setup"
+    own = json.loads(texts["shared_setup/setup/setup_parameters.json"])
+    assert own["parameters"]["_retained_pdb"] == f"{STUDY}/shared_setup/setup/retained.pdb"
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "b") == \
+        (opened / "shared_setup" / "setup").resolve()

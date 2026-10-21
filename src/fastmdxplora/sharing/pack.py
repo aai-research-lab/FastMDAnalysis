@@ -664,6 +664,7 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     # Each prepared system not found here, and the runs that simulated it:
     # said at once, every run named.
     not_found: dict[str, list[str]] = {}
+    found_systems: set[Path] = set()
     for run in manifest.get("runs") or [""]:
         folder = root / "runs" / run if run else root
         reference = pipeline._prepared_system_recorded(folder)
@@ -696,6 +697,7 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                 not_found.setdefault(key, []).append(run)
             continue
         simulated = simulated.resolve()
+        found_systems.add(simulated)
         if simulated == (folder / "setup").resolve():
             continue
         note(simulated, named, run,
@@ -725,6 +727,7 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                     "here, so a reader of the shared study would have no setup record for "
                     "it. Put it back and share it again."))
             records = records.resolve()
+            found_systems.add(records)
             note(records, [seeded.get("given"), seeded.get("resolved")], run,
                  [seeded.get("resolved")])
             users.append(("seed", run, simulated, records))
@@ -747,6 +750,20 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             + ", so a reader of the shared study would have none. Put "
             + ("it" if one else "each") + " back where the runs' records say, or beside the "
             "study as it was, and share it again.", code="environment.share.not_finished")
+    # Where a system was is said as where it is now only where nothing of
+    # the study, nor another system found, is there now: the root's own rule
+    # says the study's paths, and a copy's record names its original's.
+    here = {os.path.normpath(str(p)) for p in (real, root.absolute(),
+                                                 manifest.get("output_dir")) if p}
+    here.update(os.path.normpath(str(system)) for system in found_systems)
+
+    def is_here(path: str) -> bool:
+        return any(path == h or path.startswith(h.rstrip("/") + "/") for h in here)
+
+    for entry in outside.values():
+        entry["was"] = {w for w in entry["was"] if not is_here(w)}
+    for was in [w for w in was_inside if is_here(w)]:
+        del was_inside[was]
     taken_names: set[str] = set()
     carried = []
     inside_of: dict[Path, str] = {}
@@ -834,45 +851,31 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def _made_in(system: Path) -> list[str]:
-    """The folders a prepared system's own setup record says it wrote its
-    files in, where not where it is now (made in one folder, copied to
-    another): of the files setup names as its own outputs only, the
-    structure it kept (`parameters._retained_pdb`) and each ligand's files
-    (`resolved_forcefield.ligand.files`, in its `ligands/`), never what it
-    read (`input`). A folder named otherwise than the system's, or holding
-    the file named with other bytes here, is no such folder."""
+    """The folder a prepared system's own setup record says it was made in,
+    where not where it is now (made in one folder, copied to another): from
+    the structure setup kept beside what it made (`parameters._retained_pdb`),
+    the one path it records that it wrote itself; never what it read
+    (`input`, a ligand file given). None where that folder is named
+    otherwise than the system's, or holds that file with other bytes here."""
     record = _load(system / "setup_parameters.json")
-    if not isinstance(record, dict):
+    parameters = record.get("parameters") if isinstance(record, dict) else None
+    retained = parameters.get("_retained_pdb") if isinstance(parameters, dict) else None
+    if not isinstance(retained, str) or not _absolute(retained):
         return []
-    parameters = record.get("parameters") if isinstance(record.get("parameters"), dict) else {}
-    ligand = (record.get("resolved_forcefield") or {}).get("ligand") if isinstance(
-        record.get("resolved_forcefield"), dict) else None
-    named: list[tuple[str, str]] = []   # (the path written, its file in the system)
-    retained = parameters.get("_retained_pdb")
-    if isinstance(retained, str):
-        named.append((retained, _base_name(retained)))
-    for written in (ligand.get("files") if isinstance(ligand, dict) else None) or []:
-        if isinstance(written, str):
-            named.append((written, "ligands/" + _base_name(written)))
-    found: set[str] = set()
-    for written, own in named:
-        if not _absolute(written) or not own.strip("/") or not (system / own).is_file():
-            continue
-        spelled = written.replace("\\", "/")
-        if not spelled.endswith("/" + own):
-            continue
-        folder = written[:len(written) - len(own) - 1]
-        if (PurePosixPath(spelled[:-len(own) - 1]).name != system.name
-                or os.path.normpath(folder) == os.path.normpath(str(system))):
-            continue
-        there = Path(written)
-        try:
-            if there.is_file() and there.read_bytes() != (system / own).read_bytes():
-                continue
-        except OSError:
-            continue
-        found.add(os.path.normpath(folder) if folder.startswith("/") else folder)
-    return sorted(found)
+    own = _base_name(retained)
+    folder = retained[:len(retained) - len(own) - 1]
+    if (not own or not (system / own).is_file()
+            or PurePosixPath(folder.replace("\\", "/")).name != system.name
+            or os.path.normpath(folder) == os.path.normpath(str(system))):
+        return []
+    there = Path(retained)
+    try:
+        if there.is_file() and (there.stat().st_size != (system / own).stat().st_size
+                                or _sha256_of(there) != _sha256_of(system / own)):
+            return []
+    except OSError:
+        return []
+    return [os.path.normpath(folder) if folder.startswith("/") else folder]
 
 
 def _base_name(path: str) -> str:
@@ -988,8 +991,11 @@ def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, An
     if links:
         # A link is never packed: carried without what it leads to, the run
         # would be opened missing it.
+        users = [run for run in entry["runs"] if run]
+        who = (f"the run{'s' if len(users) > 1 else ''} {', '.join(users)}" if users
+               else "the study")
         raise ShareRefused(
-            f"The prepared system in {system}, which runs of the study simulated from, holds "
+            f"The prepared system in {system}, which {who} simulated from, holds "
             f"{'a link' if len(links) == 1 else f'{len(links)} links'}, which a shared study "
             f"does not carry: {', '.join(str(p) for p in links)}. Put the files they lead to "
             "in their place, and share it again.",
@@ -1111,7 +1117,7 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
         # with none.
         folders: dict[str, tuple[list[str], list[str]]] = {}
         for path, runs_of in missing:
-            names, users = folders.setdefault(str(PurePosixPath(path).parent), ([], []))
+            names, users = folders.setdefault(str(root / PurePosixPath(path).parent), ([], []))
             names.append(PurePosixPath(path).name)
             users += [r for r in runs_of.split(", ") if r and r not in users]
 
