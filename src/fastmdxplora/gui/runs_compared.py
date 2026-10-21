@@ -18,7 +18,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-__all__ = ["runs_compared", "run_folder"]
+__all__ = ["runs_compared", "run_folder", "mean_of_replicas"]
 
 #: A difference is marked past this many combined standard errors, as the
 #: written comparison marks a trend (`fastmdxplora.batch.compare`).
@@ -226,11 +226,24 @@ def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, A
             measure["said"] = str(entry["calibration"])
         if not isinstance(entry, dict):
             continue
-        members = len(entry.get("members") or [])
-        mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
-        if mean is not None and spread is not None and members >= 2:
-            measure["ensemble"] = {"mean": mean, "error": spread / math.sqrt(members),
-                                   "spread": spread, "runs": members}
+        together = mean_of_replicas(entry)
+        if together is not None:
+            measure["ensemble"] = together
+
+
+def mean_of_replicas(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """One quantity of replicas, from its entry in their comparison
+    (`batch.aggregate.aggregate_members`, or the `members.json` it is
+    written as): the mean of their means and its error, the spread of the
+    means (their standard deviation) over the square root of their number,
+    with the spread and how many runs. None where fewer than two means or
+    no spread are recorded. The one derivation of it, which the runs'
+    table and All studies both give."""
+    members = len(entry.get("members") or [])
+    mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
+    if mean is None or spread is None or members < 2:
+        return None
+    return {"mean": mean, "error": spread / math.sqrt(members), "spread": spread, "runs": members}
 
 
 def _finite(value: Any) -> float | None:

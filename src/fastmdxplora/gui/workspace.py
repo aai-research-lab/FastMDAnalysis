@@ -726,17 +726,18 @@ def _ensemble_means(base: Path) -> list[dict[str, Any]]:
     (`members.json`): the mean of the replicas' means, the spread of those
     means (their standard deviation, which `batch/aggregate.py` records as
     the error of one run's estimate) and the error of the mean of means,
-    the spread over the square root of the replicas, as the Compare page
-    gives it (`runs_compared.py`). Said as determined only where every
-    replica determined its own: runs each too short to resolve their
-    correlation time, begun from one structure, are not yet independent
-    samples, however close their means fall."""
+    as the runs' table gives it (`runs_compared.mean_of_replicas`, the one
+    derivation). Said as determined only where every replica determined
+    its own: runs each too short to resolve their correlation time, begun
+    from one structure, are not yet independent samples, however close
+    their means fall."""
+    from fastmdxplora.gui.report_dashboard import unit_of
+    from fastmdxplora.gui.runs_compared import mean_of_replicas
+
     record = _read_json(base / "members.json")
     if not isinstance(record, dict) or not record.get("replicas"):
         return []
     analyses = record.get("analyses") if isinstance(record.get("analyses"), dict) else {}
-    from fastmdxplora.gui.report_dashboard import unit_of
-
     out = []
     for name in _in_order(analyses):
         found = analyses.get(name)
@@ -745,28 +746,24 @@ def _ensemble_means(base: Path) -> list[dict[str, Any]]:
         mean = _finite(found.get("mean_of_means"))
         if mean is None:
             continue
+        together = mean_of_replicas(found)
         spread = _finite(found.get("spread_of_means"))
-        if spread is None:
-            spread = _finite(found.get("observed_standard_error"))
         members = found.get("members") if isinstance(found.get("members"), list) else []
         own = [m for m in members if isinstance(m, dict)]
         qualified = [str(q) for q in found.get("qualified_by_their_own_runs") or []]
         withheld = None
         if spread is None:
             withheld = "Its replicas' spread is not recorded."
+        elif together is None:
+            withheld = "Fewer than two replicas' means are recorded."
         elif qualified:
             withheld = (f"The spread of {len(own) or 'its'} replicas' means; "
                         f"{len(qualified)} of them could not determine their own mean, "
                         "so the spread is not yet an error.")
         unit = unit_of(name, own[0]) if own else ""
-        error = None
-        if not withheld and len(own) >= 2:
-            error = spread / math.sqrt(len(own))
-        elif not withheld:
-            withheld = "Fewer than two replicas' means are recorded."
         out.append({"analysis": name, "label": _label_of(name), "mean": mean,
-                    "error": error, "spread": spread,
-                    "replicas": len(own), "unit": unit, "withheld": withheld})
+                    "error": None if withheld or together is None else together["error"],
+                    "spread": spread, "replicas": len(own), "unit": unit, "withheld": withheld})
     return out
 
 

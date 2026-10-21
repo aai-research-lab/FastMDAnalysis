@@ -106,6 +106,23 @@ def test_a_study_of_replicas_gives_its_mean_of_means(tmp_path):
                                 "their own mean, so the spread is not yet an error.")
 
 
+def test_the_replicas_mean_and_error_are_the_runs_tables(tmp_path, monkeypatch):
+    """One derivation: the replicas' mean and its error as the runs' table
+    gives them (`runs_compared.mean_of_replicas`), not a second formula."""
+    from fastmdxplora.gui import runs_compared
+    from fastmdxplora.gui.workspace import card_of
+
+    study = _replicas(tmp_path / "chignolin")
+    _members(study, [0.10, 0.12, 0.14])
+    entry = json.loads((study / "members.json").read_text(encoding="utf-8"))["analyses"]["rmsd"]
+    together = runs_compared.mean_of_replicas(entry)
+    rmsd = card_of(study)["means"][0]
+    assert (rmsd["mean"], rmsd["error"], rmsd["spread"]) == (
+        together["mean"], together["error"], together["spread"])
+    monkeypatch.setattr(runs_compared, "mean_of_replicas", lambda found: {**together, "error": 0.5})
+    assert card_of(study)["means"][0]["error"] == 0.5
+
+
 def test_the_molecule_is_its_backbone_in_its_own_axes(tmp_path):
     from fastmdxplora.gui import backbone_picture
     from fastmdxplora.gui.backbone_picture import LIST_POINTS, backbone_points
