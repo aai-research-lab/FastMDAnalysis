@@ -2223,14 +2223,16 @@
           return studies.some(function (s) { return s.path === path; });
         });
         // The count kept whole, the folder shortened where the head is
-        // narrow (the Agent beside): the count was what was cut.
-        var where = el("studies-where");
+        // narrow (the Agent beside): the count was what was cut. Not named
+        // `where`: so named it hid the folder asked for, and a list read
+        // again, or counted, was of the workspace instead.
+        var said = el("studies-where");
         var count = make("span", "studies-where-n", studies.length + " stud" +
           (studies.length === 1 ? "y" : "ies"));
         var folder = make("span", "studies-where-in", "\u00a0in " + data.root +
           (data.more ? ", the newest first; there are more than this shows." : "."));
-        where.title = count.textContent + folder.textContent;
-        where.replaceChildren(count, folder);
+        said.title = count.textContent + folder.textContent;
+        said.replaceChildren(count, folder);
         draw();
       })
       .catch(function () {

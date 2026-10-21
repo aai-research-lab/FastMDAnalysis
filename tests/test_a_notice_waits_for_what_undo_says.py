@@ -70,7 +70,10 @@ _HEARD = """() => {
 
 
 def _tags_kept(page, session):
+    # The studies as cards: All studies opens on its list.
+    page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
     page.goto(session.url + "#studies", wait_until="domcontentloaded")
+    page.wait_for_selector("body.state-ready")
     page.evaluate(f"() => window.FastMDXStudies.load({str(session.workspace)!r})")
     card = '.study-card[data-path$="wild_type"]'
     page.wait_for_selector(card)
