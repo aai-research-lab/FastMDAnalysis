@@ -44,17 +44,21 @@ def _trajectory(folder: Path) -> None:
 
 
 def _prepared(folder: Path) -> Path:
-    """A prepared system as setup leaves one."""
+    """A prepared system as setup leaves one, its record naming its files by
+    the paths they were written at, as setup's own does."""
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "system.xml").write_text("<System atoms='3'/>", encoding="utf-8")
     (folder / "state.xml").write_text("<State/>", encoding="utf-8")
     (folder / "topology.pdb").write_text("ATOM      1  N   ALA A   1\nEND\n",
                                          encoding="utf-8")
+    (folder / "retained.pdb").write_text("END\n", encoding="utf-8")
     (folder / "setup_parameters.json").write_text(json.dumps({
-        "forcefield": "amber14", "output_dir": str(folder),
-        "ligands": [{"name": "BEN", "charge": 1}]}), encoding="utf-8")
+        "phase": "setup", "topology_pdb": "topology.pdb", "system_xml": "system.xml",
+        "parameters": {"forcefield": "amber14", "_retained_pdb": f"{folder}/retained.pdb"},
+        "resolved_forcefield": {"ligand": {"files": [f"{folder}/ligands/BEN.sdf"],
+                                           "charge": 1}}}), encoding="utf-8")
     (folder / "ligands").mkdir(exist_ok=True)
-    (folder / "ligands" / "BEN.sdf").write_text(f"BEN\n  {folder}\n\nM  END\n",
+    (folder / "ligands" / "BEN.sdf").write_text(f"BEN\n  {folder}/ligands/BEN.sdf\n\nM  END\n",
                                                 encoding="utf-8")
     return folder
 
@@ -694,7 +698,8 @@ def test_a_folder_carried_from_is_one_dataset(tmp_path):
     ids = [e["@id"] for e in said["crate"]["@graph"]]
     assert len(ids) == len(set(ids))
     carried = _by_id(said["crate"])["prepared/other/"]
-    assert sorted(u["@id"] for u in carried["fmx:usedBy"]) == ["runs/a/", "runs/c/"]
+    # In the order of the record of runs.
+    assert carried["fmx:usedBy"] == [{"@id": "runs/a/"}, {"@id": "runs/c/"}]
 
 
 def test_a_name_alone_keeps_what_follows_it(tmp_path):
@@ -883,6 +888,109 @@ def test_a_copied_preparation_keeps_no_path_of_where_it_was_made(tmp_path):
     said = share_study(root, out, authors=AUTHORS, said=printed.append)
     for name, text in _texts_of(out).items():
         assert str(made) not in text, name
-    assert json.loads(_texts_of(out)["prepared/prep7/setup/setup_parameters.json"])[
-        "output_dir"] == f"{STUDY}/prepared/prep7/setup"
+    record = json.loads(_texts_of(out)["prepared/prep7/setup/setup_parameters.json"])
+    assert record["parameters"]["_retained_pdb"] == f"{STUDY}/prepared/prep7/setup/retained.pdb"
+    assert record["resolved_forcefield"]["ligand"]["files"] == [
+        f"{STUDY}/prepared/prep7/setup/ligands/BEN.sdf"]
     assert printed[-1].endswith(f"kB), SHA-256 {said['sha256']}.")
+
+
+def test_a_seed_naming_another_person_s_home_is_shared(tmp_path):
+    """Review of series 2: a seed whose record named its preparation by
+    `~otheruser/` raised an error that was no refusal."""
+    import shutil
+
+    from fastmdxplora.simulation.pipeline import setup_records_of
+    from fastmdxplora.simulation.seeding import SEEDED_FROM, record_the_preparation
+
+    pull = _prepared(tmp_path / "pull" / "setup")
+    root = tmp_path / "umbrella"
+    seed = root / "seeds" / "window-00"
+    seed.mkdir(parents=True)
+    for name in ("system.xml", "state.xml", "topology.pdb"):
+        shutil.copy2(pull / name, seed / name)
+    record_the_preparation(seed, pull, frame=3, centre=0.5)
+    record = json.loads((seed / SEEDED_FROM).read_text())
+    record["given"] = "~nosuchuser42/pull/setup"
+    (seed / SEEDED_FROM).write_text(json.dumps(record))
+    _run(root, "w0", seed, str(seed))
+    _of_one_run(root, "w0")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    assert not any("nosuchuser42" in text for text in _texts_of(out).values())
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "w0") == \
+        (opened / "prepared" / "pull" / "setup").resolve()
+
+
+def test_a_run_s_folder_recorded_above_the_study_says_no_unrelated_path(tmp_path):
+    """Review of series 2: a run recording a folder holding the study had
+    every path under that folder said as the run's."""
+    work = tmp_path / "work"
+    root, _ = _campaign(work)
+    manifest = root / "runs" / "a" / "manifest.json"
+    found = json.loads(manifest.read_text())
+    found["output_dir"] = str(work)
+    manifest.write_text(json.dumps(found))
+    with (root / "runs" / "a" / "report" / "report.md").open("a") as report:
+        report.write(f"\nRead from {work}/pdbs/1abc.pdb.\n")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    assert f"{work}/pdbs/1abc.pdb" in _texts_of(out)["runs/a/report/report.md"]
+
+
+def test_a_link_a_run_does_not_need_leaves_a_carried_preparation_shared(tmp_path):
+    """Review of series 2: a link in a preparation that is not packed by
+    default (a solvated system) refused the share."""
+    prep = _prepared(tmp_path / "prep" / "setup")
+    (tmp_path / "big").mkdir()
+    (tmp_path / "big" / "solvated.pdb").write_text("END\n")
+    (prep / "solvated.pdb").symlink_to(tmp_path / "big" / "solvated.pdb")
+    root = tmp_path / "campaign"
+    _run(root, "a", prep, str(prep.parent))
+    _of_one_run(root)
+    share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "all.zip", authors=AUTHORS, everything=True)
+    assert "solvated.pdb" in str(refused.value)
+
+
+def test_links_of_two_runs_systems_are_named_at_once(tmp_path):
+    """Review of series 2: links in two runs' systems were named one run
+    at a time."""
+    root = tmp_path / "campaign"
+    real = _prepared(tmp_path / "kept")
+    for run in ("a", "c"):
+        folder = root / f"linked-{run}"
+        folder.mkdir(parents=True)
+        for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
+            (folder / name).symlink_to(real / name)
+        _run(root, run, folder, str(folder))
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = [{"run_id": "a"}, {"run_id": "c"}]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    said = str(refused.value)
+    assert "linked-a (the run a)" in said and "linked-c (the run c)" in said
+
+
+def test_a_name_typed_from_another_computer_s_home_is_said_as_carried(tmp_path):
+    """Review of series 2: `setup_from: ~/prep` typed on the computer the
+    study ran on stayed as typed, though its system was found and carried."""
+    import shutil
+
+    ran = tmp_path / "cluster" / "home" / "kunle"
+    root, elsewhere = _campaign(ran)
+    for run in ("a", "c"):
+        config = root / "runs" / run / "resolved_config.yml"
+        config.write_text(config.read_text().replace(f"setup_from: {elsewhere}",
+                                                     "setup_from: ~/preparation"))
+    here = tmp_path / "fetched"
+    shutil.move(str(ran), here)
+    out = tmp_path / "o.zip"
+    share_study(here / "campaign", out, authors=AUTHORS)
+    config = _texts_of(out)["runs/a/resolved_config.yml"]
+    assert "~/preparation" not in config
+    assert f"setup_from: {STUDY}/prepared/preparation" in config

@@ -600,15 +600,14 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         return ShareRefused(f"{who} {said}", code="environment.share.not_finished")
 
     def note(system: Path, names: list[Any], run: str, itself: list[Any] = ()) -> None:
-        made = _load(system / "setup_parameters.json")
-        itself = [*itself, made.get("output_dir") if isinstance(made, dict) else None]
         """``system`` a run simulated from, ``names`` the folders its records
         name it by, and ``itself`` the paths they record it was at: where
         the study ran, which a study moved since no longer has, and where its
-        own setup record says it was made (a preparation copied since). One in a
+        own records say its files were (a preparation copied since). One in a
         folder of the study a shared study leaves out (one whose name begins
         with a dot, a run's the record of runs does not name) is carried as
         one outside it is."""
+        itself = [*itself, *_made_in(system)]
         if _within(system, real) and not _left_out(system.relative_to(real).as_posix(),
                                                     manifest.get("runs")):
             inner = system.relative_to(real).as_posix()
@@ -619,6 +618,8 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             # folder as a folder, a study that held it as its name alone.
             gone = [os.path.normpath(str(path)) for path in itself
                     if path and Path(str(path)).is_absolute() and Path(str(path)) != system]
+            for typed, rule in _typed_from_home(names, gone, inner).items():
+                was_inside.setdefault(typed, rule)
             for was in gone:
                 was_inside.setdefault(was, (inner, False))
                 for named in names:
@@ -641,6 +642,8 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                 entry["was"].add(os.path.normpath(str(path)))
         entry["was_named"].update(os.path.normpath(str(n)) for n in names
                                   if _full(n) is not None)
+        entry.setdefault("typed", set()).update(str(n) for n in names
+                                                if str(n or "").startswith("~/"))
         # The folders it is named by: its own, or a study holding it where
         # setup lays one out (`setup/`, `shared_setup/setup/`).
         for given in names:
@@ -701,10 +704,17 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         seeded = _load(simulated / SEEDED_FROM)
         if isinstance(seeded, dict) and seeded.get("system_xml_sha256"):
             try:
-                records = pipeline._the_records_of(simulated)
+                readable = {k: v for k, v in seeded.items()
+                            if k not in ("given", "resolved") or _full(v) is not None}
+                records = (simulated if (simulated / "setup_parameters.json").is_file()
+                           else pipeline._the_system_recorded(simulated, readable,
+                                                              verb="was seeded from"))
             except CodedError as exc:
                 raise refused(run, f"simulated a seed taken from a preparation that is "
                                    f"another one now: {exc}") from exc
+            except RuntimeError as exc:
+                raise refused(run, f"simulated a seed whose preparation is named by a path "
+                                   f"this computer cannot read ({exc}).") from exc
             if records is None or records.resolve() == simulated:
                 raise refused(run, (
                     f"simulated a seed taken from the preparation named "
@@ -762,7 +772,8 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                                              True))
         # Where it was when the study ran, for a study moved since: the
         # system's folder as a folder, a study holding it as its name alone.
-        was_said: dict[str, tuple[str, bool]] = {}
+        was_said: dict[str, tuple[str, bool]] = dict(_typed_from_home(
+            sorted(entry.get("typed") or ()), sorted(entry["was"]), at))
         for was in sorted(entry["was"]):
             was_said.setdefault(was, (at, False))
             for named in sorted(entry["was_named"]):
@@ -799,6 +810,70 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     return {"carried": carried, "needed": needed, "was_inside": was_inside,
             "topology_of": {run: f"{in_crate(s)}/topology.pdb" for run, s in topology.items()},
             "relative": relative}
+
+
+#: A full path as a text file holds one (POSIX, or Windows as JSON writes it).
+_FULL_PATH = re.compile(r'(?:(?<![\w.~-])/|[A-Za-z]:(?:\\\\|\\))[^\s"\'`<>|,;]+')
+
+
+def _made_in(system: Path) -> list[str]:
+    """The folders a prepared system's own records say its files were in, if
+    not where it is now (made in one folder, copied to another): each full
+    path its text files give that ends in one of its files, in a folder of
+    its folder's name (`.../setup/retained.pdb` for `setup/`), less that
+    file."""
+    try:
+        files = {rel for rel in _walk(system)}
+    except OSError:
+        return []
+    found: set[str] = set()
+    for rel in sorted(files):
+        if PurePosixPath(rel).suffix.lower() not in (".json", ".yml", ".yaml", ".sdf",
+                                                     ".mol", ".mol2", ".txt", ".log"):
+            continue
+        try:
+            if (system / rel).stat().st_size > _HELD_IN_MEMORY:
+                continue
+            text = (system / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for path in _FULL_PATH.findall(text):
+            spelled = path.replace("\\\\", "/").replace("\\", "/").rstrip("/.")
+            for named in files:
+                if not spelled.endswith("/" + named):
+                    continue
+                folder = spelled[:-len(named) - 1]
+                if (PurePosixPath(folder).name == system.name
+                        and folder != system.as_posix() and folder != str(system)):
+                    found.add(os.path.normpath(folder) if folder.startswith("/") else folder)
+    return sorted(found)
+
+
+def _typed_from_home(names: list[Any], was: list[str], inner: str
+                     ) -> dict[str, tuple[str, bool]]:
+    """Each name typed from a home folder (`~/prep`) that names a folder where
+    the system was (``was``), on the computer it was typed on, as the folder
+    it is carried in or now is (``inner``, a path in the study): the system's
+    own folder as a folder, a study holding it as its name alone."""
+    from fastmdxplora.simulation.pipeline import PREPARED_SYSTEM_LAYOUTS
+
+    out: dict[str, tuple[str, bool]] = {}
+    for name in names:
+        typed = str(name or "")
+        if not typed.startswith("~/"):
+            continue
+        tail = typed[2:].rstrip("/")
+        for folder in was:
+            for layout in PREPARED_SYSTEM_LAYOUTS:
+                holder = folder if not layout else (
+                    folder[:-len(layout) - 1] if folder.endswith("/" + layout) else "")
+                if not holder or not (holder == tail or holder.endswith("/" + tail)):
+                    continue
+                if not layout:
+                    out.setdefault(typed.rstrip("/"), (inner, False))
+                elif inner.endswith("/" + layout):
+                    out.setdefault(typed.rstrip("/"), (inner[:-len(layout) - 1], True))
+    return out
 
 
 def _full(name: Any) -> Path | None:
@@ -844,14 +919,17 @@ def _logins() -> frozenset[str]:
     return frozenset(n.casefold() for n in names if n)
 
 
-def _carried_folders(carried: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _carried_folders(carried: list[dict[str, Any]],
+                     order: list[str] | None = None) -> list[dict[str, Any]]:
     """Each folder systems are carried in, once, with every run that
-    simulated from a system in it, in order."""
+    simulated from a system in it, in the order of the record of runs."""
     folders: dict[str, list[str]] = {}
     for entry in carried:
         runs = folders.setdefault(entry["inside"], [])
         runs += [run for run in entry["runs"] if run not in runs]
-    return [{"at": inside, "runs": runs} for inside, runs in folders.items()]
+    place = {run: n for n, run in enumerate(order or [])}
+    return [{"at": inside, "runs": sorted(runs, key=lambda r: place.get(r, len(place)))}
+            for inside, runs in folders.items()]
 
 
 def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, Any]]:
@@ -862,8 +940,15 @@ def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, An
     from fastmdxplora.study_files import kind_of, label_of
 
     system: Path = entry["system"]
+
+    def packed(rel: str) -> bool:
+        path = PurePosixPath(rel)
+        return not never_shared(rel) and (everything or rel in _PREPARED_NEEDS or not (
+            path.name in _ONLY_ALL_NAMES or path.suffix.lower() in _ONLY_ALL_SUFFIXES))
+
     links = [path for path in sorted(system.rglob("*"))
-             if path.is_symlink() and "__pycache__" not in path.parts]
+             if path.is_symlink() and "__pycache__" not in path.parts
+             and (path.is_dir() or packed(path.relative_to(system).as_posix()))]
     if links:
         # A link is never packed: carried without what it leads to, the run
         # would be opened missing it.
@@ -953,9 +1038,18 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
         if recorded and _absolute(recorded):
             given_by.setdefault(os.path.normpath(recorded), []).append(run)
     inside_roots = [os.path.normpath(r) for r in roots]
+    # What a folder said as a run's must not hold: the study, a carried
+    # system, the home folder (every path under it would be said as the
+    # run's).
+    held = [*inside_roots, *(str(entry["system"]) for entry in carried),
+            str(Path.home()), str(Path.home().resolve())]
+
+    def above(folder: str, path: str) -> bool:
+        return path == folder or path.startswith(folder.rstrip("/") + "/")
+
     for recorded, by in sorted(given_by.items()):
-        if len(by) == 1 and not any(recorded == r or recorded.startswith(r.rstrip("/") + "/")
-                                    for r in inside_roots):
+        if len(by) == 1 and not any(above(r, recorded) or above(recorded, r)
+                                    for r in held):
             rules.setdefault(recorded, (f"runs/{by[0]}", False))
     for name, rule in [*(item for entry in carried for item in entry["was_said"].items()),
                        *prepared["was_inside"].items()]:
@@ -979,14 +1073,24 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
     if missing:
         # Kept as links, which are never packed: the run would be opened
         # with none.
-        path, run = missing[0]
-        who = f"The run {run} of the study in {root}" if run else f"The study in {root}"
-        names = ", ".join(PurePosixPath(p).name for p, r in missing if r == run)
+        said_of = []
+        for folder in dict.fromkeys(str(PurePosixPath(p).parent) for p, _ in missing):
+            names = ", ".join(PurePosixPath(p).name for p, _ in missing
+                              if str(PurePosixPath(p).parent) == folder)
+            runs_of = ", ".join(dict.fromkeys(r for p, r in missing
+                                              if str(PurePosixPath(p).parent) == folder))
+            said_of.append(f"in {folder} (the run{'s' if ', ' in runs_of else ''} {runs_of}), "
+                           f"{names}")
         raise ShareRefused(
-            f"{who} simulated the prepared system in {PurePosixPath(path).parent}, and its "
-            f"{names} {'is a link' if ', ' not in names else 'are links'}, which a shared "
-            "study does not carry. Put the files they lead to in their place, and share it "
-            "again.", code="environment.share.not_finished", path=path)
+            f"The study in {root} simulated prepared systems kept as links, which a shared "
+            f"study does not carry: {'; '.join(said_of)}. Put the files they lead to in their "
+            "place, and share it again." if len(said_of) > 1 else
+            f"The {'run ' + missing[0][1] + ' of the study' if missing[0][1] else 'study'} in "
+            f"{root} simulated the prepared system in {PurePosixPath(missing[0][0]).parent}, "
+            f"and its {said_of[0].split('), ', 1)[1]} "
+            f"{'is a link' if ', ' not in said_of[0].split('), ', 1)[1] else 'are links'}, "
+            "which a shared study does not carry. Put the files they lead to in their place, "
+            "and share it again.", code="environment.share.not_finished", path=missing[0][0])
     for entry in carried:
         entries += _carried_files(entry, everything)
     entries.sort(key=lambda e: e["path"])
@@ -1070,7 +1174,7 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
             files=files, actions=_actions(manifest, files, prepared["topology_of"]),
             runs=[{"id": run, "system": (manifest.get("systems_of_runs") or {}).get(run, "")}
                   for run in manifest.get("runs") or []],
-            prepared=_carried_folders(carried),
+            prepared=_carried_folders(carried, manifest.get("runs")),
             software={"version": str(manifest.get("version") or ""),
                       "url": "https://github.com/aai-research-lab/FastMDXplora"},
             package="all" if everything else "view", placeholders=placeholders,

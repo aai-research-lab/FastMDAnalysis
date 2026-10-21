@@ -84,13 +84,14 @@ whatever the package: the system as OpenMM built it (`system.xml`, which the
 run finds it by, from its SHA-256), the state it starts from, its topology and
 its setup record (`setup_parameters.json`, with the ligand's chemistry beside
 it). A system kept outside the study, or in a folder of it a shared study leaves
-out (one whose name begins with a dot, a run's folder the record of runs does
-not name), is carried once, however many runs used it, in `prepared/<name>/`,
+out (one whose name begins with a dot, one set aside such as `previous/`, a
+run's folder the record of runs does not name), is carried once, however many runs used it, in `prepared/<name>/`,
 named from the folder the runs name it by (`prepared/preparation/` where that
-folder is named for the person), and every path to that folder, and to where
-its setup record says it was made (a preparation copied since), is said as the
-folder it is carried in
-(`__FASTMDX_STUDY__/prepared/<name>`, below), and each run's record of the way
+folder is named for the person), and every path to that folder is said as the
+folder it is carried in (`__FASTMDX_STUDY__/prepared/<name>`, below): as the
+runs name it, typed from a home folder (`~/prep`) included, and where its own
+records say its files were written (`.../setup/retained.pdb` for a preparation
+made in one folder and copied to another). Each run's record of the way
 from it to the system (`relative_to_run`) is written as the way in the archive,
 so a run opened elsewhere finds it as it did where it ran. The system is found
 as the run finds it: where its record says relative to the run, so a study
@@ -148,7 +149,9 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
   field for it (`"host"`) whatever the name, a short one (`vm`) included.
 
 Any other path, outside the study and the home folder (a structure read from
-`/data/pdb/x.pdb`), is kept as it is written.
+`/data/pdb/x.pdb`), is kept as it is written, a folder named for the person in
+it included (`/scratch/<name>/pdb/x.pdb`): read the packed records, or keep
+such files in the study, where that matters.
 
 The placeholders are safe in YAML, JSON and Markdown alike. Once written, each
 packed text file is read again, and an archive in which the study's folder, the
