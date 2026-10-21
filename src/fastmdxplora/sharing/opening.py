@@ -13,11 +13,13 @@ place whole. Nothing in an archive is run.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import functools
 import hashlib
 import http.client
 import json
+import os
 import re
 import shutil
 import stat
@@ -310,10 +312,15 @@ def _slug(text: str) -> str:
 
 
 def _placed(parent: Path, name: str) -> Path:
+    """A folder of ``name`` in ``parent`` none holds, made now (empty) so that
+    another open at once takes the next name, not this one."""
     target, n = parent / name, 2
-    while target.exists():
-        target, n = parent / f"{name}-{n}", n + 1
-    return target
+    while True:
+        try:
+            target.mkdir()
+            return target
+        except FileExistsError:
+            target, n = parent / f"{name}-{n}", n + 1
 
 
 def _swapped(value: Any, plain: str) -> Any:
@@ -526,24 +533,44 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
         title = re.sub(r"(?i)^a fastmdxplora study of\s+", "",
                        str(root.get("name") or given.stem))
         target = _placed(parent, _slug(title))
-        held = root.get("fmx:placeholders")
-        holding = next((p for p in (held if isinstance(held, list) else [])
-                        if isinstance(p, dict) and p.get("fmx:placeholder") == STUDY), {})
-        inside = holding.get("fmx:in")
-        named = [str(i.get("@id")) for i in (inside if isinstance(inside, list) else [])
-                 if isinstance(i, dict)]
-        rewritten = _put_back(unpacked, [n for n in named if n in listed], target.resolve())
-        shared_from = {
-            "source": str(source), "doi": record.get("doi") or str(root.get("identifier") or "")
-            .removeprefix("https://doi.org/"),
-            "record": record.get("id") or None, "version": record.get("version") or None,
-            "archive": record.get("name") or given.name, "archive_sha256": _sha256(archive),
-            "files_checked": len(listed), "rewritten": rewritten,
-            "opened": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-        (unpacked / SHARED_FROM).write_text(json.dumps(shared_from, indent=2) + "\n",
-                                            encoding="utf-8")
-        shutil.move(str(unpacked), str(target))
+        try:
+            return _put_in(target, unpacked, root, listed, source, record, given, archive,
+                           said)
+        except BaseException:
+            # The folder made for it, left empty: taken away again.
+            with contextlib.suppress(OSError):
+                target.rmdir()
+            raise
+
+
+def _put_in(target: Path, unpacked: Path, root: dict[str, Any], listed: Any, source: Any,
+            record: dict[str, Any], given: Path, archive: Path,
+            said: Callable[[str], None] | None) -> Path:
+    """The study unpacked, its paths put back as ``target``'s and moved there."""
+    held = root.get("fmx:placeholders")
+    holding = next((p for p in (held if isinstance(held, list) else [])
+                    if isinstance(p, dict) and p.get("fmx:placeholder") == STUDY), {})
+    inside = holding.get("fmx:in")
+    named = [str(i.get("@id")) for i in (inside if isinstance(inside, list) else [])
+             if isinstance(i, dict)]
+    rewritten = _put_back(unpacked, [n for n in named if n in listed], target.resolve())
+    shared_from = {
+        "source": str(source), "doi": record.get("doi") or str(root.get("identifier") or "")
+        .removeprefix("https://doi.org/"),
+        "record": record.get("id") or None, "version": record.get("version") or None,
+        "archive": record.get("name") or given.name, "archive_sha256": _sha256(archive),
+        "files_checked": len(listed), "rewritten": rewritten,
+        "opened": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    (unpacked / SHARED_FROM).write_text(json.dumps(shared_from, indent=2) + "\n",
+                                        encoding="utf-8")
+    try:
+        # Over the empty folder made for it, at once.
+        os.replace(unpacked, target)
+    except OSError:
+        for inner in unpacked.iterdir():
+            shutil.move(str(inner), str(target / inner.name))
+        unpacked.rmdir()
     if said:
         said(f"The shared study is in {target}.")
     return target

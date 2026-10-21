@@ -3324,3 +3324,101 @@ def test_a_gateway_s_404_downloading_is_not_said_closed(tmp_path, unsteady, monk
     assert "ask its owner" not in str(refused.value)
     assert "open it again later" in str(refused.value)
     assert real
+
+
+def test_an_upload_whose_answer_was_lost_stays_the_study_s_after_another_fails(tmp_path,
+                                                                               unsteady):
+    """Hands-on review of the thirty-first commit: an archive kept whose
+    answer was lost, a share under another name then failing, was refused
+    as not the study's."""
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "s.zip") == 2
+    # Zenodo kept it.
+    unsteady.files = [{"id": "s", "filename": "s.zip"}]
+    unsteady.faults = {"PUT file": [500] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "v2.zip") == 2
+    unsteady.faults = {}
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "v2.zip") == 0
+    assert [c[1] for c in unsteady.calls if c[0] == "DELETE"] == [
+        "/api/deposit/depositions/7/files/s"]
+
+
+def test_two_opens_at_once_take_two_folders(tmp_path):
+    from fastmdxplora.sharing.opening import _placed
+
+    first, second = _placed(tmp_path, "the-study"), _placed(tmp_path, "the-study")
+    assert first != second and first.is_dir() and second.is_dir()
+
+
+@pytest.mark.parametrize("odd", [["x"], "x", 3, {"links": "x"}])
+def test_an_answer_to_beginning_a_version_not_zenodo_s_is_a_refusal(tmp_path, unsteady,
+                                                                    monkeypatch, odd):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = zenodo._call
+
+    def strange(method, url, **kwargs):
+        if url.endswith("/actions/newversion"):
+            return odd
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", strange)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+
+
+def test_a_draft_s_doi_not_zenodo_s_is_not_a_crash(tmp_path, unsteady, monkeypatch):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = zenodo._call
+
+    def strange(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "GET" and url.endswith("/depositions/7") and isinstance(answer, dict):
+            answer["metadata"]["prereserve_doi"] = "x"
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", strange)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") in (0, 2)
+
+
+@pytest.mark.parametrize("files", [["s.zip"], {"entries": ["s.zip"]},
+                                   [{"key": "s.zip", "size": "big"}]])
+def test_a_record_whose_files_are_not_zenodo_s_is_a_refusal(tmp_path, unsteady,
+                                                            monkeypatch, files):
+    real = zenodo._call
+
+    def strange(method, url, **kwargs):
+        if url.endswith("/api/records/7"):
+            return {"id": 7, "doi": "10.5072/zenodo.7", "files": files}
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", strange)
+    try:
+        zenodo.archive_of("zenodo-sandbox", "7")
+    except ShareRefused:
+        pass
+
+
+def test_a_gateway_s_404_on_the_upload_is_said_as_such(tmp_path, unsteady, monkeypatch,
+                                                      capsys):
+    import io
+    import urllib.error
+    import urllib.request
+
+    study = _study(tmp_path / "study")
+    real = urllib.request.urlopen
+
+    def gateway(request, timeout=None):
+        if "/files/" in request.full_url and request.get_method() == "PUT":
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
+                                         io.BytesIO(b"<html>Not Found</html>"))
+        return real(request, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "a gateway's" in said and "no such record or draft" not in said

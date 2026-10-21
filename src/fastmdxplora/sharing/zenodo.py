@@ -200,7 +200,8 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
                                     "published yet: ask its owner for access, or download "
                                     "its zip and open the file)"}
             why = {**why,
-                   404: "no such record or draft",
+                   404: "no such record or draft" if _zenodo_s(answered, 404)
+                   else "HTTP 404 in a page not Zenodo's own (a gateway's)",
                    429: f"too many requests, still after {attempt} tries"}.get(
                 exc.code, f"HTTP {exc.code}" + (f", still after {attempt} tries"
                                                  if exc.code in AGAIN and attempt > 1 else ""))
@@ -312,11 +313,16 @@ def archive_of(site: str, record: str,
         entries = list(entries.values()) if isinstance(entries, dict) else entries
     zips = []
     for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
         name = str(entry.get("key") or entry.get("filename") or "")
         if name.lower().endswith(".zip"):
             checksum = str(entry.get("checksum") or "")
-            zips.append({"name": name, "size": int(entry.get("size") or entry.get("filesize")
-                                                    or 0),
+            try:
+                size = int(entry.get("size") or entry.get("filesize") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            zips.append({"name": name, "size": size,
                          "md5": checksum.split(":", 1)[-1].lower()})
     if len(zips) != 1:
         raise ShareRefused(
@@ -926,7 +932,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                                       *_names_kept(kept[site].get("record_archive")),
                                       *(map(str, was_stale) if isinstance(was_stale, list)
                                         else [str(was_stale or "")])} - {""}))
-    doi = str((held.get("prereserve_doi") or {}).get("doi") or "")
+    reserved_as = held.get("prereserve_doi")
+    doi = str(reserved_as.get("doi") or "") if isinstance(reserved_as, dict) else ""
     if not doi:
         try:
             reserved = _call("PUT", f"{depositions}/{identifier}", token=token,
@@ -1071,6 +1078,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                  f"{site}...")
         # The new archive first: one of the same name is replaced by it, and
         # the draft keeps the one it had until the new one is there.
+        before = str(kept[site].get("uploading") or "")
+        if before and before != archive.name:
+            # Sent before, its answer lost, perhaps kept: the study's still,
+            # to be taken away once the new one is there.
+            kept[site]["stale"] = sorted({*_names_kept(kept[site].get("stale")), before})
         kept[site]["uploading"] = archive.name
         sent_sums = _sums_kept(kept[site].get("sums"))
         sent_sums[archive.name] = [*sent_sums.get(archive.name, []), _md5_of(archive)][-_SENDINGS:]
@@ -1418,7 +1430,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                       said=said)
         # Answered as Zenodo answers: begun. An empty answer may be either.
         answered = isinstance(newer, dict) and bool(newer)
-        latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
+        links = newer.get("links") if isinstance(newer, dict) else None
+        latest = str(links.get("latest_draft") or "") if isinstance(links, dict) else ""
         if not latest:
             unnamed = ShareRefused("Zenodo's answer to beginning a new version named no "
                                    "draft of it.", code="environment.service.unreachable")
