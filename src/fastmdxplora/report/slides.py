@@ -380,7 +380,7 @@ def _setup_bullets(project_root: Path) -> list[str]:
     xmls = r.get("xmls")
     field = ", ".join(xmls) if isinstance(xmls, list) else r.get("forcefield")
     if field:
-        water = r.get("water_model")
+        water = r.get("water_name") or r.get("water_model")
         bullets.append(f"Force field: {field}"
                        + (f", {water} water" if water else ""))
     if r.get("ligand") and r.get("ligand_forcefield"):

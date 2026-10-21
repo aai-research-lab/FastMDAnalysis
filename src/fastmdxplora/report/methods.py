@@ -425,7 +425,8 @@ def methods_paragraphs(
             ", ".join(str(x) for x in xmls) if xmls
             else _get(setup, "forcefield", "force_field")
         )
-        water = resolved.get("water_model") or _get(setup, "water_model")
+        water = (resolved.get("water_name") or resolved.get("water_model")
+                 or _get(setup, "water_model"))
         ligand_ff = (resolved.get("small_molecule_forcefield")
                      or _get(setup, "ligand_forcefield"))
         # Whether a ligand was *parameterised*, not whether one could have

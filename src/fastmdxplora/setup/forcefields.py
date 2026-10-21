@@ -40,7 +40,13 @@ class ForceFieldChoice:
         ``openmm.app.ForceField(*xmls)``.
     water_model : str | None
         Default water model name for ``Modeller.addSolvent(model=...)``.
-        ``None`` means "let Modeller infer it from the force field".
+        ``None`` means "let Modeller infer it from the force field". It is
+        the geometry the box is built from, which the force field's water
+        file then parameterises, so it is not always the water's own name.
+    water_name : str | None
+        The water model as a methods section names it, where that differs
+        from ``water_model``: TIP3P-FB is built from Modeller's ``tip3p``
+        box and parameterised by ``tip3pfb.xml``.
     supports_ligand : bool
         Whether this force field can parameterize small-molecule ligands
         (via the OpenFF small-molecule generator). Used by the ligand
@@ -75,6 +81,12 @@ class ForceFieldChoice:
     #: turns it on where the file says nothing). Part of the scheme for the
     #: same reason the cutoff is.
     dispersion_correction: bool | None = None
+    #: See ``water_name`` above; ``None`` means it is ``water_model``.
+    water_name: str | None = None
+    #: The files this name resolved to in earlier releases. A study's record
+    #: holds the name and its files together; one prepared then is carried
+    #: on with the files it was prepared with, not the name's present ones.
+    earlier_xmls: tuple[tuple[str, ...], ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +125,22 @@ _REGISTRY: dict[str, ForceFieldChoice] = {
     ),
     "amber-fb15": ForceFieldChoice(
         name="amber-fb15",
-        xmls=("amberfb15.xml", "tip3p.xml"),
+        # TIP3P-FB, the water AMBER-FB15 was developed with (Wang et al., J
+        # Phys Chem B 121, 4023, 2017), rather than plain TIP3P: its charges
+        # (O -0.848 against -0.834) and Lennard-Jones are refitted, and the
+        # protein's were fitted beside them. Modeller has no `tip3pfb` box,
+        # so the box is its 3-site `tip3p` one and `tip3pfb.xml` gives the
+        # parameters, as `Modeller.addSolvent`'s docstring describes for
+        # TIP3P-FB. Ions come from
+        # `amberfb15.xml`, as they did.
+        xmls=("amberfb15.xml", "tip3pfb.xml"),
+        earlier_xmls=(("amberfb15.xml", "tip3p.xml"),),
         water_model="tip3p",
+        water_name="TIP3P-FB",
         supports_ligand=False,
         small_molecule_forcefield=None,
-        description="AMBER-FB15 protein force field with TIP3P water.",
+        description="AMBER-FB15 protein force field with TIP3P-FB water, the "
+                    "model it was developed with.",
     ),
     "amber-openff": ForceFieldChoice(
         name="amber-openff",

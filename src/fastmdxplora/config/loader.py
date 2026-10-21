@@ -1129,9 +1129,12 @@ def _check_one_run(options: dict[str, dict[str, Any]], *, where: str) -> None:
         # that gave one: it names no force field.
         named = None
     if named is not None and setup.get("force_field"):
-        from fastmdxplora.setup.pipeline import _the_list_is_the_name
+        from fastmdxplora.setup.pipeline import _the_list_is_the_name, _the_list_was_the_name
 
-        if not _the_list_is_the_name(setup["forcefield"], setup["force_field"]):
+        # The list a name resolved to in an earlier release is the record of
+        # a study prepared then, carried on with the files it was prepared with.
+        if not (_the_list_is_the_name(setup["forcefield"], setup["force_field"])
+                or _the_list_was_the_name(setup["forcefield"], setup["force_field"])):
             raise ConfigError(
                 f"The setup gives both `forcefield` ({setup['forcefield']!r}, a "
                 "named force field) and `force_field` (a list of OpenMM XML "

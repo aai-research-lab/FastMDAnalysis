@@ -181,6 +181,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - The Methods state the Lennard-Jones treatment (switch and tail correction),
   and that `charmm36.xml` is an older CHARMM36 release, without the
   CHARMM36m protein parameters.
+
+- `amber-fb15` runs with TIP3P-FB (`tip3pfb.xml`), the water AMBER-FB15 was
+  developed with, rather than plain TIP3P, and the records, the Methods, the
+  slides and the GUI name it. A study prepared before keeps its recorded
+  `force_field` list, and so its TIP3P, when it is run again.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
