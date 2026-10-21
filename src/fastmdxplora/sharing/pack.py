@@ -31,6 +31,7 @@ import json
 import os
 import re
 import socket
+import stat
 import tempfile
 import zipfile
 from collections.abc import Callable
@@ -160,6 +161,14 @@ def finished_manifest(root: Path) -> dict[str, Any]:
 def _finished_runs(root: Path) -> dict[str, Any]:
     """A study of several runs, once each of its runs has finished: refused
     where one is running, stopped short or never ran."""
+    try:
+        (root / "batch_manifest.json").read_bytes()
+    except OSError as exc:
+        raise ShareRefused(f"{root / 'batch_manifest.json'}, the record of its runs, could "
+                           f"not be read ({exc.strerror or exc}); nothing was written. Make "
+                           "it readable and share it again.",
+                           code="environment.share.not_finished",
+                           path="batch_manifest.json") from exc
     batch = _load(root / "batch_manifest.json")
     batch = batch if isinstance(batch, dict) else {}
     planned = batch.get("planned") or batch.get("runs")
@@ -252,14 +261,73 @@ def _system_named(system: Any) -> str:
     return _SUFFIX.sub("", name) or name
 
 
-def _walk(root: Path) -> list[str]:
-    found = []
-    for path in sorted(root.rglob("*")):
-        if path.is_symlink() or not path.is_file() or path.suffix == ".tmp" \
-                or "__pycache__" in path.parts:
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
+
+
+def _markdown_plain(text: str) -> str:
+    """``text``, a Markdown file, with the placeholders left in it
+    (`__FASTMDX_HOME__`, `__FASTMDX_HOST__`) written with their underscores
+    escaped outside code, so that they show as written rather than as a
+    word in bold. `__FASTMDX_STUDY__` is put back when the study is opened."""
+    if HOME not in text and HOST not in text:
+        return text
+
+    def plain(piece: str) -> str:
+        for token in (HOME, HOST):
+            piece = piece.replace(token, "\\_\\_" + token[2:-2] + "\\_\\_")
+        return piece
+
+    out, fence = [], ""
+    for line in text.splitlines(keepends=True):
+        opened = _FENCE.match(line)
+        if fence:
+            if opened and opened.group(1)[0] == fence[0] and len(opened.group(1)) >= len(fence):
+                fence = ""
+            out.append(line)
             continue
-        found.append(path.relative_to(root).as_posix())
-    return found
+        if opened:
+            fence = opened.group(1)
+            out.append(line)
+            continue
+        kept, at = [], 0
+        for span in _CODE_SPAN.finditer(line):
+            kept += [plain(line[at:span.start()]), span.group(0)]
+            at = span.end()
+        out.append("".join(kept) + plain(line[at:]))
+    return "".join(out)
+
+
+def _walk(root: Path, kept: Callable[[str], bool] | None = None) -> list[str]:
+    """The files in ``root``, as paths in it, in name order. A folder that
+    cannot be read whole is refused where ``kept`` (by a path of a file in
+    it) says its files would be shared: left out, the study would be opened
+    missing them."""
+    found = []
+
+    def unread(folder: str, exc: OSError) -> None:
+        rel = Path(folder).relative_to(root).as_posix() if folder != str(root) else ""
+        if kept is None or kept(f"{rel}/_" if rel else "_"):
+            raise ShareRefused(f"{folder} could not be read ({exc.strerror or exc}); nothing "
+                               "was written. Make it readable and share it again.",
+                               code="environment.share.not_finished",
+                               path=rel or str(root)) from exc
+
+    def failed(exc: OSError) -> None:
+        unread(str(exc.filename or root), exc)
+
+    for folder, folders, files in os.walk(root, onerror=failed):
+        folders[:] = [name for name in folders if name != "__pycache__"]
+        for name in files:
+            path = Path(folder) / name
+            try:
+                mode = path.lstat().st_mode
+            except OSError as exc:
+                unread(folder, exc)
+                continue
+            if stat.S_ISREG(mode) and path.suffix != ".tmp":
+                found.append(path.relative_to(root).as_posix())
+    return sorted(found, key=lambda rel: PurePosixPath(rel).parts)
 
 
 def _opens_with(root: Path, trajectory: str, roots: list[str]) -> str:
@@ -292,8 +360,12 @@ def chosen_files(root: Path, everything: bool = False,
     from fastmdxplora.deposit import _trajectory_parts
     from fastmdxplora.study_files import kind_of, label_of, place
 
+    def kept(rel: str) -> bool:
+        run = place(rel)[1]
+        return not never_shared(rel) and (runs is None or not run or run in runs)
+
     entries = []
-    for rel in _walk(root):
+    for rel in _walk(root, kept):
         if never_shared(rel):
             continue
         phase, run, inner = place(rel)
@@ -569,6 +641,12 @@ def _prepared_systems(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     quiet.setLevel(logging.ERROR)
     try:
         return _looked_for(root, manifest)
+    except OSError as exc:
+        raise ShareRefused(
+            f"{exc.filename or root}, which the study's runs simulated from, could not be "
+            f"read ({exc.strerror or exc}); nothing was written. Make it readable and share "
+            "it again.", code="environment.share.not_finished",
+            path=str(exc.filename or root)) from exc
     finally:
         quiet.setLevel(level)
 
@@ -673,6 +751,9 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     # Each prepared system not found here, and the runs that simulated it:
     # said at once, every run named.
     not_found: dict[str, list[str]] = {}
+    # Each prepared system that is another one now, by what was found, and
+    # the runs that simulated it: said at once too.
+    changed: dict[str, list[str]] = {}
     found_systems: set[Path] = set()
     for run in manifest.get("runs") or [""]:
         folder = root / "runs" / run if run else root
@@ -692,9 +773,8 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                     for n in recorded if _full(n) is not None]
                 simulated = next((c for c in candidates if (c / "system.xml").is_file()), None)
         except CodedError as exc:
-            raise ShareRefused(
-                of(run, f"simulated a prepared system that is another one now: {exc}"),
-                code="environment.share.not_finished") from exc
+            changed.setdefault(str(exc), []).append(run)
+            continue
         except RuntimeError as exc:
             raise ShareRefused(
                 of(run, f"names its prepared system by a path this computer cannot read "
@@ -710,7 +790,11 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             continue
         simulated = simulated.resolve()
         found_systems.add(simulated)
-        if simulated == (folder / "setup").resolve():
+        try:
+            own_setup = (folder / "setup").resolve()
+        except (OSError, RuntimeError):
+            own_setup = None
+        if simulated == own_setup:
             continue
         note(simulated, named, run,
              [(reference or {}).get("resolved"), pipeline._setup_taken_from(folder)])
@@ -727,9 +811,8 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                 records = pipeline._the_system_recorded(simulated, readable,
                                                         verb="was seeded from")
             except CodedError as exc:
-                raise ShareRefused(
-                    of(run, f"simulated a seed taken from a preparation that is another one "
-                            f"now: {exc}"), code="environment.share.not_finished") from exc
+                changed.setdefault(str(exc), []).append(run)
+                continue
             except RuntimeError as exc:
                 raise ShareRefused(
                     of(run, f"simulated a seed whose preparation is named by a path this "
@@ -748,6 +831,15 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                  [seeded.get("resolved")])
             users.append(("seed", run, simulated, records))
 
+    if changed:
+        said_of = "; ".join(
+            f"{', '.join(r for r in runs_of if r) or 'the study'}: {why}"
+            for why, runs_of in changed.items())
+        users = [r for runs_of in changed.values() for r in runs_of if r]
+        subject = (f"The run{'s' if len(users) > 1 else ''} {', '.join(users)} of the study in "
+                   f"{root}" if users else f"The study in {root}")
+        raise ShareRefused(f"{subject} simulated a prepared system that is another one now "
+                           f"({said_of})", code="environment.share.not_finished")
     if not_found:
         lines = []
         for name, runs_of in not_found.items():
@@ -792,6 +884,9 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         entry["was"] = {w for w in entry["was"] if not is_here(w)}
     for was in [w for w in was_inside if is_here(w)]:
         del was_inside[was]
+    machines = {name.casefold() for name in _hosts(
+        root, manifest, [folder for entry in outside.values()
+                         for folder in (entry["system"], entry["system"].parent)])}
     taken_names: set[str] = set()
     carried = []
     inside_of: dict[Path, str] = {}
@@ -816,8 +911,9 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         inside = inside_of.get(entry["base"])
         if inside is None:
             stem = re.sub(r"[^A-Za-z0-9._-]+", "-", entry["base"].name).strip("-.") or "system"
-            if stem.casefold() in _logins():
-                # A folder named for the person (`/scratch/<login>/setup`).
+            if stem.casefold() in _logins() or stem.casefold() in machines:
+                # A folder named for the person (`/scratch/<login>/setup`) or
+                # for the computer, whose name is said as a placeholder.
                 stem = "preparation"
             name, n = stem, 2
             while name in taken_names or (root / PREPARED / name).exists():
@@ -855,8 +951,12 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                     was_said[named] = (inside, True)
         # As typed under the home folder (`setup_from: ~/prep`).
         home_here = Path.home()
+        try:
+            homes_here = {home_here, home_here.resolve()}
+        except (OSError, RuntimeError):
+            homes_here = {home_here}
         for name, rule in list(said.items()):
-            for base in {home_here, home_here.resolve()}:
+            for base in homes_here:
                 if _within(Path(name), base) and Path(name) != base:
                     said.setdefault("~/" + Path(name).relative_to(base).as_posix(), rule)
         entry.update(inside=inside, at=at, said=said, was_said=was_said)
@@ -1009,23 +1109,17 @@ def _fetched_names(root: Path, carried: list[dict[str, Any]]
         except (OSError, RuntimeError):
             continue
         for entry in carried:
+            # The input names the carried folder itself, as a folder; or a
+            # folder holding it, which says only the way down to it.
             if entry["base"] == here:
-                place = entry["inside"]
-            elif entry["system"] == here or _within(entry["system"], here):
-                below = entry["system"].relative_to(here).as_posix()
-                place = entry["at"] if below == "." else None
-                if place is None:
-                    # The input names a study holding the system: as the
-                    # folder carried for it, the system's place below it.
-                    place = entry["at"][:-len(below) - 1] if entry["at"].endswith(
-                        "/" + below) else None
+                below = ""
+            elif _within(entry["base"], here):
+                below = "/" + entry["base"].relative_to(here).as_posix()
             else:
-                continue
-            if place is None:
                 continue
             for typed in (f"inputs/{name}", f"{remote}/inputs/{name}" if remote else ""):
                 if typed:
-                    out.setdefault(typed, (place, False))
+                    out.setdefault(typed + below, (entry["inside"], False))
     return out
 
 
@@ -1078,7 +1172,7 @@ def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, An
             "in their place, and share it again.",
             code="environment.share.not_finished", path=str(links[0]))
     out = []
-    for rel in _walk(system):
+    for rel in _walk(system, packed):
         path = PurePosixPath(rel)
         if never_shared(rel) or (not everything and rel not in _PREPARED_NEEDS and (
                 path.name in _ONLY_ALL_NAMES or path.suffix.lower() in _ONLY_ALL_SUFFIXES)):
@@ -1261,6 +1355,8 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                     if rel in prepared["relative"]:
                         text = _relative_put(text, *prepared["relative"][rel])
                     text, used = scrub(text)
+                    if PurePosixPath(rel).suffix.lower() == ".md":
+                        text = _markdown_plain(text)
                     left = scrub.left(text)
                     if left:
                         raise ShareRefused(

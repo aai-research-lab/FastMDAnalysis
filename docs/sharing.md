@@ -87,7 +87,7 @@ it). A system kept outside the study, or in a folder of it a shared study leaves
 out (one whose name begins with a dot, one set aside such as `previous/`, a
 run's folder the record of runs does not name), is carried once, however many runs used it, in `prepared/<name>/`,
 named from the folder the runs name it by (`prepared/preparation/` where that
-folder is named for the person), and every path to that folder is said as the
+folder is named for the person or the computer), and every path to that folder is said as the
 folder it is carried in (`__FASTMDX_STUDY__/prepared/<name>`, below): as the
 runs name it, typed from a home folder (`~/prep`) included, and where its setup
 record says it was made, from the structure setup kept beside what it made
@@ -161,13 +161,20 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
 
 Any other path, outside the study and the home folder (a structure read from
 `/data/pdb/x.pdb`), is kept as it is written, a folder named for the person in
-it included (`/scratch/<name>/pdb/x.pdb`): read the packed records, or keep
-such files in the study, where that matters.
+it included (`/scratch/<name>/pdb/x.pdb`). So is the folder a fetched study
+ran in on the other machine (`/scratch/<name>/fastmdxplora-jobs/job42`, in
+`batch_manifest.json` and the reports), and the login it was reached by
+(`<name>@login1.cluster.edu`): read the packed records, or keep such files in
+the study, where that matters.
 
-The placeholders are safe in YAML, JSON and Markdown alike. Once written, each
-packed text file is read again, and an archive in which the study's folder, the
-home folder or the computer's name is still found is not written
-(`environment.share.unscrubbed`, naming the file). Binary files (the
+The placeholders are safe in YAML and JSON. In a Markdown file, outside code,
+`__FASTMDX_HOME__` and `__FASTMDX_HOST__` are written with their underscores
+escaped (`\_\_FASTMDX_HOST\_\_`), so that they show as written rather than as
+a word in bold.
+
+Once written, each packed text file is read again, and an archive in which the
+study's folder, the home folder or the computer's name is still found is not
+written (`environment.share.unscrubbed`, naming the file). Binary files (the
 trajectory, figures, NumPy arrays) are packed as they are; none of their
 formats records a path.
 
@@ -417,9 +424,9 @@ The packing list of the demo study, cut to one file of each kind:
 
 | Code | When |
 |---|---|
-| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; or a file of it cannot be read. |
+| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; or a file or folder of it cannot be read. |
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
-| `environment.share.not_a_study` | No packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. |
+| `environment.share.not_a_study` | Opening: no packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. Sharing: a study's record of runs names no run, or a run by a name that is no folder's. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |
 | `environment.share.too_large` | The archive is over the download limit. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |

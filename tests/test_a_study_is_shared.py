@@ -155,7 +155,8 @@ def test_no_path_home_or_computer_is_left(tmp_path):
                 assert left not in text, (name, left)
         config = archive.read("resolved_config.yml").decode()
         assert f"output: {STUDY}" in config and f"ligand: {HOME}/ligands/x.sdf" in config
-        assert HOST in archive.read("report/report.md").decode()
+        # Its underscores escaped in Markdown, so that it shows as written.
+        assert "on \\_\\_FASTMDX_HOST\\_\\_" in archive.read("report/report.md").decode()
     assert "resolved_config.yml" in said["placeholders"][STUDY]
 
 
