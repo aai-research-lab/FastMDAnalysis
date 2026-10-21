@@ -1,9 +1,13 @@
 /* Study document navigation stays within the main column at every width. */
 /* Above the page's sticky header, which stays below it (dashboard.css,
    --study-tabs-height), so neither covers the other when scrolled. */
+/* The middle column's top bar: the height of the side panel's tabs and the
+   sidebar's name (--top-bar-height), its rule on their line. It was 54px,
+   its rule 2px below theirs. */
 .study-tabs { position: sticky; top: var(--study-tabs-top, 0px); z-index: 6; flex: 0 0 auto; min-width: 0;
     background: var(--background-primary); border-bottom: 1px solid var(--border-primary);
-    padding: 6px 10px; }
+    min-height: var(--top-bar-height); padding: 0 10px;
+    display: flex; flex-direction: column; justify-content: center; }
 .study-tabs[hidden] { display: none; }
 .study-tabs-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* A thin scrollbar and a fade at an edge with more tabs past it. */
