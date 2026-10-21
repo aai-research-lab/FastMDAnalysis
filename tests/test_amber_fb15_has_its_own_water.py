@@ -85,8 +85,9 @@ class TestAStudyPreparedBeforeKeepsItsWater:
     @staticmethod
     def _setup(tmp_path, **options):
         import json
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
 
+        from fastmdxplora.setup import prepare as _prepare_mod
         from fastmdxplora.setup.pipeline import run as setup_run
         from tests.test_forcefield_selector import _MINI_PDB
 
@@ -96,7 +97,11 @@ class TestAStudyPreparedBeforeKeepsItsWater:
         orch.output_dir.mkdir()
         out = orch.output_dir / "setup"
         out.mkdir()
-        setup_run(orchestrator=orch, output_dir=out, **options)
+        # The chemistry is mocked, as in the selector's tests: the record is
+        # what is checked, and the fragment cannot be templated where
+        # PDBFixer lets preparation go on.
+        with patch.object(_prepare_mod, "prepare_system", return_value={}):
+            setup_run(orchestrator=orch, output_dir=out, **options)
         # Written whether or not preparation goes on (it stops here without
         # PDBFixer), and it is what replay and the Methods read.
         return json.loads((out / "setup_parameters.json").read_text())
