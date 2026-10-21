@@ -276,6 +276,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `study_tags.json`, nothing moved) and Clear, with Undo after Tag and
   Archive. Any number can be chosen: the list's head box chooses every study
   shown, Shift and a click a range.
+- All studies reads each study as its own pages do: a record linked out
+  of a study, or a file of it that is not one of its results, is not read
+  for its row, its card or its picture (`/api/study-thumbnail`); the row
+  names it, and what it would have said (where the study stands, how long
+  it ran, a mean, its molecule) is said not read, never taken as absent. A
+  structure a study is to start from outside its folder is not drawn. A
+  run's time left is at its production's own speed and how long it ran is
+  as its Overview says (a run stopped once determined ran less than its
+  ceiling); the replicas' mean of means and its error are the runs' table's
+  own. Why a mean is not determined is reached from the keyboard on its
+  row. Bound beyond this computer, Tag, Archive, Open, Files and Compare
+  are not offered.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
