@@ -260,9 +260,21 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     simulation = (config or {}).get("simulation") if isinstance(config, dict) else None
     from fastmdxplora.simulation.resume import extended_production
 
+    seen: dict[str, Any] = {}
+    far = _how_far(base, batch, card, seen)
     # An extended study's config carries its last piece's length after the
-    # join, so its pieces are what say how long it ran.
-    extended = extended_production(base) if not isinstance(batch, dict) else None
+    # join, so its pieces are what say how long it ran: as its production
+    # was read for how far it got (`simulated_times`, which reads its
+    # pieces once it has stopped), else read here.
+    times = seen.get("times")
+    if isinstance(batch, dict):
+        extended = None
+    elif times is not None and not seen.get("running"):
+        extended = ((times["production_ns"], times["pieces"])
+                    if (times.get("pieces") or 1) > 1 and times.get("production_ns") is not None
+                    else None)
+    else:
+        extended = extended_production(base)
     if extended:
         card["production_ns"], card["pieces"] = round(extended[0], 6), extended[1]
     elif isinstance(simulation, dict) and simulation.get("duration_ns") is not None:
@@ -278,7 +290,7 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     else:
         card["means"] = _ensemble_means(base)
         card["runs"] = _runs_count(batch)
-    card.update(_how_far(base, batch, simulation, card))
+    card.update(far)
     if card["state"] == "analysed" and card["kind"] == "one run":
         card["kind"] = "a trajectory analysed"
     # The molecule, as All studies draws it (backbone_picture.py).
@@ -767,48 +779,64 @@ def _ensemble_means(base: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _how_far(base: Path, batch: Any, simulation: Any, card: dict[str, Any]) -> dict[str, Any]:
-    """How much the study has simulated and was to: ``simulated_ns`` (of
-    production, every run), ``planned_ns``, and for a study running its
+def _how_far(base: Path, batch: Any, card: dict[str, Any],
+             seen: dict[str, Any] | None = None) -> dict[str, Any]:
+    """How much the study has simulated and was to, as each run's Overview
+    reads it (`simulated_time.simulated_times`): ``simulated_ns`` (its
+    production, every run's), ``planned_ns``, and for a study running its
     ``progress`` (production simulated over production planned, 0 to 1, so
-    that it reads as the ns beside it) and ``seconds_left``, every step its
-    runs going have still to take (equilibration included) at the pace each
-    has kept so far."""
+    that it reads as the ns beside it) and ``seconds_left``: the
+    nanoseconds each run going has still to take, equilibration included,
+    at the one speed its cost is read at (`overview_view._production_speed`,
+    its production's own steps and times, not its whole time so far with
+    setup in it). Not said where a run going has no speed yet. For a study
+    of one run, what was read of it is put in ``seen`` (``times``,
+    ``running``)."""
+    from fastmdxplora import record_access
+    from fastmdxplora.gui.overview_view import _production_speed
+    from fastmdxplora.gui.simulated_time import simulated_times
+    from fastmdxplora.gui.telemetry import status_as_it_stands
+
     out: dict[str, Any] = {}
-    folders = ([p for p in sorted((base / "runs").iterdir()) if p.is_dir()]
-               if isinstance(batch, dict) and (base / "runs").is_dir() else [base])
-    done = planned = 0.0
-    known = False
-    going = False
-    left: float | None = None
+    runs = base / "runs"
+    folders = ([p for p in sorted(record_access.iterdir(runs)) if record_access.is_dir(p)]
+               if isinstance(batch, dict) and record_access.is_dir(runs) else [base])
+    done = planned = left = 0.0
+    known = going = timed = False
+    untimed = False
     for folder in folders:
-        record = _read_json(folder / "simulation" / "live_status.json")
-        if not isinstance(record, dict):
+        if not record_access.is_dir(folder / "simulation"):
             continue
-        step = record.get("timestep_fs")
-        production = record.get("production_steps_planned")
-        if not isinstance(step, (int, float)) or not isinstance(production, (int, float)):
+        status = status_as_it_stands(folder)
+        times = simulated_times(folder, status, wall=False) or {}
+        going_here = str(status.get("status") or "").lower() in ("running", "starting", "paused")
+        if seen is not None and folder == base:
+            seen.update(times=times, running=going_here)
+        to_run = _finite(times.get("production_planned_ns"))
+        if to_run is None or times.get("production_not_read"):
             continue
         known = True
-        before = sum(int(record.get(k) or 0) for k in ("nvt_steps_planned", "npt_steps_planned"))
-        current = int(record.get("current_step") or 0)
-        status = str(record.get("status") or "").lower()
-        finished = status == "completed" or current >= before + production
-        into = production if finished else max(0, current - before)
-        done += into * step * 1e-6
-        planned += production * step * 1e-6
-        if status in ("running", "starting") and not finished:
-            going = True
-            elapsed = record.get("elapsed_wall_time_s")
-            total = record.get("total_planned_steps") or before + production
-            if isinstance(elapsed, (int, float)) and current > 0:
-                left = (left or 0.0) + elapsed / current * max(0, total - current)
+        so_far = _finite(times.get("production_ns")) or 0.0
+        done += so_far
+        planned += to_run
+        if not going_here:
+            continue
+        going = True
+        speed = _production_speed(folder)
+        if not speed or speed <= 0:
+            untimed = True
+            continue
+        rest = max(0.0, to_run - so_far) + max(
+            0.0, (_finite(times.get("equilibration_planned_ns")) or 0.0)
+            - (_finite(times.get("equilibration_ns")) or 0.0))
+        left += rest / speed * 86400.0
+        timed = True
     if known:
         out["simulated_ns"] = round(done, 6)
         out["planned_ns"] = round(planned, 6)
     if going and card.get("state") == "running" and planned > 0:
         out["progress"] = round(min(1.0, done / planned), 4)
-        if left is not None:
+        if timed and not untimed:
             out["seconds_left"] = round(left)
     return out
 

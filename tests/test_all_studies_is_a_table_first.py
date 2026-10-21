@@ -31,6 +31,8 @@ from tests.test_the_workspace_says_its_studies import _replicas, _study
 
 
 def _live(folder, *, status="running", current=6000, elapsed=381.555):
+    from datetime import datetime, timedelta, timezone
+
     (folder / "simulation").mkdir(parents=True, exist_ok=True)
     (folder / "simulation" / "live_status.json").write_text(json.dumps({
         "stage": "production", "status": status, "current_step": current,
@@ -38,6 +40,14 @@ def _live(folder, *, status="running", current=6000, elapsed=381.555):
         "nvt_steps_planned": 1000, "npt_steps_planned": 1000, "production_steps_planned": 10000,
         "stage_states": {"production": "running" if status == "running" else "completed"},
     }), encoding="utf-8")
+    # Production's own samples: 4,000 steps in 200 s, 20 steps a second.
+    # The run's whole time (381.555 s for 6,000 steps) has setup in it.
+    start = datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc)
+    lines = ["timestamp,stage,step,simulation_time_ns,temperature,speed"]
+    for k in range(5):
+        lines.append(f"{(start + timedelta(seconds=50 * k)).isoformat()},Production,"
+                     f"{2000 + 1000 * k},{(2000 + 1000 * k) * 2e-6},300,1.0")
+    (folder / "simulation" / "live_metrics.csv").write_text("\n".join(lines) + "\n")
     return folder
 
 
@@ -67,10 +77,20 @@ def test_a_run_going_says_how_far_and_how_long_it_has_left(tmp_path):
     assert card["simulated_ns"] == pytest.approx(0.008)
     assert card["planned_ns"] == pytest.approx(0.02)
     assert card["progress"] == pytest.approx(0.4)
-    # 6,000 steps more at 381.555 s a 6,000.
-    assert card["seconds_left"] == 382
+    # 6,000 steps more at production's own 20 steps a second, as the
+    # Overview's time left reads it; not at the whole time's 381.555 s a
+    # 6,000, setup in it, which said 382.
+    assert card["seconds_left"] == 300
     ended = card_of(_live(_study(tmp_path / "ended"), status="completed", current=12000))
     assert ended["simulated_ns"] == pytest.approx(0.02) and "progress" not in ended
+    # Stopped once its quantities were determined, short of the ceiling:
+    # what it ran, as its Overview says, not the 20 ps it might have.
+    early = _live(_study(tmp_path / "early"), status="completed", current=8000)
+    (early / "simulation" / "simulation_parameters.json").write_text(
+        json.dumps({"duration_ns_actual": 0.012}), encoding="utf-8")
+    early = card_of(early)
+    assert early["simulated_ns"] == pytest.approx(0.012)
+    assert early["planned_ns"] == pytest.approx(0.02)
 
 
 def test_a_trajectory_analysed_is_analysed_and_every_mean_is_sent(tmp_path):
@@ -267,7 +287,7 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
     assert first["rows"][-1] == "begun" and first["groups"] == ["Not started"]
     assert first["tabs"][:4] == ["All 4", "Running 1", "Needs more sampling 1", "Not started 1"]
     assert molecule == ["molecule", 19]
-    assert going.strip().startswith("running, 40%") and "8 ps of 20 ps · 6 min left" in going
+    assert going.strip().startswith("running, 40%") and "8 ps of 20 ps · 5 min left" in going
     assert bar == "40"
     assert means == [["false", "0.120 nm, spread 0.020"]]
     assert unfolded["children"] == 3

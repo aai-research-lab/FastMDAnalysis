@@ -56,12 +56,15 @@ def _number(value: Any) -> float | None:
     return float(value)
 
 
-def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
+def simulated_times(root: str | Path, status: dict[str, Any], *,
+                    wall: bool = True) -> dict[str, Any]:
     """The study's production and equilibration, done and planned, in ns.
 
     ``production_ns`` is what production has run (all of it, once the run
     has finished); ``equilibrating`` is true while the run is before its
-    production. A value nobody recorded is None.
+    production. A value nobody recorded is None. ``wall`` False leaves out
+    how long its phases took (``wall_s`` None), for a reader that does not
+    say it (All studies' rows).
     """
     root = Path(root)
     record = _record(root)
@@ -141,7 +144,7 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
         "equilibrating": equilibrating,
         "pieces": pieces,
         # Once it has stopped, how long its phases took, each its own time.
-        "wall_s": None if running else phases_wall_seconds(root),
+        "wall_s": None if running or not wall else phases_wall_seconds(root),
         "stage": stage or None,
         # What the live record says with equilibration included, for a run
         # that recorded nothing else.
