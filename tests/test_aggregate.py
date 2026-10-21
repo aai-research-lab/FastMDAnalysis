@@ -146,6 +146,38 @@ class TestTheCalibrationComparison:
         assert entry["qualified_by_their_own_runs"] == ["r0", "r1"]
         assert "said as much themselves" in entry["calibration"]
 
+    def test_runs_that_said_nothing_are_not_said_to_have_said_so(self, tmp_path):
+        """Two replicas with an error of 0.0005 and one with none, none of
+        them saying its mean is not a measurement: the comparison said "The
+        runs said as much themselves". And one that gave an error but said
+        its mean is not a measurement was counted among "the runs that gave
+        an error of their own" and then among "None of the 3 replicas
+        determined its own mean with an error of its own". The members'
+        reason opened "the spread of their means is its error" above every
+        quantity's "is not yet an error"."""
+        seeds = {"simulation.random_seed": []}
+        quiet = [_member(tmp_path / "quiet", f"r{i}", m, se,
+                         sweep={"simulation.random_seed": i})
+                 for i, (m, se) in enumerate([(0.10, 0.0005), (0.12, 0.0005), (0.14, None)])]
+        result = aggregate_members(_campaign(tmp_path / "quiet", quiet, seeds))
+        said = result["analyses"]["rmsd"]["calibration"]
+        assert "too tight" in said and "said as much" not in said
+        assert ("1 of the 3 replicas did not determine its own mean with an error of its own, "
+                "so their spread is not yet an error") in said
+        assert result["why"].endswith(
+            "the spread of their means is its error once each run has determined its own mean")
+        mixed = [_member(tmp_path / "mixed", f"r{i}", m, se, sweep={"simulation.random_seed": i},
+                         qualified=why)
+                 for i, (m, se, why) in enumerate([(0.10, 0.0005, "Too short."),
+                                                   (0.12, None, None), (0.14, None, None)])]
+        said = aggregate_members(_campaign(tmp_path / "mixed", mixed, seeds))["analyses"]["rmsd"][
+            "calibration"]
+        assert "(from the 1 of 3 runs that gave an error of their own)" in said
+        assert ("None of the 3 replicas determined its own mean: 1 said its mean is not a "
+                "measurement, and 2 gave no error of their own, so their spread is not yet "
+                "an error") in said
+        assert "said as much themselves" in said
+
 
 class TestWhatItRefuses:
     def test_a_directory_that_is_not_a_campaign(self, tmp_path):

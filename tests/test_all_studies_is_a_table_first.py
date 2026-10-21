@@ -190,9 +190,9 @@ def test_a_study_of_replicas_gives_its_mean_of_means(tmp_path):
     rmsd = card_of(study)["means"][0]
     assert rmsd["error"] is None and rmsd["spread"] == pytest.approx(0.02)
     assert rmsd["withheld"] == (
-        "1 of the 3 replicas did not determine its own mean with an error of its own, so "
-        "their spread is not yet an error: begun from one structure, runs too short to "
-        "resolve their correlation time are not yet independent samples.")
+        "1 of the 3 replicas did not determine its own mean: it said its mean is not a "
+        "measurement, so their spread is not yet an error: begun from one structure, runs "
+        "too short to resolve their correlation time are not yet independent samples.")
     # None of them determined its own: not an error either (it was said
     # determined, the qualification written only where one run gave one).
     _members(study, [0.10, 0.12, 0.14], short=("seed1", "seed2", "seed3"))

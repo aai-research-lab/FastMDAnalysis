@@ -175,7 +175,8 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     if axes <= SEED_AXES:
         return True, (
             "the members differ only by random seed, so they are repeats of "
-            "one estimate and the spread of their means is its error"
+            "one estimate, and the spread of their means is its error once each "
+            "run has determined its own mean"
         )
     return False, (
         "the members differ by "
@@ -184,13 +185,24 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
-def _spread_not_an_error(unbacked: int, runs: int) -> str:
+def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0) -> str:
     """Why replicas' spread is not yet their error: ``unbacked`` of the
-    ``runs`` did not determine their own mean with an error of its own."""
+    ``runs`` did not determine their own mean, ``said_so`` of them by saying
+    their mean is not a measurement (an error of their own given or not),
+    the rest by giving no error of their own."""
     which = (f"None of the {runs} replicas determined its own mean" if unbacked == runs
              else f"{unbacked} of the {runs} replicas did not determine "
                   f"{'its' if unbacked == 1 else 'their'} own mean")
-    return (f"{which} with an error of its own, so their spread is not yet an "
+    plain = unbacked - said_so
+    if not said_so:
+        how = " with an error of its own"
+    elif not plain:
+        how = (": it said its mean is not a measurement" if unbacked == 1
+               else ": each said its mean is not a measurement")
+    else:
+        how = (f": {said_so} said {'its' if said_so == 1 else 'their'} mean is not a "
+               f"measurement, and {plain} gave no error of {'its' if plain == 1 else 'their'} own")
+    return (f"{which}{how}, so their spread is not yet an "
             "error: begun from one structure, runs too short to resolve their "
             "correlation time are not yet independent samples.")
 
@@ -304,9 +316,12 @@ def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str,
         # its mean is not a measurement, or gave no error of its own.
         unbacked = [r["member"] for r in rows if r["not_a_measurement"]
                     or r["standard_error"] is None or r["standard_error"] <= 0]
+        # Those of them that said so themselves.
+        said_so = [r["member"] for r in rows if r["not_a_measurement"]]
         if replicas and unbacked:
             entry["qualified_by_their_own_runs"] = unbacked
-            entry["spread_not_an_error"] = _spread_not_an_error(len(unbacked), len(rows))
+            entry["spread_not_an_error"] = _spread_not_an_error(len(unbacked), len(rows),
+                                                                len(said_so))
         if replicas and not errors:
             observed = float(np.std(means, ddof=1))
             entry["predicted_standard_error"] = None
@@ -336,7 +351,8 @@ def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str,
                     "The single-run estimate reads the correlation time off "
                     "a trajectory too short to contain it, so the error bars "
                     "printed for this observable are too tight"
-                    + (". The runs said as much themselves. "
+                    # "The runs said as much" only of runs that said it.
+                    + ((". The runs said as much themselves. " if said_so else ". ")
                        + entry["spread_not_an_error"]
                        if qualified else " and the replicas are the honest figure.")
                 )
