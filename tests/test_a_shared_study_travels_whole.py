@@ -1082,7 +1082,7 @@ def test_a_new_version_begun_whose_answer_was_lost_is_left_for_the_person(tmp_pa
     unsteady.submitted = True
     unsteady.faults = {"POST newversion": ["made"]}
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
-    assert "the next share finds its draft and asks you to publish or delete it" in \
+    assert "the next share finds its draft and asks you to delete it there" in \
         capsys.readouterr().err
     unsteady.calls.clear()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
@@ -1700,6 +1700,7 @@ def test_a_new_version_begun_whose_draft_was_not_read_is_said_begun(tmp_path, un
     said = capsys.readouterr().err
     assert "is as it was" not in said
     assert "Zenodo began the new version of record 7 (8)" in said
+    assert "holding the record as it was and asks you to delete it there" in said
 
 
 def test_a_new_version_begun_again_holds_whichever_archive_the_record_was_published_with(
@@ -1802,3 +1803,71 @@ def test_names_changed_on_a_described_draft_are_not_said_a_description(tmp_path,
     assert "holds a description changed" not in said
     assert "changed there since this study last described it (its words, names or " \
         "keywords)" in said
+
+
+def test_a_new_version_shared_again_holds_the_record_s_archives_as_the_study_s(tmp_path,
+                                                                              unsteady):
+    """Review of the thirteenth commit: a new version's draft shared again
+    after a failure took the archive the record was published with for one
+    the study did not put there."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "b", "filename": "b.zip"}] for n in (7, 8)}
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "c.zip") == 2
+    unsteady.faults = {}
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "c.zip") == 0
+    assert [c[1] for c in unsteady.calls if c[0] == "DELETE"] == [
+        "/api/deposit/depositions/8/files/b"]
+
+
+def test_a_new_version_with_a_file_replaced_by_the_person_is_theirs(tmp_path, unsteady,
+                                                                    capsys):
+    """Review of the thirteenth commit: a new version the person began and
+    put a corrected a.zip on was said to hold the record as it was, to be
+    deleted."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.files_of = {7: [{"id": "a", "filename": "a.zip", "checksum": "md5:1"}],
+                         8: [{"id": "a2", "filename": "a.zip", "checksum": "md5:2"}]}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    unsteady.versions_begun = [8]
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    said = capsys.readouterr().err
+    assert "publish it, or delete it there" in said and "as it was" not in said
+
+
+def test_the_person_s_choice_of_access_and_licence_is_kept(tmp_path, unsteady):
+    """Review of the thirteenth commit: an embargo, licence and kind the
+    person chose for a draft not yet described were written over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7].update(access_right="embargoed", embargo_date="2027-01-01",
+                            license="cc0-1.0", upload_type="software")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["access_right"] == "embargoed"
+    assert unsteady.meta[7]["license"] == "cc0-1.0"
+    assert unsteady.meta[7]["upload_type"] == "software"
+
+
+def test_a_doi_zenodo_did_not_reserve_says_the_draft_is_kept(tmp_path, unsteady, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["prereserve_doi"] = {}
+    unsteady.faults = {"PUT metadata": [503] * zenodo.TRIES}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "is kept as it was, its DOI not yet reserved: share again once Zenodo answers" \
+        in capsys.readouterr().err

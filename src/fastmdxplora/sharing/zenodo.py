@@ -439,7 +439,12 @@ _SENT = ("upload_type", "title", "description", "creators", "access_right", "lic
 #: What only someone writes in a draft's description: a draft holding none
 #: of it is as Zenodo made it.
 _SOMEONE_S = ("description", "creators", "contributors", "keywords", "notes", "references",
-              "related_identifiers", "subjects", "communities", "grants")
+              "related_identifiers", "subjects", "communities", "grants", "embargo_date",
+              "access_conditions")
+
+#: Choices Zenodo may give a draft as it makes it, which the person may
+#: change: changed, and not to what the study sends, the draft is theirs.
+_MADE_WITH = ("access_right", "upload_type", "license")
 
 
 def _sent(metadata: Any) -> str:
@@ -491,9 +496,15 @@ def _changed_since(record: dict[str, Any], draft: dict[str, Any]) -> str:
     where the draft is as Zenodo began it."""
     was, now = _described(record.get("metadata")), _described(draft.get("metadata"))
     said = [f"its {key}" for key in sorted(set(was) | set(now)) if was.get(key) != now.get(key)]
-    if _names(draft) - _names(record):
+    if _contents(draft) != _contents(record):
         said.append("its files")
     return ", ".join(said)
+
+
+def _contents(entry: dict[str, Any]) -> set[tuple[str, str]]:
+    """A draft's or record's files, each by its name and checksum."""
+    return {(str(f.get("filename") or f.get("key") or ""), str(f.get("checksum") or ""))
+            for f in entry.get("files") or [] if isinstance(f, dict)} - {("", "")}
 
 
 def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -624,7 +635,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     kept[site] = {"id": identifier, "version": version,
                   **{k: earlier[k] for k in ("archive", "written", "doi", "record", "asked_as",
                                              "sending", "record_written", "record_sending",
-                                             "record_archive", "stale", "uploading")
+                                             "record_archive", "stale", "uploading",
+                                             "made_as")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
@@ -656,6 +668,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         # described (a co-author added after a failed upload), the person's.
         if answered:
             kept[site]["written"] = _written(deposition.get("metadata"))
+            made_with = deposition.get("metadata") or {}
+            kept[site]["made_as"] = {key: made_with.get(key) for key in _MADE_WITH
+                                     if isinstance(made_with, dict) and made_with.get(key)}
     try:
         _keep(study, kept)
     except ShareRefused as exc:
@@ -679,12 +694,22 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     was_stale = earlier.get("stale")
     had = bool(_names(deposition) & ({str(kept[site].get("archive") or ""), archive.name,
                                       str(earlier.get("uploading") or ""),
+                                      *_names_kept(kept[site].get("record_archive")),
                                       *(map(str, was_stale) if isinstance(was_stale, list)
                                         else [str(was_stale or "")])} - {""}))
     doi = str((held.get("prereserve_doi") or {}).get("doi") or "")
     if not doi:
-        reserved = _call("PUT", f"{depositions}/{identifier}", token=token,
-                         body={"metadata": {**inherited, "prereserve_doi": True}}, said=said)
+        try:
+            reserved = _call("PUT", f"{depositions}/{identifier}", token=token,
+                             body={"metadata": {**inherited, "prereserve_doi": True}},
+                             said=said)
+        except ShareRefused as exc:
+            mend = "share again once Zenodo answers" if getattr(exc, "later", False) \
+                else "share again once that is mended"
+            raise ShareRefused(
+                f"{exc} The draft {page} is kept as it was, its DOI not yet reserved: "
+                f"{mend}, and that draft is finished, not another made.",
+                code=exc.refusal.code, url=page) from exc
         doi = str((((reserved or {}).get("metadata") or {}).get("prereserve_doi") or {})
                   .get("doi") or "")
     if doi:
@@ -710,9 +735,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # Sent at a share whose answer was lost: there, perhaps, and the study's.
     if earlier.get("uploading"):
         replacing.add(str(earlier["uploading"]))
-    if found_as["begun_again"]:
-        # Each the study put on the record, whichever it was published with.
-        replacing |= set(_names_kept(earlier.get("record_archive")))
+    # Each the study put on the record a new version is of, whichever it was
+    # published with.
+    replacing |= set(_names_kept(kept[site].get("record_archive")))
     replacing -= {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
@@ -739,12 +764,16 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # Each sent since it was last written, its answer lost: the draft holds
     # one of them, whichever landed.
     sending = _sendings(kept[site].get("sending"))
+    made_as = kept[site].get("made_as") if isinstance(kept[site].get("made_as"), dict) else {}
     untouched = (bool(last) and _written(held) == last) \
         or _sent(held) in sending or (
         # Still as asked for: titled so, and no one's words or names in it
         # (whatever defaults Zenodo gave it since).
         not versioned and str(held.get("title") or "") in ("", marker)
-        and not any(held.get(key) for key in _SOMEONE_S))
+        and not any(held.get(key) for key in _SOMEONE_S)
+        and all(held.get(key) in (None, "", made_as.get(key), ours)
+                for key, ours in (("access_right", "open"), ("upload_type", "dataset"),
+                                  ("license", license_id.lower()))))
     uploaded, removing = False, ""
     try:
         if said:
@@ -948,11 +977,11 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
         raise ShareRefused(
             f"{exc} "
             + (f"Zenodo began the new version of record {published}{begun_as}: the next "
-               "share finds its draft and asks you to publish or delete it, as it cannot tell "
-               "it from one you began." if answered
+               "share finds it holding the record as it was and asks you to delete it there."
+               if answered
                else f"Zenodo may have begun the new version of record {published}: the next "
-               "share finds its draft and asks you to publish or delete it, as it cannot tell "
-               "it from one you began." if began else f"Record {published} is as it was{again}"),
+               "share finds its draft and asks you to delete it there, as it cannot tell it "
+               "from one you began." if began else f"Record {published} is as it was{again}"),
             code=exc.refusal.code) from exc
     changed = _changed_since(newest, deposition)
     if changed:
