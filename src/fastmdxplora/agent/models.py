@@ -126,6 +126,11 @@ AUTH_METHODS = {
     "compatible": ("api_key",),
 }
 
+#: The methods that use a person's own signed-in account rather than a key:
+#: their tokens are sent only to that provider's fixed endpoint, and only
+#: from the GUI on the computer that signed in.
+SIGNED_IN_METHODS = frozenset({"anthropic_console", "chatgpt_plan"})
+
 
 @dataclass(frozen=True)
 class ModelChoice:
@@ -142,7 +147,10 @@ class ModelChoice:
             from fastmdxplora.agent.openai_chatgpt import RESPONSES_URL
 
             return RESPONSES_URL
-        if self.base_url:
+        # A signed-in account's token goes only to its own provider: a base
+        # URL left from another provider's settings sent the Anthropic
+        # Console token to whatever server that URL named.
+        if self.base_url and self.auth_method not in SIGNED_IN_METHODS:
             return self.base_url.rstrip("/") + "/chat/completions"
         return str(PROVIDERS[self.provider]["url"])
 
@@ -359,9 +367,12 @@ def load_choice(path: Path | None = None) -> ModelChoice | None:
     auth_method = str(record.get("auth_method") or "api_key")
     if auth_method not in AUTH_METHODS[provider]:
         auth_method = "api_key"
+    # A base URL belongs only to a provider without a fixed endpoint; one
+    # kept from an earlier choice is not carried to Anthropic or OpenAI.
+    base_url = "" if PROVIDERS[provider]["url"] else str(record.get("base_url", ""))
     return ModelChoice(provider=provider,
                        model=str(record.get("model", "")),
-                       base_url=str(record.get("base_url", "")),
+                       base_url=base_url,
                        auth_method=auth_method)
 
 

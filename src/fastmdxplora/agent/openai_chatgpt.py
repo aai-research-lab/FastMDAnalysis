@@ -16,6 +16,7 @@ import http.server
 import json
 import os
 import secrets
+import socket
 import socketserver
 import ssl
 import sys
@@ -537,9 +538,20 @@ def _finish_attempt(state: str) -> bool:
 
 
 class _LoopbackServer(http.server.ThreadingHTTPServer):
-    """Bind the numeric callback address without a blocking reverse-DNS lookup."""
+    """Bind the numeric callback address without a blocking reverse-DNS lookup.
+
+    The port is this attempt's alone. ``allow_reuse_address`` (on by default
+    for HTTP servers) is SO_REUSEADDR, which on Windows lets another process
+    bind the same port and take the callback; there the port is also held
+    with SO_EXCLUSIVEADDRUSE.
+    """
+
+    allow_reuse_address = False
 
     def server_bind(self) -> None:
+        exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
 

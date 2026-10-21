@@ -669,6 +669,11 @@
   var authRequest = 0;
   var authPollTimer = null;
   var authPollCount = 0;
+  /* Which polling run is current. A run stopped (a new provider, a
+   * disconnect, a new sign-in) ignores its last answer; an answer lost to a
+   * newer request on the same run polls again rather than ending the run
+   * while the sign-in is still pending. */
+  var authPollRun = 0;
 
   function setAuthStatus(status) {
     var target = el("agent-auth-status");
@@ -702,6 +707,7 @@
       option.value = account.client_id;
       var label = account.email || ("ChatGPT account ···" + account.subject_hint);
       option.textContent = label + (account.active ? " (active)" : "");
+      option.dataset.active = account.active ? "1" : "";
       select.appendChild(option);
     });
     field.hidden = !isChatGPT || !accounts.length;
@@ -823,6 +829,7 @@
   function updateAuthControls(spec) {
     if (authPollTimer) window.clearTimeout(authPollTimer);
     authPollTimer = null;
+    authPollRun += 1;
     var method = (spec.auth_methods || []).filter(function (item) {
       return item.id === el("agent-auth-method").value;
     })[0] || {id: "api_key", requires_api_key: true};
@@ -1436,6 +1443,7 @@
   function startAuthPolling() {
     if (authPollTimer) window.clearTimeout(authPollTimer);
     authPollCount = 0;
+    var run = ++authPollRun;
     function poll() {
       if (authPollCount++ >= 150) {
         setAuthStatus({connected: false,
@@ -1445,8 +1453,9 @@
       }
       authPollTimer = window.setTimeout(function () {
         refreshAuthStatus("status").then(function (data) {
+          if (run !== authPollRun) return;
           var status = data && data.status;
-          if (status && status.pending) poll();
+          if (!data || (status && status.pending)) poll();
           else {
             authPollTimer = null;
             if (status && status.connected === true &&
@@ -1473,6 +1482,7 @@
   function disconnectAuth() {
     if (authPollTimer) window.clearTimeout(authPollTimer);
     authPollTimer = null;
+    authPollRun += 1;
     refreshAuthStatus("disconnect", {client_id: el("agent-auth-account").value})
       .then(function (data) { if (data) el("agent-key").value = ""; });
   }
@@ -4959,12 +4969,14 @@
       updateEngineSummary();
     });
     el("agent-save-model").addEventListener("click", function () { saveEngine(false); });
-    el("agent-auth-connect").addEventListener("click", connectAuth);
+    el("agent-auth-connect").addEventListener("click", function () { connectAuth(false); });
     el("agent-auth-add-account").addEventListener("click", function () { connectAuth(true); });
+    // Choosing an account offers Use it unless it is the active one. The list
+    // was rebuilt from the options' ids alone, which named every account
+    // "ChatGPT account ···undefined".
     el("agent-auth-account").addEventListener("change", function () {
-      updateAccountChoices({accounts: Array.prototype.map.call(this.options, function (option) {
-        return {client_id: option.value, active: option.textContent.indexOf("(active)") !== -1};
-      })});
+      var chosen = this.selectedOptions[0];
+      el("agent-auth-activate").hidden = !chosen || chosen.dataset.active === "1";
     });
     el("agent-auth-activate").addEventListener("click", activateAuthAccount);
     el("agent-auth-test").addEventListener("click", testAuth);

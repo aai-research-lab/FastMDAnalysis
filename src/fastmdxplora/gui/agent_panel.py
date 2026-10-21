@@ -142,6 +142,7 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
     from fastmdxplora.agent.models import (
         CACHE_FOR,
         PROVIDERS,
+        SIGNED_IN_METHODS,
         ModelChoice,
         _takes_tools,
         default_model,
@@ -158,7 +159,10 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
         # could 404 -- which is how `claude-opus-4-1` reached somebody.
         live: dict[str, list] = {}
         options: dict[str, list[dict[str, str]]] = {}
-        if current is not None:
+        # A signed-in account is not used to list AI models for a GUI served
+        # beyond this computer (see `auth_status` below).
+        if current is not None and (local_auth_allowed
+                                    or current.auth_method not in SIGNED_IN_METHODS):
             found_options = _model_options(current)
             options[current.provider] = found_options
             found = [item["id"] for item in found_options]
@@ -187,7 +191,12 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
             # Whether the server takes tool calls; once it has turned them
             # away, the Agent writes to it in plain text.
             "tool_use": _takes_tools() if current else None,
-            "auth_status": _key_availability(current) if current else None,
+            # Not shown, or refreshed, from a GUI served beyond this
+            # computer: the accounts signed in here are this computer's.
+            "auth_status": ((_key_availability(current) if local_auth_allowed else {
+                "available": False, "connected": None,
+                "message": ("Provider credentials are shown and checked only in the "
+                            "local dashboard.")}) if current else None),
             # How long the instructions are kept in the provider's cache.
             "cache_for": _stored_cache_for(),
             "stored_at": str(model_path()),
@@ -199,7 +208,10 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
                 "error": f"No provider called {provider!r}.",
                 "code": "config.option.not_permitted"}
 
-    base_url = str(payload.get("base_url") or "")
+    # Only a provider without a fixed endpoint takes a base URL: the page
+    # keeps the field filled while it is hidden, and a URL saved with
+    # Anthropic or OpenAI sent their key or token to that server.
+    base_url = "" if PROVIDERS[provider]["url"] else str(payload.get("base_url") or "")
     if not PROVIDERS[provider]["url"] and not base_url:
         return {"ok": False,
                 "error": ("An OpenAI-compatible server needs a base URL, "
@@ -488,6 +500,20 @@ def propose_endpoint(payload: dict[str, Any],
     # Where this reply's receipt is kept, taken as it is asked: a study
     # opened while the AI model answers is not where its prompts belong.
     receipts = _receipts_of(runtime)
+    # A GUI served beyond this computer does not ask with an account signed
+    # in here (ChatGPT, Anthropic Console): sign-in is refused there, and so
+    # is its use by the people that GUI is served to. An API key is the
+    # host's to share, as before.
+    from fastmdxplora.agent.models import SIGNED_IN_METHODS, load_choice
+
+    chosen = load_choice() if path_for is not None else None
+    if chosen is not None and chosen.auth_method in SIGNED_IN_METHODS:
+        return {"ok": False,
+                "error": ("This dashboard is served beyond the computer it runs on, and "
+                          "the AI model set there uses a signed-in account, which is "
+                          "used only from the local dashboard. Its host can set an API "
+                          "key instead."),
+                "code": "environment.credentials.absent"}
     try:
         complete = completion_for(where="page")
     except StudyError as exc:

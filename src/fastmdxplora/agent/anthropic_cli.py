@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -65,8 +66,37 @@ def _retire_profile() -> None:
         raise ConsoleSignInError("Anthropic Console disconnect could not be saved. Try again.") from None
 
 
+def _which(name: str) -> str | None:
+    """A program found in PATH's absolute directories only.
+
+    ``shutil.which`` on Windows (Python 3.10 and 3.11) looks in the current
+    directory first, so an ``ant.exe`` or ``ant.bat`` in the folder the GUI
+    was started from would be run with the Console profile; there PATH is
+    searched here instead. Elsewhere the current directory is searched only
+    through a relative PATH entry, so a relative answer is refused.
+    """
+    if os.name != "nt":
+        found = shutil.which(name)
+        return found if found and Path(found).is_absolute() else None
+    import ntpath
+
+    suffixes = [suffix for suffix in os.environ.get(
+        "PATHEXT", ".COM;.EXE;.BAT;.CMD").lower().split(";") if suffix] or [".exe"]
+    if ntpath.splitext(name)[1].lower() in suffixes:
+        suffixes = [""]
+    for folder in os.environ.get("PATH", "").split(";"):
+        folder = folder.strip().strip('"')
+        if not folder or not ntpath.isabs(folder):
+            continue
+        for suffix in suffixes:
+            candidate = ntpath.join(folder, name + suffix)
+            if Path(candidate).is_file():
+                return candidate
+    return None
+
+
 def executable() -> str | None:
-    return shutil.which("ant")
+    return _which("ant")
 
 
 def can_launch_login() -> bool:
@@ -75,8 +105,46 @@ def can_launch_login() -> bool:
     if os.name == "nt":
         return True
     if sys.platform == "darwin":
-        return bool(shutil.which("osascript"))
-    return bool(shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal"))
+        return bool(_which("osascript"))
+    return bool(_which("x-terminal-emulator") or _which("gnome-terminal"))
+
+
+#: An access token as ``ant auth print-credentials`` prints it: one line of
+#: token characters. Anything else (a notice printed before it, two lines)
+#: is refused rather than sent, where it would have been put in an HTTP
+#: header and, failing there, in the error that says why.
+_TOKEN = re.compile(r"[A-Za-z0-9._~+/=-]{1,8192}")
+
+#: The app's own Console profiles: the first, and each one since, named by
+#: its generation (`config_dir`).
+_PROFILE = re.compile(r"anthropic-console(-[0-9a-f]{32})?")
+
+
+def _clear_retired_profiles() -> None:
+    """Sign out of, and remove, every app profile but the current one.
+
+    A disconnect starts a new profile so that a login finishing late in the
+    terminal cannot restore access (`_retire_profile`); that late login
+    still writes its credentials into the retired profile's folder. Each is
+    signed out and removed here, at the next connect or disconnect. Only
+    this app's own folders are touched, never one reached by a link.
+    """
+    root = user_config_dir()
+    try:
+        current = config_dir()
+        entries = list(root.iterdir())
+    except (OSError, ConsoleSignInError):
+        return
+    for entry in entries:
+        if (entry == current or not _PROFILE.fullmatch(entry.name)
+                or entry.is_symlink() or not entry.is_dir()):
+            continue
+        if executable():
+            try:
+                _run(["auth", "logout", "--all"], profile=entry, timeout=10.0)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        shutil.rmtree(entry, ignore_errors=True)
 
 
 def _environment(profile: Path | None = None) -> dict[str, str]:
@@ -167,6 +235,10 @@ def access_token() -> str:
     token = result.stdout.strip()
     if result.returncode != 0 or not token:
         raise ConsoleSignInError("Anthropic Console sign-in expired or is unavailable. Sign in again.")
+    if not _TOKEN.fullmatch(token):
+        raise ConsoleSignInError(
+            "The ant CLI printed something other than an access token. Update it and "
+            "sign in again.")
     return token
 
 
@@ -180,6 +252,7 @@ def connect() -> dict[str, Any]:
     if _login_pending:
         return {"ok": False, "message":
                 "An Anthropic Console sign-in is already waiting in the opened terminal/browser."}
+    _clear_retired_profiles()
     env = _environment()
     try:
         if os.name == "nt":
@@ -246,4 +319,5 @@ def disconnect() -> dict[str, Any]:
         return {"ok": False, "message": "The official ant CLI could not be started."}
     if result.returncode != 0:
         return {"ok": False, "message": "Anthropic Console sign-out did not complete."}
+    _clear_retired_profiles()
     return {"ok": True, "connected": False, "message": "Disconnected from Anthropic Console."}
