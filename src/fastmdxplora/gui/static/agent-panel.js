@@ -1410,13 +1410,17 @@
         left -= 1;
         if (left) return;
         restoring -= 1;
-        if (unsentKey !== key) return;
-        renderChips();
-        if (lost.length) {
-          unsentSaid("Could not attach again: " + lost.join(", ") + ". Attach " +
-                     (lost.length === 1 ? "it" : "them") + " again to send " +
-                     (lost.length === 1 ? "it." : "them."), "lost");
+        if (unsentKey === key) {
+          renderChips();
+          if (lost.length) {
+            /* A message held to be sent is not sent without them. */
+            sendHeld = false;
+            unsentSaid("Could not attach again: " + lost.join(", ") + ". Attach " +
+                       (lost.length === 1 ? "it" : "them") + " again to send " +
+                       (lost.length === 1 ? "it." : "them."), "lost");
+          }
         }
+        wakeHeldSend();
       });
     });
   }
@@ -1627,7 +1631,7 @@
       renderChips();
       el("agent-request").focus();
     }).catch(function () { window.alert("Could not reach the server."); })
-      .finally(function () { attaching -= 1; });
+      .finally(function () { attaching -= 1; wakeHeldSend(); });
   }
 
   /* ---- What is named with @, the page, and the plan ------------------- */
@@ -4221,18 +4225,19 @@
   }
   /* A message sent while it cannot yet be known where it would be answered
    * and kept is held in the box, and sent once it can. The one rule: not
-   * while the page is going, a launch is unanswered, or a conversation is
-   * being read; not before the page has read where the GUI is once every
-   * launch answered; and not while the thread on screen is one a run took
-   * to a study the page does not show. Held for the study shown only: one
-   * whose words are moved out for the study they were typed for is kept
-   * with them, marked held (`keepHeld`), and held again by this rule when
-   * they are put back in that study's box (`putBack`); no message on
-   * another study waits for it. A reply is never asked with one study open
-   * and kept in another's thread (CI-774 reviews L1 to L6). */
+   * while the page is going, a launch is unanswered, a conversation is
+   * being read, or files are being attached to it; not before the page has
+   * read where the GUI is once every launch answered; and not while the
+   * thread on screen is one a run took to a study the page does not show.
+   * Held for the study shown only: one whose words are moved out for the
+   * study they were typed for is kept with them, marked held (`keepHeld`),
+   * and held again by this rule when they are put back in that study's box
+   * (`putBack`); no message on another study waits for it. A reply is never
+   * asked with one study open and kept in another's thread (CI-774 reviews
+   * L1 to L6). */
   var sendHeld = false;
   function sendWaits() {
-    if (leaving || launching > 0 || reading > 0) return true;
+    if (leaving || launching > 0 || reading > 0 || attaching > 0) return true;
     var dashboard = window.FastMDXDashboard;
     if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) return true;
     var shown = shownStudy();

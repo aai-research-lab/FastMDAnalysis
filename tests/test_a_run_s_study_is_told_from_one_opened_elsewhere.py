@@ -941,7 +941,7 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
     assert errors == []
 
 
-def _held_for_the_run(page, session, here, other, words):
+def _held_for_the_run(page, session, here, other, words, attach=None):
     """Enter during the launch (held); the launch answers, and the page sees
     `other` first: the held message is kept for the run's study (run1)."""
     from fastmdxplora.gui.workspace import study_key
@@ -956,6 +956,12 @@ def _held_for_the_run(page, session, here, other, words):
     page.click(_RUN)
     page.focus("#agent-request")
     page.keyboard.type(words)
+    if attach:
+        page.locator("#agent-attach-path").evaluate("""(input, path) => {
+            input.value = path; input.dispatchEvent(new Event('change'));
+        }""", str(attach))
+        page.locator("#agent-attachments .agent-chip").wait_for()
+        page.focus("#agent-request")
     page.keyboard.press("Enter")
     while not answered:
         page.wait_for_timeout(50)
@@ -1043,6 +1049,47 @@ def test_a_held_message_kept_for_a_study_is_sent_when_this_window_opens_it(tmp_p
     assert (asked[1].get("current_view") or {}).get("study", "").endswith("run1")
     assert words in _texts(workspace, "run1/agent")
     assert box == "" and words not in json.dumps(kept), (box, kept)
+    assert errors == []
+
+
+def test_a_held_message_put_back_is_sent_with_its_attachments(tmp_path, monkeypatch):
+    """A held message kept for the run's study with a file attached: put
+    back, its file is read again before it is sent. It was sent once the
+    conversation was read, whether or not the file was attached again."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    notes = here / "notes.txt"
+    notes.write_text("notes for the run\n", encoding="utf-8")
+    words = "held message"
+    asked, again = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words, attach=notes)
+        page.route("**/api/agent/attachment", lambda route: again.append(route))
+        page.goto(session.url.split("#")[0] + "?study=" + study_key(run) + "#agent",
+                  wait_until="domcontentloaded")
+        _shows(page, study_key(run))
+        while not again:
+            page.wait_for_timeout(50)
+        page.wait_for_timeout(3000)
+        before = [a.get("request") for a in asked]
+        page.unroute("**/api/agent/attachment")
+        for route in again:
+            route.continue_()
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=15000)
+        page.wait_for_timeout(500)
+        chips = page.locator("#agent-attachments .agent-chip").count()
+    finally:
+        close()
+        session.server.shutdown()
+    assert before == ["chignolin"], before
+    assert [a.get("request") for a in asked] == ["chignolin", words], asked
+    assert [f.get("name") for f in asked[1].get("attachments") or []] == ["notes.txt"], asked[1]
+    assert chips == 0
     assert errors == []
 
 
