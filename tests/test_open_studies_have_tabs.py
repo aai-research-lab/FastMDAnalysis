@@ -56,7 +56,18 @@ def _open(browser, site, width=1440, theme="dark", context=None):
     page.errors = errors
     page.goto(site["session"].url + "#overview", wait_until="domcontentloaded")
     page.locator('.study-tab-link[aria-current="page"]').wait_for()
+    _ready(page)
     return page
+
+
+def _ready(page):
+    # Under the loading screen until the study is read, and its first page
+    # put in its address once its state is: a page gone to before then was
+    # the one a person could not yet reach, and kept as the study's last.
+    page.wait_for_function("() => document.body.classList.contains('state-ready')"
+                           " && window.FastMDXDashboard"
+                           " && window.FastMDXDashboard.state.initialRouteResolved",
+                           timeout=20000)
 
 
 def _link(page, key):
@@ -73,6 +84,7 @@ def _active(page, key):
     expect(_link(page, key)).to_have_attribute("aria-current", "page", timeout=20000)
     page.wait_for_function("key => new URL(location.href).searchParams.get('study') === key", arg=key,
                            timeout=20000)
+    _ready(page)
 
 
 def _outside_open(page, site, index, route="overview"):
