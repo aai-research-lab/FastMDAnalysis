@@ -3759,8 +3759,11 @@
       });
       started = await response.json();
     } catch (error) {
+      // No answer read, as Start says it: the button is offered again.
       window.FastMDXDashboard?.studyChangeAnswered?.(null);
-      throw error;
+      text(el("run-note"), "Could not reach the server.");
+      button.disabled = false;
+      return;
     } finally { launchesPending -= 1; }
     window.FastMDXDashboard?.studyChangeAnswered?.(started && started.ok ? started.study_key || "" : "");
     if (!started.ok) {

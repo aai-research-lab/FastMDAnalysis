@@ -1372,3 +1372,33 @@ def test_an_older_poll_answered_late_is_not_applied_over_a_newer_one(browser, si
     assert shown == site["keys"][1]
     assert said == [site["keys"][1]], said
     assert errors == []
+
+
+def test_run_as_it_is_with_an_unreadable_answer_is_offered_again(browser, site):  # noqa: F811
+    """L6 L2: "Run on this machine as it is" whose answer cannot be read:
+    said as Start says it, its button offered again, no page error."""
+    root = site["root"]
+    config = root / "as_it_is.yml"
+    config.write_text("systems:\n- system: 1UAO\n", encoding="utf-8")
+    page = _open(browser, site)
+    try:
+        page.route("**/api/check-config", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"ok": True, "phases": ["simulation"], "systems": 1,
+                             "settings_named": 1})))
+        page.route("**/api/run-config", lambda route: route.fulfill(
+            status=502, content_type="text/html", body="<h1>Bad gateway</h1>"))
+        page.evaluate("window.FastMDXDashboard.navigate('run')")
+        page.evaluate("() => window.FastMDXRun.setStart('config')")
+        page.fill("#run-config-path", str(config))
+        page.click("#run-check-config")
+        page.wait_for_function("() => !document.getElementById('run-as-is').disabled")
+        page.click("#run-as-is")
+        page.wait_for_function(
+            "() => document.getElementById('run-note').textContent === 'Could not reach the server.'")
+        page.wait_for_function("() => !document.getElementById('run-as-is').disabled")
+        page.wait_for_timeout(500)
+        errors = list(page.errors)
+    finally:
+        page.context.close()
+    assert errors == []
