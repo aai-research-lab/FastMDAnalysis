@@ -416,9 +416,13 @@ def open_shared(source: str, *, into: str | Path | None = None,
     except OSError as exc:
         if exc.errno not in _NO_ROOM:
             raise
+        # Deepest first, each as it was made: empty.
         for folder in made:
-            if folder.exists():
-                shutil.rmtree(folder, ignore_errors=True)
+            try:
+                folder.rmdir()
+            except FileNotFoundError:
+                continue
+            except OSError:
                 break
         raise ShareRefused(_no_room(parent, exc), code="environment.share.too_large",
                            path=str(parent)) from exc

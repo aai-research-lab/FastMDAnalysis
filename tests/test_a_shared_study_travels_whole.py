@@ -15,6 +15,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -2789,3 +2790,75 @@ def test_a_record_answer_that_is_no_record_says_to_open_again(tmp_path, unsteady
     with pytest.raises(ShareRefused) as refused:
         open_shared("10.5072/zenodo.7", workspace=tmp_path / "w")
     assert "open it again later" in str(refused.value)
+
+
+def test_a_new_version_of_an_earlier_release_s_record_stays_marked_as_such(tmp_path,
+                                                                          unsteady,
+                                                                          capsys):
+    """Review of the twenty-fifth commit: a new version of a record 2.6.0
+    shared, its first share stopping before the mark was kept, was from
+    then on taken for the person's."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    _as_2_6_0_kept_it(study)
+    unsteady.files_of = {n: [{"id": "s", "filename": "shared.zip"}] for n in (7, 8)}
+    assert _share_to_zenodo(study, tmp_path / "new.zip") == 2
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"].get(
+        "by_earlier")
+    # 2.6.0's zip deleted there, as said.
+    unsteady.files_of[8] = []
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "new.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+
+
+def test_an_earlier_release_s_draft_whose_description_was_not_taken_is_still_the_study_s(
+        tmp_path, unsteady, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    # As 2.6.0 wrote it, naming its own release.
+    unsteady.meta[7]["description"] = re.sub(r"FastMDXplora \S+ as", "FastMDXplora 2.6.0 as",
+                                             unsteady.meta[7]["description"])
+    unsteady.faults = {"PUT metadata": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+
+
+def test_an_earlier_release_s_archive_stays_its_own_after_an_upload_failed(tmp_path,
+                                                                           unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": "md5:2600"}]
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": "md5:2600"}]
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+
+
+def test_no_folder_made_to_open_into_is_left_on_a_full_disk(tmp_path, monkeypatch):
+    import errno
+
+    from fastmdxplora.sharing import opening
+
+    real = os.mkdir
+
+    def full(path, *args, **kwargs):
+        # As the disk fails: its folders above made, the last one not.
+        if str(path).endswith("c") and Path(path).parent.exists():
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "mkdir", full)
+    with pytest.raises(ShareRefused):
+        opening.open_shared(str(tmp_path / "x.zip"), into=tmp_path / "a" / "b" / "c")
+    assert not (tmp_path / "a").exists()
