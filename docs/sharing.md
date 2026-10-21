@@ -248,17 +248,19 @@ The study keeps the record it was shared as in `shared_to.json`. Shared
 again before you publish, the same draft is made again with the new
 archive; the archive the study put there before is taken away, a file you
 put beside it (a paper, a figure) stays, and a description written there
-by you, not the study, is kept as you left it (only the version is the
-study's to set). Shared again after (analysed again, say), it is a draft
+by you, not the study, is kept as you left it, as are creators or
+keywords you gave a draft the study had not described yet (only the
+version is the study's to set). Shared again after (analysed again, say), it is a draft
 of a new version of the same record, which Zenodo makes only for a token
 that also has the **deposit:actions** scope; the record's concept DOI
 always leads to its latest version. Its version is counted on from the
 latest one published (one you published by hand included), in that one's
-own form: 3 after 2, 1.3 after 1.2, v4 after v3. Zenodo keeps one draft of a new version at a
-time, and gives it to whoever asks: one there already, begun on its site
-or by a share whose answer was lost, cannot be told apart, so it is left
-alone (publish or delete it, then share again). One a share began and you
-deleted is begun again from the published record. What you changed on the
+own form: 3 after 2, 1.3 after 1.2, v4 after v3. Zenodo keeps one draft
+of a new version at a time, and gives it to whoever asks: one there
+already, begun on its site or by a share whose answer was lost, cannot be
+told apart, so it is left alone (publish or delete it, then share again).
+One a share began and you deleted is begun again from the published
+record, holding its archive. What you changed on the
 record before publishing it is carried into its new version, not written
 over. Only an archive the study put there is taken away: another `.zip` on
 the draft keeps the share back, as a record of two archives opens as

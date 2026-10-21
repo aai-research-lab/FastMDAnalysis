@@ -692,7 +692,7 @@ def test_a_draft_not_listed_at_the_next_share_is_not_made_again(tmp_path, unstea
     unsteady.faults = {"POST": ["made late"]}
     assert _share_to_zenodo(study, out) == 2
     unsteady.calls.clear()
-    unsteady.faults = {"GET list": [503]}
+    unsteady.faults = {"GET list": [503] * zenodo.TRIES}
     assert _share_to_zenodo(study, out) == 2
     assert "Zenodo did not list your drafts" in capsys.readouterr().err
     assert not any(c[0] == "POST" for c in unsteady.calls)
@@ -1520,3 +1520,86 @@ def test_one_429_on_the_listing_before_a_new_version_is_asked_again(tmp_path, un
     unsteady.submitted = True
     unsteady.faults = {"GET list": [429]}
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+
+
+def test_names_the_person_gave_a_draft_not_yet_described_are_kept(tmp_path, unsteady,
+                                                                   capsys):
+    """Review of the ninth commit: a co-author and keywords the person added
+    to a draft whose first upload failed were written over at the next
+    share, the draft taken as still the study's to describe."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7]["creators"] = [{"name": "Aina, Adekunle"}, {"name": "Their, Co-author"}]
+    unsteady.meta[7]["keywords"] = ["their keyword"]
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert len(unsteady.meta[7]["creators"]) == 2
+    assert unsteady.meta[7]["keywords"] == ["their keyword"]
+    assert "changed there before this study described it" in capsys.readouterr().out
+
+
+def test_a_new_version_begun_again_holds_the_record_s_archive_as_the_study_s(tmp_path,
+                                                                            unsteady):
+    """Review of the ninth commit: a new version shared under another name,
+    then deleted, was begun again holding the record's archive, which the
+    share refused as not the study's."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.published_ids = {7}
+    # As Zenodo begins a new version: with the files of the one before.
+    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip"}] for n in (7, 8)}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
+    unsteady.gone = {8}
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
+    assert any(c[1].endswith("/7/actions/newversion") for c in unsteady.calls)
+    assert [c[1] for c in unsteady.calls if c[0] == "DELETE"] == [
+        "/api/deposit/depositions/8/files/a"]
+
+
+def test_a_draft_holding_only_the_person_s_files_is_not_said_to_hold_an_archive(
+        tmp_path, unsteady, capsys):
+    """Review of the ninth commit: a draft holding only the person's paper,
+    its upload failing, was said kept "with the archive it had"."""
+    study = _study(tmp_path / "study")
+    unsteady.files = [{"id": "p", "filename": "paper.pdf"}]
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "with the archive it had" not in said
+    assert "with no archive yet, or the new one if Zenodo kept it" in said
+
+
+def test_one_429_on_the_listing_after_a_lost_draft_is_asked_again(tmp_path, unsteady):
+    """Review of the ninth commit: at the share after a draft whose answer
+    was lost, one 429 on the listing refused the share."""
+    study, out = _studied(tmp_path, "study")
+    unsteady.late = len(zenodo._LOOKS_S)
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, out) == 2
+    unsteady.calls.clear()
+    unsteady.faults = {"GET list": [429]}
+    assert _share_to_zenodo(study, out) == 0
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+    assert len(unsteady.drafts) == 1
+
+
+def test_a_description_that_landed_is_the_study_s_whatever_zenodo_added(tmp_path,
+                                                                        unsteady):
+    """Review of the ninth commit: a description written whose answer was
+    lost was told by every field of the draft, so one Zenodo added there
+    made it the person's for good."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT metadata": ["applied"] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7]["imprint_publisher"] = "Zenodo"
+    _analysed_again(study, "Words of the next share.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next share." in unsteady.meta[7]["description"]
+    assert unsteady.meta[7]["imprint_publisher"] == "Zenodo"
