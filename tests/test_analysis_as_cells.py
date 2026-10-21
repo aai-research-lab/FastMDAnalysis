@@ -152,7 +152,7 @@ def test_each_analysis_is_a_cell_whose_plots_zoom_share_a_range_and_save(study, 
     assert (after["rmsd"], after["rg"], after["ss"], after["range"]) == ("", "", "", "")
     # A run under a nanosecond (0.4 ns here) read in picoseconds.
     assert many[0] == "image" and "Time (ps)" in many[1] and "400" in many[1]
-    assert many[2].startswith("Drawn as a picture of its 400 by 300 cells") and many[3] == "pixelated"
+    assert many[2].startswith("Plotted as a picture of its 400 by 300 cells") and many[3] == "pixelated"
 
 
 def _page(pw, session):

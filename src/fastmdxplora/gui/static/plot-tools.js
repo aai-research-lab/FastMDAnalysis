@@ -150,7 +150,7 @@
     all.hidden = !opts.zoomed;
     all.addEventListener("click", reset);
     bar.appendChild(all);
-    [["SVG", "Save the plot as drawn, as SVG"], ["PNG", "Save the plot as drawn, as PNG"],
+    [["SVG", "Save the plot as shown, as SVG"], ["PNG", "Save the plot as shown, as PNG"],
      ["CSV", "Save the numbers it shows, as CSV"]].forEach(function (kind) {
       var b = button(kind[0], kind[1]);
       b.addEventListener("click", function () {
