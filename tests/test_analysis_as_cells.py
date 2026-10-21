@@ -480,6 +480,12 @@ def test_a_cell_follows_its_page_and_says_what_its_analysis_read(full):
             page.wait_for_selector('.analysis-cell-head[data-analysis="thermodynamics"]')
             page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"] .cell-again')
             page.wait_for_selector('.series-chart[data-analysis="rmsf"] .plot-tools')
+            # The cell is drawn again once the results table it reads is in,
+            # with that table's quantities: read before, it still said the
+            # trajectory's frames, the table not yet in.
+            page.wait_for_function("() => document.querySelector("
+                                   "'.analysis-cell-head[data-analysis=\"thermodynamics\"]')"
+                                   ".textContent.includes('Temperature')")
             thermo = page.text_content('.analysis-cell-head[data-analysis="thermodynamics"]')
             rmsf = '.series-chart[data-analysis="rmsf"]'
             page.locator(rmsf + " svg").scroll_into_view_if_needed()
