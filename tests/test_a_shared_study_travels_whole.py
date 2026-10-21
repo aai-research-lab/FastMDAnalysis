@@ -3039,3 +3039,90 @@ def test_a_gateway_s_404_on_reserving_a_doi_is_not_said_gone(tmp_path, unsteady,
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert "is gone from" not in capsys.readouterr().err
+
+
+def test_the_study_s_archive_stays_its_own_after_any_number_of_failed_uploads(tmp_path,
+                                                                             unsteady):
+    """Hands-on review of the twenty-seventh commit: after fifty failed
+    uploads, the archive the draft held was forgotten as the study's."""
+    study = _study(tmp_path / "study")
+    out = tmp_path / "shared.zip"
+    assert _share_to_zenodo(study, out) == 0
+    unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": _md5_of(out)}]
+    report = study / "report" / "report.md"
+    for n in range(52):
+        report.write_text(report.read_text() + f"\nNote {n}.\n")
+        unsteady.faults = {"PUT file": [500]}
+        assert _share_to_zenodo(study, out) == 2
+    unsteady.faults = {}
+    assert _share_to_zenodo(study, out) == 0
+
+
+def test_a_description_that_landed_stays_the_study_s_after_many_failed_writes(tmp_path,
+                                                                             unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _analysed_again(study, "Words of share 0.")
+    unsteady.faults = {"PUT metadata": ["applied"] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    report = study / "report" / "report.md"
+    for n in range(1, 23):
+        report.write_text(report.read_text().replace(f"Words of share {n - 1}.",
+                                                     f"Words of share {n}."))
+        unsteady.faults = {"PUT metadata": [400]}
+        assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of share 22." in unsteady.meta[7]["description"]
+
+
+def test_a_new_version_an_earlier_release_began_and_deleted_is_begun_again(tmp_path,
+                                                                           unsteady):
+    """Hands-on review of the twenty-seventh commit: a draft of a new version
+    2.6.0 began, shared here then deleted, was followed by a record of its
+    own rather than a new version of its record."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": dict(unsteady.meta[7]),
+                       "files": [{"key": "shared.zip"}]}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "8", "version": 2, "doi": "10.5072/zenodo.8"}}))
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"][
+        "record"] == "7"
+    unsteady.gone = {8}
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert any(c[1].endswith("/7/actions/newversion") for c in unsteady.calls)
+    assert not any(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+                   for c in unsteady.calls)
+
+
+def test_a_study_shared_twice_at_once_is_refused_the_second_time(tmp_path, unsteady,
+                                                                 capsys):
+    import fcntl
+
+    study = _study(tmp_path / "study")
+    with (study / ".shared_to.json.lock").open("a") as other:
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        capsys.readouterr()
+        assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "is being shared already, by another command" in capsys.readouterr().err
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+def test_a_kept_description_on_an_earlier_release_s_draft_says_the_rest_is_kept(
+        tmp_path, unsteady, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    _analysed_again(study, "Words of the next share.")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "as are its title, creators, keywords, licence and access" in \
+        capsys.readouterr().out

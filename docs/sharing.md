@@ -238,6 +238,10 @@ one is taken away: a share that Zenodo stops part way keeps the draft as it
 was, says so with its address, and sharing again finishes that draft. An
 archive of 10 MB or more says how much of it has gone at each tenth.
 
+A study is shared to Zenodo by one command at a time: a second started
+while one runs is refused (`environment.share.not_finished`), as two would
+each make a draft.
+
 It needs a Zenodo token in `ZENODO_TOKEN` (`ZENODO_SANDBOX_TOKEN` for
 `--share-to zenodo-sandbox`) with the **deposit:write** scope, made under
 Applications in your Zenodo account's settings. FastMDXplora never

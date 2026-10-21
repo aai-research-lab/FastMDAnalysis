@@ -588,7 +588,7 @@ def _names_kept(kept: Any) -> list[str]:
 
 
 #: How many descriptions sent whose answers were lost are remembered.
-_SENDINGS = 20
+_SENDINGS = 1000
 
 
 def _sendings(kept: Any) -> list[str]:
@@ -686,6 +686,35 @@ def _keep(study: Path, kept: dict[str, Any]) -> None:
 def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[str, Any]],
           authors: list[tuple[str, str]], license_id: str, system: str,
           said: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """As :func:`_draft`, one share of a study at a time: two at once would
+    each make a draft, neither knowing the other's."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: no lock, as before.
+        return _draft(study, archive, site=site, pack=pack, authors=authors,
+                      license_id=license_id, system=system, said=said)
+    lock_path = study / f".{SHARED_TO}.lock"
+    try:
+        held = lock_path.open("a")
+    except OSError:
+        # A study that cannot be written is said so where it is written.
+        return _draft(study, archive, site=site, pack=pack, authors=authors,
+                      license_id=license_id, system=system, said=said)
+    with held:
+        try:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise ShareRefused(
+                f"{study} is being shared already, by another command: share it again once "
+                "that one is done.", code="environment.share.not_finished",
+                path=str(study)) from exc
+        return _draft(study, archive, site=site, pack=pack, authors=authors,
+                      license_id=license_id, system=system, said=said)
+
+
+def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[str, Any]],
+           authors: list[tuple[str, str]], license_id: str, system: str,
+           said: Callable[[str], None] | None = None) -> dict[str, Any]:
     """A draft on Zenodo of the study packed by ``pack``, which is given the
     DOI the draft reserved (or "") and returns what :func:`share_study`
     does; the draft's `url`, `doi` and `id`. Never published.
@@ -819,6 +848,16 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 and archive.name not in _sums_kept(kept[site].get("sums")):
             kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
                                   archive.name: [_md5(held_there)]}
+        # A draft of a new version that release began: of the record its
+        # concept's latest version is, so a deleted one is begun again.
+        if not versioned and not kept[site].get("record") \
+                and (deposition.get("links") or {}).get("latest"):
+            try:
+                of = _latest_published(deposition, depositions, token, said)
+            except ShareRefused:
+                of = deposition
+            if str(of.get("id") or "") not in ("", identifier):
+                kept[site]["record"] = str(of["id"])
     if made_here and title:
         # The title it was asked for under: a draft Zenodo lists under it
         # later is one made twice, to be named.
@@ -1022,7 +1061,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         # the draft keeps the one it had until the new one is there.
         kept[site]["uploading"] = archive.name
         sent_sums = _sums_kept(kept[site].get("sums"))
-        sent_sums[archive.name] = [*sent_sums.get(archive.name, []), _md5_of(archive)][-50:]
+        sent_sums[archive.name] = [*sent_sums.get(archive.name, []), _md5_of(archive)][-_SENDINGS:]
         kept[site]["sums"] = sent_sums
         _keep(study, kept)
         _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
@@ -1076,6 +1115,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                         and name != archive.name and name not in lagging
                         and name not in (_names(deposition) - {e.get("filename") or e.get("key")
                                                                for e in stale}))
+        if now_sums.get(archive.name) == sent_md5:
+            # Held as sent: the one checksum of that name the study need know.
+            kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
+                                  archive.name: [sent_md5]}
         if (now_sums.get(archive.name) and now_sums[archive.name] != sent_md5) or others:
             clash = ShareRefused(
                 f"The draft {page} holds "
@@ -1141,8 +1184,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             if said and by_earlier and not last:
                 said(f"The draft {page} was shared by an earlier release of FastMDXplora, "
                      "which kept no account of what it wrote: its description is not the "
-                     "study's summary now, and may be yours, so it is kept as it is. To have "
-                     "the study write it, clear the description there and share again.")
+                     "study's summary now, and may be yours, so it is kept as it is, as are "
+                     "its title, creators, keywords, licence and access. To have the study "
+                     "write it, clear the description there and share again.")
             elif said and not held.get("description"):
                 said(f"The draft {page} was changed there before this study described it: "
                      "it is kept as it is, with no description, and only the archive is "
