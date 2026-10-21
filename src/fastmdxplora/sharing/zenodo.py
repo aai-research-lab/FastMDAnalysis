@@ -338,8 +338,9 @@ _LOOKS_S = (0.0, 2.0, 4.0, 8.0, 16.0)
 
 
 def _taken(depositions: str, token: str, title: str, made: list[str],
-           said: Callable[[str], None] | None) -> dict[str, Any]:
-    """The one draft titled ``title``; refused where there are several."""
+           said: Callable[[str], None] | None) -> dict[str, Any] | None:
+    """The one draft titled ``title``; refused where there are several; None
+    where it is gone since it was listed."""
     if len(made) > 1:
         raise ShareRefused(
             f"Zenodo holds {len(made)} drafts titled {title!r} ({', '.join(made)}), made by "
@@ -348,10 +349,22 @@ def _taken(depositions: str, token: str, title: str, made: list[str],
     if said:
         said(f"Zenodo made draft {made[0]}, asked for by this study; taking that one.")
     try:
-        return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
+        found = _call("GET", f"{depositions}/{made[0]}", token=token, said=said,
+                      missing_ok=True, gone=_GONE)
     except ShareRefused as exc:
         raise ShareRefused(f"{exc} Draft {made[0]} is as it was; share again once Zenodo "
                            "answers, and it is taken then.", code=exc.refusal.code) from exc
+    if found is _GONE:
+        if said:
+            said(f"Draft {made[0]} is gone from Zenodo since it was listed.")
+        return None
+    if not isinstance(found, dict):
+        unread = ShareRefused(f"Zenodo's answer for draft {made[0]} was no draft. It is as "
+                              "it was; share again once Zenodo answers, and it is taken then.",
+                              code="environment.service.unreachable")
+        unread.later = True
+        raise unread
+    return found
 
 
 def _new_draft(depositions: str, token: str, title: str,
@@ -376,8 +389,9 @@ def _new_draft(depositions: str, token: str, title: str,
                          "draft it may have made.")
                 _sleep(wait)
             made = _marked(depositions, token, title, said)
-            if made:
-                return _taken(depositions, token, title, made, said), False
+            taken = _taken(depositions, token, title, made, said) if made else None
+            if taken is not None:
+                return taken, False
         raise ShareRefused(
             f"{exc} Zenodo may still make the draft (titled {title!r}): sharing again looks "
             "for it first and finishes it; one it makes later still is named for you to "
@@ -679,7 +693,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 f"the last share (titled {title!r}) is not known; nothing was made. Share "
                 "again once Zenodo answers.", code="environment.service.unreachable")
         if made:
-            deposition, made_here = _taken(depositions, token, title, made, said), True
+            deposition = _taken(depositions, token, title, made, said)
+            made_here = deposition is not None
     # Made where Zenodo's own answer gave it: as it was made. One found by its
     # title since may hold what the person gave it.
     answered = False
@@ -713,6 +728,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         recorded_as = _names_kept(earlier.get("record_archive")) if found_as["begun_again"] \
             else _names_kept([earlier.get("archive"), *_names_kept(earlier.get("stale")),
                               earlier.get("uploading")])
+        # Only those the record holds: a name of the study's it no longer
+        # holds is free for the person's own file on the new version.
+        if found_as["record_files"]:
+            recorded_as = [name for name in recorded_as if name in found_as["record_files"]]
         if recorded_as:
             kept[site]["archive"], kept[site]["record_archive"] = recorded_as[0], recorded_as
             # As the record holds each: one of that name the person puts on
@@ -870,7 +889,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     if foreign:
         raise ShareRefused(
             f"The draft {page} holds {', '.join(foreign)}, which this study did not put "
-            "there; a record of two archives opens as neither. Delete it there, or keep it "
+            "there" + (" (or an earlier release of FastMDXplora put there, which kept no "
+                       "record of its archive)" if earlier_release else "")
+            + "; a record of two archives opens as neither. Delete it there, or keep it "
             "in a record of its own, then share again.",
             code="environment.service.unusable_response", url=page)
     # The description: the study's where it wrote it last or none was
@@ -884,9 +905,23 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # one of them, whichever landed.
     sending = _sendings(kept[site].get("sending"))
     made_as = kept[site].get("made_as") if isinstance(kept[site].get("made_as"), dict) else {}
+    # Shared by an earlier release, which kept no record of what it wrote but
+    # wrote the description at every share: the study's where it is still
+    # as such a share wrote it (its own words, names and keywords).
+    by_earlier = bool(earlier.get("id")) and not any(earlier.get(key) for key in (
+        "written", "sending", "asked_as", "archive", "sums", "record_written",
+        "record_sending"))
+    template = _metadata(packed["crate"], authors=authors, license_id=license_id,
+                         system=system, version=version)
+
+    def _as_earlier_wrote(held: dict[str, Any]) -> bool:
+        return by_earlier and "packed by FastMDXplora" in str(held.get("description") or "") \
+            and all(_described({key: held.get(key)}) == _described({key: template.get(key)})
+                    for key in _SENT if key != "description")
 
     def _the_study_s(held: dict[str, Any]) -> bool:
-        return (bool(last) and _written(held) == last) or _sent(held) in sending or (
+        return (bool(last) and _written(held) == last) or _sent(held) in sending \
+            or _as_earlier_wrote(held) or (
             # Still as asked for: titled so, and no one's words or names in it
             # (whatever defaults Zenodo gave it since).
             not versioned and str(held.get("title") or "") in ("", marker)
@@ -924,8 +959,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}",
                   token=token, missing_ok=True, said=said)
             kept[site]["stale"] = [n for n in kept[site]["stale"] if n != removing]
-            _keep(study, kept)
+            # Taken away: said so even where what remembers it cannot be written.
             removing = ""
+            _keep(study, kept)
         kept[site].pop("stale", None)
         # Read again: an upload takes minutes, and what the person wrote there
         # meanwhile is theirs.
@@ -938,6 +974,13 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 url=page)
             deleted.gone = True
             raise deleted
+        if not (isinstance(again, dict) and isinstance(again.get("metadata"), dict)):
+            # Not read: what the person wrote meanwhile is not known, and is
+            # not written over.
+            unread = ShareRefused(f"Zenodo's answer reading the draft {page} again was no "
+                                  "draft.", code="environment.service.unreachable")
+            unread.later = True
+            raise unread
         if isinstance(again, dict) and isinstance(again.get("metadata"), dict):
             held = again["metadata"]
             inherited = {k: v for k, v in held.items() if k not in ("doi", "prereserve_doi")}

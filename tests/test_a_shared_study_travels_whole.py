@@ -2394,3 +2394,109 @@ def test_a_share_failing_before_the_earlier_archive_goes_warns_of_two(tmp_path, 
     assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
     said = capsys.readouterr().err
     assert "the earlier a.zip beside it, not yet taken away" in said
+
+
+def test_a_zip_of_the_person_s_on_a_new_version_named_as_an_old_archive_stays(tmp_path,
+                                                                             unsteady,
+                                                                             capsys):
+    """Review of the twentieth commit: a name the study once gave an archive,
+    the record no longer holding it, was taken for the study's on a new
+    version, and the person's file of that name deleted."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
+    unsteady.files = [{"id": "b", "filename": "b.zip"}]
+    unsteady.faults = {"DELETE": [500] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    unsteady.faults, unsteady.files = {}, None
+    # The person deleted b.zip, as advised, and published.
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip"}] for n in (7, 8)}
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    # On the draft of version 2, the person's own b.zip.
+    unsteady.files_of[8] = [{"id": "a", "filename": "a.zip"},
+                            {"id": "p", "filename": "b.zip", "checksum": "md5:5"}]
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    assert "holds b.zip, which this study did not put there" in capsys.readouterr().err
+    assert not any(c[0] == "DELETE" for c in unsteady.calls)
+
+
+def test_an_empty_answer_for_a_draft_found_by_its_title_makes_no_second(tmp_path, unsteady,
+                                                                       monkeypatch):
+    study = _study(tmp_path / "study")
+    real = _empty_answer_to(monkeypatch, "POST", "/api/deposit/depositions")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    monkeypatch.setattr(zenodo, "_call", real)
+    _empty_answer_to(monkeypatch, "GET", "/api/deposit/depositions/7", after=False)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+    assert len(unsteady.drafts) == 1
+
+
+def test_a_record_shared_by_an_earlier_release_is_described_again(tmp_path, unsteady):
+    """Review of the twentieth commit: a draft shared by 2.6.0, which kept
+    only its id and version, was never described again."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    # As 2.6.0 kept it.
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "7", "version": "1", "doi": "10.5072/zenodo.7"}}))
+    _analysed_again(study, "Words of the next share.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next share." in unsteady.meta[7]["description"]
+
+
+def test_an_earlier_release_s_archive_is_said_as_perhaps_its(tmp_path, unsteady, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "old.zip") == 0
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "7", "version": "1", "doi": "10.5072/zenodo.7"}}))
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "new.zip") == 2
+    assert "or an earlier release of FastMDXplora put there" in capsys.readouterr().err
+
+
+def test_an_archive_zenodo_took_away_is_not_said_perhaps_there(tmp_path, unsteady,
+                                                              monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.files = [{"id": "a", "filename": "a.zip"}]
+    real = zenodo._keep
+
+    def fills(where, what):
+        if what.get("zenodo-sandbox", {}).get("stale") == []:
+            raise ShareRefused("No room.", code="environment.share.too_large")
+        return real(where, what)
+
+    monkeypatch.setattr(zenodo, "_keep", fills)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert "No room." in said and "may not have taken away" not in said
+
+
+def test_a_draft_not_read_again_after_its_upload_is_not_described(tmp_path, unsteady,
+                                                                  monkeypatch, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    _empty_answer_to(monkeypatch, "GET", "/api/deposit/depositions/7", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "reading the draft" in capsys.readouterr().err
+    assert not unsteady.meta[7].get("description")
+
+
+def test_a_draft_gone_since_it_was_listed_is_asked_for_again(tmp_path, unsteady, capsys):
+    study, out = _studied(tmp_path, "study")
+    unsteady.late = len(zenodo._LOOKS_S)
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, out) == 2
+    unsteady.faults, unsteady.gone = {}, {7}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, out) == 0
+    assert "is gone from Zenodo since it was listed" in capsys.readouterr().out

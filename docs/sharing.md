@@ -252,7 +252,9 @@ something else, which keeps the share back) stays, and a description written the
 by you, not the study, is kept as you left it, as are creators,
 keywords, an embargo, a licence or a kind you gave a draft the study had
 not described yet, or wrote there while its archive was uploading (only
-the version is the study's to set). Shared again after (analysed again, say), it is a draft
+the version is the study's to set). A draft or record shared by an
+earlier release, which kept no account of what it wrote, is described
+again while its words, names and keywords are still as a share wrote them. Shared again after (analysed again, say), it is a draft
 of a new version of the same record, which Zenodo makes only for a token
 that also has the **deposit:actions** scope; the record's concept DOI
 always leads to its latest version. Its version is counted on from the
