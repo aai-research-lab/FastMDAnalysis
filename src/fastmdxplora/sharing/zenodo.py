@@ -21,9 +21,11 @@ it may be asked again in `X-RateLimit-Reset`, or how long to wait in
 `Retry-After`) and is at times briefly unable to answer (502, 503, 504):
 each request is asked again after a wait, up to :data:`TRIES` times. A
 request that makes something (a new draft) is asked again only after a 429,
-which Zenodo answers before doing anything; one whose answer was lost after
-Zenodo may have made the draft is followed by a look at the person's drafts,
-and a draft made then is taken as this one, so a draft is never made twice.
+which Zenodo answers before doing anything. A new draft is asked for with a
+title of its own (:func:`_marked`) recorded in the study first: where the
+answer is lost after Zenodo may have made it (a 5xx, a connection cut), the
+draft of that title is looked for and taken as this one, then and at the
+next share, so a draft is never made twice and never one the person made.
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ import http.client
 import json
 import os
 import re
+import secrets
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -155,23 +159,36 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
                 _again(f"Zenodo answered {method} {url} with HTTP {exc.code}", attempt,
                        exc.headers, said)
                 continue
-            answered = exc.read().decode("utf-8", errors="replace")[:400]
+            try:
+                answered = exc.read().decode("utf-8", errors="replace")[:400]
+            except (OSError, http.client.HTTPException):
+                # The answer's own words cut short: said without them.
+                answered = ""
             why = {401: "the token was refused", 403: "the token may not do this (its scopes)",
                    404: "no such record or draft",
                    429: f"too many requests, still after {attempt} tries"}.get(
                 exc.code, f"HTTP {exc.code}" + (f", still after {attempt} tries"
                                                  if exc.code in AGAIN and attempt > 1 else ""))
-            raise ShareRefused(f"Zenodo answered {method} {url}: {why}. {answered}".strip(),
-                               code="environment.service.unreachable", url=url) from exc
+            refused = ShareRefused(f"Zenodo answered {method} {url}: {why}. {answered}".strip(),
+                                   code="environment.service.unreachable", url=url)
+            # Zenodo, or the gateway before it, gave up part way: what was
+            # asked may have been done.
+            refused.unclear = exc.code >= 500
+            raise refused from exc
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             if attempt < TRIES and not makes:
                 _again(f"The connection to Zenodo at {url} was lost or not made ({exc})",
                        attempt, None, said)
                 continue
-            raise ShareRefused(f"The connection to Zenodo at {url} was lost or not made: "
-                               f"{exc}" + (f", still after {attempt} tries" if attempt > 1
-                                           else "") + ".",
-                               code="environment.service.unreachable", url=url) from exc
+            refused = ShareRefused(f"The connection to Zenodo at {url} was lost or not made: "
+                                   f"{exc}" + (f", still after {attempt} tries" if attempt > 1
+                                               else "") + ".",
+                                   code="environment.service.unreachable", url=url)
+            # Refused, or no such host: nothing reached Zenodo. Lost after
+            # the request went: it may have been done.
+            reason = getattr(exc, "reason", exc)
+            refused.unclear = not isinstance(reason, (ConnectionRefusedError, socket.gaierror))
+            raise refused from exc
         finally:
             if isinstance(data, _Progress):
                 data.close()
@@ -262,42 +279,51 @@ def archive_of(site: str, record: str,
 
 # -- making a draft ----------------------------------------------------------
 
-def _drafts(depositions: str, token: str,
-            said: Callable[[str], None] | None) -> set[str] | None:
-    """The ids of the person's newest drafts; None where Zenodo does not
-    list them."""
+def _marked(depositions: str, token: str, title: str,
+            said: Callable[[str], None] | None) -> list[str]:
+    """The ids of the person's drafts titled ``title``, the title a new
+    draft is asked for with; none where Zenodo does not list them."""
     try:
         found = _call("GET", f"{depositions}?status=draft&sort=mostrecent&size=100",
                       token=token, missing_ok=True, said=said)
     except ShareRefused:
-        return None
-    if not isinstance(found, list):
-        return None
-    return {str(entry.get("id")) for entry in found if isinstance(entry, dict)}
+        return []
+    return [str(entry.get("id")) for entry in found if isinstance(entry, dict)
+            and isinstance(entry.get("metadata"), dict)
+            and entry["metadata"].get("title") == title] if isinstance(found, list) else []
 
 
-def _new_draft(depositions: str, token: str,
+#: How long a draft whose answer was lost is looked for, in waits between
+#: looks: Zenodo may finish making it after its gateway has given up.
+_LOOKS_S = (2.0, 4.0, 8.0, 16.0)
+
+
+def _new_draft(depositions: str, token: str, title: str,
                said: Callable[[str], None] | None) -> dict[str, Any]:
-    """A new draft, made once: where Zenodo's answer to making it is lost,
-    a draft that has appeared among the person's since is the one made."""
-    known = _drafts(depositions, token, said)
+    """A new draft titled ``title``, made once: where Zenodo's answer to
+    making it is lost and it may have been made, the draft of that title is
+    looked for and taken; never one of another title."""
     try:
         return _call("POST", depositions, token=token,
-                     body={"metadata": {"prereserve_doi": True}}, said=said)
+                     body={"metadata": {"prereserve_doi": True, "title": title}}, said=said)
     except ShareRefused as exc:
-        now = _drafts(depositions, token, said) if known is not None else None
-        made = sorted((now or set()) - (known or set()))
-        if len(made) != 1:
-            if known is None:
-                raise ShareRefused(
-                    f"{exc} Zenodo may have made the draft before its answer was lost: look "
-                    f"among your uploads ({depositions.rsplit('/api/', 1)[0]}/me/uploads) "
-                    "and delete an empty one before sharing again.",
-                    code=exc.refusal.code) from exc
+        if not getattr(exc, "unclear", False):
             raise
-        if said:
-            said(f"Zenodo's answer was lost, but it made draft {made[0]}; taking that one.")
-        return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
+        for wait in _LOOKS_S:
+            made = _marked(depositions, token, title, said)
+            if len(made) == 1:
+                if said:
+                    said(f"Zenodo's answer was lost, but it made draft {made[0]}; taking that "
+                         "one.")
+                return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
+            if said:
+                said(f"Zenodo's answer was lost; looking again in {wait:.0f} s for the draft "
+                     "it may have made.")
+            _sleep(wait)
+        raise ShareRefused(
+            f"{exc} Zenodo may still make the draft (titled {title!r}): sharing again looks "
+            "for it first and finishes it, rather than making another.",
+            code=exc.refusal.code) from exc
 
 
 def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -370,7 +396,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     version = int(earlier.get("version") or 0) + 1
     deposition: dict[str, Any] | None = None
     if earlier.get("id"):
-        found = _call("GET", f"{depositions}/{earlier['id']}", token=token, missing_ok=True, said=said)
+        found = _call("GET", f"{depositions}/{earlier['id']}", token=token, missing_ok=True,
+                      said=said)
         if not isinstance(found, dict):
             if said:
                 said(f"The draft or record {earlier['id']} this study was shared as is gone "
@@ -387,8 +414,21 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 raise ShareRefused("Zenodo made no new version of the record.",
                                    code="environment.service.unreachable")
             deposition = _call("GET", latest, token=token, said=said)
+    if deposition is None and earlier.get("asked_as") and not earlier.get("id"):
+        # Asked for at the last share, its answer lost: taken if Zenodo made it.
+        made = _marked(depositions, token, str(earlier["asked_as"]), said)
+        if len(made) == 1:
+            if said:
+                said(f"Taking draft {made[0]}, made at the last share though its answer was "
+                     "lost.")
+            deposition = _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
     if deposition is None:
-        deposition = _new_draft(depositions, token, said)
+        title = f"FastMDXplora: sharing {study.name} ({secrets.token_hex(4)})"
+        # Kept before it is asked for, so a draft made whose answer is lost
+        # is found again at the next share.
+        kept[site] = {"asked_as": title, "version": version}
+        (study / SHARED_TO).write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+        deposition = _new_draft(depositions, token, title, said)
     if not isinstance(deposition, dict) or not deposition.get("id"):
         raise ShareRefused("Zenodo made no draft.", code="environment.service.unreachable")
     identifier = str(deposition["id"])
@@ -415,6 +455,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                or f"{base}/uploads/{identifier}")
     earlier_files = [entry for entry in deposition.get("files") or []
                      if isinstance(entry, dict) and entry.get("id")]
+    uploaded = False
     try:
         if said:
             said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to "
@@ -423,6 +464,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         # the draft keeps the one it had until the new one is there.
         _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
               upload=archive, said=said)
+        uploaded = True
         for entry in earlier_files:
             if str(entry.get("filename") or entry.get("key") or "") != archive.name:
                 # Gone already is what was asked: a try that did it, then
@@ -434,7 +476,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         _call("PUT", f"{depositions}/{identifier}", token=token,
               body={"metadata": {**inherited, **ours}}, said=said)
     except ShareRefused as exc:
-        kept_as = ("with the archive it had" if earlier_files else "with no archive yet")
+        kept_as = ("with the new archive, its description not yet written" if uploaded
+                   else "with the archive it had" if earlier_files else "with no archive yet")
         raise ShareRefused(
             f"{exc} The draft {page} is kept, {kept_as}: share again once Zenodo answers, "
             "and that draft is finished, not another made.",

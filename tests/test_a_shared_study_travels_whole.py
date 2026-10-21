@@ -34,12 +34,22 @@ class _Unsteady(_Zenodo):
     from byte 100, whatever range was asked), ``"stall"`` (the file's first
     bytes, then nothing for 3 s), ``"drop"`` (the connection closed with no
     answer) or ``"made"`` (a draft made, then a 504 in place of the
-    answer). It lists the person's drafts as Zenodo does."""
+    answer), ``"made late"`` (as ``"made"``, the draft listed only from the
+    third look) or ``"504 cut"`` (a 504 whose own words are cut short). It
+    lists the person's drafts as Zenodo does, and its drafts' files carry
+    their names (``files``, set by a test)."""
 
     faults: dict = {}
     ranges: list = []
     payload: bytes | None = None
     drafts: list = []
+    files: list | None = None
+
+    def _deposition(self, number):
+        made = super()._deposition(number)
+        if type(self).files is not None:
+            made["files"] = type(self).files
+        return made
 
     def _fault(self, which):
         queue = type(self).faults.get(which) or []
@@ -50,6 +60,13 @@ class _Unsteady(_Zenodo):
         self.connection.shutdown(2)
 
     def _status(self, status):
+        if status == "504 cut":
+            self.send_response(504)
+            self.send_header("Content-Length", "400")
+            self.end_headers()
+            self.wfile.write(b'{"message": ')
+            self.wfile.flush()
+            return self._drop()
         self.send_response(status)
         if status == 429:
             self.send_header("Retry-After", "7")
@@ -58,12 +75,22 @@ class _Unsteady(_Zenodo):
 
     def do_POST(self):  # noqa: N802
         fault = self._fault("POST")
-        if self.path == "/api/deposit/depositions" and fault in (None, "made"):
-            type(self).drafts.append(7)
-        if fault == "made":
+        if self.path == "/api/deposit/depositions" and fault in (None, "made", "made late"):
+            body = self._body()
+            title = (json.loads(body or b"{}").get("metadata") or {}).get("title")
+            self.rfile = __import__("io").BytesIO(body)
+            self.headers.replace_header("Content-Length", str(len(body))) \
+                if "Content-Length" in self.headers else None
+            # Made at once, or seen among the drafts only from the third look.
+            type(self).drafts.append({"id": 7, "title": title,
+                                      "hidden": 2 if fault == "made late" else 0})
+        if fault in ("made", "made late"):
+            type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
+            return self._status(504)
+        if fault == "504 cut":
             type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
             self._body()
-            return self._status(504)
+            return self._status("504 cut")
         if fault == "drop":
             type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
             self._body()
@@ -75,6 +102,12 @@ class _Unsteady(_Zenodo):
         return super().do_POST()
 
     def do_PUT(self):  # noqa: N802
+        if self.path.startswith("/api/deposit/depositions/"):
+            fault = self._fault("PUT metadata")
+            if isinstance(fault, int):
+                type(self).calls.append(("PUT", self.path, self.headers.get("Authorization")))
+                self._body()
+                return self._status(fault)
         if self.path.startswith("/files/"):
             fault = self._fault("PUT file")
             if isinstance(fault, int):
@@ -88,7 +121,13 @@ class _Unsteady(_Zenodo):
         name = type(self).stored.get("name", "shared.zip")
         if self.path.startswith("/api/deposit/depositions?"):
             type(self).calls.append(("GET", self.path, self.headers.get("Authorization")))
-            return self._json([{"id": n} for n in type(self).drafts])
+            shown = []
+            for draft in type(self).drafts:
+                if draft["hidden"]:
+                    draft["hidden"] -= 1
+                    continue
+                shown.append({"id": draft["id"], "metadata": {"title": draft["title"]}})
+            return self._json(shown)
         if self.path == "/api/records/7":
             fault = self._fault("GET record")
             if fault == "drop":
@@ -140,7 +179,7 @@ class _Unsteady(_Zenodo):
 def unsteady(monkeypatch):
     _Unsteady.calls, _Unsteady.stored, _Unsteady.submitted = [], {}, False
     _Unsteady.wrong_md5, _Unsteady.faults, _Unsteady.ranges = False, {}, []
-    _Unsteady.payload, _Unsteady.drafts = None, []
+    _Unsteady.payload, _Unsteady.drafts, _Unsteady.files = None, [], None
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Unsteady)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -173,8 +212,10 @@ def test_a_download_cut_short_goes_on_from_where_it_stopped(tmp_path, unsteady):
 def test_a_server_that_sends_the_whole_file_again_is_read_from_its_start(tmp_path, unsteady):
     _shared(tmp_path, unsteady)
     unsteady.faults = {"GET file": ["cut", "whole"]}
-    opened = open_shared("10.5072/zenodo.7", workspace=tmp_path / "w")
+    told: list[str] = []
+    opened = open_shared("10.5072/zenodo.7", workspace=tmp_path / "w", said=told.append)
     assert (opened / "shared_from.json").is_file()
+    assert any("sent the whole file again, not the rest of it" in line for line in told)
 
 
 def test_too_many_requests_waits_as_long_as_zenodo_asks(tmp_path, unsteady):
@@ -277,6 +318,7 @@ def test_a_disk_that_fills_is_said_not_taken_for_a_lost_connection(tmp_path, uns
     unsteady.payload = os.urandom(3 << 20)
     real = io.open
     writes = []
+    failing = [errno.ENOSPC, "No space left on device"]
 
     class Full:
         def __init__(self, handle):
@@ -285,7 +327,7 @@ def test_a_disk_that_fills_is_said_not_taken_for_a_lost_connection(tmp_path, uns
         def write(self, piece):
             writes.append(len(piece))
             if len(writes) == 2:
-                raise OSError(errno.ENOSPC, "No space left on device")
+                raise OSError(*failing)
             return self.handle.write(piece)
 
         def __getattr__(self, name):
@@ -304,12 +346,21 @@ def test_a_disk_that_fills_is_said_not_taken_for_a_lost_connection(tmp_path, uns
         return Full(handle) if str(file) == str(target) and "w" in mode else handle
 
     monkeypatch.setattr(io, "open", opened)
-    with pytest.raises(OSError) as failed:
+    with pytest.raises(ShareRefused) as failed:
         _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
                   target, most=1 << 30, md5=hashlib.md5(unsteady.payload).hexdigest(),
                   said=None, size=len(unsteady.payload))
-    assert failed.value.errno == errno.ENOSPC
+    assert failed.value.refusal.code == "environment.share.too_large"
+    assert f"could not be written to {tmp_path}: the disk there has no room for it" \
+        in str(failed.value)
     assert unsteady.ranges == [None]
+    # Another error writing is the system's own, never asked for again.
+    writes.clear()
+    failing[:] = [errno.EIO, "Input/output error"]
+    with pytest.raises(OSError):
+        _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
+                  target, most=1 << 30, md5="", said=None, size=len(unsteady.payload))
+    assert unsteady.ranges == [None, None]
 
 
 def test_a_request_that_lost_its_connection_is_asked_again_unless_it_makes_something(
@@ -354,7 +405,7 @@ def test_a_draft_made_whose_answer_was_lost_is_taken_not_made_again(tmp_path, un
                  authors=[("A B", "")], license_id="CC-BY-4.0", system="1ABC",
                  said=told.append)
     assert [c[1] for c in unsteady.calls if c[0] == "POST"] == ["/api/deposit/depositions"]
-    assert unsteady.drafts == [7]
+    assert [d["id"] for d in unsteady.drafts] == [7]
     assert unsteady.stored["archive"] == (tmp_path / "shared.zip").read_bytes()
     assert any("it made draft 7; taking that one" in line for line in told)
 
@@ -419,4 +470,97 @@ def test_giving_up_says_how_far_the_download_got(tmp_path, unsteady):
     size = len(unsteady.stored["archive"])
     assert str(refused.value).endswith(
         f"HTTP 503, still after {zenodo.TRIES} tries, with "
-        f"{(size - size * 2 // 3) / 1e6:.1f} of {size / 1e6:.1f} MB downloaded.")
+        f"{(size - size * 2 // 3) / 1e6:.1f} of {size / 1e6:.1f} MB downloaded. Nothing was "
+        "kept; open it again later.")
+
+
+def test_a_draft_the_person_made_is_never_taken(tmp_path, unsteady, capsys):
+    """Review of round 2: a draft that appeared among the person's after a
+    failed request was taken as this share's, theirs or not, and its files
+    and description replaced."""
+    unsteady.drafts = [{"id": 8, "title": "My own draft", "hidden": 0}]
+    for fault in (400, 503, "drop"):
+        unsteady.calls.clear()
+        unsteady.faults = {"POST": [fault]}
+        assert _share_to_zenodo(_study(tmp_path / str(fault)), tmp_path / f"{fault}.zip") == 2
+        assert not any("/8" in c[1] for c in unsteady.calls), fault
+    assert "may still make the draft (titled 'FastMDXplora: sharing" in capsys.readouterr().err
+
+
+def test_a_draft_listed_late_is_still_the_one_taken(tmp_path, unsteady):
+    """Review of round 2: a draft Zenodo listed only a moment after its
+    gateway gave up was not found, and sharing again made a second."""
+    unsteady.faults = {"POST": ["made late"]}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert [c[1] for c in unsteady.calls if c[0] == "POST"] == ["/api/deposit/depositions"]
+    assert unsteady.waits[:2] == [2.0, 4.0]
+    # Listed only after every look: found at the next share, not made again.
+    unsteady.calls.clear()
+    unsteady.drafts = []
+    unsteady.faults = {"POST": ["made late"]}
+    study = _study(tmp_path / "later")
+    (study / "shared_to.json").unlink(missing_ok=True)
+    zenodo._LOOKS_S, looks = (1.0,), zenodo._LOOKS_S
+    try:
+        assert _share_to_zenodo(study, tmp_path / "later.zip") == 2
+        assert "asked_as" in json.loads((study / "shared_to.json").read_text())[
+            "zenodo-sandbox"]
+        # Zenodo has since finished making it.
+        unsteady.drafts[0]["hidden"] = 0
+        assert _share_to_zenodo(study, tmp_path / "later.zip") == 0
+    finally:
+        zenodo._LOOKS_S = looks
+    assert [c[1] for c in unsteady.calls if c[0] == "POST"] == ["/api/deposit/depositions"]
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
+
+
+def test_an_answer_whose_own_words_are_cut_is_a_refusal(tmp_path, unsteady, capsys):
+    """Review of round 2: Zenodo's 504 cut short in its own words escaped as
+    a traceback, the draft it may have made never looked for."""
+    unsteady.faults = {"POST": ["504 cut"]}
+    assert _share_to_zenodo(_study(tmp_path / "study"), tmp_path / "shared.zip") == 2
+    assert "HTTP 504" in capsys.readouterr().err
+    assert any(c[1].startswith("/api/deposit/depositions?") for c in unsteady.calls)
+
+
+def test_a_cut_is_seen_where_zenodo_records_no_size(tmp_path, unsteady):
+    unsteady.payload = os.urandom(3 << 20)
+    unsteady.faults = {"GET file": ["cut"]}
+    _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
+              tmp_path / "got.zip", most=1 << 30, md5="", said=None, size=0)
+    assert (tmp_path / "got.zip").read_bytes() == unsteady.payload
+    assert unsteady.ranges[1].startswith("bytes=")
+
+
+def test_a_kept_draft_is_said_as_it_is(tmp_path, unsteady, capsys):
+    """Review of round 2: a draft whose new archive was up, its description
+    not, was said to keep the archive it had."""
+    unsteady.faults = {"PUT metadata": [400]}
+    unsteady.files = []
+    assert _share_to_zenodo(_study(tmp_path / "study"), tmp_path / "shared.zip") == 2
+    assert "is kept, with the new archive, its description not yet written" in \
+        capsys.readouterr().err
+
+
+def test_a_draft_s_archive_of_the_same_name_is_replaced_and_others_go(tmp_path, unsteady):
+    """Review of round 2: the stand-in's files had no names, so a test
+    passed taking away the archive just uploaded."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.calls.clear()
+    unsteady.files = [{"id": "same", "filename": "shared.zip"},
+                      {"id": "other", "filename": "old-name.zip"}]
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    deleted = [c[1] for c in unsteady.calls if c[0] == "DELETE"]
+    assert deleted == ["/api/deposit/depositions/7/files/other"]
+    put = next(i for i, c in enumerate(unsteady.calls) if c[1].startswith("/files/"))
+    assert put < next(i for i, c in enumerate(unsteady.calls) if c[0] == "DELETE")
+
+
+def test_every_folder_made_to_open_into_is_taken_away(tmp_path, unsteady):
+    _shared(tmp_path, unsteady)
+    unsteady.wrong_md5 = True
+    with pytest.raises(ShareRefused):
+        open_shared("10.5072/zenodo.7", into=tmp_path / "new" / "deeper" / "place")
+    assert not (tmp_path / "new").exists()

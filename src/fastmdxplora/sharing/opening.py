@@ -13,6 +13,7 @@ place whole. Nothing in an archive is run.
 
 from __future__ import annotations
 
+import errno
 import functools
 import hashlib
 import http.client
@@ -53,6 +54,17 @@ def unpacked_limit(most_bytes: int) -> int:
     return 4 * most_bytes
 
 
+def _whole_size(answer: Any, start: int) -> int:
+    """The whole file's size an answer gives: the total of its
+    `Content-Range`, else where its part starts and its `Content-Length`;
+    0 where it gives neither."""
+    found = re.search(r"/(\d+)\s*$", str(answer.headers.get("Content-Range") or ""))
+    if found:
+        return int(found.group(1))
+    length = str(answer.headers.get("Content-Length") or "")
+    return start + int(length) if length.isdigit() else 0
+
+
 def _range_start(answer: Any) -> int | None:
     """Where the bytes of a 206 answer start in the file, by its
     `Content-Range` (`bytes 1000-2999/3000`); None where it names none."""
@@ -89,6 +101,8 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
                                             timeout=STALLED_S) as answer:
                     start = _range_start(answer) if answer.status == 206 else 0
+                    if not size:
+                        size = _whole_size(answer, start or 0)
                     if start is None and answer.status == 206:
                         # A part, not saying of what: taken as following
                         # what is here only where that was asked for.
@@ -100,6 +114,9 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                     else:
                         if start != read:
                             # The whole file again, not the rest of it.
+                            if said:
+                                said(f"{url} sent the whole file again, not the rest of "
+                                     "it; reading it from its start.")
                             out.seek(0)
                             out.truncate()
                             digest, read, tenth = hashlib.md5(), 0, 0  # noqa: S324
@@ -140,7 +157,7 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                 raise ShareRefused(
                     f"The shared study could not be downloaded from {url}: HTTP {exc.code}"
                     + (f", still after {failures} tries" if failures > 1 else "")
-                    + _got(read, size) + ".",
+                    + _got(read, size) + ". Nothing was kept; open it again later.",
                     code="environment.service.unreachable", url=url) from exc
             except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
                 # A connection cut mid-file reads as an incomplete answer.
@@ -151,11 +168,17 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                 raise ShareRefused(
                     f"The shared study could not be downloaded from {url}: {why}"
                     + (f", still after {failures} tries" if failures > 1 else "")
-                    + _got(read, size) + ".",
+                    + _got(read, size) + ". Nothing was kept; open it again later.",
                     code="environment.service.unreachable", url=url)
             _again(f"The download from {url} stopped{_got(read, size, 'at')} ({why})",
                    failures, None, said)
     if unwritten is not None:
+        if unwritten.errno in (errno.ENOSPC, errno.EDQUOT):
+            raise ShareRefused(
+                f"The shared study could not be written to {to.parent}: the disk there has "
+                f"no room for it ({unwritten.strerror}){_got(read, size)}. Make room there, "
+                "or open it into another folder with --open-into.",
+                code="environment.share.too_large", path=str(to.parent)) from unwritten
         raise unwritten
     if md5 and digest.hexdigest() != md5:
         raise ShareRefused(
@@ -346,17 +369,18 @@ def open_shared(source: str, *, into: str | Path | None = None,
     ``workspace``); the folder it is in."""
     given = Path(str(source)).expanduser()
     parent = Path(into).expanduser() if into else Path(workspace).expanduser()
-    made = not parent.exists()
+    made = [folder for folder in (parent, *parent.parents) if not folder.exists()]
     parent.mkdir(parents=True, exist_ok=True)
     try:
         return _opened(source, given, parent, most_bytes, said)
     except BaseException:
-        # A folder made only to open this into is not left behind, empty.
-        if made:
+        # Folders made only to open this into are not left behind, empty;
+        # one holding anything (put there meanwhile) is kept.
+        for folder in made:
             try:
-                parent.rmdir()
+                folder.rmdir()
             except OSError:
-                pass
+                break
         raise
 
 

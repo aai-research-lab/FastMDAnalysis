@@ -219,10 +219,14 @@ when it may be asked again) and is at times briefly unable to answer (502,
 come (else after 1, 2, 4 and 8 seconds, never more than a minute), up to
 five times; so is one whose connection was lost or not made, the upload
 included. A request that makes a draft or a new version is asked again
-only after a 429, which Zenodo gives before doing anything. Where the
-answer to making a draft is lost (Zenodo may have made it), your drafts are
-looked at again, and one made since is taken as this one, so a draft is
-never made twice. The new archive is uploaded before the draft's earlier
+only after a 429, which Zenodo gives before doing anything. A new draft is
+asked for under a title of its own (`FastMDXplora: sharing <study>
+(<8 letters>)`, replaced by the study's once it is filled in), kept in
+`shared_to.json` first. Where the answer to making it is lost after Zenodo
+may have made it (a 5xx, a connection cut), your drafts are looked through
+for that title for half a minute, and again at the next share, and the one
+found is taken as this one: a draft is never made twice, and one you made
+is never taken. The new archive is uploaded before the draft's earlier
 one is taken away: a share that Zenodo stops part way keeps the draft as it
 was, says so with its address, and sharing again finishes that draft. An
 archive of 10 MB or more says how much of it has gone at each tenth.
@@ -271,7 +275,8 @@ FastMDXplora:
    that sends the whole file again is read from its start, and a part of
    it from anywhere but where the download stopped is asked for again. A
    piece is counted only once it is written here: a disk that fills says
-   so, and is never taken for a connection lost. A download that has had
+   so (`environment.share.too_large`), and is never taken for a connection
+   lost. A download that has had
    nothing for 30 seconds counts as stalled, and is asked for again from
    where it stopped. A folder made to open into is not left behind when
    the study is refused. An archive of
@@ -462,6 +467,6 @@ The packing list of the demo study, cut to one file of each kind:
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
 | `environment.share.not_a_study` | Opening: an archive that cannot be read or is no zip, no packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. Sharing: a study's record of runs names no run, or a run by a name that is no folder's. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |
-| `environment.share.too_large` | The archive is over the download limit. |
+| `environment.share.too_large` | The archive is over the download limit, or the disk it is opened into has no room for it. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |
 | `environment.service.unreachable` | Zenodo could not be reached, refused the token, or did not answer as it documents, still after five tries where it said to ask again. |
