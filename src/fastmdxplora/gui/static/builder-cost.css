@@ -11,8 +11,10 @@
 }
 
 /* Steps 2 to 5 before a starting point is chosen: there to read, not yet
- * to change. */
-.builder-step.is-waiting .builder-step-body { opacity: .55; }
+ * to change. Read at full contrast: faded to .55, their help and their
+ * defaults fell under 3:1 in both schemes (test_every_scheme_can_be_read).
+ * They are inert, and the line under each step's head says why. */
+.builder-step.is-waiting .builder-step-body { opacity: 1; }
 .builder-step-waiting { margin: -4px 0 12px; font-size: var(--text-xs); }
 
 /* What it costs here: one line a diagnostic, its level, what it is about

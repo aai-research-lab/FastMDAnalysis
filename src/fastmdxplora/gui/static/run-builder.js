@@ -640,7 +640,7 @@
     // point at it.
     wrap.dataset.setting = field.name;
     wrap.dataset.phase = phase;
-    wrap.dataset.find = [field.name, field.label || "", field.summary || "", phase].join(" ").toLowerCase();
+    wrap.dataset.findWords = [field.name, field.label || "", field.summary || "", phase].join(" ").toLowerCase();
     const id = `set-${phase.replace(/_/g, "")}-${field.name}`;
 
     const head = node("div", "builder-head");
@@ -1205,7 +1205,7 @@
     const lengthField = node("div", "builder-field builder-field-wide builder-length");
     lengthField.dataset.setting = "length";
     lengthField.dataset.phase = "simulation";
-    lengthField.dataset.find = "length how long production duration until determined stop";
+    lengthField.dataset.findWords = "length how long production duration until determined stop";
     lengthField.append(labelled("How long it runs"), mode);
     const grid = node("div", "builder-grid");
     grid.appendChild(lengthField);
@@ -1279,7 +1279,7 @@
     const wrap = node("div", "builder-field builder-field-wide builder-replicas");
     wrap.dataset.setting = "replicas";
     wrap.dataset.phase = "simulation";
-    wrap.dataset.find = "replicas seeds random_seed independent runs models ensemble";
+    wrap.dataset.findWords = "replicas seeds random_seed independent runs models ensemble";
     wrap.appendChild(labelled("Replicas"));
     const seedRow = state.sweep.find((row) => row.axis === SEED_AXIS);
     const modelRow = state.sweep.find((row) => row.axis === MODEL_AXIS);
@@ -2053,7 +2053,7 @@
     const row = node("div", "analyse-row builder-field");
     row.dataset.setting = "analysis:" + name;
     row.dataset.phase = "analysis";
-    row.dataset.find = [name, label, explanation.title || "", "analysis"].join(" ").toLowerCase();
+    row.dataset.findWords = [name, label, explanation.title || "", "analysis"].join(" ").toLowerCase();
     row.dataset.chosen = String(state.analyses.has(name));
     if (why) row.classList.add("is-off");
     if (only && state.analyses.has(name)) row.classList.add("is-changed");
@@ -2256,7 +2256,7 @@
     const written = node("div", "builder-field");
     written.dataset.setting = "written-by";
     written.dataset.phase = RUN_OPTIONS_KEY;
-    written.dataset.find = "written by agent ai model provenance";
+    written.dataset.findWords = "written by agent ai model provenance";
     written.appendChild(labelled("Written by"));
     written.appendChild(node("div", "builder-readonly", writtenBy()));
     written.appendChild(node("span", "builder-help",
@@ -2265,7 +2265,7 @@
     const full = node("div", "builder-field");
     full.dataset.setting = "full";
     full.dataset.phase = RUN_OPTIONS_KEY;
-    full.dataset.find = "write every setting full config";
+    full.dataset.findWords = "write every setting full config";
     full.appendChild(labelled("Config"));
     const toggle = node("label", "chip-toggle");
     const box = document.createElement("input");
@@ -3192,8 +3192,8 @@
     root.classList.toggle("is-finding", finding);
     root.classList.toggle("is-only-changed", state.onlyChanged && !finding);
     let found = 0;
-    root.querySelectorAll(".builder-field[data-find]").forEach((wrap) => {
-      const hit = finding && words.every((word) => wrap.dataset.find.includes(word));
+    root.querySelectorAll(".builder-field[data-find-words]").forEach((wrap) => {
+      const hit = finding && words.every((word) => wrap.dataset.findWords.includes(word));
       wrap.classList.toggle("is-found", hit);
       if (hit) found += 1;
     });
