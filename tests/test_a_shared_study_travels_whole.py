@@ -2649,3 +2649,66 @@ def test_several_zips_not_the_study_s_are_said_as_several(tmp_path, unsteady, ca
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert "Delete them there" in capsys.readouterr().err
+
+
+def test_a_new_draft_after_an_earlier_release_s_is_described_whole(tmp_path, unsteady):
+    """Review of the twenty-third commit: a new draft, made once the draft an
+    earlier release shared was deleted, was taken for that release's and
+    given no names, kind or keywords."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    unsteady.gone = {7}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8].get("creators") and unsteady.meta[8].get("upload_type")
+    assert not json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"].get(
+        "by_earlier")
+
+
+def test_an_earlier_release_s_undescribed_draft_is_described_whole(tmp_path, unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7] = {"title": ""}
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7].get("creators") and unsteady.meta[7].get("keywords")
+
+
+def test_a_zip_of_the_person_s_on_an_earlier_release_s_draft_is_refused(tmp_path,
+                                                                         unsteady, capsys):
+    """Review of the twenty-third commit: once a draft an earlier release
+    shared was shared here, a zip of the person's of the next archive's
+    name was uploaded over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.files = [{"id": "s", "filename": "shared.zip"},
+                      {"id": "p", "filename": "b.zip", "checksum": "md5:5"}]
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert "holds b.zip, which this study did not put there" in said
+    assert "earlier release" not in said
+    assert not any(c[0] in ("PUT", "DELETE") and "/files/" in c[1] for c in unsteady.calls)
+
+
+def test_words_the_person_writes_once_an_earlier_release_s_draft_is_shared_stay(
+        tmp_path, unsteady):
+    """Review of the twenty-third commit: a summary the person rewrote on a
+    draft an earlier release shared was written over at every share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    mine = unsteady.meta[7]["description"].replace("<p>", "<p>My own summary. ", 1)
+    unsteady.meta[7]["description"] = mine
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["description"] == mine

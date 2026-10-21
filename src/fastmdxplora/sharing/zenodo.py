@@ -888,13 +888,19 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # its description and title follow the study's.
     # (Marked in shared_to.json at its first share here, so a share that
     # fails part way leaves it so marked.)
+    # (Only the draft that release shared, or a new version of its record:
+    # a new draft made here is this release's own.)
     by_earlier = bool(kept[site].get("by_earlier")) or (
-        bool(earlier.get("id")) and not any(earlier.get(key) for key in (
-            "written", "sending", "asked_as", "archive", "sums", "record_written",
-            "record_sending")))
+        (same or versioned) and bool(earlier.get("id")) and not any(
+            earlier.get(key) for key in (
+                "written", "sending", "asked_as", "archive", "sums", "record_written",
+                "record_sending", "record_archive", "stale", "uploading", "made_as",
+                "record")))
     if by_earlier:
         kept[site]["by_earlier"] = True
-    earlier_release = by_earlier
+    # Until this release names an archive on it, its zip may be that release's.
+    earlier_release = by_earlier and not any(kept[site].get(key) for key in (
+        "archive", "sums", "record_archive", "stale", "uploading"))
     replacing = {name for name in replacing if _its(name)} - {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
@@ -932,7 +938,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     made_as = kept[site].get("made_as") if isinstance(kept[site].get("made_as"), dict) else {}
 
     def _as_earlier_wrote(held: dict[str, Any]) -> bool:
-        return by_earlier and bool(_EARLIER_WROTE.fullmatch(str(held.get("description") or "")))
+        # Until this release has written it: from then on, as any draft.
+        return by_earlier and not last and not sending \
+            and bool(_EARLIER_WROTE.fullmatch(str(held.get("description") or "")))
 
     def _the_study_s(held: dict[str, Any]) -> bool:
         return (bool(last) and _written(held) == last) or _sent(held) in sending \
@@ -1030,9 +1038,11 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             ours_said = _metadata(packed["crate"], authors=authors, license_id=license_id,
                                   system=system, version=version)
             if by_earlier:
-                # Its own words only: the rest stays as the draft holds it.
-                ours_said = {key: ours_said[key] for key in ("title", "description",
-                                                            "version", "prereserve_doi")}
+                # Its own words, and what the draft lacks: the rest stays as the
+                # draft holds it.
+                ours_said = {key: value for key, value in ours_said.items()
+                             if key in ("title", "description", "version", "prereserve_doi")
+                             or not held.get(key)}
             kept[site]["sending"] = [*_sendings(kept[site].get("sending")),
                                      _sent({**inherited, **ours_said})][-_SENDINGS:]
             _keep(study, kept)
