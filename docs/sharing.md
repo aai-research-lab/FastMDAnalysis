@@ -91,7 +91,9 @@ from it to the system (`relative_to_run`) is written as the way in the archive,
 so a run opened elsewhere finds it as it did where it ran. The system is found
 as the run finds it: where its record says relative to the run, so a study
 moved or copied together with its preparation is shared as it is now, then
-where it was, each checked by its content. A run whose system is not found, or
+where it was, each checked by its content; the paths its records give for
+where the system was when the study ran are said as the folder it is carried in
+too. A run whose system is not found, or
 is another one now, keeps the study back (`environment.share.not_finished`,
 naming the run and the system): shared without it, the run would be opened
 with no record of the system it simulated. `system.xml` and the states beside
@@ -113,7 +115,7 @@ carried the same way.
   earlier deposits (`deposit/`), the project bundle, which is a copy of the
   rest, and any file or folder whose name begins with a dot.
 
-Settings of the installation itself, the AI model chosen and any key for it,
+Settings of the installation itself, the model the Agent uses and any key for it,
 live outside the study and are never read.
 
 ### Paths
@@ -133,7 +135,8 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
 - any other path in the home folder replaced by `__FASTMDX_HOME__`
   (`__FASTMDX_HOME__/structures/x.pdb`): a file outside the study, on the
   computer that ran it;
-- the computer's name replaced by `__FASTMDX_HOST__`.
+- the computer's name replaced by `__FASTMDX_HOST__`, and a record's own
+  field for it (`"host"`) whatever the name, a short one (`vm`) included.
 
 The placeholders are safe in YAML, JSON and Markdown alike. Once written, each
 packed text file is read again, and an archive in which the study's folder, the
@@ -241,7 +244,7 @@ with raw HTML shown as text and links only within the study or to the web.
 
 Profile identifier: `https://w3id.org/fastmdxplora/study/1.1`. Version 1.1
 adds a study of several runs and a prepared system carried from outside the
-study (10 and 11 below) to 1.0; an archive of 1.0 keeps 1.1 too. A study of
+study (9 and 10 below) to 1.0; an archive of 1.0 keeps 1.1 too. A study of
 several runs is opened by FastMDXplora 2.6.1 or later: 2.6.0 refuses its
 record of runs.
 
@@ -269,7 +272,7 @@ reader checks, and an archive that breaks one is not opened.
    `ro-crate-preview.html`, where there is one) MUST be a `File` in the root's
    `hasPart`, its `@id` its path in the study, with `contentSize` in bytes and
    `sha256`. No `@id` of a file is absolute, a web address, or holds `..`.
-   The root's `hasPart` may also name `Dataset`s (10 and 11 below).
+   The root's `hasPart` may also name `Dataset`s (9 and 10 below).
    Each also has a `name` (as the Files page labels it), an `encodingFormat`,
    `fmx:phase` (`study`, `setup`, `simulation`, `analysis`, `report` or
    `viewer`) and `fmx:role`, one of:
@@ -310,20 +313,20 @@ reader checks, and an archive that breaks one is not opened.
 
 ### A study of several runs
 
-10. The root lists each run in `fmx:runs`, and each is a `Dataset`, its
-    `@id` its folder (`runs/<id>/`), in the root's `hasPart` too: its `name`,
-    its `hasPart` the files of the run, its `mainEntity` the run's Config
-    (`runs/<id>/resolved_config.yml`), `fmx:system` the system it ran and
-    `mentions` its phases (8). Each file of a run says which in `fmx:run`.
-    The root's `mainEntity` is the study's Config, every run it makes.
-11. A prepared system carried from outside the study is a `Dataset`, its
+9. The root lists each run in `fmx:runs`, and each is a `Dataset`, its
+   `@id` its folder (`runs/<id>/`), in the root's `hasPart` too: its `name`,
+   its `hasPart` the files of the run, its `mainEntity` the run's Config
+   (`runs/<id>/resolved_config.yml`), `fmx:system` the system it ran and
+   `mentions` its phases (8). Each file of a run says which in `fmx:run`.
+   The root's `mainEntity` is the study's Config, every run it makes.
+10. A prepared system carried from outside the study is a `Dataset`, its
     `@id` the folder it is carried in (`prepared/<name>/`), in the root's
     `hasPart`: its `hasPart` its files, each with `fmx:phase` `setup`, and
     `fmx:usedBy` the runs that simulated from it.
 
 ### Reading a newer one
 
-9. A reader opens an archive whose profile has the same MAJOR version as one
+11. A reader opens an archive whose profile has the same MAJOR version as one
    it knows, ignoring terms it does not know; one of a newer MAJOR version is
    refused with the version it needs.
 

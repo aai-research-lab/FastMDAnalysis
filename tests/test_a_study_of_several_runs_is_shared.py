@@ -440,3 +440,179 @@ def test_a_run_still_going_is_named(tmp_path):
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert str(refused.value) == (f"The run b of the study in {root} is still going; share "
                                   "the study once every run has finished.")
+
+
+def _texts_of(out: Path) -> dict[str, str]:
+    with zipfile.ZipFile(out) as archive:
+        return {n: archive.read(n).decode("utf-8") for n in archive.namelist()
+                if n.endswith((".json", ".yml", ".md", ".sdf")) and n != METADATA}
+
+
+def test_a_study_moved_with_its_preparation_keeps_no_path_of_where_it_ran(tmp_path):
+    """Review of round 2: moved together after it ran, its records still
+    named the folders of the computer it ran on, and its Config named a
+    folder that was no longer there."""
+    import shutil
+
+    ran = tmp_path / "cluster" / "scratch" / "kunle" / "job7"
+    ran.mkdir(parents=True)
+    root, elsewhere = _campaign(ran)
+    here = tmp_path / "fetched"
+    shutil.move(str(ran), here)
+    out = tmp_path / "o.zip"
+    share_study(here / "campaign", out, authors=AUTHORS)
+    texts = _texts_of(out)
+    for name, text in texts.items():
+        assert str(ran) not in text, name
+    opened = open_shared(str(out), into=tmp_path / "x")
+    config = (opened / "runs" / "a" / "resolved_config.yml").read_text(encoding="utf-8")
+    assert f"setup_from: {opened.resolve()}/prepared/preparation" in config
+
+
+@pytest.mark.parametrize("where", ["a run's folder not in the record", "a dot folder",
+                                   "a link"])
+def test_a_system_inside_the_study_the_archive_cannot_carry_is_refused(tmp_path, where):
+    """Review of round 2: a run's system inside the study but in a folder the
+    archive leaves out (or kept as a link) was dropped, and the run opened
+    with none."""
+    root = tmp_path / "campaign"
+    folder = {"a run's folder not in the record": root / "runs" / "old" / "setup",
+              "a dot folder": root / ".prep" / "setup", "a link": root / "linked"}[where]
+    if where == "a link":
+        real = _prepared(tmp_path / "kept")
+        folder.mkdir(parents=True)
+        for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
+            (folder / name).symlink_to(real / name)
+    else:
+        _prepared(folder)
+    _run(root, "a", folder, str(folder))
+    _of_one_run(root)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.refusal.code == "environment.share.not_finished"
+    assert "cannot go in the archive" in str(refused.value)
+    assert not (tmp_path / "o.zip").exists()
+
+
+def test_a_home_reached_through_a_link_is_said_as_home(tmp_path, monkeypatch):
+    """Review of round 2: only the home folder's path as named was said as
+    home, not where a link to it leads, which records written from there
+    give."""
+    real_home = tmp_path / "gpfs" / "u7x3q"
+    real_home.mkdir(parents=True)
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "rosalind").symlink_to(real_home)
+    monkeypatch.setenv("HOME", str(tmp_path / "home" / "rosalind"))
+    prep = _prepared(real_home / "prep" / "setup").parent
+    (prep / "setup" / "setup_parameters.json").write_text(json.dumps({
+        "structure": f"{real_home}/structures/x.pdb"}), encoding="utf-8")
+    root = tmp_path / "scratch" / "campaign"
+    root.mkdir(parents=True)
+    _run(root, "a", prep / "setup", str(prep))
+    _of_one_run(root)
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert not any("u7x3q" in text for text in texts.values())
+    assert "__FASTMDX_HOME__/structures/x.pdb" in \
+        texts["prepared/prep/setup/setup_parameters.json"]
+
+
+def test_a_preparation_named_through_a_link_is_said_as_carried(tmp_path):
+    """Review of round 2: a path under a preparation named through a link
+    was left as written."""
+    real = _prepared(tmp_path / "realprep" / "setup").parent
+    (tmp_path / "linkprep").symlink_to(real)
+    root = tmp_path / "campaign"
+    run = _run(root, "a", real / "setup", str(tmp_path / "linkprep"))
+    with (run / "resolved_config.yml").open("a", encoding="utf-8") as config:
+        config.write(f"report:\n  structure: {tmp_path}/linkprep/setup/topology.pdb\n")
+    _of_one_run(root)
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    config = _texts_of(out)["runs/a/resolved_config.yml"]
+    assert str(tmp_path) not in config
+    assert f"structure: {STUDY}/prepared/realprep/setup/topology.pdb" in config
+
+
+def test_one_study_s_two_systems_are_carried_in_one_folder(tmp_path):
+    """Review of round 2: a study holding two systems the runs used was
+    carried twice, and its name said as one of them only."""
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    other = tmp_path / "other"
+    _prepared(other / "setup")
+    _prepared(other / "shared_setup" / "setup")
+    root = tmp_path / "campaign"
+    _run(root, "a", other / "shared_setup" / "setup", str(other))
+    _run(root, "c", other / "setup", str(other / "setup"))
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = [{"run_id": "a"}, {"run_id": "c"}]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    names = set(zipfile.ZipFile(out).namelist())
+    assert {"prepared/other/setup/system.xml",
+            "prepared/other/shared_setup/setup/system.xml"} <= names
+    assert not any(n.startswith("prepared/other-2") for n in names)
+    texts = _texts_of(out)
+    assert f"setup_from: {STUDY}/prepared/other\n" in texts["runs/a/resolved_config.yml"]
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "a") == \
+        (opened / "prepared" / "other" / "shared_setup" / "setup").resolve()
+    assert setup_records_of(opened / "runs" / "c") == \
+        (opened / "prepared" / "other" / "setup").resolve()
+
+
+def test_every_computer_s_name_its_records_give_is_said_as_one(tmp_path):
+    """Review of round 2: an umbrella's pull run on another node kept its
+    name, and a name too short to be told from a word (`vm`) kept in a
+    record's own field for it."""
+    root, _ = _campaign(tmp_path)
+    (root / "seed_pull").mkdir()
+    (root / "seed_pull" / "manifest.json").write_text(json.dumps({"phases": [
+        {"name": "simulation", "status": "ok", "produced_by": {"host": "pullnode9"}}]}))
+    (root / "seed_pull" / "pull.log").write_text("pulled on pullnode9\n")
+    (root / "runs" / "a" / "simulation" / "live_status.json").write_text(
+        json.dumps({"status": "completed", "host": "vm"}))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    with zipfile.ZipFile(out) as archive:
+        assert b"pullnode9" not in archive.read("seed_pull/manifest.json")
+    live = json.loads(_texts_of(out)["runs/a/simulation/live_status.json"])
+    assert live["host"] == "__FASTMDX_HOST__"
+
+
+def test_a_run_never_started_or_failed_is_said_with_the_command(tmp_path):
+    """Review of round 2: the remedy gave `fastmdx resume` with no folder."""
+    import shutil
+
+    root, _ = _campaign(tmp_path)
+    shutil.rmtree(root / "runs" / "c")
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value) == (f"The run c of the study in {root} never ran; run it with "
+                                  f"`fastmdx resume {root}`, then share the study.")
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = batch["planned"][:2]
+    batch["runs"][1]["status"] = "error"
+    batch["runs"] = batch["runs"]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value) == (f"The run b of the study in {root} ended with an error; "
+                                  "share the study once every run has finished, after "
+                                  f"`fastmdx resume {root}`.")
+    batch["runs"] = 5
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    share_study(root, tmp_path / "p.zip", authors=AUTHORS)  # read without results
+
+
+def test_a_study_of_one_run_is_said_so(tmp_path):
+    root = tmp_path / "campaign"
+    _run(root, "a", _prepared(root / "shared_setup" / "setup"),
+         str(root / "shared_setup" / "setup"))
+    _of_one_run(root)
+    said = share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert _by_id(said["crate"])["./"]["name"].endswith("in one run")
