@@ -275,6 +275,11 @@ def archive_of(site: str, record: str,
                               code="environment.service.unreachable")
         unread.later = True
         raise unread
+    if not found.get("id") and not found.get("files"):
+        unread = ShareRefused(f"Zenodo's answer for record {record} was no record.",
+                              code="environment.service.unreachable")
+        unread.later = True
+        raise unread
     entries = found.get("files") or []
     if isinstance(entries, dict):
         entries = entries.get("entries") or []
@@ -937,10 +942,18 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     sending = _sendings(kept[site].get("sending"))
     made_as = kept[site].get("made_as") if isinstance(kept[site].get("made_as"), dict) else {}
 
+    # (The summary that release wrote is not known: a description of its form
+    # whose summary is the study's own now, or none, is the study's; one whose
+    # summary differs may be the person's, and is kept.)
+    summary_now = _metadata(packed["crate"], authors=authors, license_id=license_id,
+                            system=system, version=version)["description"].split("</p>")[0]
+
     def _as_earlier_wrote(held: dict[str, Any]) -> bool:
         # Until this release has written it: from then on, as any draft.
-        return by_earlier and not last and not sending \
-            and bool(_EARLIER_WROTE.fullmatch(str(held.get("description") or "")))
+        said_there = str(held.get("description") or "")
+        return by_earlier and not last and not sending and (
+            not said_there or (bool(_EARLIER_WROTE.fullmatch(said_there))
+                               and said_there.split("</p>")[0] == summary_now))
 
     def _the_study_s(held: dict[str, Any]) -> bool:
         return (bool(last) and _written(held) == last) or _sent(held) in sending \
@@ -1038,11 +1051,19 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             ours_said = _metadata(packed["crate"], authors=authors, license_id=license_id,
                                   system=system, version=version)
             if by_earlier:
-                # Its own words, and what the draft lacks: the rest stays as the
-                # draft holds it.
-                ours_said = {key: value for key, value in ours_said.items()
-                             if key in ("title", "description", "version", "prereserve_doi")
-                             or not held.get(key)}
+                # Its description, and what the draft lacks: the rest (its
+                # title, names, keywords, licence, access) stays as it holds it.
+                wanted = {key: value for key, value in ours_said.items()
+                          if key in ("description", "version", "prereserve_doi")
+                          or not held.get(key)}
+                if said and any(held.get(key) and _described({key: held.get(key)})
+                                != _described({key: ours_said.get(key)})
+                                for key in ("creators", "license", "keywords", "title")):
+                    said(f"The draft {page} was shared by an earlier release of "
+                         "FastMDXplora, which kept no account of what it wrote: its title, "
+                         "creators, keywords and licence are kept as it holds them. Change "
+                         "them there if they are to be the ones given here.")
+                ours_said = wanted
             kept[site]["sending"] = [*_sendings(kept[site].get("sending")),
                                      _sent({**inherited, **ours_said})][-_SENDINGS:]
             _keep(study, kept)
@@ -1058,7 +1079,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             if str(held.get("version") or "") != str(version):
                 _call("PUT", f"{depositions}/{identifier}", token=token,
                       body={"metadata": {**inherited, "version": str(version)}}, said=said)
-            if said and not held.get("description"):
+            if said and by_earlier and not last and not sending:
+                said(f"The draft {page} was shared by an earlier release of FastMDXplora, "
+                     "which kept no account of what it wrote: its description is not the "
+                     "study's summary now, and may be yours, so it is kept as it is. To have "
+                     "the study write it, clear the description there and share again.")
+            elif said and not held.get("description"):
                 said(f"The draft {page} was changed there before this study described it: "
                      "it is kept as it is, with no description, and only the archive is "
                      "new. Describe it there before you publish.")
@@ -1158,11 +1184,13 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                 said(f"The draft {earlier['id']} of a new version is gone from {site}; "
                      f"beginning a new version again, from the latest version of record "
                      f"{published}.")
-        if found is not _GONE and not isinstance(found, dict):
-            raise ShareRefused(
+        if found is not _GONE and (not isinstance(found, dict) or not found.get("id")):
+            odd = ShareRefused(
                 f"Zenodo's answer for the draft or record {earlier['id']} this study was "
                 "shared as is no draft or record; nothing was made. Share again later.",
                 code="environment.service.unusable_response")
+            odd.whole = True
+            raise odd
         if not isinstance(found, dict):
             if said:
                 said(f"The draft or record {earlier['id']} this study was shared as is gone "
@@ -1174,6 +1202,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             out["deposition"] = found
             return out
     except ShareRefused as exc:
+        if getattr(exc, "whole", False):
+            raise
         again = "; share again once Zenodo answers." if getattr(exc, "later", False) else "."
         raise ShareRefused(f"{exc} The draft or record {earlier['id']} the study was shared "
                            f"as is as it was{again}", code=exc.refusal.code) from exc

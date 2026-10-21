@@ -2456,6 +2456,11 @@ def test_a_record_shared_by_an_earlier_release_is_described_again(tmp_path, unst
     (study / "shared_to.json").write_text(json.dumps(
         {"zenodo-sandbox": {"id": "7", "version": "1", "doi": "10.5072/zenodo.7"}}))
     _analysed_again(study, "Words of the next share.")
+    # Its summary not the study's now, which may be the person's: kept, and
+    # said; cleared there, the study's.
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next share." not in unsteady.meta[7]["description"]
+    unsteady.meta[7]["description"] = ""
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert "Words of the next share." in unsteady.meta[7]["description"]
 
@@ -2590,6 +2595,7 @@ def test_an_earlier_release_s_draft_is_described_after_a_share_that_failed(tmp_p
     unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     unsteady.faults = {}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     _analysed_again(study, "Words of the next share.")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert "Words of the next share." in unsteady.meta[7]["description"]
@@ -2616,6 +2622,7 @@ def test_an_earlier_release_s_draft_keeps_its_names_and_is_described(tmp_path, u
     _as_2_6_0_kept_it(study)
     names = [{"name": "Aina, Adekunle"}, {"name": "Other, Author"}]
     unsteady.meta[7]["creators"] = names
+    unsteady.meta[7]["description"] = ""
     _analysed_again(study, "Words of the next share.")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert "Words of the next share." in unsteady.meta[7]["description"]
@@ -2712,3 +2719,73 @@ def test_words_the_person_writes_once_an_earlier_release_s_draft_is_shared_stay(
     unsteady.meta[7]["description"] = mine
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert unsteady.meta[7]["description"] == mine
+
+
+def test_a_summary_the_person_rewrote_on_an_earlier_release_s_draft_stays(tmp_path,
+                                                                          unsteady, capsys):
+    """Hands-on review of the twenty-third commit: a summary sentence the
+    person rewrote on a draft 2.6.0 shared, in its form, was written over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    mine = unsteady.meta[7]["description"].replace("<p>", "<p>Corrected: ", 1)
+    unsteady.meta[7].update(description=mine, title="My own title")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["description"] == mine
+    assert unsteady.meta[7]["title"] == "My own title"
+    assert "clear the description there and share again" in capsys.readouterr().out
+
+
+def test_opening_into_new_folders_on_a_full_disk_is_said(tmp_path, monkeypatch):
+    import errno
+
+    from fastmdxplora.sharing import opening
+
+    real = Path.mkdir
+
+    def full(self, *args, **kwargs):
+        if "deeper" in str(self):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", full)
+    with pytest.raises(ShareRefused) as refused:
+        opening.open_shared(str(tmp_path / "x.zip"), into=tmp_path / "new" / "deeper")
+    assert refused.value.refusal.code == "environment.share.too_large"
+    assert not (tmp_path / "new").exists()
+
+
+def test_an_answer_for_the_study_s_draft_naming_none_is_said_once(tmp_path, unsteady,
+                                                                  monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = zenodo._call
+
+    def odd(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/deposit/depositions/7"):
+            return {"unexpected": True}
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", odd)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "is no draft or record" in said and "making the draft" not in said
+    assert said.count("as it was") == 0
+
+
+def test_a_record_answer_that_is_no_record_says_to_open_again(tmp_path, unsteady,
+                                                             monkeypatch):
+    real = zenodo._call
+
+    def odd(method, url, **kwargs):
+        if url.endswith("/api/records/7"):
+            return {"unexpected": True}
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", odd)
+    with pytest.raises(ShareRefused) as refused:
+        open_shared("10.5072/zenodo.7", workspace=tmp_path / "w")
+    assert "open it again later" in str(refused.value)

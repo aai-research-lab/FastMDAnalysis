@@ -411,7 +411,17 @@ def open_shared(source: str, *, into: str | Path | None = None,
     given = Path(str(source)).expanduser()
     parent = Path(into).expanduser() if into else Path(workspace).expanduser()
     made = [folder for folder in (parent, *parent.parents) if not folder.exists()]
-    parent.mkdir(parents=True, exist_ok=True)
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        if exc.errno not in _NO_ROOM:
+            raise
+        for folder in made:
+            if folder.exists():
+                shutil.rmtree(folder, ignore_errors=True)
+                break
+        raise ShareRefused(_no_room(parent, exc), code="environment.share.too_large",
+                           path=str(parent)) from exc
     try:
         try:
             return _opened(source, given, parent, most_bytes, said)
