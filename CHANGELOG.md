@@ -187,6 +187,48 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   slides and the GUI name it. A study prepared before keeps its recorded
   `force_field` list, and so its TIP3P, when it is run again.
 
+- An analysis handed a trajectory with molecules split across the box makes
+  them whole first, as the loader does, and says so: given straight from
+  `md.load`, a rigid body wrapped atom by atom read an RMSD of 2.7 nm. The
+  loader measures once that what it hands on is whole, so the analyses need
+  not, and makes a box of solvent alone whole too (MDTraj found no anchor
+  in one and left it split).
+- `rdf` and `coordination_number` stop at half the cell's shortest lattice
+  vector, not half its shortest edge (the same for the boxes setup builds;
+  past it in a squashed cell an ideal gas read g = 0.74), and the
+  centre-of-mass minimum image searches two cells out (it was 0.115 nm long
+  in such a cell).
+- `rdf`'s first peak and `coordination_number`'s `cutoff: rdf` are judged
+  against the scatter of g(r)'s own counts in each bin (each distinct pair
+  once, the larger of the counting noise and the spread over frames, widened
+  by the frames' correlation), at a bar set by how many bins are searched:
+  `rdf` reported a first peak on 15 ideal gases out of 15, and an FCC
+  crystal's first shell was refused. The cutoff is the first dip clear below
+  bulk that the curve climbs back out of to bulk, on g(r) smoothed over
+  0.035 nm, rather than the lowest point anywhere after the peak. Where the
+  trough is level, as the gap between a crystal's shells is, its middle is
+  taken (FCC reads 12 and rock salt 6 at thermal spreads of 0.002 to 0.01
+  nm). It is refused where there is no trough, where the minimum is not
+  located to within 0.1 nm and the count changes across that, where the two
+  halves of the run put it outside the stretch the whole run allows, and
+  where neither half finds one: O-O in 1 M NaCl (read before at 0.383 nm,
+  the second half of the run giving 0.349) is refused at every length of
+  run. The stretch the minimum could lie in, the count across it and the
+  cutoff from each half of the run are recorded and said. A gas moving 0.002
+  to 0.01 nm a frame over 50 frames is correlated beyond what the run can
+  show, and is still accepted now and then (4 of 640). More frames are
+  needed to resolve a minimum than before: TIP3P O-O reads at 60 frames of a
+  564-water box and not from its first 30.
+- `rdf` refuses a `bin_width` or `r_max` that is not a positive distance, a
+  range under one bin, and a frame whose cell is empty or not a number, as
+  `coordination_number` now does with an explicit cutoff too.
+- Wording and records: the H-bond criteria's defaults and citations
+  (`hbonds`' occupancy threshold; the 3.5 A rule no longer credited to
+  McDonald and Thornton, whose HBPLUS limits are wider), DSSP's loop letter, the omega
+  column's residue, the native frame of the Q value, `dimred`'s MDS and
+  `cluster`'s embedding, a united-atom lipid's refusal, the thermodynamics
+  ensemble without a volume column, `start` on the trajectory's clock, how
+  the RMSF is fitted, and the GUI page's count of analysis options.
 - `bfactor_comparison` and `ligand_rmsf` leave out the equilibration, as
   `rmsf` does (`start`, `equilibrated` by default, recorded under
   `findings.frames`, said on the figures). The B-factor comparison read every

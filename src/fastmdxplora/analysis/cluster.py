@@ -8,9 +8,12 @@ supported:
   - **hierarchical** (agglomerative, average linkage by default)
   - **dbscan** (density-based, no pre-specified cluster count)
 
-All methods operate on the pairwise RMSD distance matrix (computed via
-MDTraj's QCP algorithm), which is the standard featurization for
-conformational clustering. Outputs per method:
+With ``features="rmsd"`` (the default) the methods work from the pairwise
+RMSD matrix (MDTraj's QCP algorithm), the standard featurization for
+conformational clustering: hierarchical and DBSCAN on the matrix itself,
+k-means and Ward linkage on a classical MDS embedding of it, which they
+need a Euclidean space for. With ``features="coordinates"`` they work on
+the superposed Cartesian coordinates. Outputs per method:
 
   - ``cluster_<method>.dat``: per-frame integer cluster labels, by the
     frame of the trajectory given.
@@ -40,7 +43,6 @@ base class's :meth:`save_data` and :meth:`_do_plot` methods.
 
 References
 ----------
-Daura, X. et al. *J. Mol. Graph. Model.* **1999**, 18, 122 (RMSD-based MD clustering).
 Lloyd, S. *IEEE Trans. Inf. Theory* **1982**, 28, 129 (k-means).
 """
 

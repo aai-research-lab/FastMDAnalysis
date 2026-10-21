@@ -346,7 +346,9 @@ against another tool.
   one's mean after equilibration is recorded in `options.json` under its name.
 
 - **Molecules are made whole when a trajectory is loaded**, and put in one
-  periodic copy. The protein and nucleic chains are kept together, and every
+  periodic copy; an analysis given a trajectory some other way (straight from
+  `md.load`, or edited after loading) measures its bonds and makes a split
+  one whole on a copy first, and says so. The protein and nucleic chains are kept together, and every
   other solute molecule (a ligand, an ion) is moved to the copy whose centre
   is nearest theirs, searched exactly for any box shape. So a radius of
   gyration, SASA or RMSD of a selection that includes a ligand which has left
@@ -406,7 +408,8 @@ against another tool.
   both phi and psi, and a histogram of each angle otherwise; the angles
   chosen are written to `options.json`.
 
-- **g(r)** stops at half the smallest box dimension. Past that the
+- **g(r)** stops at half the cell's shortest lattice vector (for the boxes
+  setup builds, half the smallest box dimension). Past that the
   minimum-image convention supplies only part of each shell, so the curve falls
   away for a reason belonging to the box rather than the liquid — and it falls
   smoothly enough to read as structure.

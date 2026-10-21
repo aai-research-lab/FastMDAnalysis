@@ -124,6 +124,10 @@ class RMSF(Analysis):
         from fastmdxplora.analysis.starting_frame import start_as_given
 
         self.start: float | str | None = start_as_given(start)
+        # Fitted once, onto frame `ref`, as `gmx rmsf` and cpptraj do by
+        # default, not iteratively onto the average structure (which reads
+        # about 1% lower on a flexible selection).
+        self.options["fit"] = "each frame onto frame ref, once, on the selected atoms"
         self.options.update(ref=self.ref, per_residue=self.per_residue,
                             start=self.start if self.start is not None else 0)
         if self.per_residue:
