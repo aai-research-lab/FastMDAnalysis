@@ -305,3 +305,49 @@ def test_no_rule_is_left_for_the_offer_beside_the_pointer():
 
     css = (Path(server.__file__).parent / "static" / "dashboard.css").read_text(encoding="utf-8")
     assert "studies-compare-bar" not in css
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_the_bar_leaves_the_last_row_in_view(tmp_path, width):
+    """The bar was drawn up into the list from under it, over its last
+    row, wherever the list ended in view. It has room of its own under the
+    last row (on a phone, the page room under the bar across its foot)."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    for k, name in enumerate(("alpha", "beta", "gamma")):
+        _study(tmp_path / name, means={"rmsd": (0.1 + 0.01 * k, 0.004)},
+               started=f"2026-09-0{k + 1}T10:00:00+00:00")
+    session = start_dashboard_session(output=str(tmp_path / "alpha"), host="127.0.0.1", port=0)
+    look = """() => {
+        const rows = [...document.querySelectorAll('#studies-table tbody tr.studies-row')];
+        const last = rows[rows.length - 1].getBoundingClientRect();
+        const bar = document.getElementById('studies-bar-in').getBoundingClientRect();
+        return {lastBottom: last.bottom, barTop: bar.top, barBottom: bar.bottom, height: innerHeight};
+    }"""
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": width, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            page.locator("#studies-table tbody tr.studies-row .studies-pick input").first.click()
+            page.wait_for_selector("#studies-bar-in:not([hidden])")
+            # As far down as the page goes.
+            page.evaluate("""() => { document.querySelectorAll('.main, html')
+                .forEach((n) => { n.scrollTop = n.scrollHeight; }); }""")
+            page.wait_for_timeout(300)
+            seen = page.evaluate(look)
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert seen["lastBottom"] <= seen["barTop"] + 1, seen
+    assert seen["barBottom"] <= seen["height"] + 1, seen

@@ -202,13 +202,13 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-table-wrap.is-lines .studies-table tr.studies-child-wait td { display: block; }
 
 /* The studies chosen: one bar at the foot of the list while any is
-   (studies.js drawBar), kept clear of the rows by the room left under
-   them; Tag for many opens above it. */
+   (studies.js drawBar), in room of its own under the last row, and kept
+   in view at the window's foot while the list runs past it; Tag for many
+   opens above it. Drawn up into the list, it covered the last row. */
 .studies-bar { position: sticky; bottom: 18px; z-index: 25; display: flex; justify-content: center;
-    align-items: flex-start; height: 0; margin-top: 14px; pointer-events: none; }
+    align-items: flex-start; margin-top: 14px; pointer-events: none; }
 .studies-bar[hidden] { display: none; }
-.page[data-page="studies"]:has(.studies-bar:not([hidden])) .studies-keys { margin-bottom: 64px; }
-.studies-bar-in { pointer-events: auto; transform: translateY(-100%); display: flex; align-items: center; gap: 2px;
+.studies-bar-in { pointer-events: auto; display: flex; align-items: center; gap: 2px;
     padding: 5px 6px 5px 12px; border-radius: 12px; border: 1px solid var(--border-primary);
     background: var(--background-elevated); color: var(--text-primary); font-size: var(--text-sm);
     box-shadow: 0 10px 30px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .08); }
@@ -231,7 +231,7 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-table .studies-pick input { cursor: pointer; }
 
 /* Tag for many. */
-.studies-tagger { position: absolute; bottom: calc(100% + 64px); width: 300px; padding: 12px; box-sizing: border-box;
+.studies-tagger { position: absolute; bottom: calc(100% + 10px); width: 300px; padding: 12px; box-sizing: border-box;
     border-radius: 12px; border: 1px solid var(--border-primary); background: var(--background-elevated);
     box-shadow: 0 14px 36px rgba(0, 0, 0, .2); font-size: var(--text-sm); pointer-events: auto; }
 .studies-tagger-head { font-weight: 600; margin-bottom: 8px; }
