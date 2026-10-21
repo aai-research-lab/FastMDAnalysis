@@ -398,15 +398,19 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
     if not newest:
         # An answer naming no version: the latest is not known, and a new
         # version begun from another would be counted wrong.
-        raise ShareRefused(f"Zenodo's answer for {link} named no record.",
-                           code="environment.service.unreachable")
+        unnamed = ShareRefused(f"Zenodo's answer for {link} named no record.",
+                               code="environment.service.unreachable")
+        unnamed.later = True
+        raise unnamed
     if newest == str(found.get("id")):
         return found
     deposition = _call("GET", f"{depositions}/{newest}", token=token, missing_ok=True,
                        said=said)
     if not isinstance(deposition, dict):
-        raise ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no record.",
-                           code="environment.service.unreachable")
+        unread = ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no "
+                              "record.", code="environment.service.unreachable")
+        unread.later = True
+        raise unread
     return deposition
 
 
@@ -492,8 +496,22 @@ def _md5(checksum: Any) -> str:
     return str(checksum or "").rsplit(":", 1)[-1].lower()
 
 
-def _sums_kept(kept: Any) -> dict[str, str]:
-    return {str(k): _md5(v) for k, v in kept.items() if v} if isinstance(kept, dict) else {}
+def _sums_kept(kept: Any) -> dict[str, list[str]]:
+    """Each archive name's checksums as kept (one, or several), as hex."""
+    if not isinstance(kept, dict):
+        return {}
+    return {str(name): list(dict.fromkeys(_md5(v) for v in (sums if isinstance(sums, list)
+                                                            else [sums]) if v))
+            for name, sums in kept.items() if sums}
+
+
+def _known(*kept: Any) -> dict[str, list[str]]:
+    """Every checksum known for each name, from each of ``kept``."""
+    known: dict[str, list[str]] = {}
+    for one in kept:
+        for name, sums in _sums_kept(one).items():
+            known[name] = list(dict.fromkeys([*known.get(name, []), *sums]))
+    return known
 
 
 def _md5_of(path: Path) -> str:
@@ -714,7 +732,19 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         made_with = deposition.get("metadata") if isinstance(deposition.get("metadata"),
                                                              dict) else {}
         if answered:
-            kept[site]["written"] = _written(made_with)
+            # Read back at once: Zenodo's answer to making a draft may leave
+            # out what it gives it (its licence, its access).
+            try:
+                seen = _call("GET", f"{depositions}/{identifier}", token=token, said=said,
+                             missing_ok=True)
+            except ShareRefused:
+                seen = None
+            if isinstance(seen, dict) and isinstance(seen.get("metadata"), dict):
+                deposition, made_with = seen, seen["metadata"]
+                kept[site]["written"] = _written(made_with)
+            else:
+                # Not seen as made: told as a draft found by its title is.
+                answered = False
         if answered or (str(made_with.get("title") or "") == title
                         and not any(made_with.get(key) for key in _SOMEONE_S)):
             # As Zenodo made it: seen in its answer, or found by its title
@@ -804,11 +834,13 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # What each archive of the study's holds, where known (as uploaded, or as
     # the record holds it): one of its name holding anything else is not the
     # study's, but put there by the person.
-    known = {**_sums_kept(kept[site].get("sums")), **_sums_kept(kept[site].get("record_sums"))}
+    # (Each name may have been uploaded with several: the one the draft holds
+    # is the study's if it is any of them.)
+    known = _known(kept[site].get("sums"), kept[site].get("record_sums"))
     held_sums = {name: _md5(checksum) for name, checksum in _contents(deposition)}
 
     def _its(name: str) -> bool:
-        return not known.get(name) or not held_sums.get(name) or known[name] == held_sums[name]
+        return not known.get(name) or not held_sums.get(name) or held_sums[name] in known[name]
 
     replacing = {name for name in replacing if _its(name)} - {archive.name}
     stale = [entry for entry in earlier_files
@@ -858,8 +890,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         # The new archive first: one of the same name is replaced by it, and
         # the draft keeps the one it had until the new one is there.
         kept[site]["uploading"] = archive.name
-        kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
-                              archive.name: _md5_of(archive)}
+        sent_sums = _sums_kept(kept[site].get("sums"))
+        sent_sums[archive.name] = [*sent_sums.get(archive.name, []), _md5_of(archive)][-10:]
+        kept[site]["sums"] = sent_sums
         _keep(study, kept)
         _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
               upload=archive, said=said)

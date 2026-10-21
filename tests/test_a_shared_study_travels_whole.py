@@ -2232,3 +2232,75 @@ def test_the_listing_a_share_decides_on_may_take_its_time(monkeypatch):
     zenodo._concept_drafts("http://z/api/deposit/depositions", "t",
                            {"conceptrecid": "c7", "id": 7}, None)
     assert [k.get("timeout") for k in asked] == [None, None]
+
+
+def _md5_of(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()  # noqa: S324
+
+
+def test_a_new_version_shared_again_holds_its_own_upload_as_the_study_s(tmp_path,
+                                                                       unsteady):
+    """Review of the eighteenth commit: a new version shared again before it
+    was published took the archive the study had just put there, of the
+    record's name, for the person's."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    out = tmp_path / "shared.zip"
+    assert _share_to_zenodo(study, out) == 0
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "s", "filename": "shared.zip",
+                              "checksum": _md5_of(out)}] for n in (7, 8)}
+    _analysed_again(study, "Words of version two.")
+    assert _share_to_zenodo(study, out) == 0
+    unsteady.files_of[8] = [{"id": "s2", "filename": "shared.zip", "checksum": _md5_of(out)}]
+    report = study / "report" / "report.md"
+    report.write_text(report.read_text().replace("Words of version two.", "Words again."))
+    assert _share_to_zenodo(study, out) == 0
+
+
+def test_an_archive_kept_after_an_upload_failed_is_still_the_study_s(tmp_path, unsteady):
+    """Review of the eighteenth commit: an upload that failed under the same
+    name left the archive the study had put there before taken for the
+    person's at every later share."""
+    study = _study(tmp_path / "study")
+    out = tmp_path / "shared.zip"
+    assert _share_to_zenodo(study, out) == 0
+    unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": _md5_of(out)}]
+    _analysed_again(study, "Words of the second share.")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, out) == 2
+    unsteady.faults = {}
+    assert _share_to_zenodo(study, out) == 0
+
+
+def test_a_draft_given_zenodo_s_defaults_after_its_answer_is_described(tmp_path, unsteady,
+                                                                       monkeypatch):
+    """Review of the eighteenth commit: a draft Zenodo gave its documented
+    licence only after its answer to making it was taken for the person's,
+    and never described."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def defaults(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "POST" and url.endswith("/api/deposit/depositions"):
+            unsteady.meta[7].update(license="cc-by", access_right="open")
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", defaults)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["title"] == "The 1ABC study"
+    assert unsteady.meta[7]["description"]
+
+
+def test_an_empty_answer_for_the_latest_version_says_to_share_again(tmp_path, unsteady,
+                                                                    monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "10"}, "files": []}
+    _empty_answer_to(monkeypatch, "GET", "/api/records/latest", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "share again once Zenodo answers" in capsys.readouterr().err
