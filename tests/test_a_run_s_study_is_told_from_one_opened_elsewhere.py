@@ -1223,6 +1223,41 @@ def test_a_read_of_another_study_asked_before_the_answer_leaves_the_run_this_win
     assert errors == []
 
 
+def test_an_unreadable_answer_takes_the_run_s_study_seen_last_as_its_own(tmp_path, monkeypatch):
+    """L5 4: Run pressed; another window opens `other`, which the page sees;
+    the run starts (the GUI goes to run1, which the page sees) and its answer
+    cannot be read. `other` is said as opened elsewhere; run1 is not."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=0.0)
+    runs = []
+    page, errors, close = _page_on(session, [dict(_CONFIG)])
+    try:
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        _events(page)
+        page.route("**/api/agent/run", lambda route: runs.append(route))
+        page.click(_RUN)
+        while not runs:
+            page.wait_for_timeout(50)
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        runs[0].fetch()
+        _shows(page, study_key(workspace / "run1"))
+        runs[0].fulfill(status=502, content_type="text/html", body="<h1>Bad gateway</h1>")
+        page.wait_for_selector("text=I could not read the software's answer", timeout=30000)
+        page.wait_for_timeout(2000)
+        said = page.evaluate("() => window.__else")
+    finally:
+        close()
+        session.server.shutdown()
+    assert made
+    assert said == [study_key(other)], said
+    assert errors == []
+
+
 def test_a_config_builder_launch_takes_only_its_run_s_study_as_its_own(browser, site,  # noqa: F811
                                                                          monkeypatch):
     """L1 4 and L2 M2: the Config Builder's Start pressed, another window

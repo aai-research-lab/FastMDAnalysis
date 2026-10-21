@@ -1186,7 +1186,13 @@
     if (typeof key === "string" && /^[0-9a-f]{16}$/.test(key)) {
       state.ownStudies.push({key, until: Date.now() + 60000});
     } else if (key === null) {
-      state.ownChangeUntil = Date.now() + 60000;
+      // Not read: the GUI goes to the run's study last before it answers,
+      // so the last change seen meanwhile, still shown, is the run's; with
+      // none seen, the next change is (CI-774 review L5).
+      const seen = state.changesSeenLaunching;
+      const last = seen.length ? seen[seen.length - 1] : null;
+      if (last && last.to === state.studyShown) seen.pop();
+      else state.ownChangeUntil = Date.now() + 60000;
     }
     if (state.launchesAsked > 0) return;
     // Counted in polls asked, not in milliseconds: the read asked just
