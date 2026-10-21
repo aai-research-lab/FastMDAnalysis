@@ -181,6 +181,7 @@ def test_the_page_tags_a_card_and_filters_by_a_tag(workspace):
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
             page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
             page.wait_for_selector(".study-card")
             offered = page.eval_on_selector_all("#studies-tags-used option",
@@ -224,3 +225,61 @@ def test_the_page_tags_a_card_and_filters_by_a_tag(workspace):
                                                 "note": "the wild type, 300 K"}
     assert narrowed == ["mutant", "wild_type"] and said == "Tagged ubiquitin"
     assert every == 3 and searched == 1
+
+
+def test_a_list_read_before_tags_were_kept_does_not_undo_them(workspace):
+    """All studies is read again as it is shown (Back to it, a study opened
+    from it). A reading asked before a card's tags were kept and answered
+    after drew the tags as they had been over those just kept."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "wild_type"), host="127.0.0.1",
+                                      port=0)
+    # The next reading of the list is read at once and answered when let
+    # go: the list as it was before the tags were kept.
+    hold = """async (where) => {
+        await window.FastMDXStudies.load(where);
+        const real = window.fetch;
+        window.fetch = function (url, options) {
+            if (!String(url).startsWith('/api/studies')) return real(url, options);
+            window.fetch = real;
+            const read = real(url, options).then((r) => r.text());
+            window.readNow = read;
+            return new Promise((answer) => {
+                window.letGo = () => read.then((body) => answer(new Response(body,
+                    {headers: {'content-type': 'application/json'}})));
+            });
+        };
+        window.lateList = window.FastMDXStudies.load(where);
+        // Read through before the tags are kept.
+        await window.readNow;
+        return typeof window.letGo;
+    }"""
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            held = page.evaluate(hold, str(workspace))
+            card = '.study-card[data-path$="wild_type"]'
+            page.click(f"{card} .study-tag-edit")
+            page.fill(f"{card} .study-tag-input", "kept")
+            page.press(f"{card} .study-tag-input", "Enter")
+            page.click(f"{card} .study-tag-editor button:has-text('Save')")
+            page.wait_for_selector(f"{card} .study-tag:has-text('kept')")
+            page.evaluate("async () => { window.letGo(); await window.lateList; }")
+            shown = page.eval_on_selector_all(f"{card} .study-tag", "t => t.map((x) => x.textContent)")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert held == "function"
+    assert shown == ["kept"]

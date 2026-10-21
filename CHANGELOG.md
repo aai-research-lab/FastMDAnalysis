@@ -290,7 +290,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   are not offered. In a column too narrow for the table (the side panel
   open, or the Agent beside, on a laptop) each study is two or three lines,
   as on a phone, rather than a table scrolled sideways; the bar for the
-  studies chosen no longer covers the last row.
+  studies chosen no longer covers the last row. A list read before tags or
+  an archive were kept, and answered after, no longer draws them as they
+  were.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never

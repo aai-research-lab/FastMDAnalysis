@@ -209,6 +209,7 @@
         }
         study.tags = d.tags;
         study.note = d.note;
+        edited += 1;
         editing = null;
         tagsUsed = countTags();
         offerTags();
@@ -262,6 +263,7 @@
             one.tags = d.tags;
             one.note = d.note;
           });
+        edited += 1;
         tagsUsed = countTags();
         offerTags();
         draw();
@@ -1678,6 +1680,7 @@
         if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
         var study = studyAt(one.path);
         if (study) { study.tags = d.tags; study.note = d.note; }
+        edited += 1;
         return { path: one.path };
       }).catch(function () { return { path: one.path, reason: "The server did not answer." }; });
     }));
@@ -1830,6 +1833,7 @@
         // A server that does not pass "archived" on keeps the tags alone.
         if (!!d.archived !== on) return { path: one.path, reason: "this GUI's server does not keep Archive yet" };
         one.archived = on;
+        edited += 1;
         return { path: one.path };
       }).catch(function () { return { path: one.path, reason: "The server did not answer." }; });
     })).then(function (results) {
@@ -1908,13 +1912,21 @@
     said.textContent = why;
   }
 
+  /* Tags or an archive kept from this page, counted: a list asked for
+   * before one was kept, and answered after, is not drawn over it. */
+  var edited = 0;
+
   function load(where) {
     if (loading) return loading;
     var query = where ? "?" + new URLSearchParams({ path: where }) : "";
+    var began = edited;
     loading = fetch("/api/studies" + query)
       .then(function (r) { return r.json(); })
       .then(function (data) {
         loading = null;
+        // Read before tags were kept here: read again rather than draw
+        // the tags as they were over those just kept.
+        if (began !== edited) return load(where);
         if (!data || !data.ok) {
           studies = [];
           el("studies-where").textContent = (data && (data.reason || data.error)) ||

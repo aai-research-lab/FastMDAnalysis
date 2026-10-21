@@ -74,6 +74,7 @@ def test_archive_on_the_bar_is_kept_and_undone(tmp_path):
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
             page.wait_for_selector("#studies-table tbody tr.studies-row")
             page.click('#studies-table tr.studies-row[data-path$="/beta"] .studies-pick input')

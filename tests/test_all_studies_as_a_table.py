@@ -171,6 +171,9 @@ def test_a_mean_not_determined_is_not_cut_under_open_and_tag(tmp_path) -> None:
             page = browser.new_page(viewport={"width": 1100, "height": 900})
             page.set_default_timeout(60000)
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            # Settled: a list read again under the pointer is a row not
+            # hovered yet.
+            page.wait_for_selector("body.state-ready")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
             row = "#studies-table tbody tr.studies-row"
             page.wait_for_selector(row)
