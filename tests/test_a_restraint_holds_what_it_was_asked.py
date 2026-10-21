@@ -399,6 +399,28 @@ class TestTheLongFormIsAStudySetting:
             validate_config({"simulation": {"restrain": "protein",
                                             "restraint_release": [0, 0]}})
 
+    def test_a_system_s_or_a_sweep_s_restraints_are_read_as_the_study_s(self):
+        """A system entry and a sweep value are held to what the study's own
+        block is, as each run will be made."""
+        bad = [{"kind": "gravity", "selection": "protein"}]
+        with pytest.raises(ConfigError, match="Unknown restraint kind"):
+            validate_config({"systems": [{"system": "1L2Y",
+                                          "simulation": {"restrain": bad}}]})
+        with pytest.raises(ConfigError, match="for run '.*': Unknown restraint kind"):
+            validate_config({"systems": [{"system": "1L2Y"}],
+                             "sweep": {"simulation.restrain": ["protein", bad]}})
+        with pytest.raises(ConfigError, match="both given") as caught:
+            validate_config({"systems": [{"system": "1L2Y",
+                                          "simulation": {"restrain_production": True}}],
+                             "simulation": {"restrain": "protein",
+                                            "restraint_release": [500, 0]}})
+        assert caught.value.refusal.code == "config.option.conflicting"
+        validate_config({"systems": [
+            {"system": "1L2Y", "simulation": {"restrain": [
+                {"kind": "distance", "selection": "index 1 2",
+                 "force_constant": 500.0}]}},
+            {"system": "1UBQ"}]})
+
 
 class TestTheMethodsSayWhatWasHeld:
 

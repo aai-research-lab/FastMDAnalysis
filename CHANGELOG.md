@@ -163,7 +163,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   file (it was refused as "should be string") and read when the config is
   checked: a key a restraint does not take, a negative force constant, a
   target on a position restraint and a ladder rising above its first step
-  are refused.
+  are refused, in a system entry and a sweep value as in the study's own
+  block.
 
 - CHARMM36 runs without the long-range dispersion correction its file turns
   off. Every run passed the correction on, OpenMM takes that over
