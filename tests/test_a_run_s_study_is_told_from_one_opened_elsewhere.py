@@ -858,39 +858,40 @@ def test_a_study_opened_and_gone_past_as_the_run_starts_is_said(tmp_path, monkey
 
 def test_a_held_message_whose_words_follow_the_thread_is_sent_in_the_run_s_study(tmp_path,
                                                                                  monkeypatch):
-    """L4 M1 and L3 6: Enter during the launch (held); the page sees `other`
-    while the launch goes on, and the run's study after the answer. The
-    words went with the thread to the run's study, and are sent there once
-    it is shown, with no note left that says otherwise."""
+    """L4 M1, L3 6 and L5 5, in L4's order: Enter during the launch (held);
+    another window opens `other` before the run's switch and the page sees
+    it; then the run starts (its switch, its answer) with no read held, and
+    the page sees the run's study. The words went with the thread there, and
+    are sent there within a few seconds, with no note left that says
+    otherwise."""
     from fastmdxplora.gui.workspace import study_key
 
-    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=4.0)
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=0.3)
     run = workspace / "run1"
     words = "words for the run's thread"
-    held, answered, asked = [], [], []
+    runs, answered, asked = [], [], []
     page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Answered.")])
     try:
-        page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
-        _asking(page, asked)
+        page.on("response", lambda r: answered.append(time.time())
+                if "/api/agent/run" in r.url else None)
+        page.on("request", lambda r: asked.append((time.time(), json.loads(r.post_data or "{}")))
+                if "/api/agent/propose" in r.url else None)
         _say(page, "chignolin")
         page.wait_for_selector(_RUN)
         _shows(page, study_key(here))
         page.wait_for_timeout(800)
-        _hold(page, held)
+        page.route("**/api/agent/run", lambda route: runs.append(route))
         page.click(_RUN)
         page.focus("#agent-request")
         page.keyboard.type(words)
         page.keyboard.press("Enter")
-        time.sleep(1.0)
+        while not runs:
+            page.wait_for_timeout(50)
         _switch_elsewhere(session, other)
-        _release(page, held)
         _shows(page, study_key(other))
-        _hold(page, held)
-        _switch_elsewhere(session, run)
-        while not answered:
-            page.wait_for_timeout(100)
         page.wait_for_timeout(500)
-        _release(page, held)
+        runs[0].continue_()
+        page.unroute("**/api/agent/run")
         _shows(page, study_key(run))
         page.wait_for_selector("#agent-thread .agent-answer:has-text('Answered.')", timeout=15000)
         page.wait_for_timeout(1000)
@@ -899,8 +900,10 @@ def test_a_held_message_whose_words_follow_the_thread_is_sent_in_the_run_s_study
     finally:
         close()
         session.server.shutdown()
-    sent = [a for a in asked if a.get("request") == words]
-    assert len(sent) == 1 and (sent[0].get("current_view") or {}).get("study", "").endswith("run1")
+    sent = [(when, a) for when, a in asked if a.get("request") == words]
+    assert len(sent) == 1, asked
+    assert sent[0][0] - answered[0] < 6.0
+    assert (sent[0][1].get("current_view") or {}).get("study", "").endswith("run1")
     assert words in _texts(workspace, "run1/agent")
     assert words not in box and note == "", (box, note)
     assert errors == []
@@ -1093,6 +1096,130 @@ def test_two_held_messages_each_stay_with_their_study(tmp_path, monkeypatch):
     assert words in _texts(workspace, "run1/agent") and mine not in _texts(workspace, "run1/agent")
     assert mine in _texts(workspace, "other/agent") and words not in _texts(workspace, "other/agent")
     assert box == ""
+    assert errors == []
+
+
+def test_the_read_asked_at_a_launch_s_answer_counts_as_after_it(tmp_path, monkeypatch):
+    """L5 3 and L6 M4: the status read asked as a launch answers is asked in
+    the same millisecond; counted in polls, it is one asked after the
+    answer, and the study is known once it is applied."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    page, errors, close = _page_on(session, [])
+    try:
+        _shows(page, study_key(here))
+        page.wait_for_timeout(1500)
+        known = []
+        for _ in range(3):
+            page.evaluate("""() => { const d = window.FastMDXDashboard;
+                d.studyChangeAsked(); d.studyChangeAnswered(""); }""")
+            page.wait_for_timeout(1500)
+            known.append(page.evaluate("() => window.FastMDXDashboard.studyKnown()"))
+    finally:
+        close()
+        session.server.shutdown()
+    assert known == [True, True, True], known
+    assert errors == []
+
+
+def _stale_status(page, stale):
+    """The next status read is answered as the server reads it now, and
+    handed to the page only when the test says (`stale[0][0].fulfill`)."""
+    def hold(route):
+        if stale:
+            route.continue_()
+        else:
+            stale.append((route, route.fetch()))
+
+    page.route("**/api/status*", hold)
+    page.evaluate("() => document.getElementById('refresh-now').click()")
+    while not stale:
+        page.wait_for_timeout(50)
+
+
+def test_a_read_of_the_start_study_asked_before_the_answer_leaves_the_words_with_the_run(
+        tmp_path, monkeypatch):
+    """L6 M1: Enter during the launch; the launch's answer cannot be read;
+    a status read of the start study, asked before the run's switch, is
+    applied after the answer. The words still go with the thread to the
+    run's study, and are sent there."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=1.0)
+    words = "held message"
+    stale, asked = [], []
+
+    def lost(route):
+        route.fetch()
+        route.fulfill(status=502, content_type="text/html", body="<h1>Bad gateway</h1>")
+
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Answered.")])
+    try:
+        _asking(page, asked)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        page.route("**/api/agent/run", lost)
+        _stale_status(page, stale)
+        page.click(_RUN)
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("text=I could not read the software's answer", timeout=30000)
+        stale[0][0].fulfill(response=stale[0][1])
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Answered.')", timeout=30000)
+        page.wait_for_timeout(1000)
+        kept = _unsent(page)
+    finally:
+        close()
+        session.server.shutdown()
+    sent = [a for a in asked if a.get("request") == words]
+    assert len(sent) == 1 and (sent[0].get("current_view") or {}).get("study", "").endswith("run1")
+    assert words in _texts(workspace, "run1/agent")
+    assert words not in json.dumps(kept), kept
+    assert errors == []
+
+
+def test_a_read_of_another_study_asked_before_the_answer_leaves_the_run_this_window_s(
+        tmp_path, monkeypatch):
+    """L6 M3: Run pressed; another window opens `other` before the run's
+    switch; the page's read of `other`, asked then, is applied after the
+    answer. `other` is said as opened elsewhere; the run's own study, seen
+    next, is not."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=0.0)
+    runs, stale, answered = [], [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG)])
+    try:
+        page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        _events(page)
+        page.route("**/api/agent/run", lambda route: runs.append(route))
+        page.click(_RUN)
+        while not runs:
+            page.wait_for_timeout(50)
+        _switch_elsewhere(session, other)
+        _stale_status(page, stale)
+        runs[0].continue_()
+        page.unroute("**/api/agent/run")
+        while not answered:
+            page.wait_for_timeout(50)
+        page.wait_for_timeout(200)
+        stale[0][0].fulfill(response=stale[0][1])
+        _shows(page, study_key(workspace / "run1"))
+        page.wait_for_timeout(3000)
+        said = page.evaluate("() => window.__else")
+    finally:
+        close()
+        session.server.shutdown()
+    assert made
+    assert said == [study_key(other)], said
     assert errors == []
 
 

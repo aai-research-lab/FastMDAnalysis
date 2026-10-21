@@ -67,9 +67,10 @@
     launchesAsked: 0,
     ownStudies: [],
     changesSeenLaunching: [],
-    /* When the last unanswered launch answered, and when the status last
-     * applied was asked: a status asked after every launch answered says
-     * where the GUI is once every run's switch is made (CI-774 review L3). */
+    /* The first poll asked after the last unanswered launch answered, and
+     * the poll of the status last applied: a status asked after every
+     * launch answered says where the GUI is once every run's switch is made
+     * (CI-774 review L3). */
     answeredAt: 0,
     statusAsked: 0,
     /* The newest poll applied: an older one answered later is not applied
@@ -587,7 +588,6 @@
 
   let pollsAsked = 0;
   async function pollOnce() {
-    const asked = Date.now();
     const number = ++pollsAsked;
     const names = ["app", "status", "metrics", "events", "results", "structure", "playback"];
     const urls = [
@@ -616,7 +616,7 @@
       const payload = result.value;
       if (name === "app") safeApply(name, () => applyAppState(payload));
       if (name === "status") {
-        state.statusAsked = asked;
+        state.statusAsked = number;
         safeApply(name, () => applyStatus(payload));
       }
       // A record of the study not read (a link out of it) is said so,
@@ -1155,7 +1155,9 @@
       return "own";
     }
     if (state.launchesAsked > 0) return "later";
-    if (!late) state.ownStudies = [];
+    // Only a read asked once every launch answered is past every run's
+    // study (CI-774 review L6: one asked before, applied after, was taken so).
+    if (!late && studyKnown()) state.ownStudies = [];
     if (now < state.ownChangeUntil) {
       state.ownChangeUntil = 0;
       return "own";
@@ -1187,7 +1189,10 @@
       state.ownChangeUntil = Date.now() + 60000;
     }
     if (state.launchesAsked > 0) return;
-    state.answeredAt = Date.now();
+    // Counted in polls asked, not in milliseconds: the read asked just
+    // below is asked in the same millisecond as the answer (CI-774 reviews
+    // L5 and L6).
+    state.answeredAt = pollsAsked + 1;
     // Where the GUI is now that every run's switch is made: asked at once.
     readStatusNow();
     // Each change seen meanwhile, in turn: one still shown is said as any
@@ -1212,7 +1217,7 @@
    * run's switch made. */
   function studyKnown() {
     return state.launchesAsked === 0
-      && (state.answeredAt === 0 || state.statusAsked > state.answeredAt);
+      && (state.answeredAt === 0 || state.statusAsked >= state.answeredAt);
   }
 
   function readStatusNow() {

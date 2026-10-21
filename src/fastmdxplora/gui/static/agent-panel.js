@@ -1458,17 +1458,18 @@
    * was kept, never over it. Typed for another study shown before (the
    * study changed under this window): kept for that one, where it was
    * begun, and taken out of this study's box. */
-  function restoreUnsent(study, late) {
+  function restoreUnsent(study) {
     var key = study && study.key;
     if (!validStudyKey(key)) return;
     var title = (study && study.title) || "";
     if (key === unsentKey) {
       seenWhileLaunching = null;
       unsentTitle = title || unsentTitle;
-      if (!launching) {
-        /* Still on the study the words were typed in: they stay with it. */
+      if (!launching && study.past) {
+        /* Still on the study the words were typed in, read once every
+         * launch answered: they stay with it (CI-774 review L6). */
         wordsFollowRun = "";
-        if (study.past) runStudies = [];
+        runStudies = [];
       }
       return;
     }
@@ -1499,17 +1500,17 @@
      * for the study left). Judged once, by the first switch seen to it.
      * The GUI goes to each run's study before its launch answers: seen,
      * a run's study is past every one before it, and a study that is no
-     * run's, seen once every launch has answered, is past them all; one
-     * seen while a launch went on (`late`) may have come before the run's
-     * (CI-774 reviews K5 and L1: the first judged emptied a later run's,
-     * and a run's never seen was kept for a study opened elsewhere later). */
+     * run's, read once every launch has answered (`past`), is past them
+     * all; one seen while a launch went on, or read as asked before it
+     * answered, may have come before the run's (CI-774 reviews K5, L1 and
+     * L6: the first judged emptied a later run's, a run's never seen was
+     * kept for a study opened elsewhere later, and a read asked before the
+     * answer emptied the run's). */
     var now = Date.now();
     var at = lastRun(runStudies, key);
     var runsThere = (at >= 0 && now < runStudies[at].until) || follow === key;
     runStudies = runStudies.slice(at + 1).filter(function (r) { return now < r.until; });
-    /* Read once every launch answered, the GUI is past every run's study
-     * (CI-774 review L3). */
-    if ((at < 0 && !late) || study.past) runStudies = [];
+    if (study.past) runStudies = [];
     if (begunElsewhere && runsThere) {
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
@@ -1572,7 +1573,7 @@
     if (launching) return;
     var seen = seenWhileLaunching;
     seenWhileLaunching = null;
-    if (seen) { restoreUnsent(seen, true); return; }
+    if (seen) { restoreUnsent(seen); return; }
     /* Already on the run's study (it was the study open, or the page
      * learnt which study it was on only then): nothing to take there. */
     var at = lastRun(runStudies, unsentKey);
