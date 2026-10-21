@@ -54,6 +54,8 @@
       if (!yes) {
         window.FastMDXConfirm.done(host);
         if (document.contains(opener)) opener.focus();
+        // What changed while it was asked is drawn now.
+        files().refresh();
         return;
       }
       clearNow(host);

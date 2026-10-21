@@ -525,10 +525,16 @@
         can = said.can || {};
         word = said.reveal_word || "folder";
         if (said.html === shown) return;
+        // A question open in the page (Clear the scratch?, confirm.js) is
+        // not drawn over: the page is drawn once it is answered
+        // (files-actions.js asks again). Another study drops it (shown "").
+        if (shown && host.querySelector(".fmx-ask")) return;
         var column = document.querySelector(".main");
         var top = column ? column.scrollTop : 0;
         var focused = document.activeElement && host.contains(document.activeElement)
           ? document.activeElement.getAttribute("data-find") !== null : false;
+        var clearing = document.activeElement && host.contains(document.activeElement)
+          && document.activeElement.hasAttribute("data-clear");
         shown = said.html;
         host.innerHTML = said.html;
         restore();
@@ -537,6 +543,7 @@
           var find = host.querySelector("[data-find]");
           if (find) { find.focus(); find.setSelectionRange(find.value.length, find.value.length); }
         }
+        if (clearing && host.querySelector("[data-clear]")) host.querySelector("[data-clear]").focus();
         window.dispatchEvent(new CustomEvent("files:rendered", { detail: { can: can } }));
       })
       .catch(function () {
@@ -571,7 +578,10 @@
         if (event.detail && event.detail.page === "files" && stale) refresh(true);
       });
       window.addEventListener("dashboard:results-updated", function () { refresh(false); });
-      window.addEventListener("dashboard:run-changed", function () {
+      window.addEventListener("dashboard:run-changed", function (event) {
+        // The page's first word of the open study is no change of it: the
+        // page was read from the same one, and a question open in it stays.
+        if (event.detail && event.detail.first && !event.detail.previousRun) { refresh(false); return; }
         shown = "";
         kept.run = "*";
         kept.expanded = {};

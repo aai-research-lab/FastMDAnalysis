@@ -133,3 +133,77 @@ def test_one_ask_one_state_and_one_list(tmp_path):
         "rows": ["# This study", "study: About this study",
                  "# Not about a study", "chats: A chat about nothing open"],
         "two": False}
+
+
+def test_not_now_and_escape_do_nothing_and_give_the_keyboard_back(tmp_path):
+    """Asked from the keyboard, answered no by Escape or Not now: nothing is
+    sent, the question goes, and the button pressed has the keyboard again."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_scratch_is_cleared_after_asking import _study as _with_scratch
+
+    root = _with_scratch(tmp_path / "study")
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    running = """() => window.dispatchEvent(new CustomEvent('dashboard:app-state',
+        {detail: {process_running: true}}))"""
+    after = """(button) => ({focus: document.activeElement === document.querySelector(button),
+        asked: !!document.querySelector('.fmx-ask')})"""
+    answers = []
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            sent: list[str] = []
+            page.on("request", lambda r: sent.append(r.url + " " + (r.post_data or ""))
+                    if r.method == "POST" and ("/stop" in r.url or "clear-scratch" in r.url) else None)
+            page.goto(session.url + "#files", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            clear = ".files-usage [data-clear]"
+            page.wait_for_selector(clear)
+            for no in ("Escape", "Enter"):
+                page.focus(clear)
+                page.keyboard.press("Enter")
+                page.wait_for_function("() => { const b = document.querySelector('.files-clear-go');"
+                                       " return b && !b.disabled; }")
+                if no == "Escape":
+                    # The page read again while it is asked (the study's
+                    # first state arriving, a file written): the question
+                    # stays, and what changed is drawn once it is answered.
+                    (root / "analysis").mkdir(exist_ok=True)
+                    (root / "analysis" / "written_since.json").write_text("{}")
+                    with page.expect_response(lambda r: "/api/files-page" in r.url):
+                        page.evaluate("""() => window.dispatchEvent(new CustomEvent('dashboard:run-changed',
+                            {detail: {previousRun: '', activeRun: 'x', first: true}}))""")
+                    with page.expect_response(lambda r: "/api/files-page" in r.url):
+                        page.evaluate("() => window.FastMDXFiles.refresh()")
+                    kept = page.evaluate("() => !!document.querySelector('.files-clear-ask .files-clear-no')")
+                page.keyboard.press(no)
+                if no == "Escape":
+                    page.wait_for_function("() => document.getElementById('files-page')"
+                                           ".textContent.includes('written_since')")
+                answers.append(page.evaluate(after, clear))
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            for button, keys in (("#sb-stop", ["Escape"]), ("#sb-stop", ["Shift+Tab", "Escape"]),
+                                 ("#sb-stop", ["Enter"])):
+                page.evaluate(running)
+                page.wait_for_selector(button, state="visible")
+                page.focus(button)
+                page.keyboard.press("Enter")
+                page.wait_for_selector(".fmx-ask .stop-run-no")
+                for key in keys:
+                    page.keyboard.press(key)
+                answers.append(page.evaluate(after, button))
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert kept
+    assert answers == [{"focus": True, "asked": False}] * 5
+    assert sent == [s for s in sent if '"dry":true' in s] and len(sent) == 2
+    assert (root / "simulation" / "frames.dcd").exists()
