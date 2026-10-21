@@ -914,10 +914,15 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
     """L5 1 and L6 H1, with no launch: words typed on `here`, another window
     opens `other` (the words kept for `here`); words typed on `other`,
     another window opens `here` again. `here`'s words are back in its box,
-    and `other`'s are kept for it: they were erased as the box emptied."""
+    and `other`'s are kept for it: they were erased as the box emptied. The
+    two are of one system, and the note names the study with its folder
+    (L6 L1, L7 6)."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    for study in (here, other):
+        (study / "manifest.json").write_text(json.dumps({"system": "tri-ala.pdb"}),
+                                             encoding="utf-8")
     page, errors, close = _page_on(session, [])
     try:
         _shows(page, study_key(here))
@@ -927,6 +932,7 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
         _switch_elsewhere(session, other)
         _shows(page, study_key(other))
         page.wait_for_timeout(1000)
+        note = _note(page)
         page.fill("#agent-request", "for other")
         page.wait_for_timeout(500)
         _switch_elsewhere(session, here)
@@ -939,6 +945,7 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
         session.server.shutdown()
     assert box == "for here", (box, kept)
     assert kept.get(study_key(other)) == "for other", kept
+    assert "is kept for it" in note and "(here)" in note, note
     assert errors == []
 
 
