@@ -1338,8 +1338,10 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                 code="environment.share.too_large", path=str(spooled)) from exc
         raise ShareRefused(
             f"The shared study could not be written to {where}: the disk there has no room "
-            f"for it ({exc.strerror}); no archive is there now (one packed before was taken "
-            "away first, to make room). Make room there, or write it elsewhere.",
+            f"for it ({exc.strerror}); "
+            + ("no archive is there now (the one packed before was taken away first, to "
+               "make room). " if getattr(exc, "replaced", False) else "nothing was written. ")
+            + "Make room there, or write it elsewhere.",
             code="environment.share.too_large", path=str(where)) from exc
 
 
@@ -1576,6 +1578,7 @@ def _packed(root: str | Path, to: str | Path, *, everything: bool, license_id: s
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         # An archive packed before (without its DOI, say) is made again: room
         # for one archive, not two, is room enough.
+        replaced = target.exists()
         target.unlink(missing_ok=True)
         try:
             with zipfile.ZipFile(temporary, "w", allowZip64=True) as archive:
@@ -1595,6 +1598,9 @@ def _packed(root: str | Path, to: str | Path, *, everything: bool, license_id: s
                             for piece in iter(lambda: source.read(1 << 20), b""):
                                 sink.write(piece)
             os.replace(temporary, target)
+        except OSError as exc:
+            exc.replaced = replaced
+            raise
         finally:
             temporary.unlink(missing_ok=True)
         written = {"path": str(target), "files": len(files), "bytes": target.stat().st_size,

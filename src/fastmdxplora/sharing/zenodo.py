@@ -403,8 +403,7 @@ def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
         return []
     try:
         found = _call("GET", f"{depositions}?status=draft&sort=mostrecent&size=100",
-                      token=token, missing_ok=True, said=said, tries=1,
-                      timeout=_LOOK_TIMEOUT_S)
+                      token=token, missing_ok=True, said=said, timeout=_LOOK_TIMEOUT_S)
     except ShareRefused as exc:
         if not getattr(exc, "later", False):
             raise
@@ -431,14 +430,28 @@ def _written(metadata: Any) -> str:
 
 
 def _sent(metadata: Any) -> str:
-    """What the study writes that is its own (title, description, keywords),
-    as one digest: a draft written whose answer was lost is told by it."""
-    import hashlib
+    """What the study sends as a draft's description, digested as a draft's
+    is (:func:`_written`): a draft written whose answer was lost is told by
+    it, and one the person changed since is not."""
+    return _written(metadata)
 
-    said = metadata if isinstance(metadata, dict) else {}
-    return hashlib.sha256(json.dumps([said.get("title"), said.get("description"),
-                                      said.get("keywords")], sort_keys=True).encode()) \
-        .hexdigest()
+
+def _bumped(label: str) -> str:
+    """The version after ``label``, of its own form: its last number one
+    more ("1.0" gives "1.1", "v5" gives "v6", "2.1.5" gives "2.1.6");
+    "" where it holds no number."""
+    found = list(re.finditer(r"\d+", label))
+    if not found:
+        return ""
+    last = found[-1]
+    return f"{label[:last.start()]}{int(last.group()) + 1}{label[last.end():]}"
+
+
+def _sendings(kept: Any) -> list[str]:
+    """The digests sent whose answers were lost, as kept (one, or several)."""
+    if isinstance(kept, str):
+        return [kept] if kept else []
+    return [str(k) for k in kept or [] if k]
 
 
 def _names(entry: dict[str, Any]) -> set[str]:
@@ -470,7 +483,7 @@ def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
 
 
 def _metadata(crate: dict[str, Any], *, authors: list[tuple[str, str]], license_id: str,
-              system: str, version: int) -> dict[str, Any]:
+              system: str, version: str) -> dict[str, Any]:
     root = next(e for e in crate["@graph"] if e.get("@id") == "./")
     software = next((e for e in crate["@graph"] if e.get("@id") == "#fastmdxplora"), {})
     description = (f"<p>{html.escape(str(root.get('description', '')))}</p>"
@@ -581,7 +594,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # What is known of this draft is kept with it from one share to the next.
     kept[site] = {"id": identifier, "version": version,
                   **{k: earlier[k] for k in ("archive", "written", "doi", "record", "asked_as",
-                                             "sending", "record_written", "stale")
+                                             "sending", "record_written", "record_sending",
+                                             "stale", "uploading")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
@@ -593,6 +607,11 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             else earlier.get("written")
         if recorded:
             kept[site]["written"] = kept[site]["record_written"] = recorded
+        # Sent for the record and its answer lost: what it holds is that.
+        sent = earlier.get("record_sending") if found_as["begun_again"] \
+            else earlier.get("sending")
+        if sent:
+            kept[site]["sending"] = kept[site]["record_sending"] = sent
     if made_here and title:
         # The title it was asked for under: until the study describes it, a
         # draft still so titled is the study's to describe, and a draft
@@ -628,16 +647,21 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # Only the archive this study put there is taken away; another one
     # keeps the share back, as a record of two archives opens as neither.
     ours = str(earlier.get("archive") or "")
-    replacing = str(earlier.get("stale") or "")
+    replacing = {str(n) for n in (earlier.get("stale") or []) if n} \
+        if isinstance(earlier.get("stale"), list) else {str(earlier.get("stale") or "")} - {""}
+    # Sent at a share whose answer was lost: there, perhaps, and the study's.
+    if earlier.get("uploading"):
+        replacing.add(str(earlier["uploading"]))
+    replacing -= {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
              and ours and ours != archive.name]
     stale += [entry for entry in earlier_files
-              if replacing and str(entry.get("filename") or entry.get("key") or "") == replacing
-              and replacing != archive.name and entry not in stale]
+              if str(entry.get("filename") or entry.get("key") or "") in replacing
+              and entry not in stale]
     foreign = sorted(name for name in _names(deposition)
                      if name.lower().endswith(".zip")
-                     and name not in (archive.name, ours, replacing))
+                     and name not in {archive.name, ours, *replacing})
     if foreign:
         raise ShareRefused(
             f"The draft {page} holds {', '.join(foreign)}, which this study did not put "
@@ -651,9 +675,11 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # version, of the record it is begun from).
     last = str(kept[site].get("written") or "")
     # Written, its answer lost: the draft holds what was sent.
-    sending = str(kept[site].get("sending") or "")
+    # Each sent since it was last written, its answer lost: the draft holds
+    # one of them, whichever landed.
+    sending = _sendings(kept[site].get("sending"))
     untouched = (bool(last) and _written(held) == last) \
-        or (bool(sending) and _sent(held) == sending) or (
+        or _sent(held) in sending or (
         not last and not versioned and str(held.get("title") or "") in ("", marker)
         and not held.get("description"))
     uploaded, removing = False, ""
@@ -663,13 +689,15 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                  f"{site}...")
         # The new archive first: one of the same name is replaced by it, and
         # the draft keeps the one it had until the new one is there.
+        kept[site]["uploading"] = archive.name
+        _keep(study, kept)
         _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
               upload=archive, said=said)
         uploaded = True
         kept[site]["archive"] = archive.name
-        if stale:
-            # Still the study's, until it is taken away.
-            kept[site]["stale"] = str(stale[0].get("filename") or stale[0].get("key"))
+        kept[site].pop("uploading", None)
+        # Each still the study's, until it is taken away.
+        kept[site]["stale"] = sorted({str(e.get("filename") or e.get("key")) for e in stale})
         _keep(study, kept)
         for entry in stale:
             removing = str(entry.get("filename") or entry.get("key"))
@@ -677,12 +705,15 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             # its answer, is asked again.
             _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}",
                   token=token, missing_ok=True, said=said)
+            kept[site]["stale"] = [n for n in kept[site]["stale"] if n != removing]
+            _keep(study, kept)
             removing = ""
         kept[site].pop("stale", None)
         if untouched:
             ours_said = _metadata(packed["crate"], authors=authors, license_id=license_id,
                                   system=system, version=version)
-            kept[site]["sending"] = _sent(ours_said)
+            kept[site]["sending"] = [*_sendings(kept[site].get("sending")),
+                                     _sent({**inherited, **ours_said})][-5:]
             _keep(study, kept)
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
@@ -703,16 +734,23 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
                    "have taken away (a record of two archives opens as neither: share again, "
                    "or delete it there, before you publish)" if removing
-                   else "with the new archive, its description not yet written"
+                   else "with the new archive, its description "
+                   + ("perhaps " if getattr(exc, "unclear", False) else "") + "not yet written"
                    if uploaded and untouched
                    else "with the new archive" if uploaded
+                   else "with the archive it had, and perhaps the new one beside it if Zenodo "
+                   "kept it before its answer was lost (a record of two archives opens as "
+                   "neither: share again before you publish, and the earlier one is taken "
+                   "away)" if earlier_files and getattr(exc, "unclear", False)
+                   and archive.name not in _names(deposition)
                    else "with the archive it had, or the new one if Zenodo kept it before its "
                    "answer was lost" if earlier_files and getattr(exc, "unclear", False)
                    else "with the archive it had" if earlier_files else "with no archive yet")
+        mend = ("share again once there is room" if exc.refusal.code
+                == "environment.share.too_large" else "share again once Zenodo answers")
         raise ShareRefused(
-            f"{exc} The draft {page} is kept, {kept_as}: share again once Zenodo answers, "
-            "and that draft is finished, not another made.",
-            code=exc.refusal.code, url=page) from exc
+            f"{exc} The draft {page} is kept, {kept_as}: {mend}, and that draft is finished, "
+            "not another made.", code=exc.refusal.code, url=page) from exc
     twice = str(kept[site].get("asked_as") or "")
     try:
         others = [n for n in (_marked(depositions, token, twice, said) or [])
@@ -726,7 +764,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
              f"delete {'them' if len(others) > 1 else 'it'} among your uploads "
              f"({base}/me/uploads).")
     if said:
-        said(f"Draft {f'of version {version} ' if version > 1 else ''}made: {page}"
+        said(f"Draft {f'of version {version} ' if str(version) != '1' else ''}made: {page}"
              + (f" (DOI {doi}, reserved until you publish)." if doi else ".")
              + " Read it there and press Publish; until then nothing is public.")
     return {"url": page, "doi": doi, "id": identifier, "version": version, **packed}
@@ -740,7 +778,7 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
     None where a new draft is to be made; with the `version` it is, the
     `published` record a new version is of, and whether it is one
     (`versioned`)."""
-    out: dict[str, Any] = {"deposition": None, "version": int(earlier.get("version") or 1),
+    out: dict[str, Any] = {"deposition": None, "version": str(earlier.get("version") or "1"),
                            "published": str(earlier.get("record") or ""), "versioned": False,
                            "begun_again": False}
     if not earlier.get("id"):
@@ -762,7 +800,7 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             if said:
                 said(f"The draft or record {earlier['id']} this study was shared as is gone "
                      f"from {site}; making a new one.")
-            out["version"] = 1
+            out["version"] = "1"
             return out
         if not found.get("submitted"):
             # The draft made last time, never published: made again.
@@ -777,12 +815,12 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
     try:
         newest = _latest_published(found, depositions, token, said)
         published = str(newest.get("id") or found["id"])
-        counted = re.search(r"(\d+)\s*$", str((newest.get("metadata") or {}).get("version")
-                                                or ""))
-        # Where the record does not say, the study's own count: the version
-        # its deleted draft was to be, or one after the one it published.
-        version = int(counted.group(1)) + 1 if counted else \
-            int(earlier.get("version") or 1) + (0 if again_from else 1)
+        # The next of the latest version's own label; where it holds no
+        # number, the study's own count: the version its deleted draft was
+        # to be, or the one after the one it published.
+        mine = str(earlier.get("version") or "1")
+        version = _bumped(str((newest.get("metadata") or {}).get("version") or "")) or (
+            mine if again_from else _bumped(mine) or "2")
         begun = _concept_drafts(depositions, token, newest, said)
         if begun is None:
             raise ShareRefused(
