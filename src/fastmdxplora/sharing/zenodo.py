@@ -486,7 +486,7 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
                        said=said)
     concept = str(found.get("conceptrecid") or "")
     if not _a_draft(deposition, newest) or (
-            concept and str(deposition.get("conceptrecid") or concept) != concept):
+            concept and str(deposition.get("conceptrecid") or "") != concept):
         unread = ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no "
                               "record.", code="environment.service.unreachable")
         unread.later = True
@@ -894,8 +894,14 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 and (deposition.get("links") or {}).get("latest"):
             try:
                 of = _latest_published(deposition, depositions, token, said)
-            except ShareRefused:
-                of = deposition
+            except ShareRefused as exc:
+                # Not known: neither its record nor the version it is.
+                unknown = ShareRefused(
+                    f"{exc} The draft {identifier}, of a new version an earlier release "
+                    "began, is as it was; share again once Zenodo answers.",
+                    code=exc.refusal.code)
+                unknown.later = True
+                raise unknown from exc
             if str(of.get("id") or "") not in ("", identifier):
                 kept[site]["record"] = str(of["id"])
                 # Its version counted on from the record's, as a new version
@@ -919,7 +925,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                              missing_ok=True)
             except ShareRefused:
                 seen = None
-            if isinstance(seen, dict) and isinstance(seen.get("metadata"), dict):
+            if _a_draft(seen, identifier):
                 deposition, made_with = seen, seen["metadata"]
                 kept[site]["written"] = _written(made_with)
             else:
@@ -1131,7 +1137,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 f"Zenodo kept {archive.name} with other contents than were sent (its "
                 "checksum is not the archive's).", code="environment.service.unreachable",
                 url=page)
-            damaged.later = damaged.unclear = True
+            damaged = ShareRefused(
+                f"{damaged} The draft {page} holds a damaged copy of {archive.name}: share "
+                "again before you publish, and it is replaced.",
+                code="environment.service.unreachable", url=page)
+            damaged.later = damaged.whole = True
             raise damaged
         if not (isinstance(put, dict) and str(put.get("key") or put.get("filename") or "")
                 == archive.name and (not put_sum or put_sum == sent_sums[archive.name][-1])):
@@ -1419,16 +1429,18 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                      f"from {site}; making a new one.")
             out["version"] = "1"
             return out
+        # Read as Zenodo gives it (the draft or record asked for), else nothing
+        # is begun from it or written over.
+        asked_for = published if again_from else str(earlier["id"])
+        if not _a_draft(found, asked_for, "" if again_from else str(earlier.get("doi") or "")):
+            misread = ShareRefused(
+                f"Zenodo's answer for the draft or record {asked_for} held not it. It is as "
+                "it was; share again once Zenodo answers.",
+                code="environment.service.unreachable")
+            misread.whole = misread.later = True
+            raise misread
         if not found.get("submitted"):
-            # The draft made last time, never published: made again (read as
-            # Zenodo gives it, else not written over).
-            if not _a_draft(found, str(earlier["id"]), str(earlier.get("doi") or "")):
-                misread = ShareRefused(
-                    f"Zenodo's answer for the draft {earlier['id']} held not the draft. It is "
-                    "as it was; share again once Zenodo answers.",
-                    code="environment.service.unreachable")
-                misread.whole = misread.later = True
-                raise misread
+            # The draft made last time, never published: made again.
             out["deposition"] = found
             return out
     except ShareRefused as exc:

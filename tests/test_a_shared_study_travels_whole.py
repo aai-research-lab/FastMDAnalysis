@@ -3559,3 +3559,97 @@ def test_a_version_an_earlier_release_began_is_counted_from_the_record(tmp_path,
         {"zenodo-sandbox": {"id": "8", "version": 2, "doi": "10.5072/zenodo.8"}}))
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert unsteady.meta[8]["version"] == "1.1"
+
+
+@pytest.mark.parametrize("odd", ["another", "empty"])
+def test_the_study_s_record_read_not_as_zenodo_gives_it_begins_nothing(tmp_path, unsteady,
+                                                                       monkeypatch, odd):
+    """Review of the thirty-fifth commit: the published record's read,
+    answered with another deposition or with nothing in it, had a new
+    version begun of that, or said changed."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = zenodo._call
+
+    def strange(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "GET" and url.endswith("/api/deposit/depositions/7") \
+                and isinstance(answer, dict):
+            return {**answer, "id": 102} if odd == "another" else {**answer, "metadata": {}}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", strange)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_an_earlier_release_s_version_whose_record_is_not_read_is_not_given_one(
+        tmp_path, unsteady, monkeypatch):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["version"] = "1.0"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": dict(unsteady.meta[7]),
+                       "files": [{"key": "shared.zip"}]}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    unsteady.meta[8]["version"] = "2"
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "8", "version": 2, "doi": "10.5072/zenodo.8"}}))
+    real = zenodo._call
+
+    def down(method, url, **kwargs):
+        if url.endswith("/api/records/latest"):
+            refused = ShareRefused("Zenodo answered HTTP 502.",
+                                   code="environment.service.unreachable")
+            refused.later = refused.unclear = True
+            raise refused
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", down)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert unsteady.meta[8]["version"] == "2"
+
+
+def test_a_damaged_copy_is_said_as_such(tmp_path, unsteady, monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def damaged(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if kwargs.get("upload") is not None:
+            return {"key": "shared.zip", "checksum": "md5:dead"}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", damaged)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "holds a damaged copy of shared.zip" in said and "answer was lost" not in said
+
+
+def test_a_draft_read_back_empty_once_made_is_not_written_back(tmp_path, unsteady,
+                                                               monkeypatch):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real, reads = zenodo._call, []
+
+    sent: list = []
+
+    def empty_once(method, url, **kwargs):
+        if method == "PUT" and "body" in kwargs:
+            sent.append(kwargs["body"]["metadata"])
+        answer = real(method, url, **kwargs)
+        if method == "GET" and url.endswith("/api/deposit/depositions/7") and not reads:
+            reads.append(url)
+            return {**answer, "metadata": {}}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", empty_once)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    # (Zenodo's PUT replaces the whole metadata: one sent with nothing in it
+    # but the DOI asked for would empty the draft.)
+    assert all(set(body) - {"prereserve_doi"} for body in sent)
