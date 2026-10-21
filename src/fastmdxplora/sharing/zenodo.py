@@ -15,14 +15,22 @@ Zenodo's REST API, as documented at developers.zenodo.org: depositions
 under `/api/deposit/depositions`, a file put into a deposition's bucket,
 records under `/api/records/<id>`. `FASTMDXPLORA_ZENODO_URL` points both
 sites elsewhere (a test's own server).
+
+Zenodo limits how often it is asked (429, with how long to wait in
+`Retry-After`) and is at times briefly unable to answer (502, 503, 504):
+each request is asked again after a wait, up to :data:`TRIES` times. A
+request that makes something (a new draft) is asked again only after a 429,
+which Zenodo answers before doing anything, so a draft is never made twice.
 """
 
 from __future__ import annotations
 
 import html
+import http.client
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,7 +40,8 @@ from typing import Any
 
 from fastmdxplora.sharing import ShareRefused
 
-__all__ = ["SHARED_TO", "SITES", "archive_of", "base_url", "draft", "record_of"]
+__all__ = ["SHARED_TO", "SITES", "TRIES", "archive_of", "base_url", "draft", "record_of",
+           "wait_before"]
 
 SITES = {"zenodo": "https://zenodo.org", "zenodo-sandbox": "https://sandbox.zenodo.org"}
 TOKENS = {"zenodo": "ZENODO_TOKEN", "zenodo-sandbox": "ZENODO_SANDBOX_TOKEN"}
@@ -42,6 +51,48 @@ _PREFIXES = {"10.5281": "zenodo", "10.5072": "zenodo-sandbox"}
 SHARED_TO = "shared_to.json"
 TIMEOUT_S = 120
 _AGENT = "FastMDXplora (https://github.com/aai-research-lab/FastMDXplora)"
+#: How many times a request is asked before Zenodo's answer is taken.
+TRIES = 5
+#: Answers that say to ask again: too many requests, or briefly unable.
+AGAIN = frozenset({429, 502, 503, 504})
+#: The longest wait between two tries, whatever `Retry-After` asks.
+_LONGEST_WAIT_S = 60.0
+_sleep = time.sleep
+
+
+def wait_before(attempt: int, retry_after: str | None = None) -> float:
+    """How long to wait before try ``attempt + 1`` (``attempt`` counting from
+    1): what `Retry-After` asks, in seconds, else 1, 2, 4, 8 s."""
+    try:
+        asked = float(retry_after) if retry_after else None
+    except ValueError:
+        asked = None
+    wait = asked if asked is not None and asked >= 0 else 2.0 ** (attempt - 1)
+    return min(wait, _LONGEST_WAIT_S)
+
+
+class _Progress:
+    """A file read as it is sent, saying how far it has gone at each tenth."""
+
+    def __init__(self, path: Path, said: Callable[[str], None] | None) -> None:
+        self.handle = path.open("rb")
+        self.size = path.stat().st_size
+        self.sent = 0
+        self.tenth = 0
+        self.said = said
+
+    def read(self, amount: int = -1) -> bytes:
+        piece = self.handle.read(amount)
+        self.sent += len(piece)
+        if self.said and self.size >= 10 << 20:
+            tenth = self.sent * 10 // self.size
+            if tenth > self.tenth and tenth < 10:
+                self.tenth = tenth
+                self.said(f"Uploaded {self.sent / 1e6:.0f} of {self.size / 1e6:.0f} MB.")
+        return piece
+
+    def close(self) -> None:
+        self.handle.close()
 
 
 def base_url(site: str) -> str:
@@ -49,38 +100,57 @@ def base_url(site: str) -> str:
 
 
 def _call(method: str, url: str, *, token: str = "", body: Any = None,
-          upload: Path | None = None, missing_ok: bool = False) -> Any:
-    """Zenodo's answer as JSON (or None for an empty one); refused,
-    naming what Zenodo said, where it does not answer as it documents."""
+          upload: Path | None = None, missing_ok: bool = False,
+          said: Callable[[str], None] | None = None) -> Any:
+    """Zenodo's answer as JSON (or None for an empty one), asked again where
+    Zenodo says to (:data:`AGAIN`) or could not be reached; refused, naming
+    what Zenodo said, where it does not answer as it documents."""
     headers = {"User-Agent": _AGENT, "Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    data: Any = None
+    sent: bytes | None = None
     if body is not None:
-        data = json.dumps(body).encode("utf-8")
+        sent = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     if upload is not None:
         headers["Content-Type"] = "application/octet-stream"
         headers["Content-Length"] = str(upload.stat().st_size)
-        data = upload.open("rb")
-    request = urllib.request.Request(url, data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_S) as answer:
-            text = answer.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        if missing_ok and exc.code in (404, 410):
-            return None
-        said = exc.read().decode("utf-8", errors="replace")[:400]
-        why = {401: "the token was refused", 403: "the token may not do this (its scopes)",
-               404: "no such record or draft"}.get(exc.code, f"HTTP {exc.code}")
-        raise ShareRefused(f"Zenodo answered {method} {url}: {why}. {said}".strip(),
-                           code="environment.service.unreachable", url=url) from exc
-    except (urllib.error.URLError, OSError) as exc:
-        raise ShareRefused(f"Zenodo could not be reached at {url}: {exc}.",
-                           code="environment.service.unreachable", url=url) from exc
-    finally:
-        if upload is not None and data is not None:
-            data.close()
+    # Asking again to make something could make it twice: only once Zenodo
+    # has said it did nothing (429).
+    makes = method == "POST"
+    attempt = 0
+    while True:
+        attempt += 1
+        data: Any = _Progress(upload, said) if upload is not None else sent
+        request = urllib.request.Request(url, data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT_S) as answer:
+                text = answer.read().decode("utf-8", errors="replace")
+            break
+        except urllib.error.HTTPError as exc:
+            if missing_ok and exc.code in (404, 410):
+                return None
+            if exc.code in AGAIN and attempt < TRIES and (not makes or exc.code == 429):
+                _again(f"Zenodo answered {method} {url} with HTTP {exc.code}", attempt,
+                       exc.headers.get("Retry-After") if exc.headers else None, said)
+                continue
+            answered = exc.read().decode("utf-8", errors="replace")[:400]
+            why = {401: "the token was refused", 403: "the token may not do this (its scopes)",
+                   404: "no such record or draft",
+                   429: f"too many requests, still after {attempt} tries"}.get(
+                exc.code, f"HTTP {exc.code}" + (f", still after {attempt} tries"
+                                                 if exc.code in AGAIN and attempt > 1 else ""))
+            raise ShareRefused(f"Zenodo answered {method} {url}: {why}. {answered}".strip(),
+                               code="environment.service.unreachable", url=url) from exc
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            if attempt < TRIES and not makes:
+                _again(f"Zenodo could not be reached at {url} ({exc})", attempt, None, said)
+                continue
+            raise ShareRefused(f"Zenodo could not be reached at {url}: {exc}.",
+                               code="environment.service.unreachable", url=url) from exc
+        finally:
+            if isinstance(data, _Progress):
+                data.close()
     if not text.strip():
         return None
     try:
@@ -91,6 +161,14 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
 
 
 # -- reading a record --------------------------------------------------------
+
+def _again(what: str, attempt: int, retry_after: str | None,
+           said: Callable[[str], None] | None) -> None:
+    wait = wait_before(attempt, retry_after)
+    if said:
+        said(f"{what}; asking again in {wait:.0f} s ({attempt + 1} of {TRIES}).")
+    _sleep(wait)
+
 
 def record_of(source: str) -> tuple[str, str]:
     """The site and record a DOI or a Zenodo address names; refused for any
@@ -273,10 +351,14 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                            code="environment.service.unreachable")
     for entry in deposition.get("files") or []:
         if isinstance(entry, dict) and entry.get("id"):
-            _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}", token=token)
+            # Gone already is what was asked: a try that did it, then lost
+            # its answer, is asked again.
+            _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}", token=token,
+                  missing_ok=True)
     if said:
         said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to {site}...")
-    _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token, upload=archive)
+    _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token, upload=archive,
+          said=said)
     ours = _metadata(packed["crate"], authors=authors, license_id=license_id, system=system,
                      version=version)
     _call("PUT", f"{depositions}/{identifier}", token=token,

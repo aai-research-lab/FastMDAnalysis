@@ -213,6 +213,15 @@ be shared leaves no draft behind, and the draft is recorded in the study as
 soon as it exists, so a share that fails part way is finished by the next
 one rather than leaving a second draft.
 
+Zenodo limits how often it is asked (it answers 429, saying how long to
+wait) and is at times briefly unable to answer (502, 503, 504). Each request
+is then asked again, after the wait Zenodo asks for (else 1, 2, 4 and 8
+seconds, never more than a minute), up to five times; so is one that could
+not reach Zenodo at all, the upload included. A request that makes a draft
+or a new version is asked again only after a 429, which Zenodo gives before
+doing anything, so a draft is never made twice. An archive of 10 MB or more
+says how much of it has gone at each tenth.
+
 It needs a Zenodo token in `ZENODO_TOKEN` (`ZENODO_SANDBOX_TOKEN` for
 `--share-to zenodo-sandbox`) with the **deposit:write** scope, made under
 Applications in your Zenodo account's settings. FastMDXplora never
@@ -249,7 +258,13 @@ FastMDXplora:
    (`environment.share.not_a_study`); download the study's and open the file.
 2. **Downloads it**, up to a limit (2 GB unless `--open-most-gb` says
    otherwise; `environment.share.too_large`), and checks it against the MD5
-   Zenodo recorded for it.
+   Zenodo recorded for it as it lands. A download cut short goes on from
+   where it stopped (asking for the rest of the file, an HTTP range), and
+   one Zenodo says to ask again for is asked again after the wait it asks
+   for, each up to five times in a row without a byte more
+   (`environment.service.unreachable`, saying how far it got); a server
+   that sends the whole file again is read from its start. An archive of
+   10 MB or more says how much of it has come at each tenth.
 3. **Unpacks it into a folder of its own**, named from its title, in
    `--open-into` (else the current folder; in the GUI, where new studies
    go), and only into it: a member with an absolute path, a `..`, a link, a
@@ -438,4 +453,4 @@ The packing list of the demo study, cut to one file of each kind:
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |
 | `environment.share.too_large` | The archive is over the download limit. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |
-| `environment.service.unreachable` | Zenodo could not be reached, refused the token, or did not answer as it documents. |
+| `environment.service.unreachable` | Zenodo could not be reached, refused the token, or did not answer as it documents, still after five tries where it said to ask again. |

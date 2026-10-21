@@ -14,6 +14,7 @@ place whole. Nothing in an archive is run.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import re
 import shutil
@@ -49,30 +50,90 @@ def unpacked_limit(most_bytes: int) -> int:
 
 
 def _download(url: str, to: Path, *, most: int, md5: str,
-              said: Callable[[str], None] | None) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": _AGENT})
+              said: Callable[[str], None] | None, size: int = 0) -> None:
+    """``url`` written to ``to``, checked against ``md5`` as it lands. A
+    download cut short goes on from where it stopped (an HTTP range), one
+    Zenodo says to ask again for is asked again after a wait, each up to
+    :data:`~fastmdxplora.sharing.zenodo.TRIES` times in a row without a byte
+    more; a server that sends the whole file again is read from its start."""
+    from fastmdxplora.sharing import zenodo
+
     digest = hashlib.md5()  # noqa: S324 - Zenodo's own checksum, not a protection
-    read = 0
-    try:
-        with urllib.request.urlopen(request, timeout=120) as answer, to.open("wb") as out:
-            for piece in iter(lambda: answer.read(1 << 20), b""):
-                read += len(piece)
-                if read > most:
-                    raise ShareRefused(
-                        f"{url} sent more than {most / 1e9:.1f} GB; nothing was kept. "
-                        "Allow more with --open-most-gb.",
-                        code="environment.share.too_large", url=url)
-                digest.update(piece)
-                out.write(piece)
-    except (urllib.error.URLError, OSError) as exc:
-        raise ShareRefused(f"The shared study could not be downloaded from {url}: {exc}.",
-                           code="environment.service.unreachable", url=url) from exc
+    # A try counts as failed unless it reached further than any before:
+    # a server that sends the file from its start each time, cut at the
+    # same place, is asked no more than the tries.
+    read, furthest, tenth, failures = 0, 0, 0, 0
+    with to.open("wb") as out:
+        while True:
+            headers = {"User-Agent": _AGENT}
+            if read:
+                headers["Range"] = f"bytes={read}-"
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
+                                            timeout=120) as answer:
+                    if read and answer.status != 206:
+                        # The whole file again, not the rest of it.
+                        out.seek(0)
+                        out.truncate()
+                        digest, read = hashlib.md5(), 0  # noqa: S324
+                    for piece in iter(lambda: answer.read(1 << 20), b""):
+                        read += len(piece)
+                        if read > most:
+                            raise ShareRefused(
+                                f"{url} sent more than {most / 1e9:.1f} GB; nothing was kept. "
+                                "Allow more with --open-most-gb.",
+                                code="environment.share.too_large", url=url)
+                        digest.update(piece)
+                        out.write(piece)
+                        if said and size >= 10 << 20 and read * 10 // size > tenth:
+                            tenth = min(read * 10 // size, 9)
+                            if tenth and read < size:
+                                said(f"Downloaded {read / 1e6:.0f} of {size / 1e6:.0f} MB.")
+                if not size or read >= size:
+                    break
+                # Ended before the file did: the connection was cut.
+                why = f"the answer ended at {read} of {size} bytes"
+            except urllib.error.HTTPError as exc:
+                if exc.code == 416 and size and read == size:
+                    break
+                failures = 0 if read > furthest else failures + 1
+                furthest = max(furthest, read)
+                if exc.code in zenodo.AGAIN and failures < zenodo.TRIES:
+                    _again(f"{url} answered HTTP {exc.code}", failures,
+                           exc.headers.get("Retry-After") if exc.headers else None, said)
+                    continue
+                raise ShareRefused(
+                    f"The shared study could not be downloaded from {url}: HTTP {exc.code}"
+                    + (f", still after {failures} tries" if failures > 1 else "") + ".",
+                    code="environment.service.unreachable", url=url) from exc
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+                # A connection cut mid-file reads as an incomplete answer.
+                why = str(exc)
+            failures = 0 if read > furthest else failures + 1
+            furthest = max(furthest, read)
+            if failures >= zenodo.TRIES:
+                raise ShareRefused(
+                    f"The shared study could not be downloaded from {url}: {why}"
+                    + (f", still after {failures} tries" if failures > 1 else "") + ".",
+                    code="environment.service.unreachable", url=url)
+            _again(f"The download from {url} stopped at {read / 1e6:.1f} MB ({why})",
+                   failures, None, said)
     if md5 and digest.hexdigest() != md5:
         raise ShareRefused(
             f"What {url} sent is not the file Zenodo recorded (MD5 {digest.hexdigest()}, "
             f"not {md5}); nothing was kept.", code="environment.share.unverified", url=url)
     if said:
         said(f"Downloaded {read / 1e6:.1f} MB.")
+
+
+def _again(what: str, failures: int, retry_after: str | None,
+           said: Callable[[str], None] | None) -> None:
+    from fastmdxplora.sharing import zenodo
+
+    wait = zenodo.wait_before(max(failures, 1), retry_after)
+    if said:
+        said(f"{what}; trying again in {wait:.0f} s.")
+    zenodo._sleep(wait)
 
 
 def _members(archive: zipfile.ZipFile, most_bytes: int) -> list[zipfile.ZipInfo]:
@@ -261,7 +322,8 @@ def open_shared(source: str, *, into: str | Path | None = None,
                 said(f"Downloading {record['name']} from Zenodo's record {record['id']}"
                      + (f" ({record['size'] / 1e6:.1f} MB)" if record["size"] else "") + "...")
             archive = work_dir / "archive.zip"
-            _download(record["url"], archive, most=most_bytes, md5=record["md5"], said=said)
+            _download(record["url"], archive, most=most_bytes, md5=record["md5"], said=said,
+                      size=int(record["size"] or 0))
         try:
             opened = zipfile.ZipFile(archive)
         except PermissionError as exc:
