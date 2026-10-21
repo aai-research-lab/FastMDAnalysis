@@ -248,6 +248,56 @@ def test_beyond_loopback_nothing_that_posts_is_offered(tmp_path):
     assert seen["bar"] == ["studies-clear"]
 
 
+def test_back_from_compare_is_where_the_two_were_chosen(tmp_path):
+    """Compare opened from the bar, then Back: All studies where it was
+    left, the two still chosen and in view, and the bar with them (kept
+    from the tests of the offer beside the pointer this bar replaced)."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    for k in range(30):
+        _study(tmp_path / f"study{k:02d}", means={"rmsd": (0.1 + 0.001 * k, 0.004)},
+               started=f"2026-09-{k + 1:02d}T10:00:00+00:00")
+    session = start_dashboard_session(output=str(tmp_path / "study00"), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 800})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            rows = page.locator("#studies-table tbody tr.studies-row .studies-pick input")
+            rows.nth(24).scroll_into_view_if_needed()
+            rows.nth(24).click()
+            rows.nth(26).click()
+            scrolled = page.evaluate("() => document.querySelector('.main').scrollTop")
+            page.click("#studies-compare")
+            page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+            page.go_back()
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            # Given back once the list is read again.
+            page.wait_for_function("() => document.querySelector('.main').scrollTop > 0",
+                                   timeout=15000)
+            page.wait_for_timeout(300)
+            back = page.evaluate("() => document.querySelector('.main').scrollTop")
+            chosen = page.evaluate("""() => [...document.querySelectorAll(
+                '#studies-table tbody .studies-pick input')].filter((b) => b.checked).length""")
+            box = rows.nth(26).bounding_box()
+            bar = page.evaluate("() => !document.getElementById('studies-bar').hidden")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert scrolled > 0 and abs(back - scrolled) <= 2, (back, scrolled)
+    assert chosen == 2 and bar
+    assert 0 <= box["y"] <= 800 - box["height"], box
+
+
 def test_no_rule_is_left_for_the_offer_beside_the_pointer():
     """The bar replaced Compare and Clear beside the pointer: the page's
     rules for that offer, left in `dashboard.css`, are gone with it."""
