@@ -67,6 +67,11 @@ _NEVER_NAMES = frozenset({"project_bundle.zip", "study_tags.json", SHARED_FROM,
 _NEVER_FOLDERS = ("agent/",)
 #: Where a prepared system kept outside the study is carried.
 PREPARED = "prepared"
+#: Packed byte for byte, never read for paths: what a run finds its
+#: prepared system by (`system.xml`'s SHA-256), and the states beside it.
+_AS_THEY_ARE = frozenset({"system.xml", "state.xml", "integrator.xml"})
+#: A record's path to its prepared system, relative to the run.
+_RELATIVE_TO_RUN = re.compile(r'("relative_to_run"\s*:\s*)"(?:[^"\\]|\\.)*"')
 #: What a run needs of a prepared system it simulated from: its record and
 #: the system it finds it by (`system.xml`'s SHA-256), the state it starts
 #: from and its topology. Carried whatever the package.
@@ -91,6 +96,10 @@ _MEDOID = re.compile(r"_medoid_\d+\.pdb$")
 _NAME_ON = r"(?:[^/\\\n\"'`<>,;()|]{1,64}?(?=[/\\])|[^/\\\s\"'`,;)\]}<>|]+)"
 _HOMES = re.compile(r"(?<![\w.-])(?:/(?:home|Users)/|[A-Za-z]:(?:\\\\|\\)Users(?:\\\\|\\))"
                     + _NAME_ON)
+#: The same reached by a relative path (`../../home/<name>`), as a record of
+#: where a prepared system was relative to its run says it.
+_RELATIVE_HOMES = re.compile(r"(?<![\w.-])(?:\.\.(?:/|\\\\|\\))+(?:home|Users)(?:/|\\\\|\\)"
+                             + _NAME_ON)
 #: Where a path ends: not inside a longer name (`/data/run` is not
 #: `/data/run2`, nor `/data/run.bak`); a full stop ending a sentence ends it.
 _STARTS = r"(?<![\w.-])"
@@ -159,8 +168,19 @@ def _finished_runs(root: Path) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - each run's Manifest still says how it ended
         state = ""
     if state == "running":
-        raise ShareRefused(f"Runs of the study in {root} are still going; share it once "
-                           "every run has finished.", code="environment.share.not_finished")
+        try:
+            from fastmdxplora.gui.exploration import runs_of_a_study
+
+            going = [str(r.get("run_id") or r.get("id") or "") for r in runs_of_a_study(root)
+                     or [] if r.get("state") == "running"]
+        except Exception:  # noqa: BLE001 - said without the names
+            going = []
+        going = [g for g in going if g]
+        which = (f"The run{'s' if len(going) > 1 else ''} {', '.join(going)} of the study in "
+                 f"{root} {'are' if len(going) > 1 else 'is'} still going" if going
+                 else f"Runs of the study in {root} are still going")
+        raise ShareRefused(f"{which}; share the study once every run has finished.",
+                           code="environment.share.not_finished")
     results = {str(r.get("run_id")): r for r in batch.get("runs") or []
                if isinstance(r, dict)}
     named = {str(e.get("run_id")): _system_named(e.get("system"))
@@ -169,7 +189,8 @@ def _finished_runs(root: Path) -> dict[str, Any]:
     systems: list[str] = []
     for run_id in ids:
         folder = root / "runs" / run_id
-        if PurePosixPath(run_id).name != run_id or run_id in (".", ".."):
+        if (PurePosixPath(run_id).name != run_id or run_id.startswith(".")
+                or any(mark in run_id for mark in "\\:")):
             raise ShareRefused(f"{root}'s record of runs names {run_id!r}, which is no run's "
                                "folder.", code="environment.share.not_a_study")
         if not (folder / "manifest.json").is_file() or str(
@@ -178,7 +199,19 @@ def _finished_runs(root: Path) -> dict[str, Any]:
                 f"The run {run_id} of the study in {root} did not finish; share the study "
                 "once every run has, after `fastmdx resume` on it.",
                 code="environment.share.not_finished")
-        member = finished_manifest(folder)
+        try:
+            member = finished_manifest(folder)
+        except ShareRefused as exc:
+            if exc.refusal.code != "environment.share.not_finished":
+                raise
+            found = _load(folder / "manifest.json")
+            short = [str(p.get("name")) for p in (found.get("phases") or [])
+                     if isinstance(p, dict) and str(p.get("status")) not in ("ok", "skipped")]
+            raise ShareRefused(
+                f"The run {run_id} of the study in {root} did not finish"
+                + (f" ({', '.join(short)})" if short else "")
+                + f"; share the study once every run has, after `fastmdx resume {root}`.",
+                code="environment.share.not_finished") from exc
         phases += [{**phase, "run": run_id} for phase in member.get("phases") or []
                    if isinstance(phase, dict)]
         named[run_id] = named.get(run_id) or _system_named(member.get("system"))
@@ -235,11 +268,13 @@ def _opens_with(root: Path, trajectory: str, roots: list[str]) -> str:
 
 def chosen_files(root: Path, everything: bool = False,
                  roots: list[str] | None = None,
-                 needed: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
+                 needed: frozenset[str] = frozenset(),
+                 runs: frozenset[str] | None = None) -> list[dict[str, Any]]:
     """The study's files that go in, in name order, each with its phase,
     kind, label, and for a trajectory the topology it is read with;
     ``needed`` go in whatever the package (a prepared system a run
-    simulated from)."""
+    simulated from); of a study of several, only the ``runs`` its record of
+    runs names (not a folder of an earlier attempt left beside them)."""
     from fastmdxplora.deposit import _trajectory_parts
     from fastmdxplora.study_files import kind_of, label_of, place
 
@@ -248,6 +283,8 @@ def chosen_files(root: Path, everything: bool = False,
         if never_shared(rel):
             continue
         phase, run, inner = place(rel)
+        if runs is not None and run and run not in runs:
+            continue
         kind = kind_of(rel)
         entries.append({"path": rel, "phase": phase, "run": run, "kind": kind,
                         "label": label_of(inner), "opens_with": ""})
@@ -348,7 +385,7 @@ class _Scrubber:
                 if _absolute(folder) and len(spelling.strip("/\\")) > 1:
                     said.setdefault(spelling.rstrip("/\\"), (f"{STUDY}/{inside}", alone))
         self.roots = [(re.compile(_STARTS + re.escape(r)
-                                  + (r"(?![\w/\\-]|\.[\w])" if said[r][1] else _ENDS)),
+                                  + (r"/?(?![\w/\\-]|\.[\w])" if said[r][1] else _ENDS)),
                        said[r][0])
                       for r in sorted(said, key=len, reverse=True)]
         home = str(Path.home()).rstrip("/\\")
@@ -364,7 +401,7 @@ class _Scrubber:
             text, n = pattern.subn(replacement.replace("\\", "\\\\"), text)
             if n:
                 used.add(STUDY)
-        for pattern in [*self.homes, _HOMES]:
+        for pattern in [*self.homes, _HOMES, _RELATIVE_HOMES]:
             text, n = pattern.subn(HOME, text)
             if n:
                 used.add(HOME)
@@ -374,9 +411,11 @@ class _Scrubber:
                 used.add(HOST)
         return text, used
 
-    def left(self, text: str) -> str:
-        """What is still there that should not be, or ''."""
-        for pattern in [*(p for p, _ in self.roots), *self.homes, _HOMES, *self.hosts]:
+    def left(self, text: str, *, hosts: bool = True) -> str:
+        """What is still there that should not be, or ''; with ``hosts``
+        false, a computer's name is not looked for."""
+        for pattern in [*(p for p, _ in self.roots), *self.homes, _HOMES, _RELATIVE_HOMES,
+                        *(self.hosts if hosts else [])]:
             found = pattern.search(text)
             if found:
                 return found.group(0)
@@ -471,6 +510,16 @@ def _actions(manifest: dict[str, Any], files: list[dict[str, Any]],
     return out
 
 
+def _relative_put(text: str, owner: str, target: str) -> str:
+    """A record's `relative_to_run` said as the way from ``owner`` to
+    ``target`` in the study, both paths in it, as it will be opened: the way
+    it ran named a folder of that computer (`../../home/<name>/prep`)."""
+    import posixpath
+
+    way = posixpath.relpath(target or ".", owner or ".")
+    return _RELATIVE_TO_RUN.sub(lambda m: m.group(1) + json.dumps(way), text)
+
+
 def _within(path: Path, folder: Path) -> bool:
     try:
         path.relative_to(folder)
@@ -479,59 +528,49 @@ def _within(path: Path, folder: Path) -> bool:
     return True
 
 
-def _prepared_systems(root: Path, manifest: dict[str, Any]
-                      ) -> tuple[list[dict[str, Any]], frozenset[str], dict[str, str]]:
+def _prepared_systems(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     """The prepared systems the study's runs simulated from that are not
-    their own `setup/`: those kept outside the study, each once, with the
-    folder it is carried in (`inside`), the folders its paths are said by
-    (`names`) and where it is (`system`); the files of those inside the study
-    a run needs (:data:`_PREPARED_NEEDS`); and, by run, the topology each
-    such run simulated, as a path in the study."""
+    their own `setup/`, found as the simulation phase finds them (by where
+    the run's record says, relative to the run, then as named, each by its
+    content), and for a window's seed the preparation it was taken from.
+
+    Returns `carried`, those kept outside the study, each once, with the
+    folder it is carried in (`inside`, `at`) and what its paths are said as
+    (`said`); `needed`, the files of those inside the study a run needs
+    (:data:`_PREPARED_NEEDS`); `topology_of`, by run, the topology it
+    simulated, as a path in the study; and `relative`, by packed record, the
+    folder its `relative_to_run` is read from and the folder it must lead to,
+    as paths in the study. A run whose system is not found, or is another
+    now, is refused: shared without it, it would be opened with none."""
+    from fastmdxplora.refusals import CodedError
     from fastmdxplora.simulation import pipeline
+    from fastmdxplora.simulation.seeding import SEEDED_FROM
 
     real = root.resolve()
-    runs = manifest.get("runs") or [""]
     outside: dict[Path, dict[str, Any]] = {}
     needed: set[str] = set()
-    topology_of: dict[str, str] = {}
-    for run in runs:
-        folder = root / "runs" / run if run else root
-        reference = pipeline._prepared_system_recorded(folder) or {}
-        named = [str(n) for n in (reference.get("given"), reference.get("resolved"))
-                 if n] + pipeline._setup_from_recorded(folder)
-        taken = pipeline._setup_taken_from(folder)
-        candidates = [pipeline.where_a_prepared_system_sits(pipeline._as_named(n))
-                      for n in named if Path(str(n)).expanduser().is_absolute()]
-        if taken is not None:
-            candidates.insert(0, taken)
-        wanted = reference.get("system_xml_sha256")
-        system = None
-        for candidate in candidates:
-            try:
-                candidate = candidate.resolve()
-            except OSError:
-                continue
-            if not (candidate / "system.xml").is_file():
-                continue
-            if wanted and pipeline.system_digest(candidate) != wanted:
-                continue
-            system = candidate
-            break
-        if system is None or system == (folder / "setup").resolve():
-            continue
+    # Each record that names a prepared system by `relative_to_run`: a
+    # run's ("run"), or a seed's (by the seed), and the system it names.
+    users: list[tuple[str, str, Path, Path]] = []
+    topology: dict[str, Path] = {}
+
+    def refused(run: str, said: str) -> ShareRefused:
+        who = f"The run {run} of the study in {root}" if run else f"The study in {root}"
+        return ShareRefused(f"{who} {said}", code="environment.share.not_finished")
+
+    def note(system: Path, names: list[Any], run: str) -> None:
         if _within(system, real):
             inner = system.relative_to(real).as_posix()
-            needed.update(f"{inner}/{n}" for n in _PREPARED_NEEDS
-                          if (system / n).is_file())
-            topology_of[run] = f"{inner}/topology.pdb"
-            continue
-        # The folders the run names it by: the system's own, or a study
-        # holding it where setup lays one out (`setup/`, `shared_setup/setup/`).
+            needed.update(f"{inner}/{n}" for n in _PREPARED_NEEDS if (system / n).is_file())
+            return
         entry = outside.setdefault(system, {"system": system, "names": set(), "runs": []})
-        entry["runs"].append(run)
-        for given in named:
-            given_path = Path(given).expanduser()
-            if not given_path.is_absolute():
+        if run not in entry["runs"]:
+            entry["runs"].append(run)
+        # The folders it is named by: its own, or a study holding it where
+        # setup lays one out (`setup/`, `shared_setup/setup/`).
+        for given in names:
+            given_path = Path(str(given or "")).expanduser()
+            if not given or not given_path.is_absolute():
                 continue
             for spelled in (Path(os.path.normpath(given_path)), given_path.resolve()):
                 try:
@@ -541,17 +580,75 @@ def _prepared_systems(root: Path, manifest: dict[str, Any]
                 if any(holding / layout == system if layout else holding == system
                        for layout in pipeline.PREPARED_SYSTEM_LAYOUTS):
                     entry["names"].add(spelled)
+
+    for run in manifest.get("runs") or [""]:
+        folder = root / "runs" / run if run else root
+        reference = pipeline._prepared_system_recorded(folder)
+        recorded = pipeline._setup_from_recorded(folder)
+        try:
+            if reference is not None:
+                simulated = pipeline._the_system_recorded(folder, reference)
+            else:
+                taken = pipeline._setup_taken_from(folder)
+                candidates = ([taken] if taken is not None else []) + [
+                    pipeline.where_a_prepared_system_sits(Path(n).expanduser())
+                    for n in recorded if Path(n).expanduser().is_absolute()]
+                simulated = next((c for c in candidates if (c / "system.xml").is_file()), None)
+        except CodedError as exc:
+            raise refused(run, f"simulated a prepared system that is another one now: {exc}") \
+                from exc
+        named = [str(v) for v in ((reference or {}).get("given"),
+                                  (reference or {}).get("resolved")) if v] + recorded
+        if simulated is None:
+            if reference is not None or recorded:
+                raise refused(run, (
+                    f"simulated the prepared system named {named[0] if named else 'in its record'}"
+                    ", which is not found here, so a reader of the shared study would have "
+                    "none. Put it back where the run's record says, or beside the study as "
+                    "it was, and share it again."))
+            continue
+        simulated = simulated.resolve()
+        if simulated == (folder / "setup").resolve():
+            continue
+        note(simulated, named, run)
+        topology[run] = simulated
+        users.append(("run", run, simulated, simulated))
+        # A window's seed keeps no setup record: it is with the preparation
+        # the seed was taken from, found as a reader finds it.
+        seeded = _load(simulated / SEEDED_FROM)
+        if isinstance(seeded, dict) and seeded.get("system_xml_sha256"):
+            try:
+                records = pipeline._the_records_of(simulated)
+            except CodedError as exc:
+                raise refused(run, f"simulated a seed taken from a preparation that is "
+                                   f"another one now: {exc}") from exc
+            if records is None or records.resolve() == simulated:
+                raise refused(run, (
+                    f"simulated a seed taken from the preparation named "
+                    f"{seeded.get('resolved') or seeded.get('given')}, which is not found "
+                    "here, so a reader of the shared study would have no setup record for "
+                    "it. Put it back and share it again."))
+            records = records.resolve()
+            note(records, [seeded.get("given"), seeded.get("resolved")], run)
+            users.append(("seed", run, simulated, records))
+
     taken_names: set[str] = set()
     carried = []
     for system, entry in sorted(outside.items(), key=lambda item: str(item[0])):
         # Carried as the shallowest folder it is named by, so each name
         # finds it as it did: `setup_from: /x/prep` as `prepared/prep`, with
-        # its `setup/` in it.
-        entry["base"] = min((n.resolve() for n in entry["names"]),
+        # its `setup/` in it; one named by itself alone, as the study that
+        # holds it where setup lays one out, so it is named by that study.
+        home = Path.home().resolve()
+        holding = [system.parents[len(PurePosixPath(layout).parts) - 1]
+                   for layout in pipeline.PREPARED_SYSTEM_LAYOUTS
+                   if layout and system.as_posix().endswith("/" + layout)]
+        holding = [h for h in holding if h not in (home, *home.parents, Path(h.anchor))]
+        entry["base"] = min([*(n.resolve() for n in entry["names"]), *holding],
                             key=lambda n: len(n.parts), default=system)
         stem = re.sub(r"[^A-Za-z0-9._-]+", "-", entry["base"].name).strip("-.") or "system"
         name, n = stem, 2
-        while name in taken_names:
+        while name in taken_names or (root / PREPARED / name).exists():
             name, n = f"{stem}-{n}", n + 1
         taken_names.add(name)
         inside = f"{PREPARED}/{name}"
@@ -566,10 +663,31 @@ def _prepared_systems(root: Path, manifest: dict[str, Any]
             said.setdefault(str(named), (inside if below == "." else f"{inside}/{below}",
                                          named.resolve() != system))
         entry.update(inside=inside, at=at, said=said)
-        for run in entry["runs"]:
-            topology_of[run] = f"{at}/topology.pdb"
         carried.append(entry)
-    return carried, frozenset(needed), topology_of
+
+    def in_crate(system: Path) -> str:
+        inner = _in_study(system, real)
+        if inner is not None:
+            return inner
+        return outside[system]["at"]
+
+    relative = {}
+    for kind, run, simulated, system in users:
+        if kind == "run":
+            at = f"runs/{run}" if run else ""
+            relative[f"{at}/simulation/simulation_parameters.json".lstrip("/")] = (
+                at, in_crate(system))
+        else:
+            seed = in_crate(simulated)
+            relative[f"{seed}/{SEEDED_FROM}"] = (seed, in_crate(system))
+    return {"carried": carried, "needed": frozenset(needed),
+            "topology_of": {run: f"{in_crate(s)}/topology.pdb" for run, s in topology.items()},
+            "relative": relative}
+
+
+def _in_study(path: Path, real: Path) -> str | None:
+    """``path`` as a path in the study, or None outside it."""
+    return path.relative_to(real).as_posix() if _within(path, real) else None
 
 
 def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, Any]]:
@@ -639,13 +757,16 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
     if isinstance(demo, dict) and demo.get("made_in"):
         roots.append(str(demo["made_in"]))
     roots = [r for r in roots if r and _absolute(r)]
-    carried, needed, prepared_of = _prepared_systems(root, manifest)
+    prepared = _prepared_systems(root, manifest)
+    carried = prepared["carried"]
     elsewhere = [folder for entry in carried
                  for folder in dict.fromkeys((entry["base"], entry["system"].parent))]
     scrub = _Scrubber(roots, _hosts(root, manifest, elsewhere),
                       {name: said for entry in carried
                        for name, said in entry["said"].items()})
-    entries = chosen_files(root, everything, roots, needed)
+    runs = manifest.get("runs")
+    entries = chosen_files(root, everything, roots, prepared["needed"],
+                           frozenset(runs) if runs else None)
     for entry in carried:
         entries += _carried_files(entry, everything)
     entries.sort(key=lambda e: e["path"])
@@ -666,7 +787,19 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                     text = raw.decode("utf-8")
                 except UnicodeDecodeError:
                     text = None
+                if text is not None and PurePosixPath(rel).name in _AS_THEY_ARE:
+                    # Packed byte for byte: a run finds its system by
+                    # `system.xml`'s SHA-256. They name no path; one that
+                    # did would not be packed.
+                    left = scrub.left(text, hosts=False)
+                    if left:
+                        raise ShareRefused(
+                            f"{rel} names {left!r}, and it is packed as it is; nothing was "
+                            "written.", code="environment.share.unscrubbed", path=rel)
+                    text = None
                 if text is not None:
+                    if rel in prepared["relative"]:
+                        text = _relative_put(text, *prepared["relative"][rel])
                     text, used = scrub(text)
                     left = scrub.left(text)
                     if left:
@@ -714,7 +847,7 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
             name=title, description=summary,
             published=(published or datetime.now(timezone.utc).date()).isoformat(),
             license_id=license_id or DEFAULT_LICENSE, authors=list(authors or []),
-            files=files, actions=_actions(manifest, files, prepared_of),
+            files=files, actions=_actions(manifest, files, prepared["topology_of"]),
             runs=[{"id": run, "system": (manifest.get("systems_of_runs") or {}).get(run, "")}
                   for run in manifest.get("runs") or []],
             prepared=[{"at": entry["inside"], "runs": entry["runs"]} for entry in carried],

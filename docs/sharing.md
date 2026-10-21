@@ -72,7 +72,8 @@ of its runs together: the table of members (`members.json`), the comparison
 is opened as the study it was, its runs and the pages that compare them
 included. A run still going, one that stopped short, or one the record of runs
 plans that never ran keeps the whole study back
-(`environment.share.not_finished`, naming the run).
+(`environment.share.not_finished`, naming the run); a folder in `runs/` the
+record of runs does not name (an earlier attempt) is left out.
 
 ### A prepared system a run simulated from
 
@@ -85,8 +86,19 @@ its setup record (`setup_parameters.json`, with the ligand's chemistry beside
 it). A system kept outside the study is carried once, however many runs used
 it, in `prepared/<name>/`, named from the folder the runs name it by, and every
 path to that folder is said as the folder it is carried in
-(`__FASTMDX_STUDY__/prepared/<name>`, below), so a run opened elsewhere finds
-it as it did where it ran.
+(`__FASTMDX_STUDY__/prepared/<name>`, below), and each run's record of the way
+from it to the system (`relative_to_run`) is written as the way in the archive,
+so a run opened elsewhere finds it as it did where it ran. The system is found
+as the run finds it: where its record says relative to the run, so a study
+moved or copied together with its preparation is shared as it is now, then
+where it was, each checked by its content. A run whose system is not found, or
+is another one now, keeps the study back (`environment.share.not_finished`,
+naming the run and the system): shared without it, the run would be opened
+with no record of the system it simulated. `system.xml` and the states beside
+it are packed byte for byte, never read for paths, as a run finds its system
+by `system.xml`'s SHA-256. A window of an umbrella study simulates from its
+seed, which keeps no setup record; the preparation the seed was taken from is
+carried the same way.
 
 ### What is never in it
 
