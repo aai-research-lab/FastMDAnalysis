@@ -595,9 +595,9 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     users: list[tuple[str, str, Path, Path]] = []
     topology: dict[str, Path] = {}
 
-    def refused(run: str, said: str) -> ShareRefused:
+    def of(run: str, said: str) -> str:
         who = f"The run {run} of the study in {root}" if run else f"The study in {root}"
-        return ShareRefused(f"{who} {said}", code="environment.share.not_finished")
+        return f"{who} {said}"
 
     def note(system: Path, names: list[Any], run: str, itself: list[Any] = ()) -> None:
         """``system`` a run simulated from, ``names`` the folders its records
@@ -674,7 +674,7 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                 # A name this computer cannot read (another person's `~`) is
                 # left out of the lookup, as the rest find the system.
                 readable = {k: v for k, v in reference.items()
-                            if k not in ("given", "resolved") or _full(v) is not None}
+                            if k not in ("given", "resolved") or _readable(v)}
                 simulated = pipeline._the_system_recorded(folder, readable)
             else:
                 taken = pipeline._setup_taken_from(folder)
@@ -683,11 +683,14 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                     for n in recorded if _full(n) is not None]
                 simulated = next((c for c in candidates if (c / "system.xml").is_file()), None)
         except CodedError as exc:
-            raise refused(run, f"simulated a prepared system that is another one now: {exc}") \
-                from exc
+            raise ShareRefused(
+                of(run, f"simulated a prepared system that is another one now: {exc}"),
+                code="environment.share.not_finished") from exc
         except RuntimeError as exc:
-            raise refused(run, f"names its prepared system by a path this computer cannot "
-                               f"read ({exc}); share it where that path is read.") from exc
+            raise ShareRefused(
+                of(run, f"names its prepared system by a path this computer cannot read "
+                        f"({exc}); share it where that path is read."),
+                code="environment.share.not_finished") from exc
         named = [str(v) for v in ((reference or {}).get("given"),
                                   (reference or {}).get("resolved")) if v] + recorded
         if simulated is None:
@@ -711,21 +714,25 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                 and not (simulated / "setup_parameters.json").is_file()):
             try:
                 readable = {k: v for k, v in seeded.items()
-                            if k not in ("given", "resolved") or _full(v) is not None}
+                            if k not in ("given", "resolved") or _readable(v)}
                 records = pipeline._the_system_recorded(simulated, readable,
                                                         verb="was seeded from")
             except CodedError as exc:
-                raise refused(run, f"simulated a seed taken from a preparation that is "
-                                   f"another one now: {exc}") from exc
+                raise ShareRefused(
+                    of(run, f"simulated a seed taken from a preparation that is another one "
+                            f"now: {exc}"), code="environment.share.not_finished") from exc
             except RuntimeError as exc:
-                raise refused(run, f"simulated a seed whose preparation is named by a path "
-                                   f"this computer cannot read ({exc}).") from exc
+                raise ShareRefused(
+                    of(run, f"simulated a seed whose preparation is named by a path this "
+                            f"computer cannot read ({exc})."),
+                    code="environment.share.not_finished") from exc
             if records is None or records.resolve() == simulated:
-                raise refused(run, (
+                raise ShareRefused(of(run, (
                     f"simulated a seed taken from the preparation named "
                     f"{seeded.get('resolved') or seeded.get('given')}, which is not found "
                     "here, so a reader of the shared study would have no setup record for "
-                    "it. Put it back and share it again."))
+                    "it. Put it back and share it again.")),
+                    code="environment.share.not_finished")
             records = records.resolve()
             found_systems.add(records)
             note(records, [seeded.get("given"), seeded.get("resolved")], run,
@@ -753,12 +760,18 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     # Where a system was is said as where it is now only where nothing of
     # the study, nor another system found, is there now: the root's own rule
     # says the study's paths, and a copy's record names its original's.
-    here = {os.path.normpath(str(p)) for p in (real, root.absolute(),
-                                                 manifest.get("output_dir")) if p}
-    here.update(os.path.normpath(str(system)) for system in found_systems)
+    studies = {os.path.normpath(str(p)) for p in (real, root.absolute(),
+                                                    manifest.get("output_dir")) if p}
+    systems_found = {os.path.normpath(str(system)) for system in found_systems}
 
     def is_here(path: str) -> bool:
-        return any(path == h or path.startswith(h.rstrip("/") + "/") for h in here)
+        # A folder of the study the archive leaves out is carried elsewhere,
+        # so where it was is said as where it is carried.
+        for folder in studies:
+            if path == folder or path.startswith(folder.rstrip("/") + "/"):
+                if not _left_out(os.path.relpath(path, folder), manifest.get("runs")):
+                    return True
+        return any(path == f or path.startswith(f.rstrip("/") + "/") for f in systems_found)
 
     for entry in outside.values():
         entry["was"] = {w for w in entry["was"] if not is_here(w)}
@@ -907,6 +920,14 @@ def _typed_from_home(names: list[Any], was: list[str], inner: str
                 elif inner.endswith("/" + layout):
                     out.setdefault(typed.rstrip("/"), (inner[:-len(layout) - 1], True))
     return out
+
+
+def _readable(name: Any) -> bool:
+    """Whether the simulation phase can look a recorded name up here: all
+    but another person's home (`~otheruser/...`), which raises; a relative
+    name (`inputs/prep`, a fetched study's) it reads as it does."""
+    text = str(name or "")
+    return not text.startswith("~") or _full(text) is not None
 
 
 def _full(name: Any) -> Path | None:
@@ -1080,18 +1101,18 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
         if recorded and _absolute(recorded):
             given_by.setdefault(os.path.normpath(recorded), []).append(run)
     inside_roots = [os.path.normpath(r) for r in roots]
-    # What a folder said as a run's must not hold: the study, a carried
-    # system, the home folder (every path under it would be said as the
-    # run's).
-    held = [*inside_roots, *(str(entry["system"]) for entry in carried),
-            str(Path.home()), str(Path.home().resolve())]
+    # What a folder said as a run's must not hold, nor be in: the study, a
+    # carried system; nor be the home folder or above it (every path under
+    # it would be said as the run's).
+    held = [*inside_roots, *(str(entry["system"]) for entry in carried)]
+    homes = {str(Path.home()), str(Path.home().resolve())}
 
     def above(folder: str, path: str) -> bool:
         return path == folder or path.startswith(folder.rstrip("/") + "/")
 
     for recorded, by in sorted(given_by.items()):
-        if len(by) == 1 and not any(above(r, recorded) or above(recorded, r)
-                                    for r in held):
+        if (len(by) == 1 and not any(above(r, recorded) or above(recorded, r) for r in held)
+                and not any(above(recorded, home) for home in homes)):
             rules.setdefault(recorded, (f"runs/{by[0]}", False))
     for name, rule in [*(item for entry in carried for item in entry["was_said"].items()),
                        *prepared["was_inside"].items()]:
@@ -1154,7 +1175,12 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
             source = entry.get("source") or root / rel
             data: bytes | None = None
             if PurePosixPath(rel).suffix.lower() in TEXT_SUFFIXES:
-                raw = source.read_bytes()
+                try:
+                    raw = source.read_bytes()
+                except OSError as exc:
+                    raise ShareRefused(f"{source} could not be read ({exc}); nothing was "
+                                       "written.", code="environment.share.not_finished",
+                                       path=rel) from exc
                 try:
                     text = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -1194,7 +1220,12 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                     payload[rel] = data
             else:
                 payload[rel] = source
-                size, digest = source.stat().st_size, _sha256_of(source)
+                try:
+                    size, digest = source.stat().st_size, _sha256_of(source)
+                except OSError as exc:
+                    raise ShareRefused(f"{source} could not be read ({exc}); nothing was "
+                                       "written.", code="environment.share.not_finished",
+                                       path=rel) from exc
             phase = entry["phase"]
             record = {"path": rel, "name": entry["label"], "size": size, "sha256": digest,
                       "phase": {"saved": "viewer", "record": "study"}.get(phase, phase),

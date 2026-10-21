@@ -92,7 +92,9 @@ folder it is carried in (`__FASTMDX_STUDY__/prepared/<name>`, below): as the
 runs name it, typed from a home folder (`~/prep`) included, and where its setup
 record says it was made, from the structure setup kept beside what it made
 (`.../setup/retained.pdb`, for a preparation made in one folder and copied to
-another; not carried by default, though named so). What setup read (another
+another; not carried by default, though named so). Setup keeps that structure
+only where it kept ions in place; for a preparation without it, the folder it
+was made in is kept as written. What setup read (another
 study's structure, a ligand file given) is never said so: it is kept as
 written; nor is a folder of the study itself, or of another system found. Each run's record of the way
 from it to the system (`relative_to_run`) is written as the way in the archive,

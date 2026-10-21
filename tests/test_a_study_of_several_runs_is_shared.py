@@ -1129,3 +1129,79 @@ def test_a_copy_of_the_study_s_own_system_takes_none_of_its_paths(tmp_path):
     opened = open_shared(str(out), into=tmp_path / "x")
     assert setup_records_of(opened / "runs" / "b") == \
         (opened / "shared_setup" / "setup").resolve()
+
+
+def test_a_run_carried_on_in_the_home_folder_is_said_as_its_place(tmp_path, monkeypatch):
+    """Review of series 3: a run's own recorded folder under the home folder
+    was never said as its place, so its records named nothing opened."""
+    home = tmp_path / "home" / "kunle"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    root, _ = _campaign(tmp_path / "work")
+    manifest = root / "runs" / "a" / "manifest.json"
+    found = json.loads(manifest.read_text())
+    found["output_dir"] = str(home / "scratch" / "a")
+    manifest.write_text(json.dumps(found))
+    (root / "runs" / "a" / "analysis" / "analysis_manifest.json").write_text(json.dumps(
+        {"trajectory_input": f"{home}/scratch/a/simulation/production.dcd"}))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert json.loads(texts["runs/a/manifest.json"])["output_dir"] == f"{STUDY}/runs/a"
+    assert json.loads(texts["runs/a/analysis/analysis_manifest.json"])[
+        "trajectory_input"] == f"{STUDY}/runs/a/simulation/production.dcd"
+
+
+def test_a_moved_study_s_system_in_a_dot_folder_is_said_as_carried(tmp_path):
+    """Review of series 3: moved since it ran, a study's system in a folder
+    the archive leaves out kept the old paths, said in a folder not carried."""
+    import shutil
+
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    ran = tmp_path / "cluster"
+    root = ran / "campaign"
+    folder = root / ".prep" / "setup"
+    _prepared(folder)
+    _run(root, "a", folder, str(folder.parent))
+    _of_one_run(root)
+    here = tmp_path / "here"
+    shutil.move(str(ran), here)
+    out = tmp_path / "o.zip"
+    share_study(here / "campaign", out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert f"setup_from: {STUDY}/prepared/prep" in texts["runs/a/resolved_config.yml"]
+    assert ".prep" not in texts["prepared/prep/setup/setup_parameters.json"]
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "a") == \
+        (opened / "prepared" / "prep" / "setup").resolve()
+
+
+def test_a_fetched_study_s_preparation_is_found_as_the_run_finds_it(tmp_path):
+    """Review of series 3: a study fetched back names its preparation as the
+    machine it ran on did (`inputs/prep`), which the run finds through the
+    record of what was sent; packing left that name out and refused it."""
+    from fastmdxplora.simulation import pipeline
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    prep = _prepared(tmp_path / "local" / "prep" / "setup")
+    root = tmp_path / "campaign"
+    run = _run(root, "a", prep, "inputs/prep")
+    params = run / "simulation" / "simulation_parameters.json"
+    record = json.loads(params.read_text())
+    record["prepared_system"].update(given="inputs/prep",
+                                     resolved="/remote/job/inputs/prep/setup",
+                                     relative_to_run="../../inputs/prep/setup")
+    params.write_text(json.dumps(record))
+    manifest = run / "manifest.json"
+    found = json.loads(manifest.read_text())
+    found["phases"][0]["taken_from"] = "/remote/job/inputs/prep/setup"
+    manifest.write_text(json.dumps(found))
+    _of_one_run(root)
+    (root / pipeline.FETCHED_RECORD).write_text(json.dumps(
+        {"remote_dir": "/remote/job", "inputs": {"prep": str(prep.parent)}}))
+    assert pipeline._the_system_recorded(run, record["prepared_system"]) == prep.resolve()
+    share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    opened = open_shared(str(tmp_path / "o.zip"), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "a") == \
+        (opened / "prepared" / "prep" / "setup").resolve()
