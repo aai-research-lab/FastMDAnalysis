@@ -250,7 +250,8 @@ archive; the archive the study put there before is taken away, a file you
 put beside it (a paper, a figure) stays, and a description written there
 by you, not the study, is kept as you left it, as are creators,
 keywords, an embargo, a licence or a kind you gave a draft the study had
-not described yet (only the version is the study's to set). Shared again after (analysed again, say), it is a draft
+not described yet, or wrote there while its archive was uploading (only
+the version is the study's to set). Shared again after (analysed again, say), it is a draft
 of a new version of the same record, which Zenodo makes only for a token
 that also has the **deposit:actions** scope; the record's concept DOI
 always leads to its latest version. Its version is counted on from the

@@ -503,7 +503,7 @@ def test_a_draft_made_whose_answer_was_lost_is_taken_not_made_again(tmp_path, un
     assert [c[1] for c in unsteady.calls if c[0] == "POST"] == ["/api/deposit/depositions"]
     assert [d["id"] for d in unsteady.drafts] == [7]
     assert unsteady.stored["archive"] == (tmp_path / "shared.zip").read_bytes()
-    assert any("Zenodo made draft 7 though its answer was lost; taking that one" in line
+    assert any("Zenodo made draft 7, asked for by this study; taking that one" in line
                for line in told)
 
 
@@ -1871,3 +1871,64 @@ def test_a_doi_zenodo_did_not_reserve_says_the_draft_is_kept(tmp_path, unsteady,
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert "is kept as it was, its DOI not yet reserved: share again once Zenodo answers" \
         in capsys.readouterr().err
+
+
+def test_what_the_person_writes_while_the_archive_uploads_is_kept(tmp_path, unsteady,
+                                                                  monkeypatch):
+    """Hands-on review of the thirteenth commit: words the person wrote on
+    the draft while its archive was uploading were written over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def meanwhile(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if kwargs.get("upload") is not None:
+            unsteady.meta[7].update(description="<p>Typed by me during the upload.</p>",
+                                    keywords=["mine"])
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", meanwhile)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[7]["description"] == "<p>Typed by me during the upload.</p>"
+    assert unsteady.meta[7]["keywords"] == ["mine"]
+
+
+def test_an_answer_that_is_no_json_is_said_to_be_asked_again(tmp_path, unsteady,
+                                                             monkeypatch, capsys):
+    import urllib.request
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = urllib.request.urlopen
+
+    class _Page:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, *_args):
+            return b"<html>Bad gateway</html>"
+
+    def gateway(request, timeout=None):
+        if request.get_method() == "GET" and request.full_url.endswith("/depositions/7"):
+            return _Page()
+        return real(request, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "was not JSON." in said and "share again once Zenodo answers" in said
+
+
+def test_a_download_refused_is_not_told_to_be_asked_later(tmp_path, unsteady):
+    unsteady.payload = os.urandom(1 << 16)
+    unsteady.faults = {"GET file": [403]}
+    with pytest.raises(ShareRefused) as refused:
+        _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
+                  tmp_path / "got.zip", most=1 << 30, md5="", said=None, size=0)
+    assert "ask its owner for access" in str(refused.value)
+    assert "open it again later" not in str(refused.value)

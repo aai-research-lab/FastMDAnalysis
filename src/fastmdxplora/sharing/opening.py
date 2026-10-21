@@ -188,10 +188,13 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                 if exc.code in zenodo.AGAIN and failures < zenodo.TRIES:
                     _again(f"{url} answered HTTP {exc.code}", failures, exc.headers, said)
                     continue
+                closed = exc.code in (401, 403, 404, 410)
                 raise ShareRefused(
                     f"The shared study could not be downloaded from {url}: HTTP {exc.code}"
                     + (f", still after {failures} tries" if failures > 1 else "")
-                    + _got(read, size) + ". Nothing was kept; open it again later.",
+                    + _got(read, size) + ". Nothing was kept; "
+                    + ("it is not open to be downloaded (restricted, or not published): ask "
+                       "its owner for access." if closed else "open it again later."),
                     code="environment.service.unreachable", url=url) from exc
             except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
                 # A connection cut mid-file reads as an incomplete answer.

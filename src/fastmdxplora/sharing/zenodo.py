@@ -212,8 +212,12 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
     try:
         return json.loads(text)
     except ValueError as exc:
-        raise ShareRefused(f"Zenodo's answer to {method} {url} was not JSON.",
-                           code="environment.service.unreachable", url=url) from exc
+        refused = ShareRefused(f"Zenodo's answer to {method} {url} was not JSON.",
+                               code="environment.service.unreachable", url=url)
+        # A gateway's page in place of Zenodo's answer: what was asked may
+        # have been done, and asking later may be answered.
+        refused.unclear = refused.later = True
+        raise refused from exc
 
 
 # -- reading a record --------------------------------------------------------
@@ -334,7 +338,7 @@ def _taken(depositions: str, token: str, title: str, made: list[str],
             "shares whose answers were lost. Delete all but one among your uploads, then "
             "share again.", code="environment.service.unusable_response")
     if said:
-        said(f"Zenodo made draft {made[0]} though its answer was lost; taking that one.")
+        said(f"Zenodo made draft {made[0]}, asked for by this study; taking that one.")
     try:
         return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
     except ShareRefused as exc:
@@ -765,15 +769,18 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     # one of them, whichever landed.
     sending = _sendings(kept[site].get("sending"))
     made_as = kept[site].get("made_as") if isinstance(kept[site].get("made_as"), dict) else {}
-    untouched = (bool(last) and _written(held) == last) \
-        or _sent(held) in sending or (
-        # Still as asked for: titled so, and no one's words or names in it
-        # (whatever defaults Zenodo gave it since).
-        not versioned and str(held.get("title") or "") in ("", marker)
-        and not any(held.get(key) for key in _SOMEONE_S)
-        and all(held.get(key) in (None, "", made_as.get(key), ours)
-                for key, ours in (("access_right", "open"), ("upload_type", "dataset"),
-                                  ("license", license_id.lower()))))
+
+    def _the_study_s(held: dict[str, Any]) -> bool:
+        return (bool(last) and _written(held) == last) or _sent(held) in sending or (
+            # Still as asked for: titled so, and no one's words or names in it
+            # (whatever defaults Zenodo gave it since).
+            not versioned and str(held.get("title") or "") in ("", marker)
+            and not any(held.get(key) for key in _SOMEONE_S)
+            and all(held.get(key) in (None, "", made_as.get(key), ours)
+                    for key, ours in (("access_right", "open"), ("upload_type", "dataset"),
+                                      ("license", license_id.lower()))))
+
+    untouched = _the_study_s(held)
     uploaded, removing = False, ""
     try:
         if said:
@@ -801,6 +808,13 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             _keep(study, kept)
             removing = ""
         kept[site].pop("stale", None)
+        # Read again: an upload takes minutes, and what the person wrote there
+        # meanwhile is theirs.
+        again = _call("GET", f"{depositions}/{identifier}", token=token, said=said)
+        if isinstance(again, dict) and isinstance(again.get("metadata"), dict):
+            held = again["metadata"]
+            inherited = {k: v for k, v in held.items() if k not in ("doi", "prereserve_doi")}
+            untouched = _the_study_s(held)
         if untouched:
             ours_said = _metadata(packed["crate"], authors=authors, license_id=license_id,
                                   system=system, version=version)
@@ -901,7 +915,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                           said=said, gone=_GONE)
             if isinstance(found, dict) and found.get("submitted") and said:
                 said(f"The draft {earlier['id']} of a new version is gone from {site}; "
-                     f"beginning a new version of record {published} again.")
+                     f"beginning a new version again, from the latest version of record "
+                     f"{published}.")
         if found is not _GONE and not isinstance(found, dict):
             raise ShareRefused(
                 f"Zenodo's answer for the draft or record {earlier['id']} this study was "
