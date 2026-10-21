@@ -209,9 +209,10 @@ You open the address, read the draft, change what you want, and press
 share after that makes a new one).
 
 The study is packed before Zenodo is asked anything, so a study that cannot
-be shared leaves no draft behind, and the draft is recorded in the study as
-soon as it exists, so a share that fails part way is finished by the next
-one rather than leaving a second draft.
+be shared (a disk with no room for the archive included) leaves no draft
+behind, and the draft is recorded in the study as soon as it exists, so a
+share that fails part way is finished by the next one rather than leaving a
+second draft.
 
 Zenodo limits how many requests it takes a minute (it answers 429, saying
 when it may be asked again) and is at times briefly unable to answer (502,
@@ -245,13 +246,17 @@ written nowhere.
 
 The study keeps the record it was shared as in `shared_to.json`. Shared
 again before you publish, the same draft is made again with the new
-archive; an earlier archive of another name is taken away, and a file you
-put beside it (a paper, a figure) stays. Shared again after (analysed
+archive; an earlier archive of another name is taken away, a file you put
+beside it (a paper, a figure) stays, and a description you changed there
+is kept as you left it. Shared again after (analysed
 again, say), it is a draft of a new version of the same record, which
 Zenodo makes only for a token that also has the **deposit:actions** scope;
-the record's concept DOI always leads to its latest version. Zenodo keeps one draft of a new version at a time: one
-you began and changed there is not taken (publish or delete it first), and
-one deleted is begun again from the published record.
+the record's concept DOI always leads to its latest version, counted on from the latest one published (one you
+published by hand included). Zenodo keeps one draft of a new version at a
+time: one you began there is not taken (publish or delete it first), and
+one deleted is begun again from the published record. Only
+an archive the study put there is taken away: another `.zip` on the draft
+keeps the share back, as a record of two archives opens as neither.
 
 ---
 

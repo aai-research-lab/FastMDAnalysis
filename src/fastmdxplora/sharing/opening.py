@@ -80,6 +80,11 @@ def _no_room(where: Path, error: OSError, how_far: str = "") -> str:
             "folder.")
 
 
+def _too_big(where: Path, error: OSError) -> str:
+    return (f"The shared study could not be written to {where}: the disk there takes no file "
+            f"this large ({error.strerror}). Open it into a folder on another disk.")
+
+
 def _download(url: str, to: Path, *, most: int, md5: str,
               said: Callable[[str], None] | None, size: int = 0,
               room: Path | None = None) -> None:
@@ -202,11 +207,9 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                                code="environment.share.too_large",
                                path=str(room or to.parent)) from unwritten
         if unwritten.errno == errno.EFBIG:
-            raise ShareRefused(
-                f"The shared study could not be written to {room or to.parent}: the disk "
-                f"there takes no file this large ({unwritten.strerror}). Open it into a "
-                "folder on another disk.", code="environment.share.too_large",
-                path=str(room or to.parent)) from unwritten
+            raise ShareRefused(_too_big(room or to.parent, unwritten),
+                               code="environment.share.too_large",
+                               path=str(room or to.parent)) from unwritten
         raise unwritten
     if md5 and digest.hexdigest() != md5:
         raise ShareRefused(
@@ -408,6 +411,9 @@ def open_shared(source: str, *, into: str | Path | None = None,
             if exc.errno in _NO_ROOM:
                 raise ShareRefused(_no_room(parent, exc), code="environment.share.too_large",
                                    path=str(parent)) from exc
+            if exc.errno == errno.EFBIG:
+                raise ShareRefused(_too_big(parent, exc), code="environment.share.too_large",
+                                   path=str(parent)) from exc
             raise
     except BaseException:
         # Folders made only to open this into are not left behind, empty;
@@ -473,7 +479,8 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             raise
         except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError,
                 OSError, ValueError) as exc:
-            if isinstance(exc, OSError) and exc.errno in _NO_ROOM:
+            if isinstance(exc, OSError) and (exc.errno in _NO_ROOM
+                                             or exc.errno == errno.EFBIG):
                 # The disk, not the archive: said as such where it is caught.
                 raise
             # A member damaged, compressed in a way this Python cannot read,

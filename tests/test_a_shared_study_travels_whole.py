@@ -48,12 +48,21 @@ class _Unsteady(_Zenodo):
 
     gone: set = set()
     edited: dict = {}
+    latest: dict | None = None
+    files_of: dict = {}
+    # Drafts of a new version of record 7 there is (Zenodo keeps one).
+    versions_begun: list = []
 
     def _deposition(self, number):
         made = super()._deposition(number)
         if type(self).files is not None:
             made["files"] = type(self).files
         made["metadata"].update(type(self).edited.get(number, {}))
+        if number in type(self).files_of:
+            made["files"] = type(self).files_of[number]
+        if type(self).latest is not None:
+            made["links"]["latest"] = f"{self._base()}/api/records/latest"
+        made["conceptrecid"] = "c7"
         return made
 
     def _fault(self, which):
@@ -71,6 +80,7 @@ class _Unsteady(_Zenodo):
                 draft["hidden"] -= 1
                 continue
             shown.append({"id": draft["id"], "metadata": {"title": draft["title"]}})
+        shown += [self._deposition(n) for n in type(self).versions_begun]
         return self._json(shown)
 
     def _drop(self):
@@ -95,6 +105,11 @@ class _Unsteady(_Zenodo):
         if self.path.endswith("/actions/newversion"):
             # A new version's draft begun again, the one deleted replaced.
             type(self).gone.clear()
+            if self._fault("POST newversion") == "made":
+                type(self).versions_begun.append(8)
+                type(self).calls.append(("POST", self.path, None))
+                self._body()
+                return self._status(504)
         fault = self._fault("POST")
         if self.path == "/api/deposit/depositions" and fault in (None, "made", "made late"):
             body = self._body()
@@ -153,6 +168,8 @@ class _Unsteady(_Zenodo):
         name = type(self).stored.get("name", "shared.zip")
         if self.path.startswith("/api/deposit/depositions?"):
             return self._list()
+        if self.path == "/api/records/latest" and type(self).latest is not None:
+            return self._json(type(self).latest)
         if self.path.startswith("/api/deposit/depositions/"):
             fault = self._fault("GET deposition")
             if isinstance(fault, int):
@@ -215,6 +232,7 @@ def unsteady(monkeypatch):
     _Unsteady.wrong_md5, _Unsteady.faults, _Unsteady.ranges = False, {}, []
     _Unsteady.payload, _Unsteady.drafts, _Unsteady.files = None, [], None
     _Unsteady.late, _Unsteady.gone, _Unsteady.edited = 2, set(), {}
+    _Unsteady.latest, _Unsteady.files_of, _Unsteady.versions_begun = None, {}, []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Unsteady)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -587,6 +605,7 @@ def test_a_draft_s_archive_of_the_same_name_is_replaced_and_others_go(tmp_path, 
     unsteady.calls.clear()
     unsteady.files = [{"id": "same", "filename": "shared.zip"},
                       {"id": "other", "filename": "old-name.zip"}]
+    _packed_before_as(study, "old-name.zip")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     deleted = [c[1] for c in unsteady.calls if c[0] == "DELETE"]
     assert deleted == ["/api/deposit/depositions/7/files/other"]
@@ -725,6 +744,7 @@ def test_two_archives_left_on_a_draft_are_said_before_it_is_published(tmp_path, 
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     capsys.readouterr()
     unsteady.files = [{"id": "other", "filename": "old-name.zip"}]
+    _packed_before_as(study, "old-name.zip")
     unsteady.faults = {"DELETE": [503] * zenodo.TRIES}
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     said = capsys.readouterr().err
@@ -762,7 +782,9 @@ def test_a_record_that_will_never_open_is_not_said_to_open_later(tmp_path, unste
     with pytest.raises(ShareRefused) as refused:
         open_shared("10.5072/zenodo.12345", workspace=tmp_path / "w")
     assert "again later" not in str(refused.value)
-    assert "no such record" in str(refused.value)
+    assert str(refused.value) == ("Zenodo has no record 12345: look at the DOI or address "
+                                  "given.")
+    assert refused.value.refusal.code == "environment.share.not_a_study"
 
 
 def test_a_draft_zenodo_listed_only_late_is_named_to_delete(tmp_path, unsteady):
@@ -868,13 +890,17 @@ def test_a_new_version_the_person_began_and_changed_is_not_taken(tmp_path, unste
     study = _study(tmp_path / "study")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     unsteady.submitted = True
-    unsteady.edited = {8: {"title": "My hand-edited version"}}
+    # Begun by the person on Zenodo's site, a co-author added: not the
+    # study's, whatever in it was changed.
+    unsteady.versions_begun = [8]
+    unsteady.edited = {8: {"creators": [{"name": "Their, Co-author"}]}}
     unsteady.calls.clear()
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     said = capsys.readouterr().err
-    assert "a draft of a new version of record 7 (8) that has been changed (its title)" in said
-    assert not any(c[0] in ("PUT", "DELETE") for c in unsteady.calls)
+    assert "a draft of a new version of record 7 (8) that this study did not begin" in said
+    assert not any(c[0] in ("PUT", "DELETE") or c[1].endswith("newversion")
+                   for c in unsteady.calls)
 
 
 def test_a_file_the_person_put_beside_the_archive_stays(tmp_path, unsteady):
@@ -884,6 +910,7 @@ def test_a_file_the_person_put_beside_the_archive_stays(tmp_path, unsteady):
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     unsteady.calls.clear()
     unsteady.files = [{"id": "p", "filename": "paper.pdf"}, {"id": "z", "filename": "old.zip"}]
+    _packed_before_as(study, "old.zip")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert [c[1] for c in unsteady.calls if c[0] == "DELETE"] == [
         "/api/deposit/depositions/7/files/z"]
@@ -908,3 +935,145 @@ def test_a_refusal_says_what_to_do(tmp_path, unsteady, capsys, monkeypatch):
     monkeypatch.setattr(zenodo.urllib.request, "urlopen", urlopen)
     assert _share_to_zenodo(_study(tmp_path / "b"), tmp_path / "b.zip") == 2
     assert "Nothing was made; share again once Zenodo answers." in capsys.readouterr().err
+
+
+def _packed_before_as(study, name: str) -> None:
+    """The study's last share named its archive ``name``."""
+    path = study / "shared_to.json"
+    kept = json.loads(path.read_text())
+    kept["zenodo-sandbox"]["archive"] = name
+    path.write_text(json.dumps(kept))
+
+
+def test_an_archive_the_person_put_on_the_draft_is_never_taken_away(tmp_path, unsteady,
+                                                                     capsys):
+    """Review of the fifth commit: a zip the person put on the draft was
+    taken away without a word as if it were an earlier archive."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.calls.clear()
+    unsteady.files = [{"id": "m", "filename": "supplementary-movies.zip"}]
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "holds supplementary-movies.zip, which this study did not put there" in \
+        capsys.readouterr().err
+    assert not any(c[0] in ("DELETE",) or c[1].startswith("/files/") for c in unsteady.calls)
+
+
+def test_a_new_version_is_compared_with_and_counted_from_the_latest_published(
+        tmp_path, unsteady):
+    """Review of the fifth commit: a version the person published by hand
+    since made every new version look changed, and its number was the
+    study's own count, not the record's."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    # Published by hand since as version 2, with a paper: the new draft
+    # Zenodo begins from it carries the paper too.
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"},
+                       "files": [{"key": "shared.zip"}, {"key": "paper.pdf"}]}
+    unsteady.files_of = {8: [{"id": "z", "filename": "shared.zip"},
+                             {"id": "p", "filename": "paper.pdf"}]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.stored["metadata"]["version"] == "3"
+
+
+def test_a_refusal_after_a_deleted_new_version_names_its_record(tmp_path, unsteady,
+                                                                 capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.gone = {8}
+    unsteady.faults = {"POST": [504]}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "Zenodo may have begun the new version of record 7" in said
+    assert "record 8" not in said
+
+
+def test_a_token_refused_at_the_next_share_is_said_as_such(tmp_path, unsteady, capsys):
+    study = _study(tmp_path / "study")
+    unsteady.late = 99
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {"GET list": [401]}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "the token was refused" in said and "did not list your drafts" not in said
+
+
+def test_a_file_too_large_unpacking_is_said(tmp_path, unsteady, monkeypatch):
+    import errno
+
+    from fastmdxplora.sharing import opening
+
+    _shared(tmp_path, unsteady)
+
+    def big(*_args, **_kwargs):
+        raise OSError(errno.EFBIG, "File too large")
+
+    monkeypatch.setattr(opening, "_unpacked", big)
+    with pytest.raises(ShareRefused) as refused:
+        open_shared(str(tmp_path / "shared.zip"), into=tmp_path / "fat")
+    assert refused.value.refusal.code == "environment.share.too_large"
+    assert "takes no file this large" in str(refused.value)
+
+
+def test_a_new_version_begun_whose_answer_was_lost_is_taken(tmp_path, unsteady):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.faults = {"POST newversion": ["made"]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert not any(c[1].endswith("newversion") for c in unsteady.calls)
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "8"
+
+
+def test_the_person_s_edits_to_a_draft_not_yet_published_are_kept(tmp_path, unsteady,
+                                                                   capsys):
+    """Hands-on review of the fifth commit: shared again, the description the
+    person had changed on the draft was written over."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.edited = {7: {"description": "<p>As I want it said.</p>"}}
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "its description as you left it is kept" in capsys.readouterr().out
+    assert not any(c[0] == "PUT" and c[1] == "/api/deposit/depositions/7"
+                   for c in unsteady.calls)
+    assert any(c[1].startswith("/files/") for c in unsteady.calls)
+
+
+def test_a_full_disk_while_sharing_is_said(tmp_path, unsteady, monkeypatch, capsys):
+    """Hands-on review of the fifth commit: a disk that filled writing the
+    archive, the study's record of where it is shared, or the archive named
+    with its DOI ended in a traceback, a draft left unsaid."""
+    import errno
+
+    from fastmdxplora.sharing import pack
+
+    study = _study(tmp_path / "study")
+    real = pack._packed
+    calls = []
+
+    def full(*args, **kwargs):
+        calls.append(kwargs.get("identifier"))
+        if len(calls) == 2:
+            raise OSError(errno.ENOSPC, "No space left on device", str(tmp_path / "x.zip"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pack, "_packed", full)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert f"could not be written to {tmp_path}: the disk there has no room" in said
+    assert "/uploads/7 is kept, with no archive yet: share again" in said
+    # Room again (the packing fails only the once): that draft finished.
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert not any(c[0] == "POST" for c in unsteady.calls)

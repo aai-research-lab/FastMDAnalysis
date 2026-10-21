@@ -26,6 +26,7 @@ same day is the same bytes.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -1318,7 +1319,24 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                 said: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Pack the finished study in ``root`` as ``to``; what was written: its
     `path`, `files`, `bytes` and `sha256`, the `crate`, and which files hold
-    each placeholder (`placeholders`)."""
+    each placeholder (`placeholders`). A disk with no room for it refuses."""
+    try:
+        return _packed(root, to, everything=everything, license_id=license_id,
+                       authors=authors, published=published, identifier=identifier,
+                       said=said)
+    except OSError as exc:
+        if exc.errno not in (errno.ENOSPC, errno.EDQUOT, errno.EFBIG):
+            raise
+        where = Path(exc.filename).parent if exc.filename else Path(to).expanduser().parent
+        raise ShareRefused(
+            f"The shared study could not be written to {where}: the disk there has no room "
+            f"for it ({exc.strerror}); nothing was written. Make room there, or write it "
+            "elsewhere.", code="environment.share.too_large", path=str(where)) from exc
+
+
+def _packed(root: str | Path, to: str | Path, *, everything: bool, license_id: str,
+            authors: list[tuple[str, str]] | None, published: date | None, identifier: str,
+            said: Callable[[str], None] | None) -> dict[str, Any]:
     from fastmdxplora.study_files import STORED
 
     if not authors:
