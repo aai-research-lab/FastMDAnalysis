@@ -1667,3 +1667,79 @@ def test_a_small_limit_is_said_in_megabytes(tmp_path, unsteady):
         _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
                   tmp_path / "got.zip", most=10 ** 7, md5="", said=None, size=0)
     assert "over 10 MB" in str(refused.value) and "0.0 GB" not in str(refused.value)
+
+
+def test_names_the_person_gave_a_draft_found_by_its_title_are_kept(tmp_path, unsteady):
+    """Review of the tenth commit: a draft whose answer was lost, found by
+    its title at the next share, was taken as made with the co-author and
+    keywords the person had given it since, and both written over."""
+    unsteady.meta = {}
+    study, out = _studied(tmp_path, "study")
+    unsteady.late = len(zenodo._LOOKS_S)
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, out) == 2
+    unsteady.faults = {}
+    unsteady.meta[7] = {"title": unsteady.drafts[0]["title"],
+                        "creators": [{"name": "Aina, Adekunle"}, {"name": "Their, Co-author"}],
+                        "keywords": ["their keyword"]}
+    assert _share_to_zenodo(study, out) == 0
+    assert len(unsteady.meta[7]["creators"]) == 2
+    assert unsteady.meta[7]["keywords"] == ["their keyword"]
+
+
+def test_a_new_version_begun_whose_draft_was_not_read_is_said_begun(tmp_path, unsteady,
+                                                                   capsys):
+    """Review of the eleventh commit: a new version Zenodo began, its draft
+    then refused to be read, was said not begun ("Record 7 is as it was")."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.faults = {"GET deposition": [None, 403]}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "is as it was" not in said
+    assert "Zenodo began the new version of record 7 (8)" in said
+
+
+def test_a_new_version_begun_again_holds_whichever_archive_the_record_was_published_with(
+        tmp_path, unsteady):
+    """Review of the eleventh commit: a record published with the archive
+    whose upload answer was lost, the old one deleted, refused that archive
+    as not the study's once a new version was begun again."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    unsteady.faults = {}
+    # The person deleted a.zip, kept b.zip and published.
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "b", "filename": "b.zip"}] for n in (7, 8)}
+    assert _share_to_zenodo(study, tmp_path / "c.zip") == 0
+    unsteady.gone = {8}
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "c.zip") == 0
+    assert [c[1] for c in unsteady.calls if c[0] == "DELETE"] == [
+        "/api/deposit/depositions/8/files/b"]
+
+
+def test_an_answer_that_is_no_draft_is_not_taken_for_one_gone(tmp_path, unsteady,
+                                                             monkeypatch, capsys):
+    """Review of the eleventh commit: a draft's GET answered with an empty
+    list was taken as the draft gone, and a second made beside it."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = zenodo._call
+
+    def odd(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/deposit/depositions/7"):
+            return []
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", odd)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "is no draft or record; nothing was made" in capsys.readouterr().err
+    assert not any(c[0] == "POST" for c in unsteady.calls)

@@ -50,10 +50,10 @@ STALLED_S = 30
 _NO_ROOM = frozenset({errno.ENOSPC, errno.EDQUOT})
 
 
-
 def _gb(size: float) -> str:
     """A size as said to the person: in GB, or in MB below a tenth of one."""
     return f"{size / 1e9:.1f} GB" if size >= 1e8 else f"{size / 1e6:.0f} MB"
+
 
 def unpacked_limit(most_bytes: int) -> int:
     """How much an archive may unpack to: compressed text unpacks to several
