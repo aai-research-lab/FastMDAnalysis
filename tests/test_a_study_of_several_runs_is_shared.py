@@ -1350,10 +1350,10 @@ def test_a_loop_of_links_in_a_run_is_a_refusal_or_shared(tmp_path):
     root, _ = _campaign(tmp_path)
     loop = root / "runs" / "a" / "setup"
     loop.symlink_to(loop)
-    try:
+    with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
-    except ShareRefused:
-        pass
+    assert refused.value.code == "environment.share.not_finished"
+    assert "runs/a/setup" in str(refused.value)
 
 
 def test_a_fetched_input_holding_several_preparations_names_each_its_own(tmp_path):
@@ -1408,6 +1408,8 @@ def test_systems_another_one_now_are_said_with_every_run(tmp_path):
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert str(refused.value).startswith(f"The runs a, c of the study in {root} simulated a "
                                          "prepared system that is another one now")
+    assert ".;" not in str(refused.value) and ".)" not in str(refused.value)
+    assert str(refused.value).endswith(").")
 
 
 def _unreadable(monkeypatch, *folders: Path) -> None:
@@ -1424,6 +1426,26 @@ def _unreadable(monkeypatch, *folders: Path) -> None:
         return real(path)
 
     monkeypatch.setattr(os, "scandir", scandir)
+
+
+def _unopened(monkeypatch, *files: Path) -> None:
+    """``files`` read as files the person may not read, whoever runs the
+    tests."""
+    import builtins
+    import io
+    import os
+
+    blocked = {str(f) for f in files}
+
+    def guarded(real):
+        def opened(file, *args, **kwargs):
+            if not isinstance(file, int) and os.fspath(file) in blocked:
+                raise PermissionError(13, "Permission denied", os.fspath(file))
+            return real(file, *args, **kwargs)
+        return opened
+
+    monkeypatch.setattr(io, "open", guarded(io.open))
+    monkeypatch.setattr(builtins, "open", guarded(builtins.open))
 
 
 def test_an_unreadable_folder_of_a_run_is_refused_not_left_out(tmp_path, monkeypatch):
@@ -1480,17 +1502,7 @@ def test_a_record_of_runs_that_cannot_be_read_says_so(tmp_path, monkeypatch):
     said to name no runs."""
     root, _ = _campaign(tmp_path)
     record = root / "batch_manifest.json"
-    real_bytes, real_text = Path.read_bytes, Path.read_text
-
-    def guarded(real):
-        def read(self, *args, **kwargs):
-            if self == record:
-                raise PermissionError(13, "Permission denied", str(self))
-            return real(self, *args, **kwargs)
-        return read
-
-    monkeypatch.setattr(Path, "read_bytes", guarded(real_bytes))
-    monkeypatch.setattr(Path, "read_text", guarded(real_text))
+    _unopened(monkeypatch, record)
     with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert refused.value.code == "environment.share.not_finished"
@@ -1514,3 +1526,213 @@ def test_a_placeholder_in_markdown_shows_as_written(tmp_path):
     assert "On `__FASTMDX_HOST__`:" in text and "host __FASTMDX_HOST__\n" in text
     shown, _ = render_markdown(text)
     assert "<strong>" not in shown and "Ran on __FASTMDX_HOST__." in shown
+
+
+def test_a_run_folder_that_cannot_be_read_is_refused_by_its_name(tmp_path, monkeypatch):
+    """Review of series 4: a run folder the person may not read (a
+    colleague's, kept to them alone) ended in a traceback, and a run's
+    Manifest that could not be read was said to be no study."""
+    root, _ = _campaign(tmp_path)
+    _unreadable(monkeypatch, root / "runs" / "b")
+    _unopened(monkeypatch, root / "runs" / "b" / "manifest.json")
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.code == "environment.share.not_finished"
+    assert str(refused.value) == (f"{root}/runs/b could not be read (Permission denied); "
+                                  "nothing was written. Make it readable and share it again.")
+    monkeypatch.undo()
+    _unopened(monkeypatch, root / "runs" / "b" / "manifest.json")
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.code == "environment.share.not_finished"
+    assert str(refused.value).startswith(f"{root}/runs/b/manifest.json, the Manifest of the "
+                                         "run b, could not be read (Permission denied)")
+    # One that can be listed and not entered is said as the folder too.
+    import os
+
+    real = os.stat
+    entered = os.path.join(root / "runs", ".")
+
+    def stat(path, *args, **kwargs):
+        if not isinstance(path, int) and os.fspath(path) == entered:
+            raise PermissionError(13, "Permission denied", entered)
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value).startswith(f"{root}/runs could not be read (Permission denied)")
+
+
+def test_a_file_that_cannot_be_read_says_why_once(tmp_path, monkeypatch):
+    """Review of series 4: a file that could not be read was said with its
+    path twice, the second time inside the error's own words."""
+    root, _ = _campaign(tmp_path)
+    report = root / "runs" / "a" / "report" / "report.md"
+    _unopened(monkeypatch, report)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value) == (f"{report} could not be read (Permission denied); nothing "
+                                  "was written. Make it readable and share it again.")
+
+
+def test_a_carried_system_that_cannot_be_read_is_not_said_missing(tmp_path, monkeypatch):
+    """Review of series 4: a preparation whose `system.xml` could not be read
+    was said not to be there, and putting it back, the remedy given, could
+    not be done."""
+    root, elsewhere = _campaign(tmp_path)
+    system = elsewhere / "setup" / "system.xml"
+    _unopened(monkeypatch, system)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.code == "environment.share.not_finished"
+    assert "whose system.xml could not be read (Permission denied)" in str(refused.value)
+    assert "Make it readable and share it again." in str(refused.value)
+
+
+def test_a_carried_folder_named_with_the_computer_s_name_is_renamed(tmp_path):
+    """Review of series 4: a folder named for the computer with more to its
+    name (`labbox07.old`) kept it in the archive, and its records named the
+    folder as the placeholder, so the run opened with no system."""
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    prep = _prepared(tmp_path / f"{COMPUTER}.old" / "setup")
+    root = tmp_path / "campaign"
+    _run(root, "a", prep, str(prep.parent))
+    _of_one_run(root)
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    assert not any(COMPUTER in n for n in zipfile.ZipFile(out).namelist())
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "a") == \
+        (opened / "prepared" / "preparation" / "setup").resolve()
+
+
+def _fetched(tmp_path: Path, name: str, given: Path, remote: str) -> Path:
+    """A study fetched back from where it ran (``remote``), its run
+    simulated from the input ``name`` sent from ``given``."""
+    from fastmdxplora.simulation import pipeline
+
+    prep = given if (given / "system.xml").is_file() else given / "setup"
+    root = tmp_path / "studies" / "job42"
+    run = _run(root, "a", prep, f"inputs/{name}")
+    inner = "" if prep == given else "/setup"
+    record = json.loads((run / "simulation" / "simulation_parameters.json").read_text())
+    record["prepared_system"].update(given=f"inputs/{name}",
+                                     resolved=f"{remote}/inputs/{name}{inner}",
+                                     relative_to_run=f"../../../inputs/{name}{inner}")
+    (run / "simulation" / "simulation_parameters.json").write_text(json.dumps(record))
+    manifest = json.loads((run / "manifest.json").read_text())
+    manifest["output_dir"] = f"{remote}/run/runs/a"
+    manifest["phases"][0]["taken_from"] = f"{remote}/inputs/{name}{inner}"
+    (run / "manifest.json").write_text(json.dumps(manifest))
+    (run / "resolved_config.yml").write_text(
+        f"output: {remote}/run/runs/a\nsimulation:\n  setup_from: inputs/{name}\n")
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["output_dir"] = f"{remote}/run"
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    (root / pipeline.FETCHED_RECORD).write_text(json.dumps(
+        {"remote_dir": remote, "machine": "csudh-hpc", "inputs": {name: str(given)}}))
+    return root
+
+
+def test_a_fetched_input_that_is_the_system_s_own_folder_is_said_as_carried(tmp_path):
+    """Review of series 4: an input sent as the system's own folder
+    (`.../wt-prep/setup`), carried in the folder holding it, kept its name as
+    sent, so the opened Config named nothing."""
+    import yaml
+
+    from fastmdxplora.simulation import pipeline
+
+    prep = _prepared(tmp_path / "preps" / "wt-prep" / "setup")
+    root = _fetched(tmp_path, "wt-setup", prep, "/scratch/kaina/fastmdxplora-jobs/job42")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert f"setup_from: {STUDY}/prepared/wt-prep/setup" in texts["runs/a/resolved_config.yml"]
+    opened = open_shared(str(out), into=tmp_path / "x")
+    named = yaml.safe_load((opened / "runs" / "a" / "resolved_config.yml").read_text())[
+        "simulation"]["setup_from"]
+    assert pipeline.where_a_prepared_system_sits(Path(named)).resolve() == \
+        pipeline.setup_records_of(opened / "runs" / "a")
+
+
+def test_a_link_among_the_study_s_files_is_refused_not_left_out(tmp_path):
+    """Review of series 4: a run's trajectory or folder kept as a link (to
+    scratch, as on a cluster) was left out without a word, and the study
+    opened without it."""
+    root, _ = _campaign(tmp_path)
+    trajectory = root / "runs" / "a" / "simulation" / "production.dcd"
+    kept = tmp_path / "scratch" / "production.dcd"
+    kept.parent.mkdir()
+    trajectory.rename(kept)
+    trajectory.symlink_to(kept)
+    (root / "runs" / "b" / "agent" / "notes").symlink_to(tmp_path / "scratch")
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.code == "environment.share.not_finished"
+    assert str(refused.value).startswith(
+        f"The study in {root} holds a link, which a shared study does not carry: "
+        "runs/a/simulation/production.dcd. Put the files they lead to in their place")
+
+
+def test_code_in_markdown_is_left_as_code_shows_it():
+    """Review of series 4: an indented block of code had its placeholders
+    escaped, so it showed the escapes; a `.markdown` file was not escaped."""
+    from fastmdxplora.sharing.pack import _markdown_plain
+
+    text = "Ran on __FASTMDX_HOST__:\n\n    host __FASTMDX_HOST__\n\nOn __FASTMDX_HOST__.\n"
+    assert _markdown_plain(text) == ("Ran on \\_\\_FASTMDX_HOST\\_\\_:\n\n"
+                                     "    host __FASTMDX_HOST__\n\n"
+                                     "On \\_\\_FASTMDX_HOST\\_\\_.\n")
+
+
+def test_a_markdown_file_by_its_long_suffix_is_escaped_too(tmp_path):
+    root, _ = _campaign(tmp_path)
+    (root / "runs" / "a" / "report" / "notes.markdown").write_text(f"On {COMPUTER}.\n")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    assert zipfile.ZipFile(out).read("runs/a/report/notes.markdown").decode() == \
+        "On \\_\\_FASTMDX_HOST\\_\\_.\n"
+
+
+def test_where_a_fetched_study_came_from_that_cannot_be_read_is_refused(tmp_path, monkeypatch):
+    """Hands-on review of series 4: an unreadable `fetched.json` was passed
+    over without a word, and its runs' systems were then said not found at
+    the other machine's folders, where none could be put back."""
+    from fastmdxplora.simulation import pipeline
+
+    prep = _prepared(tmp_path / "preps" / "wt-prep" / "setup")
+    root = _fetched(tmp_path, "wt-prep", prep.parent, "/scratch/kaina/fastmdxplora-jobs/job42")
+    _unopened(monkeypatch, root / pipeline.FETCHED_RECORD)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.code == "environment.share.not_finished"
+    assert str(refused.value).startswith(
+        f"{root}/fetched.json, where the study was fetched back from, could not be read")
+
+
+def test_a_study_shared_again_lists_every_placeholder_it_holds(tmp_path):
+    """Hands-on review of series 4: shared again, a study opened from a share
+    listed only `__FASTMDX_STUDY__`, though its files held the others."""
+    out, _, _, _ = _shared(tmp_path)
+    opened = open_shared(str(out), into=tmp_path / "x")
+    again = tmp_path / "again.zip"
+    share_study(opened, again, authors=AUTHORS)
+    crate = json.loads(zipfile.ZipFile(again).read(METADATA))
+    root = next(e for e in crate["@graph"] if e.get("@id") == "./")
+    listed = {p["fmx:placeholder"]: [i["@id"] for i in p["fmx:in"]]
+              for p in root["fmx:placeholders"]}
+    assert "runs/a/report/report.md" in listed["__FASTMDX_HOST__"]
+
+
+def test_an_archive_that_cannot_be_read_says_so(tmp_path, monkeypatch):
+    """Hands-on review of series 4: an archive the person may not read was
+    said to be no zip archive."""
+    out, _, _, _ = _shared(tmp_path)
+    _unopened(monkeypatch, out)
+    with pytest.raises(ShareRefused) as refused:
+        open_shared(str(out), into=tmp_path / "x")
+    assert str(refused.value) == (f"{out} could not be read (Permission denied); nothing was "
+                                  "opened. Make it readable and open it again.")

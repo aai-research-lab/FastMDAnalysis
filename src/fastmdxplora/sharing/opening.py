@@ -264,6 +264,10 @@ def open_shared(source: str, *, into: str | Path | None = None,
             _download(record["url"], archive, most=most_bytes, md5=record["md5"], said=said)
         try:
             opened = zipfile.ZipFile(archive)
+        except PermissionError as exc:
+            raise ShareRefused(f"{archive} could not be read ({exc.strerror}); nothing was "
+                               "opened. Make it readable and open it again.",
+                               code="environment.share.not_a_study", path=str(archive)) from exc
         except (zipfile.BadZipFile, OSError) as exc:
             raise ShareRefused(f"{archive.name} is not a zip archive: {exc}.",
                                code="environment.share.not_a_study") from exc

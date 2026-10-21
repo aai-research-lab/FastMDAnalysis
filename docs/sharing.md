@@ -129,6 +129,12 @@ carried the same way.
   earlier deposits (`deposit/`), the project bundle, which is a copy of the
   rest, and any file or folder whose name begins with a dot.
 
+A file or folder of the study kept as a link (a trajectory linked to scratch,
+say) is never packed, and keeps the study back (`environment.share.not_finished`,
+naming each): shared without it, the study would be opened missing what it
+leads to. Put the files it leads to in its place. So does a file or folder that
+would be packed and cannot be read: make it readable.
+
 Settings of the installation itself, the model the Agent uses and any key for it,
 live outside the study and are never read.
 
@@ -161,11 +167,12 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
 
 Any other path, outside the study and the home folder (a structure read from
 `/data/pdb/x.pdb`), is kept as it is written, a folder named for the person in
-it included (`/scratch/<name>/pdb/x.pdb`). So is the folder a fetched study
-ran in on the other machine (`/scratch/<name>/fastmdxplora-jobs/job42`, in
-`batch_manifest.json` and the reports), and the login it was reached by
-(`<name>@login1.cluster.edu`): read the packed records, or keep such files in
-the study, where that matters.
+it included (`/scratch/<name>/pdb/x.pdb`). So, for a study fetched back from
+another machine, is the folder it was sent to there, where a record names it
+outside the folder the study ran in (the Config sent,
+`/scratch/<name>/fastmdxplora-jobs/job42/study.yml`), and the login it was
+reached by (`<name>@login1.cluster.edu`): read the packed records, or keep such
+files in the study, where that matters.
 
 The placeholders are safe in YAML and JSON. In a Markdown file, outside code,
 `__FASTMDX_HOME__` and `__FASTMDX_HOST__` are written with their underscores
@@ -424,9 +431,9 @@ The packing list of the demo study, cut to one file of each kind:
 
 | Code | When |
 |---|---|
-| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; or a file or folder of it cannot be read. |
+| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; a file or folder of the study is a link; or a file or folder of it cannot be read. |
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
-| `environment.share.not_a_study` | Opening: no packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. Sharing: a study's record of runs names no run, or a run by a name that is no folder's. |
+| `environment.share.not_a_study` | Opening: an archive that cannot be read or is no zip, no packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. Sharing: a study's record of runs names no run, or a run by a name that is no folder's. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |
 | `environment.share.too_large` | The archive is over the download limit. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |
