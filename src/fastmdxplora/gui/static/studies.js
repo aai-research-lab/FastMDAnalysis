@@ -438,10 +438,12 @@
   /* ---- What a row and a card say ------------------------------------ */
   /* A length of simulation in the unit it reads in: under a nanosecond in
    * picoseconds, as every plot of the page reads it. */
-  function lengthSaid(ns) {
+  function lengthSaid(ns, unitOf) {
     if (ns == null || !isFinite(ns)) return "";
-    if (ns === 0) return "0 ns";
-    if (Math.abs(ns) < 1) return Number((ns * 1000).toPrecision(3)) + " ps";
+    // In the unit of ``unitOf`` where given (a range in one unit: "0 ps to
+    // 80 ps", not "0 ns to 80 ps").
+    var by = unitOf == null ? ns : unitOf;
+    if (Math.abs(by) < 1) return Number((ns * 1000).toPrecision(3)) + " ps";
     return Number(ns.toPrecision(4)) + " ns";
   }
 
@@ -660,7 +662,7 @@
    * planned, and the time left, or that it is not known. */
   function paceSaid(study, pace) {
     var said = [];
-    if (study.planned_ns) said.push(lengthSaid(study.simulated_ns || 0) + " of " + lengthSaid(study.planned_ns));
+    if (study.planned_ns) said.push(lengthSaid(study.simulated_ns || 0, study.planned_ns) + " of " + lengthSaid(study.planned_ns));
     said.push(pace.seconds != null ? window.FastMDXRunProgress.durationSaid(pace.seconds) + " left"
       : "time left not known");
     return said.join(" · ");
@@ -712,9 +714,13 @@
     var each = (study.lengths || []).filter(function (n) { return n != null; });
     if (study.runs > 1 && each.length) {
       var low = Math.min.apply(null, each), high = Math.max.apply(null, each);
-      host.appendChild(make("span", "studies-length-each muted small", low === high
-        ? each.length + " × " + lengthSaid(low)
-        : each.length + " runs, " + lengthSaid(low) + " to " + lengthSaid(high)));
+      var span = low === high ? lengthSaid(low) : lengthSaid(low, high) + " to " + lengthSaid(high);
+      // Not every run begun: how many have, and how long they ran ("1 of 3
+      // runs begun, 18.5 ps"), not "1 × 18.5 ps".
+      host.appendChild(make("span", "studies-length-each muted small",
+        each.length < study.runs ? each.length + " of " + study.runs + " runs begun, " + span
+          + (low === high && each.length > 1 ? " each" : "")
+          : low === high ? each.length + " × " + span : each.length + " runs, " + span));
     }
     return host;
   }
@@ -1189,7 +1195,7 @@
           if (runs === "loading" || (runs && !runs.length)) {
             var wait = make("tr", "studies-child-wait");
             var wc = make("td", "muted small", runs === "loading" ? "Reading its runs…"
-              : runsNotRead[study.path] ? "Not read: " + runsNotRead[study.path]
+              : runsNotRead[study.path] ? runsNotRead[study.path]
               : "None of its runs is here to read: its runs folder holds no study.");
             wc.colSpan = heads.length;
             wait.appendChild(wc);

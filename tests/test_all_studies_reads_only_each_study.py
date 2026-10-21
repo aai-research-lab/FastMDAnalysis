@@ -339,8 +339,7 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
     assert offered == {"seed1": [".study-tag-edit", ".study-open", ".study-files",
                                  "input[type=checkbox]", "button.studies-name-text"],
                        "seed2": []}
-    assert unfolded == ("Not read: runs was not read: it is a link to a folder outside "
-                        "the study.")
+    assert unfolded == "runs was not read: it is a link to a folder outside the study."
 
 
 def _runs_linked_out(space: Path, outside: Path) -> Path:

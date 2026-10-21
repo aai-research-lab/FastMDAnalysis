@@ -531,7 +531,7 @@ def _card_read_once(base: Path) -> dict[str, Any]:
         # what kind of study it is are not known.
         said = {**said, "state": "not known", "kind": ""}
     config, batch, manifest = records
-    active = part("active", lambda: _last_active(base), "")
+    active = part("active", lambda: _last_active(base, of_runs=isinstance(batch, dict)), "")
     card: dict[str, Any] = {
         **said,
         "when": _when(base, manifest),
@@ -1276,10 +1276,28 @@ _ACTIVE_RECORDS = (
 _CONVERSATIONS = Path("agent") / "conversations"
 
 
-def _last_active(base: Path) -> str:
+def _last_active(base: Path, *, of_runs: bool = False) -> str:
     """When the study was last active, by its newest record, or ''. Its
     records through `record_access`; its conversations, which are not
-    read, by their times, in its own folder only."""
+    read, by their times, in its own folder only. A study of several runs
+    was last active when its newest run was: a run going writes its own
+    records, not its study's, and the study said "1 h ago" beside its run's
+    "Just now"."""
+    from fastmdxplora import record_access
+
+    newest = _newest_record(base)
+    if of_runs and record_access.is_dir(base / "runs"):
+        for run in record_access.iterdir(base / "runs"):
+            if record_access.is_dir(run):
+                newest = max(newest, _newest_record(run))
+    if not newest:
+        return ""
+    return datetime.fromtimestamp(newest, timezone.utc).isoformat(timespec="seconds")
+
+
+def _newest_record(base: Path) -> float:
+    """The time of a study's newest record of what was done with it (0 for
+    none): `_last_active`'s."""
     from fastmdxplora import record_access
 
     newest = 0.0
@@ -1299,9 +1317,7 @@ def _last_active(base: Path) -> str:
                         newest = max(newest, entry.stat(follow_symlinks=False).st_mtime)
     except OSError:
         pass
-    if not newest:
-        return ""
-    return datetime.fromtimestamp(newest, timezone.utc).isoformat(timespec="seconds")
+    return newest
 
 
 def _lifted(config: Any) -> Any:

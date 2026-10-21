@@ -633,6 +633,54 @@ def test_a_replicas_mean_of_fewer_runs_says_how_many(tmp_path):
                      "error their spread over √2")
 
 
+def test_a_study_of_runs_says_how_many_began_in_one_unit_and_when_its_run_was_active(tmp_path):
+    """Three runs, one begun: "1 × 18.5 ps". Two begun, one at its start:
+    "2 runs, 0 ns to 80 ps". A study whose run is going said "active 1 h
+    ago" beside its run's "Just now": its own records are not the run's."""
+    import os
+    import time
+
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.workspace import card_of
+
+    space = tmp_path / "ws"
+    one = _replicas(space / "one_begun")
+    _live(one / "runs" / "seed1")
+    two = _replicas(space / "two_begun")
+    _live(two / "runs" / "seed1", status="completed", current=2000)
+    _live(two / "runs" / "seed2", status="completed", current=12000)
+    hour_ago = time.time() - 3600
+    for study in (one, two):
+        for name in ("batch_manifest.json", "resolved_config.yml"):
+            os.utime(study / name, (hour_ago, hour_ago))
+    card = card_of(one)
+    assert card["last_active"] == card_of(one / "runs" / "seed1")["last_active"]
+    from datetime import datetime
+
+    assert time.time() - datetime.fromisoformat(card["last_active"]).timestamp() < 600
+    session = start_dashboard_session(output=str(one), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1920, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(space)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            each = {name: page.inner_text(f'#studies-table tr.studies-row[data-path$="/{name}"] '
+                                          '.studies-length-each')
+                    for name in ("one_begun", "two_begun")}
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert each == {"one_begun": "1 of 3 runs begun, 8 ps",
+                    "two_begun": "2 of 3 runs begun, 0 ps to 20 ps"}
+
+
 def test_a_study_that_ran_is_not_said_not_started(tmp_path):
     """A study with no Manifest that simulated and analysed was said "not
     started", grouped under "nothing ran", beside its 40 ps and its RMSD;

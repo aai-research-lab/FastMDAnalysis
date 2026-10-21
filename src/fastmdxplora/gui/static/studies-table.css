@@ -89,6 +89,8 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-table td.studies-len { text-align: right; white-space: nowrap; }
 .studies-length { display: inline-flex; flex-direction: column; align-items: flex-end; }
 .studies-len-each, .studies-length-each { white-space: nowrap; }
+/* "1 of 3 runs begun, 18.5 ps" wraps rather than widen the column. */
+.studies-length-each { white-space: normal; max-width: 8.5em; text-align: right; }
 .studies-means { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 200px; white-space: normal; }
 .studies-mean-item { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; font-size: var(--text-xs); }
 .studies-mean-k { color: var(--text-muted); }
