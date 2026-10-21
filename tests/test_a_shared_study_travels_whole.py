@@ -1932,3 +1932,104 @@ def test_a_download_refused_is_not_told_to_be_asked_later(tmp_path, unsteady):
                   tmp_path / "got.zip", most=1 << 30, md5="", said=None, size=0)
     assert "ask its owner for access" in str(refused.value)
     assert "open it again later" not in str(refused.value)
+
+
+def test_a_draft_found_by_its_title_with_zenodo_s_defaults_is_the_study_s(tmp_path,
+                                                                         unsteady):
+    """Review of the fifteenth commit: a draft whose answer was lost, found
+    by its title holding the licence Zenodo gives a draft it makes, was
+    taken for the person's and never described."""
+    unsteady.meta = {}
+    study, out = _studied(tmp_path, "study")
+    unsteady.late = len(zenodo._LOOKS_S)
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, out) == 2
+    unsteady.faults = {}
+    unsteady.meta[7] = {"title": unsteady.drafts[0]["title"], "license": "cc-by",
+                        "access_right": "open"}
+    assert _share_to_zenodo(study, out) == 0
+    assert unsteady.meta[7]["title"] == "The 1ABC study"
+    assert unsteady.meta[7]["description"]
+
+
+@pytest.mark.parametrize("chosen", [{"license": "cc0-1.0"}, {"upload_type": "software"},
+                                    {"access_right": "closed"}])
+def test_a_licence_kind_or_access_chosen_alone_is_kept(tmp_path, unsteady, chosen):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7].update(chosen)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert all(unsteady.meta[7][key] == value for key, value in chosen.items())
+
+
+def test_a_draft_deleted_during_the_share_is_not_said_kept(tmp_path, unsteady, monkeypatch,
+                                                           capsys):
+    """Review of the fifteenth commit: a draft the person deleted while its
+    archive uploaded was said kept, with the new archive."""
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def deleting(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if kwargs.get("upload") is not None:
+            unsteady.gone = {7}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", deleting)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "was deleted on zenodo-sandbox during this share" in said and "is kept" not in said
+    monkeypatch.setattr(zenodo, "_call", real)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert any(c[0] == "POST" and c[1] == "/api/deposit/depositions" for c in unsteady.calls)
+
+
+def test_a_new_version_begun_is_read_whole_before_it_is_said_changed(tmp_path, unsteady,
+                                                                    monkeypatch, capsys):
+    """Review of the fifteenth commit: a draft of a new version, listed
+    without its files, was said changed, to be published."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip", "checksum": "md5:1"}]
+                         for n in (7, 8)}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    unsteady.versions_begun = [8]
+    real = zenodo._concept_drafts
+
+    def listed(*args, **kwargs):
+        return [{k: v for k, v in entry.items() if k != "files"}
+                for entry in real(*args, **kwargs) or []]
+
+    monkeypatch.setattr(zenodo, "_concept_drafts", listed)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    assert "delete it there (it holds the record as it was)" in capsys.readouterr().err
+
+
+def test_a_file_the_person_names_as_the_record_s_archive_is_not_taken_away(tmp_path,
+                                                                           unsteady,
+                                                                           capsys):
+    """Review of the fifteenth commit: a file the person put on the study's
+    draft of a new version, named as the record's earlier archive, was
+    deleted without a word."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip", "checksum": "md5:1"}]
+                         for n in (7, 8)}
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
+    unsteady.files_of[8] = [{"id": "b", "filename": "b.zip", "checksum": "md5:2"},
+                            {"id": "m", "filename": "a.zip", "checksum": "md5:9"}]
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    assert "holds a.zip, which this study did not put there" in capsys.readouterr().err
+    assert not any(c[0] == "DELETE" for c in unsteady.calls)

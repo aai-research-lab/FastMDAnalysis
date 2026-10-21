@@ -450,6 +450,10 @@ _SOMEONE_S = ("description", "creators", "contributors", "keywords", "notes", "r
 #: change: changed, and not to what the study sends, the draft is theirs.
 _MADE_WITH = ("access_right", "upload_type", "license")
 
+#: What Zenodo documents it gives a draft it makes, for a draft found by its
+#: title, whose making the study did not see.
+_ZENODO_GIVES = {"access_right": ("open",), "license": ("cc-by", "cc-zero")}
+
 
 def _sent(metadata: Any) -> str:
     """What the study sends as a draft's description, as one digest of those
@@ -639,8 +643,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     kept[site] = {"id": identifier, "version": version,
                   **{k: earlier[k] for k in ("archive", "written", "doi", "record", "asked_as",
                                              "sending", "record_written", "record_sending",
-                                             "record_archive", "stale", "uploading",
-                                             "made_as")
+                                             "record_archive", "record_sums", "stale",
+                                             "uploading", "made_as")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
@@ -653,6 +657,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                               earlier.get("uploading")])
         if recorded_as:
             kept[site]["archive"], kept[site]["record_archive"] = recorded_as[0], recorded_as
+            # As the record holds each: one of that name the person puts on
+            # the draft since is not the study's.
+            kept[site]["record_sums"] = {name: found_as["record_files"].get(name, "")
+                                         for name in recorded_as}
         # A new version begins with the record's description: what the study
         # wrote for the record (not for a draft of a version since deleted).
         recorded = earlier.get("record_written") if found_as["begun_again"] \
@@ -741,7 +749,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         replacing.add(str(earlier["uploading"]))
     # Each the study put on the record a new version is of, whichever it was
     # published with.
-    replacing |= set(_names_kept(kept[site].get("record_archive")))
+    sums = kept[site].get("record_sums") if isinstance(kept[site].get("record_sums"), dict) \
+        else {}
+    held_sums = dict(_contents(deposition))
+    replacing |= {name for name in _names_kept(kept[site].get("record_archive"))
+                  if not sums.get(name) or not held_sums.get(name)
+                  or sums[name] == held_sums[name]}
     replacing -= {archive.name}
     stale = [entry for entry in earlier_files
              if str(entry.get("filename") or entry.get("key") or "") == ours
@@ -776,7 +789,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             # (whatever defaults Zenodo gave it since).
             not versioned and str(held.get("title") or "") in ("", marker)
             and not any(held.get(key) for key in _SOMEONE_S)
-            and all(held.get(key) in (None, "", made_as.get(key), ours)
+            and all(held.get(key) in (None, "", ours, *((made_as[key],) if key in made_as
+                                                       else _ZENODO_GIVES.get(key, ())))
                     for key, ours in (("access_right", "open"), ("upload_type", "dataset"),
                                       ("license", license_id.lower()))))
 
@@ -810,7 +824,15 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         kept[site].pop("stale", None)
         # Read again: an upload takes minutes, and what the person wrote there
         # meanwhile is theirs.
-        again = _call("GET", f"{depositions}/{identifier}", token=token, said=said)
+        again = _call("GET", f"{depositions}/{identifier}", token=token, said=said,
+                      missing_ok=True, gone=_GONE)
+        if again is _GONE:
+            deleted = ShareRefused(
+                f"The draft {page} was deleted on {site} during this share. Share again "
+                "and a new one is made.", code="environment.service.unusable_response",
+                url=page)
+            deleted.gone = True
+            raise deleted
         if isinstance(again, dict) and isinstance(again.get("metadata"), dict):
             held = again["metadata"]
             inherited = {k: v for k, v in held.items() if k not in ("doi", "prereserve_doi")}
@@ -841,6 +863,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                      "archive is new. Write it there as you want it before you publish.")
         _keep(study, kept)
     except ShareRefused as exc:
+        if getattr(exc, "gone", False):
+            raise
         kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
                    "have taken away (a record of two archives opens as neither: share again, "
                    "or delete it there, before you publish)" if removing
@@ -898,7 +922,7 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
     (`versioned`)."""
     out: dict[str, Any] = {"deposition": None, "version": str(earlier.get("version") or "1"),
                            "published": str(earlier.get("record") or ""), "versioned": False,
-                           "begun_again": False}
+                           "begun_again": False, "record_files": {}}
     if not earlier.get("id"):
         return out
     published = out["published"]
@@ -960,9 +984,13 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             # asks: one there already is the person's, or one a share began
             # and lost the answer to; either way left alone.
             draft_id = str(begun[0].get("id"))
-            # Unchanged, it is the record again: publishing it adds nothing.
+            # Read whole (a listing may leave out its files): unchanged, it is
+            # the record again, and publishing it adds nothing.
+            whole = _call("GET", f"{depositions}/{draft_id}", token=token, said=said,
+                          missing_ok=True)
+            seen = whole if isinstance(whole, dict) else begun[0]
             what = ("delete it there (it holds the record as it was), then share again"
-                    if not _changed_since(newest, begun[0])
+                    if not _changed_since(newest, seen)
                     else "publish it, or delete it there, then share again")
             raise ShareRefused(
                 f"Zenodo holds a draft of a new version of record {published} ({draft_id}), "
@@ -1008,5 +1036,5 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             "delete it there, then share again.",
             code="environment.service.unusable_response", url=latest)
     out.update(deposition=deposition, version=version, published=published, versioned=True,
-               begun_again=again_from)
+               begun_again=again_from, record_files=dict(_contents(newest)))
     return out
