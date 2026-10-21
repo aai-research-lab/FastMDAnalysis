@@ -293,26 +293,35 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   window showed and went past as the run started, and a run's study it went
   past without showing. A status read before another, and answered after it,
   is not applied over it. A page that never showed the run's study says the
-  run's conversation is there. While a run is starting, and until the page
-  has read which study is open once it has, Send and Enter send nothing:
-  beside the box the page says that Send waits until the run has started and
-  the page shows which study is open, and the words stay in the box, kept
-  with their study as any unsent words. Send is then offered again, and
-  nothing is ever sent by itself; a message sent goes into the thread of the
-  study shown, with the page's view read after the status that showed it.
-  Words typed after Run into the thread the run took with it go with it to
-  the run's study, also where another study was seen first or a read of the
-  study left, asked before the launch answered, came after it; with two runs
-  started one after the other, they go with it to the second. Words kept for
-  a study are in its box again when it is opened with other words in the
-  box. A status read asked before a launch answered is not taken for where
-  the GUI is after it, nor is a run's own study then said as opened
-  elsewhere; a read asked as it answers is. With an answer that cannot be
-  read, the last study seen as the run started, still shown, is the run's,
-  and one seen before it is said. Run on this machine as it is, its answer
-  not read, says so and is offered again. A note of words kept for another
-  study names it with its folder, and a study opened elsewhere is named from
-  the status that showed it.
+  run's conversation is there. While a run is starting (also until a run
+  this window started is a study with its own conversation), until the page
+  has read which study is open once it has, before the page's first status,
+  and while the conversation of the study shown is being read, Send and
+  Enter send nothing: beside the box the page says why, and the words stay
+  in the box, kept with their study as any unsent words. Send is then
+  offered again, and nothing is ever sent by itself; a message sent goes
+  into the thread of the study shown, with the page's view read after the
+  status that showed it (an Enter that waits only for that view says so, and
+  says when it was not sent). With no study open (a run that failed at once)
+  Send sends at once. A choice, a confirm answer, Retry, an Edit, a fix
+  asked for and a starter send their own words, never over the words in the
+  box; while Send waits they change nothing. A message refused as the GUI
+  opened another study is kept unsent for the study it was written in. A
+  page left as a run started says, when it comes back, where the words typed
+  then are kept. Once a launch answers, the study open is read from its
+  status alone. Words typed after Run into the thread the run took with it
+  go with it to the run's study, also where another study was seen first or
+  a read of the study left, asked before the launch answered, came after it;
+  with two runs started one after the other, they go with it to the second.
+  Words kept for a study are in its box again when it is opened with other
+  words in the box. A status read asked before a launch answered is not
+  taken for where the GUI is after it, nor is a run's own study then said as
+  opened elsewhere; a read asked as it answers is. With an answer that
+  cannot be read, the last study seen as the run started, still shown, is
+  the run's, and one seen before it is said. Run on this machine as it is,
+  its answer not read, says so and is offered again. A note of words kept
+  for another study, a run's too, names it with its folder, and a study
+  opened elsewhere is named from the status that showed it.
 
 ### Added
 
