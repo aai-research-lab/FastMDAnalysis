@@ -60,14 +60,6 @@
     for (var i = 1; i < all.length; i += 1) if (Math.abs(all[i] - t) < Math.abs(all[best] - t)) best = i;
     return best;
   }
-  function playedOfFrame(frame) {
-    var frames = state.playback.frame_indices;
-    var best = 0;
-    for (var i = 1; i < frames.length; i += 1) {
-      if (Math.abs(frames[i] - frame) < Math.abs(frames[best] - frame)) best = i;
-    }
-    return best;
-  }
 
   function seek(played) {
     if (played == null) return;
