@@ -1385,6 +1385,57 @@ def test_a_send_goes_with_the_view_read_after_its_study_s_status(tmp_path, monke
     assert errors == []
 
 
+def test_send_and_the_notice_do_not_wait_for_the_study_s_results(tmp_path, monkeypatch):
+    """L10 F6: another window opens `other`, whose results take seconds to
+    read. Once the page shows `other`, a message sent there goes as soon as
+    the view is read after its status, and the notice is said: the study's
+    results are not waited for again (they were read only for its name)."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    pending, asked = [], []
+    page, errors, close = _page_on(session, [_answer("Answered.")])
+    try:
+        page.on("request", lambda r: asked.append(time.time())
+                if "/api/agent/propose" in r.url else None)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(1500)
+        page.evaluate(_HEARD)
+        page.route("**/api/results*", lambda route: pending.append((time.time(), route)))
+
+        def pump(until, most=40.0):
+            end = time.time() + most
+            while time.time() < end:
+                now = time.time()
+                for when, route in list(pending):
+                    if now - when > 5.0:
+                        pending.remove((when, route))
+                        route.continue_()
+                if until():
+                    return True
+                page.wait_for_timeout(50)
+            return False
+
+        _switch_elsewhere(session, other)
+        assert pump(lambda: page.evaluate("() => window.FastMDXDashboard.state.studyShown")
+                    == study_key(other))
+        shown = time.time()
+        page.fill("#agent-request", "about other")
+        page.keyboard.press("Enter")
+        assert pump(lambda: bool(asked), 20.0)
+        assert pump(lambda: page.evaluate(
+            "() => window.__said.some((s) => /opened elsewhere/.test(s))"), 20.0)
+        said = time.time()
+        page.unroute("**/api/results*")
+        for _, route in pending:
+            route.continue_()
+    finally:
+        close()
+        session.server.shutdown()
+    assert asked[0] - shown < 3.0 and said - shown < 3.0, (asked[0] - shown, said - shown)
+    assert errors == []
+
+
 def test_a_config_builder_launch_takes_only_its_run_s_study_as_its_own(browser, site,  # noqa: F811
                                                                          monkeypatch):
     """L1 4 and L2 M2: the Config Builder's Start pressed, another window

@@ -1186,12 +1186,13 @@
   }
 
   /* The page's view (the app state, told to the Agent with a message as
-   * `current_view`) and the study's name, read after the status that named
-   * the study shown: a poll reads them side by side, and a study opened
-   * elsewhere between two of its reads is told and named by the study
-   * before (CI-774 review L8 M2). `viewKnown` says whether the view the
-   * page holds is such a read of the study shown; with no study shown
-   * there is none. */
+   * `current_view`) and the study's name, read with the status that named
+   * the study shown, the status asked after it: a poll reads them side by
+   * side, and a study opened elsewhere between two of its reads is told
+   * and named by the study before (CI-774 review L8 M2). Only the status
+   * and the app state are read, not the study's results, which can take
+   * long (review L10). `viewKnown` says whether the view the page holds is
+   * such a read of the study shown; with no study shown there is none. */
   let viewFor = "";
   let viewNamed = {key: "", name: ""};
   let viewRead = null;
@@ -1212,24 +1213,25 @@
   }
   async function readViewOnce(key) {
     if (!key) return false;
-    let app, results, status;
+    let app, status;
     try {
-      [app, results] = await Promise.all([
-        fetchJSON("/api/app-state"), fetchJSON("/api/results").catch(() => null)]);
+      app = await fetchJSON("/api/app-state");
       status = await fetchJSON("/api/status");
     } catch (error) {
       return false;
     }
-    if (!status || status.study !== key || state.studyShown !== key) {
-      // Another study since: read where the GUI is, and the view again then.
+    // Another study since, or a view the page has not applied (a poll read
+    // it before a switch elsewhere): read where the GUI is again, and the
+    // view with it; the page's own state is changed by its polls alone.
+    if (!status || status.study !== key || state.studyShown !== key
+        || (app?.active_run || "") !== (state.appState?.active_run || "")) {
       readStatusNow();
       return false;
     }
-    safeApply("app", () => applyAppState(app));
     viewFor = `${key}|${app?.active_run || ""}`;
     const chosen = (byId("setting-run-name")?.value || "").trim();
-    viewNamed = {key, name: chosen || studyName(status.system_id || results?.system?.system)
-      || results?.run_title || status.run_title || ""};
+    const folder = String(app?.active_run || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
+    viewNamed = {key, name: chosen || studyName(status.system_id) || status.run_title || folder};
     emit("view-read", {study: key});
     return true;
   }
