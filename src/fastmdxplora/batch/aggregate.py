@@ -197,11 +197,11 @@ def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0) -> str:
     if not said_so:
         how = " with an error of its own"
     elif not plain:
-        how = (": it said its mean is not a measurement" if unbacked == 1
-               else ": each said its mean is not a measurement")
+        how = (": it said its mean is not determined" if unbacked == 1
+               else ": each said its mean is not determined")
     else:
-        how = (f": {said_so} said {'its' if said_so == 1 else 'their'} mean is not a "
-               f"measurement, and {plain} gave no error of {'its' if plain == 1 else 'their'} own")
+        how = (f": {said_so} said {'its' if said_so == 1 else 'their'} mean is not "
+               f"determined, and {plain} gave no error of {'its' if plain == 1 else 'their'} own")
     return (f"{which}{how}, so their spread is not yet an "
             "error: begun from one structure, runs too short to resolve their "
             "correlation time are not yet independent samples.")
