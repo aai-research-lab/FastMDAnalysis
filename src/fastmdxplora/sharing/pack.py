@@ -1328,6 +1328,14 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
         if exc.errno not in (errno.ENOSPC, errno.EDQUOT, errno.EFBIG):
             raise
         where = Path(exc.filename).parent if exc.filename else Path(to).expanduser().parent
+        spooled = Path(tempfile.gettempdir())
+        if any(part.startswith("fastmdx-share-") for part in where.parts):
+            # Large files are written there on their way into the archive.
+            raise ShareRefused(
+                f"The temporary folder {spooled}, where large files are written on their way "
+                f"into the archive, has no room ({exc.strerror}); nothing was written. Make "
+                "room there, or set TMPDIR to a folder with room, and share again.",
+                code="environment.share.too_large", path=str(spooled)) from exc
         raise ShareRefused(
             f"The shared study could not be written to {where}: the disk there has no room "
             f"for it ({exc.strerror}); nothing was written. Make room there, or write it "
@@ -1565,6 +1573,9 @@ def _packed(root: str | Path, to: str | Path, *, everything: bool, license_id: s
         when = _zip_time(manifest)
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        # An archive packed before (without its DOI, say) is made again: room
+        # for one archive, not two, is room enough.
+        target.unlink(missing_ok=True)
         try:
             with zipfile.ZipFile(temporary, "w", allowZip64=True) as archive:
                 for name in sorted(payload):

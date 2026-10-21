@@ -169,7 +169,12 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
             why = {401: "the token was refused (make one with the deposit:write scope, and "
                         "give it in ZENODO_TOKEN, or ZENODO_SANDBOX_TOKEN for the sandbox)",
                    403: "the token may not do this (its scopes: deposit:write, and "
-                        "deposit:actions for a new version of a published record)",
+                        "deposit:actions for a new version of a published record)"} \
+                if token else {401: "it is not open to be read (restricted, or not "
+                                    "published yet)",
+                               403: "it is not open to be read (restricted, or not "
+                                    "published yet)"}
+            why = {**why,
                    404: "no such record or draft",
                    429: f"too many requests, still after {attempt} tries"}.get(
                 exc.code, f"HTTP {exc.code}" + (f", still after {attempt} tries"
@@ -253,8 +258,9 @@ def archive_of(site: str, record: str,
     base = base_url(site)
     found = _call("GET", f"{base}/api/records/{record}", said=said, missing_ok=True)
     if not isinstance(found, dict):
-        raise ShareRefused(f"Zenodo has no record {record}: look at the DOI or address "
-                           "given.", code="environment.share.not_a_study")
+        raise ShareRefused(f"Zenodo has no published record {record}: look at the DOI or "
+                           "address given (a draft's reserved DOI opens once it is published).",
+                           code="environment.share.not_a_study")
     entries = found.get("files") or []
     if isinstance(entries, dict):
         entries = entries.get("entries") or []
@@ -364,16 +370,26 @@ def _new_draft(depositions: str, token: str, title: str,
             code=exc.refusal.code) from exc
 
 
-def _latest_published(answer: Any, token: str,
-                      said: Callable[[str], None] | None) -> dict[str, Any] | None:
-    """The latest published version of a record, by the `latest` link of
-    Zenodo's answer to beginning a new version; None where it names none."""
-    link = str(((answer or {}).get("links") or {}).get("latest") or "") \
-        if isinstance(answer, dict) else ""
+#: What Zenodo itself sets in a draft's description, not what anyone wrote
+#: there: told apart from both what the study wrote and what the person did.
+_SET_BY_ZENODO = frozenset({"doi", "prereserve_doi", "publication_date", "version"})
+
+
+def _latest_published(found: dict[str, Any], depositions: str, token: str,
+                      said: Callable[[str], None] | None) -> dict[str, Any]:
+    """The latest published version of the record ``found`` is a version of,
+    as a deposition (as its drafts are read): by its `latest` link, which
+    names it as a record; ``found`` itself where it names none."""
+    link = str((found.get("links") or {}).get("latest") or "")
     if not link:
-        return None
-    found = _call("GET", link, token=token, missing_ok=True, said=said)
-    return found if isinstance(found, dict) else None
+        return found
+    record = _call("GET", link, token=token, missing_ok=True, said=said)
+    newest = str((record or {}).get("id") or "") if isinstance(record, dict) else ""
+    if not newest or newest == str(found.get("id")):
+        return found
+    deposition = _call("GET", f"{depositions}/{newest}", token=token, missing_ok=True,
+                       said=said)
+    return deposition if isinstance(deposition, dict) else found
 
 
 def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
@@ -398,32 +414,32 @@ def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
             and str(entry.get("id")) != str(record.get("id"))]
 
 
+def _described(metadata: Any) -> dict[str, Any]:
+    return {k: v for k, v in (metadata if isinstance(metadata, dict) else {}).items()
+            if k not in _SET_BY_ZENODO}
+
+
 def _written(metadata: Any) -> str:
     """A draft's description as Zenodo holds it, as one digest: what this
     study wrote, told from what the person changed there since."""
     import hashlib
 
-    kept = {k: v for k, v in (metadata if isinstance(metadata, dict) else {}).items()
-            if k not in ("doi", "prereserve_doi")}
-    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(_described(metadata), sort_keys=True).encode()) \
+        .hexdigest()
+
+
+def _names(entry: dict[str, Any]) -> set[str]:
+    return {str(f.get("filename") or f.get("key") or "") for f in entry.get("files") or []
+            if isinstance(f, dict)} - {""}
 
 
 def _changed_since(record: dict[str, Any], draft: dict[str, Any]) -> str:
-    """What a draft of a new version holds that the record it was made from
-    does not (its title, its description, its files): said, or "" where
-    the draft is as Zenodo began it."""
-    said = []
-    was = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    now = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
-    for key in ("title", "description"):
-        if now.get(key) and now.get(key) != was.get(key):
-            said.append(f"its {key}")
-
-    def names(entry: dict[str, Any]) -> set[str]:
-        return {str(f.get("filename") or f.get("key") or "") for f in entry.get("files") or []
-                if isinstance(f, dict)}
-
-    if names(draft) - names(record):
+    """What a draft of a new version holds that the version it was begun
+    from does not: said (its title, its creators, its files...), or ""
+    where the draft is as Zenodo began it."""
+    was, now = _described(record.get("metadata")), _described(draft.get("metadata"))
+    said = [f"its {key}" for key in sorted(set(was) | set(now)) if was.get(key) != now.get(key)]
+    if _names(draft) - _names(record):
         said.append("its files")
     return ", ".join(said)
 
@@ -498,7 +514,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     that cannot be shared leaves no draft behind; the draft is recorded in
     `shared_to.json` as soon as it exists, so a failure after leaves a
     draft the next share makes again rather than another one; and a draft
-    made again loses its old archive only once the new one is written."""
+    made again loses its old archive only once the new one is written.
+
+    What the person does on Zenodo's site is theirs: a description they
+    changed, files they added, a draft of a new version they began are
+    never written over or taken; where the study cannot tell, it leaves
+    them and says so."""
     token = os.environ.get(TOKENS[site], "")
     if not token:
         raise ShareRefused(
@@ -510,101 +531,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     depositions = f"{base}/api/deposit/depositions"
     kept = _load(study / SHARED_TO)
     earlier = kept.get(site) if isinstance(kept.get(site), dict) else {}
-    # A draft asked for and never known stays the version it was asked as.
-    version = int(earlier.get("version") or (0 if earlier.get("id") else 1)) \
-        + (1 if earlier.get("id") else 0)
-    deposition: dict[str, Any] | None = None
-    newest_record: dict[str, Any] | None = None
-    # The published record a draft of a new version was made from: its
-    # draft deleted, a new version of it is made again, not a record of its
-    # own.
-    published = str(earlier.get("record") or "")
-    if earlier.get("id"):
-        versioning = begun_again = False
-        try:
-            found = _call("GET", f"{depositions}/{earlier['id']}", token=token,
-                          missing_ok=True, said=said)
-            if not isinstance(found, dict) and published and published != str(earlier["id"]):
-                found = _call("GET", f"{depositions}/{published}", token=token,
-                              missing_ok=True, said=said)
-                if isinstance(found, dict) and found.get("submitted"):
-                    if said:
-                        said(f"The draft {earlier['id']} of a new version is gone from {site}; "
-                             f"making a new version of record {published} again.")
-                    # The version that draft was to be, never published.
-                    version, begun_again = int(earlier.get("version") or 2), True
-            if not isinstance(found, dict):
-                if said:
-                    said(f"The draft or record {earlier['id']} this study was shared as is gone "
-                         f"from {site}; making a new one.")
-                version = 1
-            elif not found.get("submitted"):
-                # The draft made last time, never published: made again.
-                deposition, version = found, int(earlier.get("version") or 1)
-            else:
-                versioning = True
-                published = str(found["id"])
-                # Zenodo keeps one draft of a new version of a record, and
-                # gives it to whoever asks: one begun already is this
-                # study's only where it asked for it and it is as Zenodo
-                # began it; else it is the person's, and left alone.
-                newest = _latest_published(found, token, said) or found
-                begun = _concept_drafts(depositions, token, found, said)
-                if begun is None:
-                    raise ShareRefused(
-                        f"Zenodo did not list your drafts, so whether a new version of record "
-                        f"{published} is begun already is not known; nothing was changed. "
-                        "Share again once Zenodo answers.",
-                        code="environment.service.unreachable")
-                if begun:
-                    draft_id = str(begun[0].get("id"))
-                    asked = str(earlier.get("asked_version_of") or "") == published
-                    changed = _changed_since(newest, begun[0])
-                    if not asked or changed:
-                        raise ShareRefused(
-                            f"Zenodo holds a draft of a new version of record {published} "
-                            f"({draft_id}) that "
-                            + (f"has been changed ({changed})" if asked and changed
-                               else "this study did not begin")
-                            + ": publish or delete it there, then share again.",
-                            code="environment.service.unusable_response",
-                            url=f"{base}/uploads/{draft_id}")
-                    if said:
-                        said(f"Taking draft {draft_id}, the new version of record {published} "
-                             "begun at the last share though its answer was lost.")
-                    deposition = _call("GET", f"{depositions}/{draft_id}", token=token,
-                                       said=said)
-                else:
-                    kept[site] = {**earlier, "asked_version_of": published}
-                    _keep(study, kept)
-                    newer = _call("POST", f"{depositions}/{found['id']}/actions/newversion",
-                                  token=token, said=said)
-                    latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
-                    if not latest:
-                        raise ShareRefused("Zenodo made no new version of the record.",
-                                           code="environment.service.unreachable")
-                    deposition = _call("GET", latest, token=token, said=said)
-                    newest = _latest_published(newer, token, said) or newest
-                # Counted on from the latest one published, which may be one
-                # the person published by hand since.
-                newest_record = newest
-                counted = str((newest.get("metadata") or {}).get("version") or "")
-                if counted.isdigit() and not begun_again:
-                    version = int(counted) + 1
-        except ShareRefused as exc:
-            if exc.refusal.code == "environment.service.unusable_response":
-                raise
-            began = versioning and getattr(exc, "unclear", False)
-            again = "; share again once Zenodo answers." if getattr(exc, "later", False) \
-                else "."
-            raise ShareRefused(
-                f"{exc} "
-                + (f"Zenodo may have begun the new version of record {published}: look "
-                   "among your uploads for its draft, then share again once Zenodo answers."
-                   if began else f"Record {published} is as it was{again}" if versioning
-                   else f"The draft or record {earlier['id']} the study was shared as is as it "
-                   f"was{again}"),
-                code=exc.refusal.code) from exc
+    found_as = _found(study, kept, earlier, site=site, depositions=depositions, token=token,
+                      said=said)
+    deposition, version = found_as["deposition"], found_as["version"]
+    published, versioned = found_as["published"], found_as["versioned"]
     title = ""
     if deposition is None and earlier.get("asked_as") and not earlier.get("id"):
         # Asked for at a share whose answer was lost: taken if Zenodo made
@@ -629,20 +559,26 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     if not isinstance(deposition, dict) or not deposition.get("id"):
         raise ShareRefused("Zenodo made no draft.", code="environment.service.unreachable")
     identifier = str(deposition["id"])
+    same = str(earlier.get("id") or "") == identifier
+    # What is known of this draft is kept with it from one share to the next.
     kept[site] = {"id": identifier, "version": version,
-                  **({"written": earlier["written"]} if earlier.get("written")
-                     and str(earlier.get("id") or "") == identifier else {})}
-    if published and published != identifier:
+                  **{k: earlier[k] for k in ("archive", "written", "doi")
+                     if same and earlier.get(k)}}
+    if versioned:
         kept[site]["record"] = published
+        if earlier.get("archive"):
+            kept[site]["archive"] = earlier["archive"]
     if earlier.get("asked_as"):
         # Asked for again under that title: a draft Zenodo lists under it
         # later is the first made, to be named.
         kept[site]["asked_as"] = earlier["asked_as"]
     _keep(study, kept)
-    inherited = deposition.get("metadata") if isinstance(deposition.get("metadata"), dict) \
-        else {}
-    inherited = {k: v for k, v in inherited.items() if k not in ("doi", "prereserve_doi")}
-    doi = str(((deposition.get("metadata") or {}).get("prereserve_doi") or {}).get("doi") or "")
+    held = deposition.get("metadata") if isinstance(deposition.get("metadata"), dict) else {}
+    inherited = {k: v for k, v in held.items() if k not in ("doi", "prereserve_doi")}
+    page = str((deposition.get("links") or {}).get("html") or f"{base}/uploads/{identifier}")
+    earlier_files = [entry for entry in deposition.get("files") or []
+                     if isinstance(entry, dict) and entry.get("id")]
+    doi = str((held.get("prereserve_doi") or {}).get("doi") or "")
     if not doi:
         reserved = _call("PUT", f"{depositions}/{identifier}", token=token,
                          body={"metadata": {**inherited, "prereserve_doi": True}}, said=said)
@@ -652,35 +588,38 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         try:
             packed = pack(f"https://doi.org/{doi}")
         except ShareRefused as exc:
+            holds = "with the archive it had" if earlier_files else "with no archive yet"
             raise ShareRefused(
-                f"{exc} The draft {base}/uploads/{identifier} is kept, with no archive yet: "
-                "share again once it can be written, and that draft is finished, not another "
-                "made.", code=exc.refusal.code) from exc
+                f"{exc} The draft {page} is kept, {holds}: share again once it can be "
+                "written, and that draft is finished, not another made.",
+                code=exc.refusal.code) from exc
     kept[site]["doi"] = doi
     _keep(study, kept)
     bucket = str((deposition.get("links") or {}).get("bucket") or "")
     if not bucket:
         raise ShareRefused("Zenodo's draft has no bucket to upload into.",
                            code="environment.service.unreachable")
-    page = str((deposition.get("links") or {}).get("html")
-               or f"{base}/uploads/{identifier}")
-    earlier_files = [entry for entry in deposition.get("files") or []
-                     if isinstance(entry, dict) and entry.get("id")]
-    # The archives this study put there: the one named at its last share (or,
-    # for a draft of a new version, the record's), where known.
-    ours_named = {str(earlier.get("archive") or "")} - {""}
-    ours_named |= {str(f.get("filename") or f.get("key") or "")
-                   for f in ((newest_record or {}).get("files") or []) if isinstance(f, dict)}
-    others = [str(entry.get("filename") or entry.get("key") or "") for entry in earlier_files]
-    foreign = [name for name in others if name.lower().endswith(".zip")
-               and name != archive.name and ours_named and name not in ours_named]
+    # Only the archive this study put there is taken away; another one
+    # keeps the share back, as a record of two archives opens as neither.
+    ours = str(earlier.get("archive") or "")
+    stale = [entry for entry in earlier_files
+             if str(entry.get("filename") or entry.get("key") or "") == ours
+             and ours and ours != archive.name]
+    foreign = sorted(name for name in _names(deposition)
+                     if name.lower().endswith(".zip") and name not in (archive.name, ours))
     if foreign:
         raise ShareRefused(
             f"The draft {page} holds {', '.join(foreign)}, which this study did not put "
             "there; a record of two archives opens as neither. Delete it there, or keep it "
             "in a record of its own, then share again.",
             code="environment.service.unusable_response", url=page)
-    uploaded, kept_other = False, ""
+    # The description: the study's where it wrote it last or none was
+    # written yet; else the person's, kept.
+    marker = str(earlier.get("asked_as") or title or "")
+    untouched = (_written(held) == earlier.get("written")) if earlier.get("written") else (
+        not versioned and str(held.get("title") or "") in ("", marker)
+        and not held.get("description"))
+    uploaded, removing = False, ""
     try:
         if said:
             said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to "
@@ -690,60 +629,155 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
               upload=archive, said=said)
         uploaded = True
-        for entry in earlier_files:
-            name = str(entry.get("filename") or entry.get("key") or "")
-            # Only another archive: a record of two opens as neither. A
-            # file the person put beside it (a paper, a figure) stays.
-            if name != archive.name and name.lower().endswith(".zip"):
-                kept_other = name or "an earlier file"
-                # Gone already is what was asked: a try that did it, then
-                # lost its answer, is asked again.
-                _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}",
-                      token=token, missing_ok=True, said=said)
-                kept_other = ""
-        ours = _metadata(packed["crate"], authors=authors, license_id=license_id,
-                         system=system, version=version)
-        held = (deposition.get("metadata") if isinstance(deposition.get("metadata"), dict)
-                else {})
-        # The draft made again: what the person wrote there since this study
-        # last wrote it is theirs, and kept.
-        edited = (str(earlier.get("id") or "") == identifier and earlier.get("written")
-                  and _written(held) != earlier["written"])
-        if edited:
-            if said:
-                said(f"The draft {page} was changed there since the last share: its "
-                     "description as you left it is kept, and only the archive is new.")
-            written = earlier["written"]
-        else:
+        kept[site]["archive"] = archive.name
+        _keep(study, kept)
+        for entry in stale:
+            removing = str(entry.get("filename") or entry.get("key"))
+            # Gone already is what was asked: a try that did it, then lost
+            # its answer, is asked again.
+            _call("DELETE", f"{depositions}/{identifier}/files/{entry['id']}",
+                  token=token, missing_ok=True, said=said)
+            removing = ""
+        if untouched:
+            ours_said = _metadata(packed["crate"], authors=authors, license_id=license_id,
+                                  system=system, version=version)
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
-                           body={"metadata": {**inherited, **ours}}, said=said)
-            written = _written((answer or {}).get("metadata") if isinstance(answer, dict)
-                               else {})
-        kept[site]["written"] = _written(held) if edited else written
+                           body={"metadata": {**inherited, **ours_said}}, said=said)
+            kept[site]["written"] = _written((answer or {}).get("metadata")
+                                             if isinstance(answer, dict) else {})
+        else:
+            # The person's words, kept; the version is the study's to say.
+            if str(held.get("version") or "") != str(version):
+                _call("PUT", f"{depositions}/{identifier}", token=token,
+                      body={"metadata": {**inherited, "version": str(version)}}, said=said)
+            if said:
+                said(f"The draft {page} holds a description written there, not by this "
+                     "study: it is kept as it is, and only the archive is new.")
+        _keep(study, kept)
     except ShareRefused as exc:
-        kept_as = (f"with the new archive and the earlier {kept_other}, which Zenodo may not "
-                   "have taken away (a record of two archives opens as neither: share again, or "
-                   "delete it there, before you publish)" if kept_other
-                   else "with the new archive, its description not yet written" if uploaded
+        kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
+                   "have taken away (a record of two archives opens as neither: share again, "
+                   "or delete it there, before you publish)" if removing
+                   else "with the new archive, its description not yet written"
+                   if uploaded and untouched
+                   else "with the new archive" if uploaded
                    else "with the archive it had" if earlier_files else "with no archive yet")
         raise ShareRefused(
             f"{exc} The draft {page} is kept, {kept_as}: share again once Zenodo answers, "
             "and that draft is finished, not another made.",
             code=exc.refusal.code, url=page) from exc
     twice = str(kept[site].get("asked_as") or "")
-    others = [n for n in (_marked(depositions, token, twice, said) or []) if n != identifier] \
-        if twice else []
+    try:
+        others = [n for n in (_marked(depositions, token, twice, said) or [])
+                  if n != identifier] if twice else []
+    except ShareRefused:
+        # The share is done; the stray draft is named at the next one.
+        others = []
     if others and said:
         said(f"Zenodo also holds draft{'s' if len(others) > 1 else ''} {', '.join(others)} "
              f"titled {twice!r}, made by a share whose answer was lost and listed only late: "
              f"delete {'them' if len(others) > 1 else 'it'} among your uploads "
              f"({base}/me/uploads).")
-    # The archive this study put there, so that at its next share only that
-    # one is taken away.
-    kept[site]["archive"] = archive.name
-    _keep(study, kept)
     if said:
         said(f"Draft {f'of version {version} ' if version > 1 else ''}made: {page}"
              + (f" (DOI {doi}, reserved until you publish)." if doi else ".")
              + " Read it there and press Publish; until then nothing is public.")
     return {"url": page, "doi": doi, "id": identifier, "version": version, **packed}
+
+
+def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: str,
+           depositions: str, token: str,
+           said: Callable[[str], None] | None) -> dict[str, Any]:
+    """The draft the study was shared as, made again (its `deposition`), or
+    a draft of a new version of the record it was published as, begun now;
+    None where a new draft is to be made; with the `version` it is, the
+    `published` record a new version is of, and whether it is one
+    (`versioned`)."""
+    out: dict[str, Any] = {"deposition": None, "version": int(earlier.get("version") or 1),
+                           "published": str(earlier.get("record") or ""), "versioned": False}
+    if not earlier.get("id"):
+        return out
+    published = out["published"]
+    again_from = False
+    try:
+        found = _call("GET", f"{depositions}/{earlier['id']}", token=token, missing_ok=True,
+                      said=said)
+        if not isinstance(found, dict) and published and published != str(earlier["id"]):
+            again_from = True
+            # The draft of a new version deleted: begun again from its record.
+            found = _call("GET", f"{depositions}/{published}", token=token, missing_ok=True,
+                          said=said)
+            if isinstance(found, dict) and found.get("submitted") and said:
+                said(f"The draft {earlier['id']} of a new version is gone from {site}; "
+                     f"beginning a new version of record {published} again.")
+        if not isinstance(found, dict):
+            if said:
+                said(f"The draft or record {earlier['id']} this study was shared as is gone "
+                     f"from {site}; making a new one.")
+            out["version"] = 1
+            return out
+        if not found.get("submitted"):
+            # The draft made last time, never published: made again.
+            out["deposition"] = found
+            return out
+    except ShareRefused as exc:
+        again = "; share again once Zenodo answers." if getattr(exc, "later", False) else "."
+        raise ShareRefused(f"{exc} The draft or record {earlier['id']} the study was shared "
+                           f"as is as it was{again}", code=exc.refusal.code) from exc
+    # Published: a new version, begun from the latest one published (which
+    # may be one the person published by hand since), and counted on from it.
+    try:
+        newest = _latest_published(found, depositions, token, said)
+        published = str(newest.get("id") or found["id"])
+        counted = str((newest.get("metadata") or {}).get("version") or "")
+        # Where the record does not say, the study's own count: the version
+        # its deleted draft was to be, or one after the one it published.
+        version = int(counted) + 1 if counted.isdigit() else \
+            int(earlier.get("version") or 1) + (0 if again_from else 1)
+        begun = _concept_drafts(depositions, token, newest, said)
+        if begun is None:
+            raise ShareRefused(
+                f"Zenodo did not list your drafts, so whether a new version of record "
+                f"{published} is begun already is not known; nothing was changed. Share again "
+                "once Zenodo answers.", code="environment.service.unreachable")
+        if begun:
+            # Zenodo keeps one draft of a new version, and gives it to whoever
+            # asks: one there already is the person's, or one a share began
+            # and lost the answer to; either way left alone.
+            draft_id = str(begun[0].get("id"))
+            raise ShareRefused(
+                f"Zenodo holds a draft of a new version of record {published} ({draft_id}), "
+                "begun on its site or by a share whose answer was lost: publish it, or "
+                "delete it there, then share again.",
+                code="environment.service.unusable_response",
+                url=str((begun[0].get("links") or {}).get("html") or ""))
+        newer = _call("POST", f"{depositions}/{published}/actions/newversion", token=token,
+                      said=said)
+        latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
+        if not latest:
+            raise ShareRefused("Zenodo made no new version of the record.",
+                               code="environment.service.unreachable")
+        deposition = _call("GET", latest, token=token, said=said)
+    except ShareRefused as exc:
+        if exc.refusal.code == "environment.service.unusable_response" \
+                or "did not list your drafts" in str(exc):
+            raise
+        began = getattr(exc, "unclear", False)
+        again = "; share again once Zenodo answers." if getattr(exc, "later", False) else "."
+        raise ShareRefused(
+            f"{exc} "
+            + (f"Zenodo may have begun the new version of record {published}: the next share "
+               "finds its draft and asks you to publish or delete it, as it cannot tell it "
+               "from one you began." if began else f"Record {published} is as it was{again}"),
+            code=exc.refusal.code) from exc
+    changed = _changed_since(newest, deposition)
+    if changed:
+        # The one draft Zenodo keeps, begun by the person and not listed:
+        # given back to this share, and left alone.
+        raise ShareRefused(
+            f"Zenodo holds a draft of a new version of record {published} "
+            f"({latest.rsplit('/', 1)[-1]}) that has been changed ({changed}): publish or "
+            "delete it there, then share again.",
+            code="environment.service.unusable_response", url=latest)
+    out.update(deposition=deposition, version=version, published=published, versioned=True)
+    return out
