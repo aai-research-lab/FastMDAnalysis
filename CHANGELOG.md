@@ -467,13 +467,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - Notices are saved: every notice the page gives, each run seen ending and
   each refusal written while the page is open, the last 200 on this
   computer, behind a bell in the status bar with how many are new (All,
-  Runs, Refusals and warnings; Clear the list with Undo).
+  Runs, Refusals and warnings; Clear the list with Undo). A notice saves
+  what it said and its study's name (a refusal its first line); a run's end
+  opens its study's Overview as every way to another study does, asked first
+  whether the switch would lose work here. Bound beyond this computer, the
+  page offers no Stop and no way to another study.
 - One confirmation for what cannot be undone (stopping a run, a job on one
   of your machines, clearing the scratch), beside the button pressed; a
   selection forgotten asks nothing and offers Undo. One empty, loading and
   error block on All studies, Compare, Files, the Problems tab and the Log;
   the Files page says when its files could not be read, with Try again,
-  where it said "Reading the study's files..." for ever. Conversations and
+  where it said "Reading the study's files..." for ever; the question to
+  clear the scratch stays while the page is read again. Conversations and
   Chats are one list in the sidebar.
 
 - A strip of open studies keeps each study's last page in this browser
