@@ -1065,8 +1065,11 @@ RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-1
 #: more of them, the arguments said from their schemas). Set again by
 #: `tester-area2` (the bounds a setting cannot pass, in the schema's
 #: structure; then the hydrogen mass's ceiling and the help of each step
-#: count beside its duration); no verdict changed.
-ASKED_NOW = "801a897595fa1e9fc2f2c7a3bfc52e73485accddf619fafe159fcb376b675bd7"
+#: count beside its duration); no verdict changed. Set again by
+#: `physics-restraints` (`restrain` takes a list of blocks as well as a
+#: selection) and `physics-nonbonded` (`dispersion_correction` the force
+#: field's own unless given); no verdict changed.
+ASKED_NOW = "daaeeb9ca9adfaee62ff6813faa84d12440d5b36e2790df064683377e6570def"
 
 
 def _asked_in_own_words(monkeypatch) -> list[str]:
@@ -1427,8 +1430,8 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 #: cases resolve what is named from the folders here, where the study the
 #: run was asked against is not.
 CONTEXT_ASKED_NOW = {
-    True: "da972e32035e295f54d51bf703dedd985e0ae3f6c0720fd3676bcc0590b9a0f1",
-    False: "ed31ad5cee49214b96deabe4c45bf65ec22aa5b383bf792fb6755fcddc234de9"}
+    True: "5624a307422708eee0da547762fa7c6154841e4fa0699a7a9b22a763f19d988d",
+    False: "3fe22be96ab0d2982f63c6dc48d179261067e4b6d7b0f8b3ec2718ed36443438"}
 
 
 def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:
