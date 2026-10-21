@@ -235,17 +235,22 @@ def test_beyond_loopback_nothing_that_posts_is_offered(tmp_path):
         page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
         page.wait_for_selector("#studies-table tbody tr.studies-row")
         bound = page.evaluate("() => document.body.dataset.beyondLoopback")
-        for name in ("alpha", "beta"):
-            page.click(f'#studies-table tr.studies-row[data-path$="/{name}"] .studies-pick input')
+        # Nothing to choose: a bar of "2 chosen" and Clear alone was all
+        # choosing gave there. Nor by keys.
+        boxes = page.locator("#studies-table input[type=checkbox], .studies-pick-all").count()
         page.focus('#studies-table tr.studies-row[data-path$="/beta"] .studies-name-text')
+        page.keyboard.press("x")
         page.keyboard.press("t")
         page.keyboard.press("c")
         seen = page.evaluate(look)
+        bar = page.is_hidden("#studies-bar")
+        page.click('[data-studies-view="cards"]')
+        cards = page.locator(".study-card input[type=checkbox]").count()
         browser.close()
     assert errors == []
     assert bound == "true"
+    assert boxes == 0 and cards == 0 and bar
     assert seen["row"] == [] and not seen["tagger"] and seen["page"] == "#studies"
-    assert seen["bar"] == ["studies-clear"]
 
 
 def test_back_from_compare_is_where_the_two_were_chosen(tmp_path):
@@ -438,3 +443,38 @@ def test_the_bar_keeps_tags_kept_elsewhere_and_archives_no_run_alone(tmp_path):
     assert archived["tags"] == ["reference", "from the agent", "batch one", "again"]
     assert archived["archived"]
     assert run == [True, "A run of a study is archived with its study: archive the study."]
+
+
+def test_a_chip_ticked_keeps_the_keyboard_on_its_box(tmp_path):
+    """Ticking a State chip's third box put the keyboard on its first: a
+    keyboard user ticking two had to go back down each time."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    _study(tmp_path / "alpha")
+    _study(tmp_path / "beta", failed="simulation.run.stopped")
+    _study(tmp_path / "gamma", failed="simulation.run.failed")
+    session = start_dashboard_session(output=str(tmp_path / "alpha"), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            page.click('.studies-chip[data-key="states"] > summary')
+            boxes = page.locator('.studies-chip[data-key="states"] input')
+            last = boxes.count() - 1
+            boxes.nth(last).focus()
+            page.keyboard.press("Space")
+            on = page.evaluate("""() => [document.activeElement.dataset.value,
+                [...document.querySelectorAll('.studies-chip[data-key="states"] input')]
+                    .map((b) => b.dataset.value)]""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert on[0] == on[1][-1] and on[0] != on[1][0]

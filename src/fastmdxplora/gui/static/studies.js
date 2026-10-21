@@ -755,13 +755,16 @@
       if (study.note) body.appendChild(make("div", "study-note", study.note));
     }
     var actions = make("div", "study-actions");
-    var pick = make("label", "study-pick");
-    var box = make("input");
-    box.type = "checkbox";
-    box.checked = chosen.indexOf(study.path) >= 0;
-    box.dataset.path = study.path;
-    box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
-    pick.append(box, document.createTextNode(" Choose"));
+    var pick = null;
+    if (!beyondLoopback()) {
+      pick = make("label", "study-pick");
+      var box = make("input");
+      box.type = "checkbox";
+      box.checked = chosen.indexOf(study.path) >= 0;
+      box.dataset.path = study.path;
+      box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
+      pick.append(box, document.createTextNode(" Choose"));
+    }
     actions.append.apply(actions, [openButton(study), tagButton(study), openButton(study, "files"), pick]
       .filter(Boolean));
     body.appendChild(actions);
@@ -933,13 +936,17 @@
     tr.dataset.path = study.path;
     tr.dataset.state = String(study.state || "").toLowerCase();
     var pick = make("td", "studies-pick");
-    var box = make("input");
-    box.type = "checkbox";
-    box.checked = chosen.indexOf(study.path) >= 0;
-    box.setAttribute("aria-label", "Compare " + study.name);
-    box.dataset.path = study.path;
-    box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
-    pick.appendChild(box);
+    // Beyond loopback nothing in the bar can act on the studies chosen:
+    // choosing is not offered either.
+    if (!beyondLoopback()) {
+      var box = make("input");
+      box.type = "checkbox";
+      box.checked = chosen.indexOf(study.path) >= 0;
+      box.setAttribute("aria-label", "Choose " + study.name);
+      box.dataset.path = study.path;
+      box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
+      pick.appendChild(box);
+    }
     tr.appendChild(pick);
     if (shownColumn("molecule")) tr.appendChild(cell("studies-mol", moleculeFrame(study, "studies-mol-frame", 64, 34, 3)));
     var name = make("td", "studies-name");
@@ -1107,7 +1114,7 @@
         th.title = "A filled dot is a mean determined with its error; a ring, one not yet";
       } else if (h[0]) {
         th.textContent = h[0];
-      } else if (h[2] === "pick") {
+      } else if (h[2] === "pick" && !beyondLoopback()) {
         // Every study shown chosen, or let go.
         var all = make("input", "studies-pick-all");
         all.type = "checkbox";
@@ -1116,7 +1123,7 @@
         all.addEventListener("click", function () { chooseEveryShown(all.checked); });
         th.appendChild(all);
       } else {
-        th.appendChild(make("span", "sr-only", h[2] === "mol" ? "Molecule" : "Open"));
+        th.appendChild(make("span", "sr-only", h[2] === "pick" ? "" : h[2] === "mol" ? "Molecule" : "Open"));
       }
       tr.appendChild(th);
     });
@@ -1315,12 +1322,20 @@
       var input = make("input");
       input.type = "checkbox";
       input.checked = chosenNow.indexOf(value) >= 0;
+      input.dataset.value = String(value);
       input.addEventListener("change", function () {
         filters[key] = filters[key].filter(function (v) { return v !== value; });
         if (input.checked) filters[key].push(value);
         draw();
+        // The keyboard back on the box just ticked, not the chip's first.
         var again = document.querySelector('.studies-chip[data-key="' + key + '"]');
-        if (again) { again.open = true; var first = again.querySelector("input"); if (first) first.focus(); }
+        if (again) {
+          again.open = true;
+          var same = Array.prototype.find.call(again.querySelectorAll("input"), function (b) {
+            return b.dataset.value === String(value);
+          });
+          if (same) same.focus();
+        }
       });
       item.append(input, document.createTextNode(" " + (value || "none")));
       list.appendChild(item);
@@ -1520,7 +1535,7 @@
       event.preventDefault();
       var next = at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + (event.key === "j" ? 1 : -1)));
       focusRow(rows[next]);
-    } else if (event.key === "x" && here) {
+    } else if (event.key === "x" && here && !beyondLoopback()) {
       var box = here.querySelector('input[type="checkbox"]');
       if (box) {
         event.preventDefault();
