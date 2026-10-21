@@ -1417,15 +1417,22 @@ def _unreadable(monkeypatch, *folders: Path) -> None:
     tests."""
     import os
 
-    real = os.scandir
+    real, real_stat = os.scandir, os.stat
     blocked = {str(f) for f in folders}
+    entered = {os.path.join(f, ".") for f in blocked}
 
     def scandir(path="."):
         if not isinstance(path, int) and os.fspath(path) in blocked:
             raise PermissionError(13, "Permission denied", os.fspath(path))
         return real(path)
 
+    def stat(path, *args, **kwargs):
+        if not isinstance(path, int) and os.fspath(path) in entered:
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_stat(path, *args, **kwargs)
+
     monkeypatch.setattr(os, "scandir", scandir)
+    monkeypatch.setattr(os, "stat", stat)
 
 
 def _unopened(monkeypatch, *files: Path) -> None:
@@ -1550,15 +1557,37 @@ def test_a_run_folder_that_cannot_be_read_is_refused_by_its_name(tmp_path, monke
     # One that can be listed and not entered is said as the folder too.
     import os
 
-    real = os.stat
-    entered = os.path.join(root / "runs", ".")
+    real, real_scandir = os.stat, os.scandir
+    inside = str(root / "runs") + "/"
+
+    def shut(path) -> bool:
+        return not isinstance(path, int) and os.fspath(path).startswith(inside)
 
     def stat(path, *args, **kwargs):
-        if not isinstance(path, int) and os.fspath(path) == entered:
-            raise PermissionError(13, "Permission denied", entered)
+        if shut(path):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
         return real(path, *args, **kwargs)
 
+    def scandir(path="."):
+        if shut(path):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path)
+
+    import builtins
+    import io
+
+    def guarded(opener):
+        def opened(file, *args, **kwargs):
+            if shut(file):
+                raise PermissionError(13, "Permission denied", os.fspath(file))
+            return opener(file, *args, **kwargs)
+        return opened
+
+    monkeypatch.undo()
+    monkeypatch.setattr(io, "open", guarded(io.open))
+    monkeypatch.setattr(builtins, "open", guarded(builtins.open))
     monkeypatch.setattr(os, "stat", stat)
+    monkeypatch.setattr(os, "scandir", scandir)
     with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert str(refused.value).startswith(f"{root}/runs could not be read (Permission denied)")
@@ -1820,4 +1849,74 @@ def test_indented_code_after_a_heading_is_left_as_code_shows_it():
     from fastmdxplora.sharing.pack import _markdown_plain
 
     text = "## Host\n    host __FASTMDX_HOST__\n"
+    assert _markdown_plain(text) == text
+
+
+def test_a_record_that_cannot_be_read_is_named_not_a_folder_above_the_study(tmp_path,
+                                                                            monkeypatch):
+    """Review of series 5: a record that could not be read, in a study kept
+    under a folder that cannot be listed (a cluster's home), was said as that
+    folder, which the person cannot change."""
+    root, _ = _campaign(tmp_path)
+    record = root / "batch_manifest.json"
+    _unopened(monkeypatch, record)
+    import os
+
+    real = os.scandir
+
+    def scandir(path="."):
+        if not isinstance(path, int) and os.fspath(path) == str(tmp_path):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real(path)
+
+    # Another person's folder above the study, at 711: entered, not listed.
+    monkeypatch.setattr(os, "scandir", scandir)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value).startswith(f"{record}, the record of its runs, could not be read")
+
+
+def test_a_fetched_input_holding_the_system_is_said_as_carried(tmp_path):
+    """Review of series 5: an input sent as the folder holding the system
+    (`.../wt-prep/shared_setup`, the system in its `setup/`) kept its name as
+    sent, so the opened Config named nothing."""
+    import yaml
+
+    from fastmdxplora.simulation import pipeline
+
+    prep = _prepared(tmp_path / "preps" / "wt-prep" / "shared_setup" / "setup")
+    root = _fetched(tmp_path, "shared", prep.parent, "/scratch/kaina/fastmdxplora-jobs/job42")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    config = _texts_of(out)["runs/a/resolved_config.yml"]
+    assert "inputs/shared" not in config
+    opened = open_shared(str(out), into=tmp_path / "x")
+    named = yaml.safe_load((opened / "runs" / "a" / "resolved_config.yml").read_text())[
+        "simulation"]["setup_from"]
+    assert pipeline.where_a_prepared_system_sits(Path(named)).resolve() == \
+        pipeline.setup_records_of(opened / "runs" / "a")
+
+
+def test_a_link_leading_nowhere_where_nothing_is_shared_does_not_stop_it(tmp_path):
+    """Review of series 5: a link to scratch since emptied, at a place a
+    shared study never carries (`previous/`, a run the record of runs does
+    not name), refused the study."""
+    root, elsewhere = _campaign(tmp_path)
+    gone = tmp_path / "purged"
+    for link in (root / "previous", root / "runs" / "a" / "previous",
+                 root / "runs" / "a" / "simulation" / "live_frames", root / "runs" / "zz",
+                 elsewhere / "setup" / "x.tmp"):
+        link.symlink_to(gone)
+    share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    (root / "runs" / "a" / "report" / "notes.md").symlink_to(gone)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "again.zip", authors=AUTHORS)
+    assert "runs/a/report/notes.md" in str(refused.value)
+
+
+def test_indented_code_after_a_setext_heading_or_a_fence_is_left_as_it_is():
+    from fastmdxplora.sharing.pack import _markdown_plain
+
+    text = ("Host\n----\n    host __FASTMDX_HOST__\n"
+            "```\nx\n```\n    host __FASTMDX_HOST__\n")
     assert _markdown_plain(text) == text

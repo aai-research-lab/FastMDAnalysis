@@ -118,19 +118,18 @@ _COMMON_HOSTS = frozenset({"localhost", "ubuntu", "debian", "fedora", "centos", 
 
 
 def _unread_folder(path: Path) -> tuple[Path, OSError] | None:
-    """The outermost of the folders ``path`` is in, below the first one
-    above them that can be, that cannot be read or entered, and why: the one
-    to make readable first."""
+    """Of the folders ``path`` is in, below the nearest one that can be
+    entered, the outermost, and why: the one to make readable first; none
+    where the folder ``path`` is in can be. One that can be entered and not
+    listed (another person's, at 711) keeps no file in it from being read."""
     found = None
     for folder in path.parents:
         try:
-            os.scandir(folder).close()
             os.stat(os.path.join(folder, "."))
         except OSError as exc:
             found = (folder, exc)
         else:
-            if found is not None:
-                break
+            break
     return found
 
 
@@ -292,6 +291,7 @@ def _system_named(system: Any) -> str:
 #: The placeholders as a Markdown file is written with them (:func:`_markdown_plain`).
 _ESCAPED = {token: "\\_\\_" + token[2:-2] + "\\_\\_" for token in (HOME, HOST)}
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_MAY_PRECEDE_CODE = re.compile(r" {0,3}(#{1,6}(\s|$)|(=+|-+)[ \t]*$)")
 _CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
 
 
@@ -319,11 +319,12 @@ def _markdown_plain(text: str) -> str:
             continue
         if line.strip():
             indented = False
-        # What an indented block of code may follow: a blank line, a heading.
-        blank = not line.strip() or bool(re.match(r" {0,3}#{1,6}(\s|$)", line))
+        # What an indented block of code may follow: a blank line, a heading
+        # (`# Host`, or the `---` under one), the end of a fenced block.
+        blank = not line.strip() or bool(_MAY_PRECEDE_CODE.match(line))
         if fence:
             if opened and opened.group(1)[0] == fence[0] and len(opened.group(1)) >= len(fence):
-                fence = ""
+                fence, blank = "", True
             out.append(line)
             continue
         if opened:
@@ -416,8 +417,11 @@ def chosen_files(root: Path, everything: bool = False,
     # A link is judged as what it stands for: a folder by what would be
     # shared of it, a file as the file there would be.
     folder_links = [rel for rel in found_links if os.path.isdir(root / rel)]
+    # One leading nowhere could stand for either: only where both would be
+    # shared does it keep the study back.
     file_links = {rel for rel in found_links
-                  if rel not in folder_links and not rel.endswith(".tmp")}
+                  if rel not in folder_links and not rel.endswith(".tmp")
+                  and (os.path.exists(root / rel) or kept(f"{rel}/_"))}
     entries = []
     for rel in sorted([*walked, *file_links], key=lambda rel: PurePosixPath(rel).parts):
         if never_shared(rel):
@@ -1207,9 +1211,11 @@ def _fetched_names(root: Path, carried: list[dict[str, Any]]
                 below = ""
             elif _within(entry["base"], here):
                 below = "/" + entry["base"].relative_to(here).as_posix()
-            elif _within(here, entry["system"]):
-                # The input is the system's own folder (`.../prep/setup`),
-                # in the folder carried (`prep`).
+            elif _within(here, entry["base"]) and (_within(here, entry["system"])
+                                                   or _within(entry["system"], here)):
+                # The input is the system's own folder (`.../prep/setup`), or
+                # one holding it (`.../prep/shared_setup`), in the folder
+                # carried (`prep`); not one beside it (`.../prep/ligs`).
                 below, inside = "", f"{inside}/{here.relative_to(entry['base']).as_posix()}"
             else:
                 continue
@@ -1249,8 +1255,10 @@ def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, An
     try:
         links = [path for path in sorted(system.rglob("*"))
                  if path.is_symlink() and "__pycache__" not in path.parts
-                 and packed(path.relative_to(system).as_posix()
-                            + ("/_" if path.is_dir() else ""))]
+                 and path.suffix != ".tmp" and (
+                     packed(path.relative_to(system).as_posix() + "/_") if path.is_dir()
+                     else packed(path.relative_to(system).as_posix()) and (
+                         path.exists() or packed(path.relative_to(system).as_posix() + "/_")))]
     except OSError as exc:
         raise ShareRefused(
             f"The prepared system in {system}, which runs of the study simulated from, could "

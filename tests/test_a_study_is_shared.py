@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -270,3 +271,10 @@ def test_a_folder_never_shared_kept_as_a_link_does_not_stop_it(tmp_path):
     share_study(root, tmp_path / "shared.zip", authors=AUTHORS)
     assert not any(n.startswith("previous") for n in
                    zipfile.ZipFile(tmp_path / "shared.zip").namelist())
+
+
+def test_a_link_leading_nowhere_where_nothing_is_shared_does_not_stop_it(tmp_path):
+    root = _study(tmp_path / "study")
+    shutil.rmtree(root / "previous")
+    (root / "previous").symlink_to(tmp_path / "purged")
+    share_study(root, tmp_path / "shared.zip", authors=AUTHORS)
