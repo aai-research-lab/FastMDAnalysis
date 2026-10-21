@@ -472,3 +472,55 @@ def test_a_run_asked_by_its_own_path_through_a_link_is_not_read(workspace):
                                              "folder outside the study.")
     for value in LEAKED:
         assert value not in json.dumps(said), value
+
+
+def test_a_study_linked_into_the_workspace_is_listed_and_marked(tmp_path):
+    """A study kept on another disk and linked into the workspace (as on a
+    cluster's scratch) was listed before cards were held to their studies,
+    then dropped from All studies without a word. It is listed, marked a
+    link, and read as its own pages read it, held to itself: a record it
+    links further out is not read. Hosted, where every route refuses a
+    path outside the workspace, it is named and not read. A folder linked
+    in that is not a study is still not walked."""
+    from fastmdxplora.gui.hosting import Hosting
+    from fastmdxplora.gui.workspace import studies_in
+    from tests.test_a_hosted_gui_answers_only_its_proxy import NAME, SECRET, _ask, _json
+    from tests.test_a_hosted_gui_answers_only_its_proxy import _serving as _hosted
+
+    space, elsewhere, further = tmp_path / "ws", tmp_path / "scratch", tmp_path / "further"
+    _a_study(space / "own")
+    kept = _a_study(elsewhere / "kept_on_scratch", rg=2.0)
+    (kept / "analysis" / "rg" / "options.json").unlink()
+    _write(further, "rg.json", _mean("rg", 2.2222))
+    _link(kept / "analysis" / "rg" / "options.json", further / "rg.json")
+    _link(space / "scratch_study", kept)
+    _a_study(elsewhere / "folder" / "inner", **OUT)
+    _link(space / "linked_folder", elsewhere / "folder")
+
+    listed, opened = _opened_outside(further, lambda: studies_in(space))
+    assert opened == []
+    cards = {card["name"]: card for card in listed["studies"]}
+    assert set(cards) == {"own", "scratch_study"}
+    linked = cards["scratch_study"]
+    assert linked["linked_in"] == str(kept.resolve()) and linked["path"] == str(space / "scratch_study")
+    assert linked["state"] == "completed"
+    assert [m["analysis"] for m in linked["means"]] == ["rmsd"]
+    assert "analysis/rg/options.json" in linked["unavailable"]
+    assert "linked_in" not in cards["own"]
+
+    hosting = Hosting(workspace=space.resolve(), allowed_hosts=frozenset({NAME}), secret=SECRET)
+
+    def ask() -> tuple[int, bytes]:
+        with _hosted(hosting) as (address, _):
+            return _ask(address, "/api/studies?path=" + str(space.resolve()),
+                        headers={"Host": NAME})
+
+    (status, body), opened = _opened_outside(elsewhere, ask)
+    assert status == 200 and opened == []
+    cards = {card["name"]: card for card in _json(body)["studies"]}
+    assert set(cards) == {"own", "scratch_study"}
+    assert cards["scratch_study"]["outside"] is True and cards["scratch_study"]["linked_in"] == ""
+    assert cards["scratch_study"]["not_read"] == (
+        "scratch_study was not read: it is a link to a folder outside the workspace, which is "
+        "not read here.")
+    assert str(elsewhere) not in body.decode() and "2.2222" not in body.decode()

@@ -1097,7 +1097,10 @@ def make_handler(
                     named = self._path_for(one("path") or str(app_runtime.exploration_root))
                     if named is None:
                         return
-                    self._send_json(workspace.studies_in(named))
+                    # A study linked into the workspace from outside it is
+                    # listed; hosted, not read, as every route refuses a
+                    # path outside the workspace there.
+                    self._send_json(workspace.studies_in(named, linked_in_read=hosting is None))
                     return
                 if path == "/api/compared":
                     # The Compare page: two studies or runs, their series too.

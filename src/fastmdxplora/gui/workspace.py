@@ -51,12 +51,16 @@ _FIRST = ("rmsd", "rg", "sasa", "rmsf", "hbonds", "ligand_rmsd")
 
 
 def studies_in(root: Path | str, *, deepest: int = DEEPEST,
-               most: int = MOST) -> dict[str, Any]:
+               most: int = MOST, linked_in_read: bool = True) -> dict[str, Any]:
     """The studies under ``root``, newest first, each as a card. A folder
-    linked into it from outside it is not walked into; a study's runs
-    (``<study>/runs``, unfolded on All studies) are listed only where
-    ``runs`` is the study's own, each run linked out of it named and not
-    read."""
+    linked into it from outside it is not walked into; a study linked into
+    it (one kept on another disk, as on a cluster's scratch) is listed,
+    marked a link (``linked_in``, where it leads), and read held to itself
+    as its own pages read it, or, where ``linked_in_read`` is False (a
+    hosted workspace, whose routes refuse a path outside it), named and not
+    read. A study's runs (``<study>/runs``, unfolded on All studies) are
+    listed only where ``runs`` is the study's own, each run linked out of
+    it named and not read."""
     from fastmdxplora.gui.browse import is_study
 
     given = Path(root).expanduser().absolute()
@@ -85,6 +89,7 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
     if not base.is_dir():
         return {"ok": False, "reason": f"No such folder: {base}"}
     found: list[Path] = []
+    linked: set[Path] = set()
     more = False
     runs_of_a_study = given.name == "runs" and is_study(given.parent)
 
@@ -104,6 +109,11 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
             if not _within(child, base):
                 if runs_of_a_study and depth == 1 and os.path.islink(child):
                     found.append(child)
+                elif (not runs_of_a_study and os.path.islink(child)
+                      and child.name not in _INSIDE_A_STUDY and is_study(child)):
+                    # A study linked in: listed, never walked into.
+                    found.append(child)
+                    linked.add(child)
                 continue
             if not child.is_dir():
                 continue
@@ -123,10 +133,31 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
         walk(base, 1)
     # A run linked out of its study is not read (`card_of`), as its
     # study's pages do not read it.
-    cards = [card_of(folder) for folder in found]
+    cards = [_linked_in(folder, linked_in_read) if folder in linked else card_of(folder)
+             for folder in found]
     cards.sort(key=lambda card: card.get("when") or "", reverse=True)
     return {"ok": True, "root": str(base), "studies": cards, "more": more,
             "tags_used": tags_used(cards)}
+
+
+def _linked_in(folder: Path, read: bool) -> dict[str, Any]:
+    """The card of a study linked into the folder looked in from outside
+    it: read held to the study it leads to (`card_of`), as its own pages
+    read it, and marked a link, ``linked_in`` where it leads; or, where it
+    is not ``read``, named, marked, and nothing of it read."""
+    if read:
+        try:
+            target = str(folder.resolve())
+        except (OSError, RuntimeError):
+            target = ""
+        # Named as the folder looked in names it, as its path is.
+        return {**card_of(folder), "name": folder.name, "linked_in": target}
+    why = "it is a link to a folder outside the workspace, which is not read here."
+    return {"path": str(folder), "name": folder.name, "system": "", "structure": "",
+            "kind": "", "state": "not known", "when": "", "last_active": "", "means": [],
+            "tags": [], "note": "", "molecule": None, "unread": list(_PARTS),
+            "unavailable": [folder.name], "unavailable_why": {folder.name: "outside"},
+            "outside": True, "linked_in": "", "not_read": f"{folder.name} was not read: {why}"}
 
 
 def _within(folder: Path, study: Path) -> bool:

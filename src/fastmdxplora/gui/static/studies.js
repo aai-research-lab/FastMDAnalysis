@@ -746,6 +746,10 @@
     var what = [shownId(study), study.kind, lengthSaid(study.simulated_ns), timeSaid(study.last_active || study.when)];
     body.appendChild(make("div", "study-what", what.filter(Boolean).join(" · ")));
     if (clashes(study)) body.appendChild(make("div", "study-folder-said muted small mono", folderSaid(study)));
+    if (study.linked_in != null) {
+      body.appendChild(make("div", "study-folder-said muted small mono", study.linked_in
+        ? "a link to " + study.linked_in : "a link out of the workspace"));
+    }
     if (study.not_read) body.appendChild(notReadShown(study, "study-not-read small"));
     if (pace) {
       // As on a row: how far, and the time left.
@@ -999,11 +1003,19 @@
       name.appendChild(tags);
     }
     var sub = [];
+    // A study linked into the folder from outside it: listed, and said so.
+    if (study.linked_in != null) {
+      sub.push(study.linked_in ? "a link to " + study.linked_in : "a link out of the workspace");
+    }
     if (!child && clashes(study)) sub.push(folderSaid(study));
     if (!child) sub.push([study.kind, study.forcefield].filter(Boolean).join(" · "));
     if (study.note) sub.push(study.note);
     sub = sub.filter(Boolean);
-    if (sub.length) name.appendChild(make("span", "studies-kind muted small", sub.join(" · ")));
+    if (sub.length) {
+      var kind = make("span", "studies-kind muted small", sub.join(" · "));
+      kind.title = sub.join(" · ");
+      name.appendChild(kind);
+    }
     // Its system and when it was last active, said here where their
     // columns give way to a narrow page (studies-table.css).
     var also = make("span", "studies-also muted small");
