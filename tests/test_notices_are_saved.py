@@ -12,6 +12,7 @@ Clear the list asks nothing and offers Undo.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -110,3 +111,74 @@ def test_toasts_runs_ended_and_refusals_are_saved_behind_the_bell(tmp_path):
     assert len(undone["rows"]) == 4 and undone["saved"] == 4
     assert undone["foot"].startswith("Saved on this computer, the last 200")
     assert not closed["open"] and closed["focus"] == "sb-notices"
+
+
+def _session(tmp_path, *, allow_control=True):
+    """Two studies of one workspace, the first open; served on loopback as
+    a page bound beyond it where ``allow_control`` is False."""
+    import contextlib
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.server import make_handler
+    from tests.test_the_workspace_says_its_studies import _study
+
+    root = (tmp_path / "workspace").resolve()
+    alpha, beta = _study(root / "alpha"), _study(root / "beta")
+
+    @contextlib.contextmanager
+    def serving():
+        runtime = DashboardRuntime(workspace_root=root, exploration_root=root, active_root=alpha)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0),
+                                    make_handler(alpha, runtime=runtime, allow_control=allow_control))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            yield f"http://127.0.0.1:{httpd.server_address[1]}"
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+    return alpha, beta, serving()
+
+
+ENDED = """(study) => window.dispatchEvent(new CustomEvent('fmx:run-ended', {
+    detail: {name: 'beta', run: 'completed', stage: 'production done', study: study}}))"""
+
+
+def test_a_notice_opens_another_study_only_as_every_switch_does(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(60000)
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        switches: list[str] = []
+        page.on("request", lambda r: switches.append(r.url) if "/api/explore/switch" in r.url else None)
+        page.goto(url + "#analysis", wait_until="domcontentloaded")
+        page.wait_for_selector("body.state-ready")
+        page.wait_for_function("() => !!window.FastMDXNotices")
+        page.evaluate(ENDED, str(beta))
+        # Work here a switch would lose: the notice's way to the other
+        # study is held as the strip's and the sidebar's are.
+        page.evaluate("""() => { window.FastMDXRun = window.FastMDXRun || {};
+            window.FastMDXRun.beforeStudySwitch = () => 'The draft here is not saved.'; }""")
+        page.click("#sb-notices")
+        page.click(".notice-act")
+        page.wait_for_function("""() => (document.querySelector('#dashboard-toast .dashboard-toast-said')
+            || {}).textContent === 'The draft here is not saved.'""")
+        held = {"switches": list(switches), "hash": page.evaluate("location.hash"),
+                "open": page.evaluate("window.FastMDXDashboard.state.appState.active_run")}
+        page.evaluate("() => { window.FastMDXRun.beforeStudySwitch = () => ''; }")
+        page.click("#sb-notices")
+        page.click(".notice-act")
+        page.wait_for_function("(beta) => window.FastMDXDashboard.state.appState.active_run === beta",
+                               arg=str(beta))
+        page.wait_for_function("() => location.hash.startsWith('#overview')")
+        browser.close()
+    assert errors == []
+    assert held == {"switches": [], "hash": "#analysis", "open": str(alpha)}
+    assert len(switches) == 1

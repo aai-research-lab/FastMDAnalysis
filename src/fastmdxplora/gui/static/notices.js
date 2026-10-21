@@ -216,7 +216,7 @@
       if (n.act === "overview" && n.folder) {
         var go = make("button", "notice-act", "Open its Overview");
         go.type = "button";
-        go.addEventListener("click", function () { openOverview(n.folder, go); });
+        go.addEventListener("click", function () { openOverview(n.folder); });
         about.appendChild(go);
       }
       if (about.childNodes.length) row.appendChild(about);
@@ -264,20 +264,14 @@
     if (node) node.focus();
   }
 
-  function openOverview(folder, button) {
+  /* Another study opens as every way to one does (place.js): asked first
+   * whether the switch would lose work here, one switch at a time. */
+  function openOverview(folder) {
     var board = window.FastMDXDashboard;
     if (!board) return;
     close(false);
     if (study().folder === folder) { board.navigate("overview"); return; }
-    button.disabled = true;
-    fetch("/api/explore/switch", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ folder: folder }),
-    }).then(function (r) { return r.json(); }).then(function (d) {
-      button.disabled = false;
-      if (d && d.ok) board.studyOpened(d, "overview");
-      else if (board.toast) board.toast((d && (d.error || d.reason)) || "The study could not open.", "warning");
-    }).catch(function () { button.disabled = false; });
+    if (window.FastMDXPlace && window.FastMDXPlace.open) window.FastMDXPlace.open(folder, "overview");
   }
 
   function open() {
