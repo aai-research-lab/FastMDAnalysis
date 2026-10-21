@@ -457,8 +457,16 @@ def _card_of(base: Path) -> dict[str, Any]:
     if inside != str(base):
         card = _as_opened(card, inside, str(base))
     if card.get("unavailable"):
+        card["unavailable"] = _named_first(card["unavailable"])
         card["not_read"] = _not_read_said(card["unavailable"], card.get("unavailable_why") or {})
     return card
+
+
+def _named_first(names: list[str]) -> list[str]:
+    """Records not read, those named by their place in the study first, as
+    the row shows the first two: one the read could not place ("an
+    unavailable record") last."""
+    return sorted(names, key=lambda name: (name.startswith(("a ", "an ")), name))
 
 
 #: What a card says that a record not read leaves unknown.

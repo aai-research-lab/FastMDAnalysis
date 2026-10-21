@@ -524,3 +524,36 @@ def test_a_study_linked_into_the_workspace_is_listed_and_marked(tmp_path):
         "scratch_study was not read: it is a link to a folder outside the workspace, which is "
         "not read here.")
     assert str(elsewhere) not in body.decode() and "2.2222" not in body.decode()
+
+
+def test_a_run_linked_out_is_named_not_an_unavailable_record(tmp_path):
+    """Replicas one of whose runs is linked out of the study, its Manifest
+    recording where it ran (a folder that is there, outside the study):
+    after ``runs/<run>`` was refused the recorded path was tried, refused
+    too, and the row's "Not read" began "an unavailable record", which
+    names nothing. The run is named; one not placed comes last."""
+    from fastmdxplora.gui.workspace import _named_first, card_of
+
+    space, outside = tmp_path / "ws", tmp_path / "outside"
+    reps = space / "reps"
+    planned = [{"run_id": f"seed{n}", "system": "1UAO", "options": {},
+                "sweep_values": {"simulation.random_seed": n}} for n in (1, 2, 3)]
+    _write(reps, "batch_manifest.json", {
+        "n_runs": 3, "planned": planned, "sweep": {"simulation.random_seed": [1, 2, 3]},
+        "systems": [{"id": "s", "system": "1UAO"}],
+        "runs": [{"run_id": p["run_id"], "status": "ok",
+                  "output_dir": str(outside / "old" / "runs" / p["run_id"])} for p in planned]})
+    _write(reps, "resolved_config.yml", yaml.safe_dump({"systems": [{"system": "1UAO"}]}))
+    for n in (1, 3):
+        _a_study(reps / "runs" / f"seed{n}")
+    _a_study(outside / "old" / "runs" / "seed2", **OUT)
+    _a_study(outside / "seed2", **OUT)
+    _link(reps / "runs" / "seed2", outside / "seed2")
+    card, opened = _opened_outside(outside, lambda: card_of(reps))
+    assert opened == []
+    assert "an unavailable record" not in card["unavailable"]
+    assert card["unavailable"][0] == "runs/seed2"
+    assert card["not_read"].startswith("runs/seed2") and "unavailable" not in card["not_read"]
+    assert _named_first(["an unavailable record", "runs/seed2", "a non-regular record",
+                         "members.json"]) == ["members.json", "runs/seed2",
+                                              "a non-regular record", "an unavailable record"]

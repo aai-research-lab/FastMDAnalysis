@@ -26,6 +26,7 @@ only there.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -74,11 +75,19 @@ def member_directory(batch_dir: str | Path, run: dict[str, Any]) -> Path:
     # Compare page), a folder linked out of it is not looked into.
     root = Path(batch_dir)
     relative = run.get("output_dir_relative")
-    if relative and record_access.is_dir(root / str(relative)):
-        return root / str(relative)
     run_id = run.get("run_id")
-    if run_id and record_access.is_dir(root / "runs" / str(run_id)):
-        return root / "runs" / str(run_id)
+    for inside in ((root / str(relative)) if relative else None,
+                   (root / "runs" / str(run_id)) if run_id else None):
+        if inside is None:
+            continue
+        if record_access.is_dir(inside):
+            return inside
+        if os.path.lexists(inside):
+            # There, and its read refused (a link out of the study): the
+            # member is this one, not read and named so, rather than the
+            # path recorded when it ran, which is outside the study too
+            # and could only be said "an unavailable record".
+            return inside
     return Path(str(run.get("output_dir", "")))
 
 
