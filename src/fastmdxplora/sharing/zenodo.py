@@ -183,6 +183,7 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
                                                  if exc.code in AGAIN and attempt > 1 else ""))
             refused = ShareRefused(f"Zenodo answered {method} {url}: {why}. {answered}".strip(),
                                    code="environment.service.unreachable", url=url)
+            refused.status = exc.code
             refused.later = exc.code in AGAIN or exc.code >= 500
             # Zenodo, or the gateway before it, gave up part way: what was
             # asked may have been done.
@@ -636,7 +637,10 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         _keep(study, kept)
         (deposition, answered), made_here = _new_draft(depositions, token, title, said), True
     if not isinstance(deposition, dict) or not deposition.get("id"):
-        raise ShareRefused("Zenodo made no draft.", code="environment.service.unreachable")
+        raise ShareRefused(
+            f"Zenodo's answer to making the draft (titled {title!r}) named none; it may have "
+            "made it: sharing again looks for it by its title and finishes it.",
+            code="environment.service.unreachable")
     identifier = str(deposition["id"])
     same = str(earlier.get("id") or "") == identifier
     # What is known of this draft is kept with it from one share to the next.
@@ -678,11 +682,16 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         kept[site]["asked_as"] = title
         # As made, the study's to describe; changed there before it is
         # described (a co-author added after a failed upload), the person's.
+        made_with = deposition.get("metadata") if isinstance(deposition.get("metadata"),
+                                                             dict) else {}
         if answered:
-            kept[site]["written"] = _written(deposition.get("metadata"))
-            made_with = deposition.get("metadata") or {}
+            kept[site]["written"] = _written(made_with)
+        if answered or (str(made_with.get("title") or "") == title
+                        and not any(made_with.get(key) for key in _SOMEONE_S)):
+            # As Zenodo made it: seen in its answer, or found by its title
+            # with no one's words or names in it yet.
             kept[site]["made_as"] = {key: made_with.get(key) for key in _MADE_WITH
-                                     if isinstance(made_with, dict) and made_with.get(key)}
+                                     if made_with.get(key)}
     try:
         _keep(study, kept)
     except ShareRefused as exc:
@@ -859,12 +868,18 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                      "new. Describe it there before you publish.")
             elif said:
                 said(f"The draft {page} was changed there since this study last described "
-                     "it (its words, names or keywords): it is kept as it is, and only the "
-                     "archive is new. Write it there as you want it before you publish.")
+                     "it (its words, names, keywords, access or licence): it is kept as it "
+                     "is, and only the archive is new. Write it there as you want it before "
+                     "you publish.")
         _keep(study, kept)
     except ShareRefused as exc:
         if getattr(exc, "gone", False):
             raise
+        if getattr(exc, "status", 0) in (404, 410):
+            raise ShareRefused(
+                f"{exc} The draft {page} is gone from {site} (deleted there during this "
+                "share): share again and a new one is made.",
+                code="environment.service.unusable_response", url=page) from exc
         kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
                    "have taken away (a record of two archives opens as neither: share again, "
                    "or delete it there, before you publish)" if removing

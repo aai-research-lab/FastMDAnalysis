@@ -1801,8 +1801,8 @@ def test_names_changed_on_a_described_draft_are_not_said_a_description(tmp_path,
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     said = capsys.readouterr().out
     assert "holds a description changed" not in said
-    assert "changed there since this study last described it (its words, names or " \
-        "keywords)" in said
+    assert "changed there since this study last described it (its words, names, " \
+        "keywords, access or licence)" in said
 
 
 def test_a_new_version_shared_again_holds_the_record_s_archives_as_the_study_s(tmp_path,
@@ -2033,3 +2033,58 @@ def test_a_file_the_person_names_as_the_record_s_archive_is_not_taken_away(tmp_p
     assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
     assert "holds a.zip, which this study did not put there" in capsys.readouterr().err
     assert not any(c[0] == "DELETE" for c in unsteady.calls)
+
+
+def test_a_draft_found_by_its_title_with_another_licence_zenodo_gave_is_the_study_s(
+        tmp_path, unsteady):
+    """Hands-on review of the fifteenth commit: a draft whose answer was
+    lost, given a licence and kind by Zenodo other than the study's, was
+    never described."""
+    unsteady.meta = {}
+    study, out = _studied(tmp_path, "study")
+    real = _Unsteady._list
+
+    def listed(self):
+        for draft in type(self).drafts:
+            type(self).meta.setdefault(draft["id"], {"title": draft["title"],
+                                                     "license": "cc-nc", "upload_type": "other"})
+        return real(self)
+
+    _Unsteady._list = listed
+    try:
+        unsteady.faults = {"POST": ["made"]}
+        assert _share_to_zenodo(study, out) == 0
+        assert unsteady.meta[7]["title"] == "The 1ABC study"
+    finally:
+        _Unsteady._list = real
+
+
+def test_a_draft_deleted_during_its_upload_is_said_gone(tmp_path, unsteady, capsys):
+    study = _study(tmp_path / "study")
+    unsteady.faults = {"PUT file": [404]}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "is gone from zenodo-sandbox (deleted there during this share)" in said
+    assert "is kept" not in said
+
+
+def test_an_empty_answer_to_making_a_draft_says_it_may_be_made(tmp_path, unsteady,
+                                                               monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def empty(method, url, **kwargs):
+        if method == "POST" and url.endswith("/api/deposit/depositions"):
+            real(method, url, **kwargs)
+            return None
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", empty)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "sharing again looks for it by its title" in capsys.readouterr().err
+    monkeypatch.setattr(zenodo, "_call", real)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert not any(c[0] == "POST" for c in unsteady.calls)
