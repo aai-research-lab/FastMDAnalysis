@@ -1824,7 +1824,10 @@ def make_handler(
                 if not is_study(Path(named)):
                     self._send_json({"ok": False, "reason": f"{named} is not a study."})
                     return
-                self._send_json(set_tags(named, payload.get("tags"), payload.get("note")))
+                # Archived or not where the page says (All studies' bar);
+                # left as it was otherwise.
+                self._send_json(set_tags(named, payload.get("tags"), payload.get("note"),
+                                         archived=payload.get("archived")))
                 return
             if path == "/api/movies":
                 # A movie of the study's frames started: ffmpeg on this
