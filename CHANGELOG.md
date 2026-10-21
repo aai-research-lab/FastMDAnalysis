@@ -298,9 +298,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   study is open and its conversation, and is answered and kept in that
   study's thread; never as the page goes. Words typed after Run into the
   thread the run took with it go with it to the run's study, also where
-  another study was seen first, and a message held with them is sent there
-  once it is shown; with two runs started one after the other, they go with
-  it to the second.
+  another study was seen first or a read of the study left, asked before
+  the launch answered, came after it; with two runs started one after the
+  other, they go with it to the second. A message held when its words go
+  to the study they were typed for is kept with them for that study, and
+  sent there once that study is open in this window, by any way; it holds
+  no message, nor a new chat, on any other study. Words kept for a study
+  are in its box again when it is opened with other words in the box. A
+  status read asked before a launch answered is not taken for where the
+  GUI is after it, nor is a run's own study then said as opened elsewhere;
+  a read asked as it answers is. With an answer that cannot be read, the
+  last study seen as the run started, still shown, is the run's, and one
+  seen before it is said. Run on this machine as it is, its answer not
+  read, says so and is offered again. A note of words kept for another
+  study names it with its folder.
 
 ### Added
 
