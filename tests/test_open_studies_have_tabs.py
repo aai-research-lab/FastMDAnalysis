@@ -119,6 +119,28 @@ def test_tabs_restore_each_studys_last_page_and_survive_reload(browser, site):
         page.context.close()
 
 
+def test_a_study_opened_another_way_keeps_the_page_gone_to_just_before(browser, site):
+    """A page is announced on the frame after it is gone to. A study opened
+    from Recent, All studies or the Agent before that frame went with the
+    page: the study before kept the page it had been on before that one."""
+    page = _open(browser, site)
+    try:
+        page.evaluate("""async (path) => {
+            const answer = await (await fetch('/api/explore/switch', {
+                method: 'POST', headers: {'content-type': 'application/json'},
+                body: JSON.stringify({folder: path})})).json();
+            window.FastMDXDashboard.navigate('analysis/rmsd');
+            window.FastMDXDashboard.studyOpened(answer, 'overview');
+        }""", str(site["studies"][1]))
+        _active(page, site["keys"][1])
+        _link(page, site["keys"][0]).click()
+        _active(page, site["keys"][0])
+        assert page.url.endswith("#analysis/rmsd")
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
 def test_tab_name_updates_when_the_results_supply_the_study_name(browser, site):
     (site["studies"][0] / "simulation" / "live_status.json").unlink()
     context = browser.new_context()
