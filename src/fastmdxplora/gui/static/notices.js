@@ -225,7 +225,9 @@
       row.appendChild(make("span", "notice-when", timeOf(n.at)));
       var about = make("span", "notice-about");
       if (n.name) about.appendChild(make("span", "", n.name));
-      if (n.act === "overview" && n.folder) {
+      // Another study opens by a POST, refused to a page bound beyond
+      // this computer: not offered there.
+      if (n.act === "overview" && n.folder && (n.folder === study().folder || !beyondLoopback())) {
         var go = make("button", "notice-act", "Open its Overview");
         go.type = "button";
         go.addEventListener("click", function () { openOverview(n.folder); });
@@ -275,6 +277,8 @@
     var node = panel().querySelector(selector);
     if (node) node.focus();
   }
+
+  function beyondLoopback() { return document.body.dataset.beyondLoopback === "true"; }
 
   /* Another study opens as every way to one does (place.js): asked first
    * whether the switch would lose work here, one switch at a time. */

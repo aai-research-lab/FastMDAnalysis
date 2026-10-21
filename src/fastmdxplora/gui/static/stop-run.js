@@ -34,10 +34,13 @@
     return "It has not reached production, so it leaves no checkpoint: carrying it on runs it again.";
   }
 
+  /* Bound beyond this computer, where a stop's POST is refused: not offered. */
+  function beyondLoopback() { return document.body.dataset.beyondLoopback === "true"; }
+
   /* Ask in ``host`` (confirm.js), then stop. ``done`` is told the answer's
    * words, or null for Not now. */
   function ask(host, done) {
-    if (!host || !window.FastMDXConfirm) return;
+    if (!host || !window.FastMDXConfirm || beyondLoopback()) return;
     window.FastMDXConfirm.ask(host, {
       title: "Stop the run?", detail: whatItLeaves(), yes: "Yes, stop it",
       yesClass: "stop-run-yes", noClass: "stop-run-no",
@@ -76,7 +79,7 @@
   /* The controls this offers, shown only while a run goes here. */
   function show() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-stop-run]"), function (button) {
-      button.hidden = !running;
+      button.hidden = !running || beyondLoopback();
       button.disabled = false;
     });
     var started = running && !wasRunning;
@@ -136,6 +139,6 @@
   window.FastMDXStop = {
     ask: ask,
     stop: stop,
-    running: function () { return running; }
+    running: function () { return running && !beyondLoopback(); }
   };
 }());

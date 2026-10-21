@@ -214,3 +214,31 @@ def test_a_notice_saves_only_what_it_said(tmp_path):
     assert said["ok"]["folder"] == "" and said["refused"]["folder"] == ""
     assert said["ended"]["folder"] == str(beta)
     assert "secret_notes" not in json.dumps(saved) and str(alpha) not in json.dumps(saved)
+
+
+def test_a_page_bound_beyond_this_computer_offers_no_switch_or_stop(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path, allow_control=False)
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(60000)
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("body.state-ready")
+        page.wait_for_function("() => !!window.FastMDXNotices && !!window.FastMDXStop")
+        page.evaluate(ENDED, str(beta))
+        # A run going here, as the app's state would say it.
+        page.evaluate("""() => window.dispatchEvent(new CustomEvent('dashboard:app-state',
+            {detail: {process_running: true}}))""")
+        page.click("#sb-notices")
+        shown = page.evaluate("""() => ({
+            acts: [...document.querySelectorAll('.notice')].map((n) =>
+                (n.querySelector('.notice-act') || {}).textContent || ''),
+            stops: [...document.querySelectorAll('[data-stop-run]')].filter((b) => !b.hidden).length,
+            running: window.FastMDXStop.running(),
+        })""")
+        browser.close()
+    # Another study is opened by a switch, a POST refused here.
+    assert shown == {"acts": [""], "stops": 0, "running": False}
