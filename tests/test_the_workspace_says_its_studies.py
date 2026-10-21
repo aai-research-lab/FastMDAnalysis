@@ -335,6 +335,8 @@ def test_the_page(workspace) -> None:
             rmsd = page.text_content('.compare-means-table tr[data-analysis="rmsd"]')
             resolved = page.get_attribute('.compare-means-table tr[data-analysis="rmsd"]', "class")
             page.go_back()
+            # Read again on its way back: once read, the cards stay.
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
             page.wait_for_selector('.study-card[data-path$="stopped"] .study-open')
             page.click('.study-card[data-path$="stopped"] .study-open')
             # Said beside its button, which is an icon (and named so for a moment).

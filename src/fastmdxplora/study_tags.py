@@ -45,8 +45,12 @@ def _clean(text: Any, most: int) -> str | None:
 
 
 def _kept(folder: str | Path) -> dict[str, Any]:
+    # Through `record_access`: held to the study where the read is (All
+    # studies' cards), a file linked out of it is not read.
+    from fastmdxplora import record_access
+
     try:
-        kept = json.loads((Path(folder) / TAGS_FILE).read_text(encoding="utf-8"))
+        kept = json.loads(record_access.read_text(Path(folder) / TAGS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         kept = {}
     return kept if isinstance(kept, dict) else {}

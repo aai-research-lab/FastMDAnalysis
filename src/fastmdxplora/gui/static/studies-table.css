@@ -59,6 +59,11 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-name-line .studies-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studies-kind { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studies-row-tag { font-size: var(--text-2xs); padding: 0 6px; }
+/* Records of a study not read (a link out of it, a hidden file): named
+ * under its name, the why on hover; never a value taken from their absence. */
+.studies-not-read, .study-not-read { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--status-waiting); }
+.studies-means-unread { white-space: nowrap; }
 .studies-fold { flex: none; width: 18px; height: 18px; border: 0; padding: 0; background: transparent; color: var(--text-muted);
     cursor: pointer; font-size: 11px; line-height: 18px; border-radius: 4px; }
 .studies-fold:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 8%, transparent); }

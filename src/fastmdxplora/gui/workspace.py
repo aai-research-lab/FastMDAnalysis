@@ -24,8 +24,8 @@ from typing import Any
 from fastmdxplora.system_id import system_id
 
 __all__ = ["studies_in", "card_of", "head_of", "studies_compared", "compared_side", "sides_compared",
-           "means_of", "tags_used", "thumbnail_of", "thumbnail_series", "study_key", "study_keyed",
-           "study_state"]
+           "means_of", "tags_used", "thumbnail_of", "thumbnail_series", "study_thumbnail",
+           "study_key", "study_keyed", "study_state"]
 
 #: A difference is marked past this many combined standard errors.
 RESOLVED_AT = 2.0
@@ -86,10 +86,33 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
         found.append(base)
     else:
         walk(base, 1)
-    cards = [card_of(folder) for folder in found]
+    # A study's runs, unfolded on All studies: a run linked out of its
+    # study is not read, as its study's pages do not read it.
+    study = base.parent if base.name == "runs" and is_study(base.parent) else None
+    cards = [card_of(folder) if study is None or _within(folder, study)
+             else _a_run_not_read(folder) for folder in found]
     cards.sort(key=lambda card: card.get("when") or "", reverse=True)
     return {"ok": True, "root": str(base), "studies": cards, "more": more,
             "tags_used": tags_used(cards)}
+
+
+def _within(folder: Path, study: Path) -> bool:
+    try:
+        folder.resolve().relative_to(study.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
+
+
+def _a_run_not_read(folder: Path) -> dict[str, Any]:
+    """The card of a run of a study whose folder is a link out of it: named,
+    and nothing of it read."""
+    name = f"runs/{folder.name}"
+    return {"path": str(folder), "name": folder.name, "system": "", "structure": "",
+            "kind": "", "state": "not known", "when": "", "last_active": "", "means": [],
+            "tags": [], "note": "", "molecule": None, "unread": list(_PARTS),
+            "unavailable": [name], "unavailable_why": {name: "outside"},
+            "not_read": f"{name} was not read: it is a link to a folder outside the study."}
 
 
 def study_key(folder: Path | str) -> str:
@@ -237,21 +260,104 @@ def _records_of(base: Path) -> tuple[Any, Any, Any]:
 
 
 def card_of(folder: Path | str) -> dict[str, Any]:
-    """What a card says of one study, from its records."""
+    """What a card says of one study, from its records, read held to the
+    study as its pages are (`server._confined`, through `record_access`): a
+    record linked out of it, or a file of it that is not one of its results
+    (a hidden one), is not read. Each record not read is named
+    (``unavailable``, each with ``unavailable_why``; ``not_read`` in
+    words), and what it would have given is said not read (``unread``:
+    ``state``, ``length``, ``means``, ``molecule``), never taken from its
+    absence."""
+    from fastmdxplora.gui.server import _as_opened, _confined
+
     base = Path(folder)
-    config, batch, manifest = _records_of(base)
+    card = _confined(base, _card_read)
+    if not isinstance(card, dict) or "state" not in card:
+        # The study's folder could not be opened to hold the read in.
+        why = card.get("reason") if isinstance(card, dict) else None
+        return {"path": str(base), "name": base.name, "system": "", "structure": "",
+                "kind": "", "state": "not known", "when": "", "last_active": "",
+                "means": [], "tags": [], "note": "", "molecule": None,
+                "unread": list(_PARTS), "not_read": str(why or _RECORDS_NOT_READ)}
+    try:
+        inside = str(base.resolve())
+    except OSError:
+        inside = str(base)
+    if inside != str(base):
+        card = _as_opened(card, inside, str(base))
+    if card.get("unavailable"):
+        card["not_read"] = _not_read_said(card["unavailable"], card.get("unavailable_why") or {})
+    return card
+
+
+#: What a card says that a record not read leaves unknown.
+_PARTS = ("state", "length", "means", "molecule")
+_RECORDS_NOT_READ = "The study's records could not be read."
+
+
+def _not_read_said(names: list[str], why: dict[str, str]) -> str:
+    """The records a held read refused, in words: each reason once, with
+    the records it applies to."""
+    from fastmdxplora.gui.series import NOT_READ_BECAUSE
+
+    by_why: dict[str, list[str]] = {}
+    for name in names:
+        by_why.setdefault(str(why.get(name) or "outside"), []).append(name)
+    said = []
+    for reason, which in by_why.items():
+        because = NOT_READ_BECAUSE.get(reason, NOT_READ_BECAUSE["outside"])
+        if len(which) == 1:
+            said.append(f"{which[0]} was not read: {because}.")
+        else:
+            said.append(f"{', '.join(which)} were not read: each{because[2:]}.")
+    return " ".join(said)
+
+
+def _card_read(base: Path) -> dict[str, Any]:
+    """`card_of`, its records read as they are: within `_confined`, held to
+    the study. Each part of the card a refused record leaves unknown is
+    named in ``unread``."""
+    from fastmdxplora import record_access
+
+    unread: list[str] = []
+
+    def part(name: str, read: Any, otherwise: Any = None) -> Any:
+        with record_access.refusals_noted() as refused:
+            try:
+                value = read()
+            except OSError:
+                value = otherwise
+        if refused and name not in unread:
+            unread.append(name)
+        return value
+
+    records: list[Any] = [None, None, None]
+    seen: dict[str, Any] = {}
+
+    def head() -> dict[str, Any]:
+        records[:] = _records_of(base)
+        return _head(base, *records)
+
+    said = part("state", head) or {**_head(base, None, None, None)}
+    if "state" in unread:
+        # Where a record it is said from was not read, where it stands and
+        # what kind of study it is are not known.
+        said = {**said, "state": "not known", "kind": ""}
+    config, batch, manifest = records
+    active = part("active", lambda: _last_active(base), "")
     card: dict[str, Any] = {
-        **_head(base, config, batch, manifest),
+        **said,
         "when": _when(base, manifest),
         # When anything was last done with it: run, analysed, reported,
-        # tagged, viewed or talked about.
-        "last_active": _last_active(base),
+        # tagged, viewed or talked about. Not said where a record of that
+        # was not read: it may be the newest.
+        "last_active": "" if "active" in unread else active,
         "means": [],
         # A figure it plotted, else a picture of its backbone, else none.
-        "thumbnail": _picture_of(base),
+        "thumbnail": part("picture", lambda: _picture_of(base)),
         # The measure whose series the card plots in the page's colours,
         # where it has one: its figure is white on any scheme.
-        "series": _series_of(base),
+        "series": part("picture", lambda: _series_of(base)),
     }
     from fastmdxplora.study_tags import tags_of
 
@@ -260,8 +366,7 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     simulation = (config or {}).get("simulation") if isinstance(config, dict) else None
     from fastmdxplora.simulation.resume import extended_production
 
-    seen: dict[str, Any] = {}
-    far = _how_far(base, batch, card, seen)
+    far = part("length", lambda: _how_far(base, batch, card, seen), {})
     # An extended study's config carries its last piece's length after the
     # join, so its pieces are what say how long it ran: as its production
     # was read for how far it got (`simulated_times`, which reads its
@@ -274,7 +379,7 @@ def card_of(folder: Path | str) -> dict[str, Any]:
                     if (times.get("pieces") or 1) > 1 and times.get("production_ns") is not None
                     else None)
     else:
-        extended = extended_production(base)
+        extended = part("length", lambda: extended_production(base))
     if extended:
         card["production_ns"], card["pieces"] = round(extended[0], 6), extended[1]
     elif isinstance(simulation, dict) and simulation.get("duration_ns") is not None:
@@ -286,20 +391,30 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     if not isinstance(batch, dict):
         # Every mean the study recorded, the measures named first leading:
         # a row shows the first and the rest on asking.
-        card["means"] = [{"analysis": name, **mean} for name, mean in _means(base)]
+        card["means"] = part("means", lambda: [{"analysis": name, **mean}
+                                               for name, mean in _means(base)], [])
     else:
-        card["means"] = _ensemble_means(base)
+        card["means"] = part("means", lambda: _ensemble_means(base), [])
         card["runs"] = _runs_count(batch)
-    card.update(far)
+    if "length" not in unread:
+        # A run's records not read: how long it ran is not a sum of the rest.
+        card.update(far)
     if card["state"] == "analysed" and card["kind"] == "one run":
         card["kind"] = "a trajectory analysed"
     # The molecule, as All studies draws it (backbone_picture.py).
-    try:
-        from fastmdxplora.gui.backbone_picture import backbone_points
+    from fastmdxplora.gui.backbone_picture import backbone_points, start_outside
 
-        card["molecule"] = backbone_points(base)
+    try:
+        card["molecule"] = part("molecule", lambda: backbone_points(base))
     except Exception:  # noqa: BLE001 - a row stands without its picture
         card["molecule"] = None
+    if card["molecule"] is not None and "molecule" in unread:
+        # Drawn from a structure that was read, which it names.
+        unread.remove("molecule")
+    if card["molecule"] is None:
+        outside = start_outside(base)
+        if outside:
+            card["molecule_outside"] = outside
     pmf = _read_json(base / "pmf.json")
     if isinstance(pmf, dict):
         # Whether the windows gave a free energy, and if not the first
@@ -307,6 +422,9 @@ def card_of(folder: Path | str) -> dict[str, Any]:
         refused = str(pmf.get("refused") or "")
         card["free_energy"] = ({"refused": refused.split(". ")[0].rstrip(".") + "."}
                                if refused else {"recombined": True})
+    kept = [name for name in _PARTS if name in unread]
+    if kept:
+        card["unread"] = kept
     return card
 
 
@@ -322,8 +440,10 @@ def _series_of(base: Path) -> str | None:
     """The first of the card's measures with a series to plot (series.py)."""
     from fastmdxplora.gui.series import SERIES
 
+    from fastmdxplora import record_access
+
     for name in _FIRST:
-        if name in SERIES and (base / "analysis" / name / f"{name}.dat").is_file():
+        if name in SERIES and record_access.is_file(base / "analysis" / name / f"{name}.dat"):
             return name
     return None
 
@@ -356,23 +476,60 @@ def thumbnail_series(folder: Path | str) -> dict[str, Any]:
 
 def thumbnail_of(folder: Path | str) -> Path | None:
     """A figure the study plotted, for its card: the first of its measures'
-    own figures, else the report's summary figure."""
+    own figures, else the report's summary figure. Through `record_access`,
+    held to the study where the read is (`/api/study-thumbnail`)."""
+    from fastmdxplora import record_access
+
     base = Path(folder)
     for name in _FIRST:
         figure = base / "analysis" / name / f"{name}.png"
-        if figure.is_file():
+        if record_access.is_file(figure):
             return figure
     summary = base / "report" / "analysis_summary.png"
-    if summary.is_file():
+    if record_access.is_file(summary):
         return summary
     # An umbrella study's own figure is its free energy profile.
-    for profile in sorted((base / "pmf").glob("*.png")) if (base / "pmf").is_dir() else []:
-        return profile
-    analysis = base / "analysis"
-    if analysis.is_dir():
-        for figure in sorted(analysis.glob("*/*.png")):
+    for profile in sorted(record_access.glob(base / "pmf", "*.png")):
+        if record_access.is_file(profile):
+            return profile
+    for figure in sorted(record_access.glob(base / "analysis", "*/*.png")):
+        if record_access.is_file(figure):
             return figure
     return None
+
+
+def study_thumbnail(folder: Path | str, *, scheme: str = "light",
+                    series: bool = False) -> dict[str, Any]:
+    """What `/api/study-thumbnail` sends for a study, read held to it
+    (`server._confined`): with ``series``, the card's series
+    (`thumbnail_series`); else a figure it plotted (``data``, ``kind``),
+    else its backbone drawn as SVG, else ``ok`` False. A record linked out
+    of the study is not read and is named (``unavailable``, ``not_read``)."""
+    from fastmdxplora.gui.server import _confined
+
+    def read(inside: Path) -> dict[str, Any]:
+        from fastmdxplora import record_access
+        from fastmdxplora.gui.backbone_picture import backbone_svg
+
+        if series:
+            return thumbnail_series(inside)
+        figure = thumbnail_of(inside)
+        if figure is not None:
+            try:
+                return {"ok": True, "data": record_access.read_bytes(figure),
+                        "kind": "image/png"}
+            except OSError:
+                pass
+        picture = backbone_svg(inside, scheme)
+        if picture is None:
+            return {"ok": False, "reason": "no figure, and no structure to draw"}
+        return {"ok": True, "data": picture.encode("utf-8"), "kind": "image/svg+xml"}
+
+    answer = _confined(Path(folder), read)
+    if isinstance(answer, dict) and answer.get("unavailable"):
+        answer["not_read"] = _not_read_said(answer["unavailable"],
+                                            answer.get("unavailable_why") or {})
+    return answer
 
 
 def studies_compared(first: Path | str, second: Path | str) -> dict[str, Any]:
@@ -718,7 +875,10 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
         # A trajectory analysed here, with no run of its own recorded: its
         # analyses say it was, and "not started" said the opposite beside
         # its means.
-        if (base / "analysis" / "analysis_manifest.json").is_file() and not _simulated(base):
+        from fastmdxplora import record_access
+
+        if (record_access.is_file(base / "analysis" / "analysis_manifest.json")
+                and not _simulated(base)):
             return "analysed"
         return "not started"
     for phase in phases:
@@ -871,18 +1031,26 @@ _CONVERSATIONS = Path("agent") / "conversations"
 
 
 def _last_active(base: Path) -> str:
-    """When the study was last active, by its newest record, or ''."""
+    """When the study was last active, by its newest record, or ''. Its
+    records through `record_access`; its conversations, which are not
+    read, by their times, in its own folder only."""
+    from fastmdxplora import record_access
+
     newest = 0.0
     for name in _ACTIVE_RECORDS:
         try:
-            newest = max(newest, (base / name).stat().st_mtime)
+            newest = max(newest, record_access.stat(base / name).st_mtime)
         except OSError:
             continue
+    kept = base / _CONVERSATIONS
     try:
-        with os.scandir(base / _CONVERSATIONS) as kept:
-            for entry in kept:
-                if entry.is_file():
-                    newest = max(newest, entry.stat().st_mtime)
+        within = (not any(p.is_symlink() for p in (base / _CONVERSATIONS.parts[0], kept))
+                  and kept.is_dir())
+        if within:
+            with os.scandir(kept) as entries:
+                for entry in entries:
+                    if entry.is_file(follow_symlinks=False):
+                        newest = max(newest, entry.stat(follow_symlinks=False).st_mtime)
     except OSError:
         pass
     if not newest:

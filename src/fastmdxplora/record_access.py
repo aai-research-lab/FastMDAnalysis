@@ -164,6 +164,41 @@ def open_text(path: Path, *, encoding: str = "utf-8", errors: str | None = None,
     return os.fdopen(descriptor, encoding=encoding, errors=errors, newline=newline)
 
 
+def read_bytes(path: Path) -> bytes:
+    """A record's bytes (a figure), held as `open_text` holds a record's
+    text."""
+    scope = _scope.get()
+    if scope is None:
+        return Path(path).read_bytes()
+    descriptor = _open(scope, Path(path))
+    if not stat_module.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        scope.denied.add("a non-regular record")
+        raise OutsideWorkspace("Only regular study records may be read.")
+    with os.fdopen(descriptor, "rb") as stream:
+        return stream.read()
+
+
+@contextmanager
+def refusals_noted() -> Iterator[set[str]]:
+    """The records this call's held read refuses within the block, each
+    named as `refused` names it, those it had refused before among them:
+    `refused` names each once, so a second refusal of one does not add to
+    it. Empty outside a held read."""
+    scope = _scope.get()
+    if scope is None:
+        yield set()
+        return
+    before = scope.denied
+    noted: set[str] = set()
+    scope.denied = noted
+    try:
+        yield noted
+    finally:
+        before |= noted
+        scope.denied = before
+
+
 def refused() -> frozenset[str]:
     """The records this call's held read has refused so far, each named in
     the folder it is held to; none outside a held read."""

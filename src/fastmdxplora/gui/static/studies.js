@@ -355,7 +355,9 @@
     return plot;
   }
 
-  /* The molecule's frame: the picture, else the study's ID or name. */
+  /* The molecule's frame: the picture, else the study's ID or name, with
+   * why: nothing to draw, or its structure not read (linked out of the
+   * study, or outside it), which is not a study with none. */
   function moleculeFrame(study, cls, width, height, pad) {
     var frame = make("div", cls);
     if (study.molecule && (study.molecule.pieces || []).length) {
@@ -365,9 +367,28 @@
     } else {
       frame.appendChild(make("span", "study-thumb-none", shownId(study) || study.name));
       frame.dataset.picture = "none";
-      frame.title = "Nothing to draw yet: no structure of it is here";
+      frame.title = unread(study, "molecule")
+        ? "Not drawn: its structure was not read. " + (study.not_read || "")
+        : study.molecule_outside
+          ? "Not drawn: the structure it is to start from, " + study.molecule_outside +
+            ", is outside its folder, and only the study's own files are read"
+          : "Nothing to draw yet: no structure of it is here";
     }
     return frame;
+  }
+
+  /* Whether a record not read leaves this part of the study unknown
+   * (workspace.py `card_of`: state, length, means, molecule). */
+  function unread(study, part) {
+    return (study.unread || []).indexOf(part) >= 0;
+  }
+
+  /* The records of a study not read, named, the why on hover. */
+  function notReadShown(study, cls) {
+    var said = make("span", cls, "Not read: " + (study.unavailable || []).join(", "));
+    said.title = study.not_read || "";
+    if (!(study.unavailable || []).length) said.textContent = study.not_read || "Not read";
+    return said;
   }
 
   /* Drawn again in the new scheme's colours. */
@@ -497,7 +518,15 @@
       more.addEventListener("click", function () { openMeans(study, more); });
       host.appendChild(more);
     }
+    // A mean's record not read: said, never taken for one not recorded.
+    if (unread(study, "means")) host.appendChild(notReadMark(study));
     return host;
+  }
+
+  function notReadMark(study) {
+    var mark = make("span", "studies-means-unread muted small", "not read");
+    mark.title = study.not_read || "A record of its means was not read";
+    return mark;
   }
 
   /* Where it stands: its light and word, and for a run going how far. */
@@ -532,6 +561,11 @@
   /* How long it simulated, and for runs side by side, each one's. */
   function lengthShown(study) {
     var host = make("div", "studies-length");
+    if (study.simulated_ns == null && unread(study, "length")) {
+      host.textContent = "not read";
+      host.title = study.not_read || "A record of how long it ran was not read";
+      return host;
+    }
     if (study.simulated_ns == null) {
       host.textContent = "none";
       host.title = study.state === "analysed" ? "A trajectory analysed: its length is its frames'"
@@ -580,6 +614,7 @@
     var what = [shownId(study), study.kind, lengthSaid(study.simulated_ns), timeSaid(study.last_active || study.when)];
     body.appendChild(make("div", "study-what", what.filter(Boolean).join(" · ")));
     if (clashes(study)) body.appendChild(make("div", "study-folder-said muted small mono", folderSaid(study)));
+    if (study.not_read) body.appendChild(notReadShown(study, "study-not-read small"));
     if (study.state === "running" && study.progress != null) {
       var bar = make("span", "studies-progress");
       var fill = make("i");
@@ -588,6 +623,7 @@
       body.appendChild(bar);
     }
     if ((study.means || []).length) body.appendChild(meansShown(study, 2));
+    else if (unread(study, "means")) body.appendChild(notReadMark(study));
     if (study.free_energy) {
       body.appendChild(make("div", "study-free-energy",
         study.free_energy.refused ? "Free energy refused: " + study.free_energy.refused
@@ -626,7 +662,7 @@
   var sortBy = { key: "active", down: true };
   var meanSort = "";
   var STATE_ORDER = { running: 0, failed: 1, stopped: 2, interrupted: 3, incomplete: 4,
-                      completed: 5, analysed: 6, "not started": 7 };
+                      completed: 5, analysed: 6, "not started": 7, "not known": 8 };
   var layout = { group: "study", density: "comfortable", hidden: [] };
   var filters = { states: [], systems: [] };
   var savedViews = [];
@@ -812,6 +848,7 @@
     if (study.note) sub.push(study.note);
     sub = sub.filter(Boolean);
     if (sub.length) name.appendChild(make("span", "studies-kind muted small", sub.join(" · ")));
+    if (study.not_read) name.appendChild(notReadShown(study, "studies-not-read small"));
     tr.appendChild(name);
     tr.appendChild(cell("studies-state", stateShown(study)));
     if (shownColumn("system")) {
@@ -822,6 +859,7 @@
     if (shownColumn("length")) tr.appendChild(cell("studies-len", lengthShown(study)));
     if (shownColumn("means")) {
       tr.appendChild(cell("studies-means-cell", (study.means || []).length ? meansShown(study, 2)
+        : unread(study, "means") ? notReadMark(study)
         : make("span", "muted small", study.state === "not started" ? "none yet" : "no mean recorded")));
     }
     if (shownColumn("active")) {
