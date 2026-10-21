@@ -144,6 +144,20 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def _a_test_reads_the_insertion_codes_of_its_own_structures(monkeypatch):
+    """The insertion codes read from one test's structures are not there for
+    the next. `residues._INSERTION_CODES` is kept for the process, keyed by
+    atom serial, residue name and number, so trypsin's 184A read by one test
+    made another test's slice of the same deposition read as having
+    insertions, and its RMSF came back as a table by chain: it depended on
+    which test had run before it in the process, which under pytest-xdist
+    differs from the order the suite runs in alone."""
+    from fastmdxplora.analysis import residues
+
+    monkeypatch.setattr(residues, "_INSERTION_CODES", {})
+
+
+@pytest.fixture(autouse=True)
 def _a_test_has_settings_of_its_own(monkeypatch, tmp_path_factory):
     """And each test starts from none: a calibration or a chosen model one
     test records is not there for the next, which found "measured on
