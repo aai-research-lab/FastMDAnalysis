@@ -580,8 +580,9 @@ def test_a_held_message_is_not_sent_into_the_run_s_thread_from_a_third_study(tmp
 def test_a_held_message_is_never_sent_as_the_page_goes(tmp_path, monkeypatch):
     """L4 H2: Enter during the launch (held), then the page goes (Back): a
     launch answer or a status read that settles as it goes never sends the
-    message, which stays kept for the study it was typed in. The page's
-    going is its pagehide, and the page is kept to watch what follows."""
+    message, which stays kept for the study it was typed in, held (L8 H1:
+    kept as plain unsent words, it was never sent). The page's going is its
+    pagehide, and the page is kept to watch what follows."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=2.0)
@@ -606,13 +607,13 @@ def test_a_held_message_is_never_sent_as_the_page_goes(tmp_path, monkeypatch):
         _shows(page, study_key(workspace / "run1"))
         page.evaluate("() => window.FastMDXDashboard.readStatusNow()")
         page.wait_for_timeout(3000)
-        kept = _unsent(page)
+        kept = [k for k in _kept(page).values() if k.get("words") == words]
     finally:
         close()
         session.server.shutdown()
     assert made
     assert [a for a in asked if a.get("request") == words] == []
-    assert words in json.dumps(kept), kept
+    assert len(kept) == 1 and kept[0].get("held"), kept
 
 
 def test_a_run_s_study_passed_while_launching_is_not_this_window_s(tmp_path, monkeypatch):
@@ -1034,6 +1035,8 @@ def test_a_held_message_kept_for_a_study_is_sent_when_this_window_opens_it(tmp_p
     try:
         _asking(page, asked)
         _held_for_the_run(page, session, here, other, words)
+        # Asked first (a message held is kept only in this tab): go on.
+        page.once("dialog", lambda d: d.accept())
         page.goto(session.url.split("#")[0] + "?study=" + study_key(run) + "#agent",
                   wait_until="domcontentloaded")
         _shows(page, study_key(run))
@@ -1069,6 +1072,8 @@ def test_a_held_message_put_back_is_sent_with_its_attachments(tmp_path, monkeypa
         _asking(page, asked)
         _held_for_the_run(page, session, here, other, words, attach=notes)
         page.route("**/api/agent/attachment", lambda route: again.append(route))
+        # Asked first (a message held is kept only in this tab): go on.
+        page.once("dialog", lambda d: d.accept())
         page.goto(session.url.split("#")[0] + "?study=" + study_key(run) + "#agent",
                   wait_until="domcontentloaded")
         _shows(page, study_key(run))
@@ -1302,6 +1307,330 @@ def test_an_unreadable_answer_takes_the_run_s_study_seen_last_as_its_own(tmp_pat
         session.server.shutdown()
     assert made
     assert said == [study_key(other)], said
+    assert errors == []
+
+
+def _kept(page):
+    """What this tab keeps for each study, as kept."""
+    return page.evaluate("""() => {
+        const kept = {};
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            if (key.startsWith('fmx.agentUnsent:')) {
+                kept[key.slice('fmx.agentUnsent:'.length)] = JSON.parse(sessionStorage.getItem(key));
+            }
+        }
+        return kept;
+    }""")
+
+
+def _held_now(page, words, delay=3.0):
+    """Run pressed (the launch takes `delay` seconds), `words` typed and
+    Enter pressed: held, as the note says."""
+    page.click(_RUN)
+    page.focus("#agent-request")
+    page.keyboard.type(words)
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => /Sent once/.test("
+                           "(document.getElementById('agent-unsent-note') || {}).textContent)")
+
+
+def test_words_typed_after_a_held_message_is_taken_back_are_not_sent(tmp_path, monkeypatch):
+    """L7 1 A and L8 H3: Enter during the launch (held); the person empties
+    the box and types another message, with no Enter. The launch answers:
+    the half-typed words were sent all the same, as the box was."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    asked, answered = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("A.")])
+    try:
+        _asking(page, asked)
+        page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        _held_now(page, "first thought")
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        note = _note(page)
+        page.keyboard.type("not finished, do not send")
+        while not answered:
+            page.wait_for_timeout(50)
+        _shows(page, study_key(workspace / "run1"))
+        page.wait_for_timeout(4000)
+        box = page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert [a.get("request") for a in asked] == ["chignolin"], asked
+    assert "Sent once" not in note, note
+    assert box == "not finished, do not send"
+    assert errors == []
+
+
+def test_words_kept_unsent_for_another_study_are_not_sent_by_a_hold_taken_back(tmp_path,
+                                                                             monkeypatch):
+    """L7 1 B: words typed on `other` and kept for it, never sent. On `here`
+    a message is held during a launch and taken back. Another window opens
+    `other`: its words were put back and sent, as the hold went on."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    mine = "for other, still a draft"
+    held, asked, answered = [], [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("A.")])
+    try:
+        _asking(page, asked)
+        page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_timeout(1000)
+        page.fill("#agent-request", mine)
+        page.wait_for_timeout(500)
+        _switch_elsewhere(session, here)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(1500)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        page.wait_for_timeout(800)
+        _hold(page, held)
+        _held_now(page, "x")
+        page.keyboard.press("Backspace")
+        while not answered:
+            page.wait_for_timeout(50)
+        page.wait_for_timeout(400)
+        _switch_elsewhere(session, other)
+        _release(page, held)
+        _shows(page, study_key(other))
+        page.wait_for_timeout(4000)
+        box = page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert [a.get("request") for a in asked] == ["chignolin"], asked
+    assert box == mine
+    assert errors == []
+
+
+def test_closing_the_tab_with_a_message_held_is_asked_first(tmp_path, monkeypatch):
+    """L7 2 and L8 H1: a message held, then the tab closed. Only this tab
+    kept it, and the page went without asking: the message was lost."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    asked, dialogs = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("A.")])
+    try:
+        _asking(page, asked)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        _held_now(page, "held, then the tab closed")
+        page.on("dialog", lambda d: (dialogs.append(d.type), d.dismiss()))
+        page.close(run_before_unload=True)
+        time.sleep(1.5)
+    finally:
+        close()
+        session.server.shutdown()
+    assert dialogs == ["beforeunload"], dialogs
+
+
+def test_a_held_message_is_sent_once_by_a_copy_of_its_tab(tmp_path, monkeypatch):
+    """L7 3 and L8 H2: a held message kept for run1, the page on `other`; the
+    tab is copied (its session storage with it, as Duplicate does). Another
+    window opens run1, and both tabs sent it."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked, asked2 = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        copied = page.evaluate("""() => { const o = {};
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const k = sessionStorage.key(i); o[k] = sessionStorage.getItem(k); }
+            return o; }""")
+        # A window the page opens takes a copy of its session storage, as
+        # the browser's Duplicate does.
+        with page.expect_popup() as opened:
+            page.evaluate("() => window.open(location.href)")
+        second = opened.value
+        second.wait_for_function("() => window.FastMDXDashboard && window.FastMDXDashboard.state")
+        replies = [_answer("Held, answered (copy).")]
+        second.route("**/api/agent/propose*", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(replies.pop(0))))
+        _asking(second, asked2)
+        _shows(second, study_key(other))
+        assert _kept(second) == {k[len("fmx.agentUnsent:"):]: json.loads(v)
+                                 for k, v in copied.items() if k.startswith("fmx.agentUnsent:")}
+        second.wait_for_timeout(2000)
+        _switch_elsewhere(session, run)
+        _shows(page, study_key(run))
+        _shows(second, study_key(run))
+        page.wait_for_timeout(6000)
+        boxes = [page.input_value("#agent-request"), second.input_value("#agent-request")]
+        notes = [_note(page), _note(second)]
+    finally:
+        close()
+        session.server.shutdown()
+    sent = [a for a in asked + asked2 if a.get("request") == words]
+    assert len(sent) == 1, (asked, asked2)
+    assert _texts(workspace, "run1/agent").count(words) == 1
+    assert boxes == ["", ""], boxes
+    assert any("sent from another tab" in n for n in notes), notes
+    assert errors == []
+
+
+def test_a_held_message_put_back_then_reloaded_is_sent(tmp_path, monkeypatch):
+    """L7 4: a held message put back in run1's box, its conversation still
+    being read, and the page reloaded (the person says to go on). Its mark
+    was written over by the box's own keeping: after the reload it was in
+    the box, never sent, and nothing said why."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked, reads = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.route("**/api/agent/conversation?*", lambda route: reads.append(route))
+        _switch_elsewhere(session, run)
+        _shows(page, study_key(run))
+        while not reads:
+            page.wait_for_timeout(50)
+        page.wait_for_timeout(500)
+        page.unroute("**/api/agent/conversation?*")
+        page.once("dialog", lambda d: d.accept())
+        page.reload(wait_until="domcontentloaded")
+        _shows(page, study_key(run))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=20000)
+        page.wait_for_timeout(500)
+        box = page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert [a.get("request") for a in asked] == ["chignolin", words], asked
+    assert words in _texts(workspace, "run1/agent")
+    assert box == ""
+    assert errors == []
+
+
+def test_a_message_held_as_the_page_reloads_is_sent_once_its_study_is_open(tmp_path,
+                                                                           monkeypatch):
+    """L8 H1: Enter during the launch (held), and the page reloaded (asked
+    first, the person says to go on). The words were kept for `here` as
+    plain unsent words, and never sent: kept with the mark now, the page
+    says where the message is, and it is sent once `here` is open."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    words = "held, then reloaded"
+    asked, dialogs = [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Sent here.")])
+    try:
+        _asking(page, asked)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        _held_now(page, words)
+        page.once("dialog", lambda d: (dialogs.append(d.type), d.accept()))
+        page.reload(wait_until="domcontentloaded")
+        _shows(page, study_key(workspace / "run1"))
+        page.wait_for_timeout(2000)
+        note = _note(page)
+        kept = _kept(page).get(study_key(here)) or {}
+        _switch_elsewhere(session, here)
+        _shows(page, study_key(here))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Sent here.')", timeout=20000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert dialogs == ["beforeunload"]
+    assert kept.get("words") == words and kept.get("held"), kept
+    assert "A message held to be sent is kept for" in note, note
+    assert [a.get("request") for a in asked] == ["chignolin", words], asked
+    assert words in _texts(workspace, "here/agent")
+    assert errors == []
+
+
+def test_a_held_message_is_not_sent_into_a_chat_of_no_study(tmp_path, monkeypatch):
+    """L7 5: a held message kept for run1, the page on `other`; the person
+    starts a chat of no study. Another window opens run1: the message was
+    sent into the chat of no study. It waits for a thread of run1, and is
+    sent there."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.evaluate("window.FastMDXAgentPanel.fresh(null)")
+        page.wait_for_timeout(1500)
+        _switch_elsewhere(session, run)
+        _shows(page, study_key(run))
+        page.wait_for_timeout(5000)
+        note = _note(page)
+        box = page.input_value("#agent-request")
+        before = [a.get("request") for a in asked]
+        # A thread of run1 opened (a new one, where the GUI is): sent there.
+        page.evaluate("window.FastMDXAgentPanel.fresh()")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=20000)
+        page.wait_for_timeout(1000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert before == ["chignolin"], before
+    assert box == words
+    assert "a chat of no study is open" in note, note
+    assert [a.get("request") for a in asked] == ["chignolin", words], asked
+    assert words in _texts(workspace, "run1/agent")
+    assert errors == []
+
+
+def test_a_held_message_stays_held_when_its_study_s_tab_is_closed(tmp_path, monkeypatch):
+    """L8 M1: a held message kept for run1; its tab closed in the strip
+    (which forgets the words kept for it). The message went with it, under
+    a note that still said it would be sent. Kept, it is sent once run1 is
+    open."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.evaluate("(key) => window.FastMDXAgent.forgetUnsent(key)", study_key(run))
+        kept = _unsent(page)
+        _switch_elsewhere(session, run)
+        _shows(page, study_key(run))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=20000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert kept.get(study_key(run)) == words, kept
+    assert [a.get("request") for a in asked] == ["chignolin", words], asked
     assert errors == []
 
 

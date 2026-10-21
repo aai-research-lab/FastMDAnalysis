@@ -1269,7 +1269,12 @@
       var size = document.createElement("span");
       size.className = "size"; size.textContent = fmtSize(f.size) + (f.truncated ? " \u00b7 cut" : "");
       var rm = window.FastMDXIcons.button("close", "Remove " + f.name, "rm");
-      rm.addEventListener("click", function () { pendingFiles.splice(i, 1); renderChips(); });
+      rm.addEventListener("click", function () {
+        pendingFiles.splice(i, 1);
+        /* The message held is no longer the one sent: taken back. */
+        if (heldMessage) endHold();
+        renderChips();
+      });
       chip.appendChild(name); chip.appendChild(size); chip.appendChild(rm);
       host.appendChild(chip);
     });
@@ -1358,14 +1363,19 @@
       return;
     }
     unsentKept = false;
+    /* The words are a message held to be sent: kept with its mark, its id,
+     * and the name of its study, so a reload, a Back or the move of the
+     * words to their study keeps it held (CI-774 reviews L7 and L8). */
+    var kept = { words: words, files: pendingFiles.map(fileKept) };
+    if (heldMessage) { kept.held = heldMessage.id; kept.title = unsentTitle; }
     try {
-      sessionStorage.setItem(UNSENT_WORDS + unsentKey,
-                             JSON.stringify({ words: words, files: pendingFiles.map(fileKept) }));
+      sessionStorage.setItem(UNSENT_WORDS + unsentKey, JSON.stringify(kept));
       unsentKept = true;
       delete heldInPage[unsentKey];
       if (noteKind === "kept") unsentSaid("");
     } catch (e) {
-      heldInPage[unsentKey] = { words: words, files: pendingFiles.slice(), title: unsentTitle };
+      heldInPage[unsentKey] = { words: words, files: pendingFiles.slice(), title: unsentTitle,
+                                held: kept.held || "" };
       unsentSaid(pendingFiles.length
         ? NOT_KEPT + "this message and its attachments: they are lost if the page is left before it is sent."
         : NOT_KEPT + "this message: it is lost if the page is left before it is sent.", "kept");
@@ -1381,13 +1391,39 @@
         && typeof f.size === "number";
     }).slice(0, 6) : [];
     return { words: typeof kept.words === "string" ? kept.words.slice(0, 100000) : "", files: files,
-             held: kept.held === true };
+             held: heldId(kept.held), title: typeof kept.title === "string" ? kept.title : "" };
+  }
+  function heldId(mark) {
+    return typeof mark === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(mark) ? mark : "";
+  }
+  /* The studies with a message held to be sent kept for them in this
+   * window, but `but`: {key, title}. */
+  function heldKeptElsewhere(but) {
+    var found = [];
+    try {
+      for (var i = 0; i < sessionStorage.length; i += 1) {
+        var name = sessionStorage.key(i) || "";
+        if (name.indexOf(UNSENT_WORDS) !== 0) continue;
+        var key = name.slice(UNSENT_WORDS.length);
+        if (key === but || !validStudyKey(key)) continue;
+        var kept = storedUnsent(key);
+        if (kept && kept.held) found.push({ key: key, title: kept.title || "another study" });
+      }
+    } catch (e) { /* none kept */ }
+    Object.keys(heldInPage).forEach(function (key) {
+      if (key !== but && heldInPage[key].held) {
+        found.push({ key: key, title: heldInPage[key].title || "another study" });
+      }
+    });
+    return found;
   }
   /* Unsent work this page holds that nothing outside it keeps: what the
-   * browser is asked to leave the page over. */
+   * browser is asked to leave the page over. A message held to be sent is
+   * kept only in this tab, which a closed tab takes with it: asked too. */
   function unsentUnkept() {
     var here = boxNow().trim() || pendingFiles.length;
-    return Boolean((here && !unsentKept) || Object.keys(heldInPage).length);
+    return Boolean((here && !unsentKept) || Object.keys(heldInPage).length || heldMessage
+                   || heldKeptElsewhere("").length);
   }
   /* Kept files read again: those that cannot be, or that changed since,
    * are said by name. */
@@ -1411,10 +1447,10 @@
         if (left) return;
         restoring -= 1;
         if (unsentKey === key) {
+          /* A message held to be sent is not sent without them. */
+          if (lost.length && heldMessage) endHold();
           renderChips();
           if (lost.length) {
-            /* A message held to be sent is not sent without them. */
-            sendHeld = false;
             unsentSaid("Could not attach again: " + lost.join(", ") + ". Attach " +
                        (lost.length === 1 ? "it" : "them") + " again to send " +
                        (lost.length === 1 ? "it." : "them."), "lost");
@@ -1424,22 +1460,15 @@
       });
     });
   }
-  /* The kept words of `key` are a message held to be sent: marked so with
-   * them, they are held again when they are put back (`putBack`). */
-  function keepHeld(key) {
-    if (heldInPage[key]) { heldInPage[key].held = true; return; }
-    try {
-      var kept = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + key) || "null");
-      if (!kept || typeof kept !== "object") return;
-      kept.held = true;
-      sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify(kept));
-    } catch (e) { /* kept unmarked: put back, not sent */ }
-  }
   /* Forgotten: a study's tab closed, or its folder gone (study-tabs.js). The
-   * words on screen stay, with the study they were typed for. */
+   * words on screen stay, with the study they were typed for, and so does
+   * a message held to be sent: the person sent it, and the note says it
+   * goes once its study is open (CI-774 review L8). */
   function forgetUnsent(key) {
     if (!validStudyKey(key)) return;
     if (key === unsentKey && (boxNow().trim() || pendingFiles.length)) return;
+    var kept = storedUnsent(key);
+    if (kept && kept.held) return;
     delete heldInPage[key];
     try { sessionStorage.removeItem(UNSENT_WORDS + key); } catch (e) { /* none kept */ }
   }
@@ -1525,13 +1554,19 @@
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
       unsentKey = key;
       unsentTitle = title;
+      /* A message held goes with its words, for the run's study. */
+      if (heldMessage) { heldMessage.key = key; heldMessage.chat = null; }
       putBack(key, typed);
       return;
     }
     if (begunElsewhere && (typed.trim() || pendingFiles.length || attaching)) {
       var was = unsentKey;
       var forTitle = unsentTitle || "the study before";
+      /* Kept with its mark: the message held goes with its words. */
       keepUnsent();
+      var heldWent = Boolean(heldMessage);
+      heldMessage = null;
+      heldBeside = null;
       var onlyHere = Boolean(heldInPage[was]);
       unsentKey = key;
       unsentTitle = title;
@@ -1544,12 +1579,10 @@
       renderChips();
       restoring -= 1;
       var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
-      if (sendHeld) {
+      if (heldWent) {
         /* Held to be sent: it goes with its study, marked held, and is sent
          * there; nothing on the study shown is held for it (CI-774 reviews
          * L5 and L6). */
-        sendHeld = false;
-        keepHeld(was);
         unsentSaid("The message held to be sent is kept for " + forTitle + ", not sent here: "
                    + "it is sent once " + forTitle + " is open in this window" + last, "moved", was);
       } else {
@@ -1606,17 +1639,38 @@
     }
     readFilesAgain(files.filter(function (f) { return mine.indexOf(f.path) < 0; }), key);
     restoring -= 1;
-    keepUnsent();
     /* Open now: a note that its words are kept for it says so no more. */
     if (noteKind === "moved" && noteAbout === key) unsentSaid("");
-    /* A message held to be sent, kept for this study as it went: held
-     * again, and sent by the one rule (`sendWaits`). Words typed here
-     * beside it are the person's to send. */
-    if (kept && kept.held && words.trim() === kept.words.trim()) sendHeld = true;
-    if (sendHeld && words.trim()) {
-      /* Said beside where other words went, if that is said. */
-      var host = el("agent-unsent-note");
-      sayHeld(noteKind === "moved" && host ? { text: host.textContent, about: noteAbout } : null);
+    var host = el("agent-unsent-note");
+    var beside = noteKind === "moved" && host ? { text: host.textContent, about: noteAbout } : null;
+    if (heldMessage && boxNow() !== heldMessage.words) {
+      /* Joined to words kept for this study: no longer the message held. */
+      heldMessage = null;
+      heldBeside = null;
+      unsentSaid("The message held to be sent is in the box with words kept for this study, "
+                 + "not sent: send them with Enter.", "moved", "");
+      beside = null;
+    } else if (!heldMessage && kept && kept.held && boxNow() === kept.words) {
+      /* A message held to be sent, kept for this study as it went: held
+       * again as it was, and sent by the one rule (`sendWaits`). Words
+       * typed here beside it, or words kept unsent, are the person's to
+       * send (CI-774 reviews L7 and L8). */
+      heldMessage = { id: kept.held, words: kept.words, key: key, chat: null, held: true,
+                      files: kept.files.map(function (f) { return f.path; }) };
+    }
+    keepUnsent();
+    if (heldMessage) {
+      sayHeld(beside);
+    } else if (!beside && !noteKind) {
+      /* Kept for another study as this page went (a reload, a Back): said
+       * where it is. */
+      var elsewhere = heldKeptElsewhere(key);
+      if (elsewhere.length) {
+        var names = elsewhere.map(function (h) { return h.title; }).join(", ");
+        unsentSaid("A message held to be sent is kept for " + names + ", not sent here: it is "
+                   + "sent once " + (elsewhere.length === 1 ? "that study is" : "each is")
+                   + " open in this window.", "moved", elsewhere[0].key);
+      }
     }
     wakeHeldSend();
   }
@@ -1628,6 +1682,9 @@
       if (pendingFiles.some(function (f) { return f.path === d.path; })) return;
       if (pendingFiles.length >= 6) { window.alert("Six files at most on one message."); return; }
       pendingFiles.push(d);
+      /* Attached as it was held (Enter pressed while it was on its way):
+       * it goes with the message held. */
+      if (heldMessage && heldMessage.files) heldMessage.files.push(d.path);
       renderChips();
       el("agent-request").focus();
     }).catch(function () { window.alert("Could not reach the server."); })
@@ -1993,14 +2050,21 @@
    * answer"). */
   var askedToGo = false;
   window.addEventListener("beforeunload", function (event) {
-    /* Unsent words this browser could not keep: it asks before the page
-     * is left (a Back across studies, a reload, an address typed). */
+    /* Going, unless the person stays: nothing held is sent meanwhile, and
+     * a page still here a moment later goes on (CI-774 review L7). */
+    askedToGo = true;
+    window.setTimeout(function () {
+      if (leaving) return;
+      askedToGo = false;
+      wakeHeldSend();
+    }, 3000);
+    /* Unsent words this browser could not keep, or a message held to be
+     * sent: it asks before the page is left (a Back across studies, a
+     * reload, an address typed, the tab closed). */
     if (unsentUnkept()) {
       event.preventDefault();
       event.returnValue = "";
-      return;
     }
-    askedToGo = true;
   });
   window.addEventListener("pageshow", function (event) {
     if (!event.persisted) return;
@@ -2297,15 +2361,22 @@
     area.style.height = Math.min(area.scrollHeight + border, window.innerHeight * 0.4) + "px";
   }
 
-  function draft() {
+  /* `sending`: a message held, sent now as it was held (`sendHeldNow`). */
+  function draft(sending) {
     var area = el("agent-request");
     var typed = area.value.trim();
     if (!typed || writing) return;
     if (heldByReview("sending another message")) return;
     /* Not before the thread has been read: sent first, it went into a
      * second conversation (seventeenth review, 10-08). Sent once it has. */
-    if (!threadRead) { firstRead.then(draft); return; }
-    if (sendWaits()) { holdSend(); return; }
+    if (!threadRead) { firstRead.then(function () { draft(sending); }); return; }
+    var message = sending || {
+      id: newEid(), words: area.value,
+      files: pendingFiles.map(function (f) { return f.path; }),
+      key: conv.study ? unsentKey || shownStudy() || conv.page || "" : "",
+      chat: conv.study ? null : { id: conv.id, key: conv.key }
+    };
+    if (sendWaits(message)) { holdSend(message); return; }
     /* Sent as typed. It used to be joined to a question the Agent had
      * asked, whatever it said ("which lysozyme...?" and "Has it run long
      * enough?" went as one request); the conversation goes with every
@@ -2324,6 +2395,9 @@
     history.push({ role: "user", text: historyText });
     var said = record.length ? { role: "user", text: typed, attachments: record }
       : { role: "user", text: typed };
+    /* Said and saved under the id it was held by: kept once on the server
+     * whichever tab saves it. */
+    said.eid = message.id;
     transcript.push(said);
     area.value = "";
     keepUnsent();
@@ -2568,6 +2642,7 @@
 
   function writingState(on) {
     setTimeout(placeholder, 0);
+    if (!on) wakeHeldSend();
     var button = el("agent-propose");
     button.classList.toggle("is-writing", on);
     button.textContent = on ? "\u25a0" : "\u2191";
@@ -4224,58 +4299,127 @@
                + "not this one: open the run's study to go on with it.", "moved", away.key);
   }
   /* A message sent while it cannot yet be known where it would be answered
-   * and kept is held in the box, and sent once it can. The one rule: not
-   * while the page is going, a launch is unanswered, a conversation is
-   * being read, or files are being attached to it; not before the page has
-   * read where the GUI is once every launch answered; and not while the
-   * thread on screen is one a run took to a study the page does not show.
-   * Held for the study shown only: one whose words are moved out for the
-   * study they were typed for is kept with them, marked held (`keepHeld`),
-   * and held again by this rule when they are put back in that study's box
-   * (`putBack`); no message on another study waits for it. A reply is never
-   * asked with one study open and kept in another's thread (CI-774 reviews
-   * L1 to L6). */
-  var sendHeld = false;
-  function sendWaits() {
-    if (leaving || launching > 0 || reading > 0 || attaching > 0) return true;
+   * and kept is held: that message, as Enter found it (`heldMessage`: its
+   * id, which it is said and saved under; its words and files; the study
+   * it is for, or the chat of no study it was typed in). It stays in the
+   * box, and is sent once, as it was, when the one rule below lets it.
+   * Changed or emptied in the box, or a file taken off it, it is taken
+   * back (`endHold`). Its words moved out for the study they were typed
+   * for go with its mark (`keepUnsent`), and are held again when they are
+   * put back in that study's box (`putBack`): nothing on another study
+   * waits for it. A tab that finds it sent by another (a copy of this
+   * tab) does not send it again (`claimHeld`). CI-774 reviews L1 to L8. */
+  var heldMessage = null;
+  /* Why `message` waits, or "" when it can go. The one rule: not while
+   * the page is going, a launch is unanswered, a conversation is being
+   * read, or files are being attached; not before the page has read where
+   * the GUI is once every launch answered; not while the thread on screen
+   * is one a run took to a study the page does not show. A message held
+   * waits too while a reply is being written, and goes only into its
+   * study's own thread, its study shown (or into the thread it was typed
+   * in, for a chat of no study). A reply is never asked with one study open and kept in
+   * another's thread. */
+  function sendWaits(message) {
+    if (leaving || askedToGo) return "going";
+    if (launching > 0) return "launch";
+    if (reading > 0 || attaching > 0) return "reading";
     var dashboard = window.FastMDXDashboard;
-    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) return true;
+    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) return "status";
     var shown = shownStudy();
-    return Boolean(conv.ranTo && conv.ranTo !== shown);
+    if (conv.ranTo && conv.ranTo !== shown) return "thread";
+    if (!message || !message.held) return "";
+    if (writing) return "writing";
+    if (message.chat) {
+      /* The thread it was typed in, also where a run took it to its study. */
+      var same = conv.key === message.chat.key
+        || Boolean(message.chat.id && conv.id === message.chat.id);
+      return same ? "" : "chat";
+    }
+    if (!shown || message.key !== shown) return "study";
+    if (!conv.study || conv.page !== message.key) return "thread";
+    return "";
   }
   /* A note said beside the held one: said again once it is sent. */
   var heldBeside = null;
   function sayHeld(beside) {
-    heldBeside = beside || null;
-    unsentSaid((heldBeside ? heldBeside.text + " " : "")
-               + "Sent once this page has read which study is open and its conversation.", "held");
+    if (beside !== undefined) heldBeside = beside || null;
+    var why = heldMessage ? sendWaits(heldMessage) : "";
+    var text = why === "thread" && !conv.study
+      ? "Sent once this study's conversation is open here: a chat of no study is open."
+      : why === "chat" ? "Sent once the chat it was typed in is open here."
+      : "Sent once this page has read which study is open and its conversation.";
+    unsentSaid((heldBeside ? heldBeside.text + " " : "") + text, "held");
   }
-  function holdSend() {
-    if (!sendHeld) {
-      sendHeld = true;
-      sayHeld();
-    }
-    var dashboard = window.FastMDXDashboard;
-    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown() && dashboard.readStatusNow) {
-      dashboard.readStatusNow();
-    }
-  }
-  /* Asked after whatever may end the wait: a status read (once every
-   * listener has heard it), a conversation read, a launch's answer. */
-  function wakeHeldSend() {
-    if (sendHeld) window.setTimeout(sendHeldNow, 0);
-  }
-  /* Every status applied, a study open or none. */
-  window.addEventListener("dashboard:status-updated", wakeHeldSend);
-  function sendHeldNow() {
-    if (!sendHeld || sendWaits()) return;
-    sendHeld = false;
+  /* The message held taken back: changed in the box, or not to be sent. */
+  function endHold() {
+    heldMessage = null;
     if (noteKind === "held") {
       if (heldBeside) unsentSaid(heldBeside.text, "moved", heldBeside.about);
       else unsentSaid("");
     }
     heldBeside = null;
-    draft();
+  }
+  function holdSend(message) {
+    if (!heldMessage || heldMessage.words !== message.words) {
+      message.held = true;
+      heldMessage = message;
+    }
+    sayHeld(null);
+    keepUnsent();
+    var dashboard = window.FastMDXDashboard;
+    if (sendWaits(heldMessage) === "status" && dashboard && dashboard.readStatusNow) {
+      dashboard.readStatusNow();
+    }
+  }
+  /* Asked after whatever may end the wait: a status read (once every
+   * listener has heard it), a conversation read or
+   * opened, a launch's answer, a reply written, files attached. */
+  function wakeHeldSend() {
+    if (heldMessage) window.setTimeout(sendHeldNow, 0);
+  }
+  /* Every status applied, a study open or none. */
+  window.addEventListener("dashboard:status-updated", wakeHeldSend);
+  /* Another thread put on screen (opened, read again). */
+  window.addEventListener("fmx:conversations", wakeHeldSend);
+  /* Sent by one tab only: a copy of this tab (its session storage copied
+   * with it) holds the same message under the same id. */
+  var HELD_SENT = "fmx.agentHeldSent:";
+  function claimHeld(id) {
+    try {
+      if (localStorage.getItem(HELD_SENT + id)) return false;
+      localStorage.setItem(HELD_SENT + id, String(Date.now()));
+      var old = Date.now() - 7 * 24 * 3600 * 1000;
+      for (var i = localStorage.length - 1; i >= 0; i -= 1) {
+        var name = localStorage.key(i) || "";
+        if (name.indexOf(HELD_SENT) === 0 && Number(localStorage.getItem(name)) < old) {
+          localStorage.removeItem(name);
+        }
+      }
+    } catch (e) { /* no storage shared by tabs: the server keeps it once, by its id */ }
+    return true;
+  }
+  function sendHeldNow() {
+    var message = heldMessage;
+    if (!message) return;
+    if (sendWaits(message)) {
+      if (noteKind === "held") sayHeld();
+      return;
+    }
+    if (boxNow() !== message.words) { endHold(); return; }
+    if (!claimHeld(message.id)) {
+      /* Sent from another tab of this browser: not sent again, and not
+       * kept to be sent. */
+      endHold();
+      var area = el("agent-request");
+      if (area) { area.value = ""; area.dispatchEvent(new Event("input")); }
+      pendingFiles = [];
+      renderChips();
+      unsentSaid("This message was sent from another tab of this browser, not again here.",
+                 "moved", "");
+      return;
+    }
+    endHold();
+    draft(message);
   }
   var reading = 0;
   var readFirst;
@@ -4446,12 +4590,14 @@
        * the same conversation /new makes (eighteenth review, 10-08). */
       body.key = c.key;
       hideList();
+      wakeHeldSend();
       return inTurn(function () {
         return post("/api/agent/conversation/new", body);
       }).then(function (d) {
         if (d && d.ok && !c.id) {
           c.id = d.id || null;
           if (d.study !== undefined) c.study = d.study;
+          wakeHeldSend();
         } else if (d && d.gone && !c.id) {
           /* Its key's conversation was deleted: so is this thread, kept
            * anew once the person says something in it; what the deleted
@@ -4912,6 +5058,11 @@
     var area = el("agent-request");
     area.addEventListener("input", function () { autosize(area); renderMentions(); });
     area.addEventListener("input", sendReady);
+    /* Changed or emptied by the person after Enter: the message held is
+     * taken back, and its note with it (CI-774 reviews L7 and L8). */
+    area.addEventListener("input", function (event) {
+      if (event.isTrusted && heldMessage && boxNow() !== heldMessage.words) endHold();
+    });
     area.addEventListener("input", keepUnsent);
     /* Said that words went with their study: said until the person types. */
     area.addEventListener("input", function (event) {
