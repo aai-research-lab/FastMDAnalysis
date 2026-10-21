@@ -64,7 +64,11 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .studies-name-line .studies-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studies-kind { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studies-row-tag { font-size: var(--text-2xs); padding: 0 6px; }
+/* Tags wrap under the name, each within the cell: beside the name they
+ * took its room and ran into State. */
+.studies-row-tags { display: flex; flex-wrap: wrap; gap: 3px 4px; margin-top: 3px; min-width: 0; }
+.studies-row-tag { font-size: var(--text-2xs); padding: 0 6px; max-width: 100%; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
 /* Records of a study not read (a link out of it, a hidden file): named
  * under its name, the why on hover; never a value taken from their absence. */
 .studies-not-read, .study-not-read { display: block; max-width: 100%; padding: 0; border: 0; background: transparent;
@@ -81,6 +85,7 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
     background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
 .studies-progress i { display: block; height: 100%; background: var(--status-live); }
 .studies-state-more { white-space: nowrap; }
+.studies-pace { display: flex; flex-direction: column; gap: 4px; }
 .studies-table td.studies-len { text-align: right; white-space: nowrap; }
 .studies-length { display: inline-flex; flex-direction: column; align-items: flex-end; }
 .studies-len-each, .studies-length-each { white-space: nowrap; }
@@ -205,7 +210,8 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-table-wrap.is-lines .studies-table, .studies-table-wrap.is-lines .studies-table tbody { display: block; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row { display: grid;
     grid-template-columns: 26px 64px minmax(0, 1fr) auto;
-    grid-template-areas: "pick mol name state" "pick mol sys len" "pick mol means means" "pick mol acts acts";
+    grid-template-areas: "pick mol name state" "pick mol pace pace" "pick mol sys len" "pick mol means means"
+        "pick mol acts acts";
     align-items: center;
     column-gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); }
 .studies-table-wrap.is-lines .studies-table tr.studies-row td { display: block; padding: 0; border: 0;
@@ -215,7 +221,17 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
     align-self: start; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-name { grid-area: name; min-width: 0;
     max-width: none; }
-.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-state { grid-area: state; }
+/* In lines the name wraps whole rather than being cut beside its state. */
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-name-text { white-space: normal;
+    overflow-wrap: anywhere; text-align: left; }
+/* The state's cell and its box give their parts to the row's grid: the
+ * state beside the name, how far and the time left on a line of their own
+ * across both, so the name keeps its room. */
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-state,
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-state .studies-state-said { display: contents; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-line { grid-area: state; justify-self: end; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-pace { grid-area: pace; flex-direction: row;
+    align-items: center; flex-wrap: wrap; gap: 2px 8px; margin: 2px 0; min-width: 0; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-system { grid-area: sys; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-len { grid-area: len; justify-self: end;
@@ -231,7 +247,7 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
     width: auto; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row .studies-acts .studies-actions { opacity: 1; }
 .studies-table-wrap.is-lines .studies-table tr.studies-row .studies-progress { width: 80px; }
-.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-more { white-space: normal; text-align: right; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-more { white-space: normal; }
 .studies-table-wrap.is-lines .studies-means { min-width: 0; }
 .studies-table-wrap.is-lines .studies-table tr.studies-group,
 .studies-table-wrap.is-lines .studies-table tr.studies-editing,
@@ -299,5 +315,10 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
     .studies-bar-count { padding: 0 4px; font-size: var(--text-xs); }
     .studies-tagger { position: fixed; left: 8px !important; right: 8px; bottom: 74px; width: auto; }
     .page[data-page="studies"]:has(.studies-bar:not([hidden])) { padding-bottom: 80px; }
-    .studies-table tr.studies-row .studies-name-line { flex-wrap: wrap; row-gap: 3px; }
+    /* A row's name has the line to itself; where it stands goes under it. */
+    .studies-table-wrap.is-lines .studies-table tr.studies-row {
+        grid-template-areas: "pick mol name name" "pick mol state state" "pick mol pace pace" "pick mol sys len"
+            "pick mol means means" "pick mol acts acts"; }
+    .studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-line { justify-self: start;
+        margin-top: 2px; }
 }

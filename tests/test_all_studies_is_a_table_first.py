@@ -467,7 +467,10 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
     lines only in a window under about 1000, and lines keep all of it. A
     long "Not read" list made every width lines and was cut; it wraps, and
     its whole opens from it by keyboard or tap. The count of studies, cut
-    beside the title at 1250, is kept whole."""
+    beside the title at 1250, is kept whole. A study with tags lost its
+    name to them at 1440 and wider, the tags running into State; they wrap
+    under it. On a phone the running study's name was cut to a few letters
+    by how far it got and its time left, which have a line of their own."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -475,8 +478,12 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
 
     _study(tmp_path / "helix", system="1L2Y", started="2026-09-03T10:00:00+00:00",
            means={"rmsd": (0.0074123, 0.00071), "rg": (0.313961, 0.00096), "sasa": (12.0, 0.1)})
-    _live(_study(tmp_path / "going", system="1UAO", started="2026-09-02T10:00:00+00:00"))
+    _live(_study(tmp_path / "going_batch_live", system="1UAO", started="2026-09-02T10:00:00+00:00"))
     _members(_replicas(tmp_path / "chignolin"), [0.10, 0.12, 0.14], short=("seed2",))
+    tagged = _study(tmp_path / "c_study_tagged", system="1UBQ", started="2026-09-01T10:00:00+00:00",
+                    means={"rmsd": (0.1, 0.01)})
+    (tagged / "study_tags.json").write_text(json.dumps({"tags": [
+        "wild type", "JCIM Fig. 4", "reference run", "needs more"]}), encoding="utf-8")
     linked = _study(tmp_path / "a_study_with_a_long_name_linked_out", started="2026-09-04T10:00:00+00:00",
                     means={n: (1.0, 0.01) for n in ("rmsd", "rg", "sasa", "hbonds", "end_to_end")})
     outside = tmp_path.parent / (tmp_path.name + "_outside")
@@ -494,9 +501,12 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
             return r.width > 0 && r.right > edge + 1;
         }).map((n) => n.className);
         const shown = (n) => !!n && n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
-        const going = document.querySelector('#studies-table tr.studies-row[data-path$="/going"]');
+        const going = document.querySelector('#studies-table tr.studies-row[data-path$="/going_batch_live"]');
         const helix = document.querySelector('#studies-table tr.studies-row[data-path$="/helix"]');
         const count = document.querySelector('.studies-where-n');
+        const tagged = document.querySelector('#studies-table tr.studies-row[data-path$="/c_study_tagged"]');
+        const cellOf = (row) => row.querySelector('td.studies-name').getBoundingClientRect();
+        const nameOf = (row) => row.querySelector('.studies-name-text').getBoundingClientRect();
         return {over: wrap.scrollWidth - wrap.clientWidth, past: past.slice(0, 4),
                 rows: getComputedStyle(wrap.querySelector('tr.studies-row')).display,
                 page: document.documentElement.scrollWidth - innerWidth,
@@ -509,7 +519,13 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
                 active: shown(helix.querySelector('td.studies-active'))
                     || shown(helix.querySelector('.studies-active-said')),
                 count: [count.textContent, count.scrollWidth <= count.clientWidth + 1,
-                        count.getBoundingClientRect().width > 0]};
+                        count.getBoundingClientRect().width > 0],
+                tagged: {name: Math.round(nameOf(tagged).width),
+                         tags: [...tagged.querySelectorAll('.studies-row-tag')].filter((t) =>
+                             t.getBoundingClientRect().right > cellOf(tagged).right + 1
+                             || t.getBoundingClientRect().top < nameOf(tagged).bottom - 1).length},
+                going: Math.round(nameOf(going).width) >= Math.min(
+                    going.querySelector('.studies-name-text').scrollWidth, 100)};
     }"""
     try:
         with sync_playwright() as pw:
@@ -548,7 +564,11 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
     assert seen["rows"] == rows, seen
     assert seen["sort"] and seen["all"] and seen["active"], seen
     assert "8 ps of 20 ps" in seen["left"] and "left" in seen["left"], seen
-    assert seen["count"] == ["4 studies", True, True], seen
+    assert seen["count"] == ["5 studies", True, True], seen
+    # The tagged study's name kept (about 8 characters or all of it), its
+    # tags under it, within its cell; the running study's name kept whole.
+    assert seen["tagged"]["name"] >= 60 and seen["tagged"]["tags"] == 0, seen
+    assert seen["going"], seen
     assert "analysis/sasa/options.json" in opened[0] and opened[1]
     assert "a link to a file outside the study" in opened[0]
     assert back

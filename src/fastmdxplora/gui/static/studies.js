@@ -670,8 +670,12 @@
     line.append(light, document.createTextNode(" " + word));
     host.appendChild(line);
     if (pace) {
-      if (pace.percent != null) host.appendChild(progressBar(pace.percent));
-      host.appendChild(make("span", "studies-state-more muted small", paceSaid(study, pace)));
+      // How far and the time left, together: in lines, a line of their
+      // own under the name, which they would otherwise squeeze.
+      var far = make("span", "studies-pace");
+      if (pace.percent != null) far.appendChild(progressBar(pace.percent));
+      far.appendChild(make("span", "studies-state-more muted small", paceSaid(study, pace)));
+      host.appendChild(far);
     }
     return host;
   }
@@ -982,8 +986,18 @@
       named.addEventListener("click", function () { openStudy(study.path, named); });
     }
     line.appendChild(named);
-    (study.tags || []).forEach(function (t) { line.appendChild(make("span", "study-tag studies-row-tag", t)); });
     name.appendChild(line);
+    // Its tags under its name, wrapping in its cell: beside it they took
+    // the name's room and ran into State.
+    if ((study.tags || []).length) {
+      var tags = make("div", "studies-row-tags");
+      study.tags.forEach(function (t) {
+        var tag = make("span", "study-tag studies-row-tag", t);
+        tag.title = t;
+        tags.appendChild(tag);
+      });
+      name.appendChild(tags);
+    }
     var sub = [];
     if (!child && clashes(study)) sub.push(folderSaid(study));
     if (!child) sub.push([study.kind, study.forcefield].filter(Boolean).join(" · "));
