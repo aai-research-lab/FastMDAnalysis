@@ -1634,6 +1634,64 @@ def test_a_held_message_stays_held_when_its_study_s_tab_is_closed(tmp_path, monk
     assert errors == []
 
 
+def test_a_held_message_goes_with_the_view_read_after_its_study_s_status(tmp_path,
+                                                                         monkeypatch):
+    """L8 M2: a held message kept for run1. One poll reads the app state
+    with `other` open, another window opens run1, and the poll's status is
+    read after it: the page shows run1 and sent the message at once, with
+    `other` as its view (refused, "The current view changed"); the notice
+    named `other`, read with the app state. Sent with a view read after
+    the status, and the notice names run1."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked, apps, statuses = [], [], []
+
+    def app(route):
+        if apps:
+            route.continue_()
+        else:
+            apps.append((route, route.fetch()))
+
+    def status(route):
+        if statuses:
+            route.continue_()
+        else:
+            statuses.append(route)
+
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.evaluate(_HEARD)
+        page.route("**/api/app-state*", app)
+        page.route("**/api/status*", status)
+        page.evaluate("() => document.getElementById('refresh-now').click()")
+        while not (apps and statuses):
+            page.wait_for_timeout(50)
+        _switch_elsewhere(session, run)
+        apps[0][0].fulfill(response=apps[0][1])
+        statuses[0].continue_()
+        page.unroute("**/api/app-state*")
+        page.unroute("**/api/status*")
+        _shows(page, study_key(run))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=20000)
+        page.wait_for_function("() => window.__said.some((s) => /opened elsewhere/.test(s))",
+                               timeout=15000)
+        said = [s for s in page.evaluate("() => window.__said") if "opened elsewhere" in s]
+    finally:
+        close()
+        session.server.shutdown()
+    sent = [a for a in asked if a.get("request") == words]
+    assert len(sent) == 1, asked
+    assert (sent[0].get("current_view") or {}).get("study", "").endswith("run1"), sent
+    assert said and said[-1].startswith("run1 was opened elsewhere"), said
+    assert errors == []
+
+
 def test_a_config_builder_launch_takes_only_its_run_s_study_as_its_own(browser, site,  # noqa: F811
                                                                          monkeypatch):
     """L1 4 and L2 M2: the Config Builder's Start pressed, another window

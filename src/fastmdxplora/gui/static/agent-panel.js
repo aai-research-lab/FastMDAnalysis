@@ -4316,8 +4316,9 @@
    * the GUI is once every launch answered; not while the thread on screen
    * is one a run took to a study the page does not show. A message held
    * waits too while a reply is being written, and goes only into its
-   * study's own thread, its study shown (or into the thread it was typed
-   * in, for a chat of no study). A reply is never asked with one study open and kept in
+   * study's own thread, its study shown, with the page's view of it read
+   * after the status that showed it (or into the chat of no study it was
+   * typed in). A reply is never asked with one study open and kept in
    * another's thread. */
   function sendWaits(message) {
     if (leaving || askedToGo) return "going";
@@ -4337,6 +4338,7 @@
     }
     if (!shown || message.key !== shown) return "study";
     if (!conv.study || conv.page !== message.key) return "thread";
+    if (dashboard && dashboard.viewKnown && !dashboard.viewKnown()) return "view";
     return "";
   }
   /* A note said beside the held one: said again once it is sent. */
@@ -4370,15 +4372,25 @@
     if (sendWaits(heldMessage) === "status" && dashboard && dashboard.readStatusNow) {
       dashboard.readStatusNow();
     }
+    askForTheView();
+  }
+  /* The page's view read again after the status that showed the study,
+   * where that is what a held message waits for. */
+  function askForTheView() {
+    var dashboard = window.FastMDXDashboard;
+    if (heldMessage && dashboard && dashboard.readView && sendWaits(heldMessage) === "view") {
+      dashboard.readView();
+    }
   }
   /* Asked after whatever may end the wait: a status read (once every
-   * listener has heard it), a conversation read or
+   * listener has heard it), the page's view read, a conversation read or
    * opened, a launch's answer, a reply written, files attached. */
   function wakeHeldSend() {
     if (heldMessage) window.setTimeout(sendHeldNow, 0);
   }
-  /* Every status applied, a study open or none. */
+  /* Every status applied, a study open or none, and every view read. */
   window.addEventListener("dashboard:status-updated", wakeHeldSend);
+  window.addEventListener("dashboard:view-read", wakeHeldSend);
   /* Another thread put on screen (opened, read again). */
   window.addEventListener("fmx:conversations", wakeHeldSend);
   /* Sent by one tab only: a copy of this tab (its session storage copied
@@ -4403,6 +4415,7 @@
     if (!message) return;
     if (sendWaits(message)) {
       if (noteKind === "held") sayHeld();
+      askForTheView();
       return;
     }
     if (boxNow() !== message.words) { endHold(); return; }

@@ -1165,16 +1165,69 @@
     return "elsewhere";
   }
 
+  let noticesNamed = Promise.resolve();
   function openedElsewhere(was, key) {
     const title = byId("topbar-run-title")?.textContent || "Another study";
     emit("study-changed-elsewhere", {from: was, to: key, title});
-    // Named as the page names the study when it is said: once the rest
-    // of this read is applied (the study's name is in its results), and
-    // for one that waits, when it is said.
-    window.setTimeout(() => showNotice(
-      () => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
-        "in another window or by an AI app: this window now shows it.",
-      "warning", {kind: "study-changed-elsewhere", study: key}), 0);
+    // Named as the page names the study, from its name read after the
+    // status that showed it: a poll reads its parts side by side, and one
+    // read before a switch elsewhere named the study before (CI-774 review
+    // L8). Said in turn, and for one that waits, when it is said.
+    noticesNamed = noticesNamed.then(() => readView()).catch(() => false).then(() => {
+      const named = viewNamed.key === key ? viewNamed.name : "";
+      showNotice(
+        () => `${named || byId("topbar-run-title")?.textContent || "Another study"} was opened ` +
+          "elsewhere, in another window or by an AI app: this window now shows it.",
+        "warning", {kind: "study-changed-elsewhere", study: key});
+    });
+  }
+
+  /* The page's view (the app state, told to the Agent with a message as
+   * `current_view`) and the study's name, read after the status that named
+   * the study shown: a poll reads them side by side, and a study opened
+   * elsewhere between two of its reads is told and named by the study
+   * before (CI-774 review L8 M2). `viewKnown` says whether the view the
+   * page holds is such a read of the study shown. */
+  let viewFor = "";
+  let viewNamed = {key: "", name: ""};
+  let viewRead = null;
+  function viewKnown() {
+    return Boolean(state.studyShown)
+      && viewFor === `${state.studyShown}|${state.appState?.active_run || ""}`;
+  }
+  function readView() {
+    const key = state.studyShown;
+    if (viewRead && viewRead.key === key) return viewRead.promise;
+    const before = viewRead ? viewRead.promise : Promise.resolve(false);
+    const mine = {key};
+    mine.promise = before.catch(() => false).then(() => readViewOnce(key)).finally(() => {
+      if (viewRead === mine) viewRead = null;
+    });
+    viewRead = mine;
+    return mine.promise;
+  }
+  async function readViewOnce(key) {
+    if (!key) return false;
+    let app, results, status;
+    try {
+      [app, results] = await Promise.all([
+        fetchJSON("/api/app-state"), fetchJSON("/api/results").catch(() => null)]);
+      status = await fetchJSON("/api/status");
+    } catch (error) {
+      return false;
+    }
+    if (!status || status.study !== key || state.studyShown !== key) {
+      // Another study since: read where the GUI is, and the view again then.
+      readStatusNow();
+      return false;
+    }
+    safeApply("app", () => applyAppState(app));
+    viewFor = `${key}|${app?.active_run || ""}`;
+    const chosen = (byId("setting-run-name")?.value || "").trim();
+    viewNamed = {key, name: chosen || studyName(status.system_id || results?.system?.system)
+      || results?.run_title || status.run_title || ""};
+    emit("view-read", {study: key});
+    return true;
   }
 
   /* A launch answered: ``key`` is the study its run went to, "" for
@@ -2906,6 +2959,10 @@
      * had answered. */
     readStatusNow,
     studyKnown,
+    /* The view the page tells the Agent, read after the status of the
+     * study shown; and asked for again. */
+    viewKnown,
+    readView,
     studyChangeAnswered: (key) => launchAnswered(key),
     /* Asked before any other way opens another study: "" or the reason. */
     holdStudySwitch,
