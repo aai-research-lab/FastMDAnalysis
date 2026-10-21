@@ -209,7 +209,8 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
             refused.status = exc.code
             # Said by Zenodo itself (a gateway's page is not).
             refused.own = _zenodo_s(answered, exc.code)
-            refused.later = exc.code in AGAIN or exc.code >= 500
+            refused.later = exc.code in AGAIN or exc.code >= 500 \
+                or (exc.code in (404, 410) and not refused.own)
             # Zenodo, or the gateway before it, gave up part way: what was
             # asked may have been done.
             refused.unclear = exc.code >= 500
@@ -1075,8 +1076,19 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         sent_sums[archive.name] = [*sent_sums.get(archive.name, []), _md5_of(archive)][-_SENDINGS:]
         kept[site]["sums"] = sent_sums
         _keep(study, kept)
-        _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
-              upload=archive, said=said)
+        put = _call("PUT", f"{bucket}/{urllib.parse.quote(archive.name)}", token=token,
+                    upload=archive, said=said)
+        # Kept only as Zenodo says so: the file it holds named (and, where it
+        # gives one, its checksum the one sent); an answer that says nothing
+        # leaves it not known, and nothing of the draft is taken away.
+        put_sum = _md5((put or {}).get("checksum")) if isinstance(put, dict) else ""
+        if not (isinstance(put, dict) and str(put.get("key") or put.get("filename") or "")
+                == archive.name and (not put_sum or put_sum == sent_sums[archive.name][-1])):
+            unsaid = ShareRefused(
+                f"Zenodo's answer to the upload of {archive.name} did not say it was kept.",
+                code="environment.service.unreachable", url=page)
+            unsaid.later = unsaid.unclear = True
+            raise unsaid
         uploaded = True
         kept[site]["archive"] = archive.name
         kept[site].pop("uploading", None)
@@ -1219,8 +1231,19 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         else:
             # The person's words, kept; the version is the study's to say.
             if str(held.get("version") or "") != str(version):
-                _call("PUT", f"{depositions}/{identifier}", token=token,
-                      body={"metadata": {**inherited, "version": str(version)}}, said=said)
+                labelled = _call("PUT", f"{depositions}/{identifier}", token=token,
+                                 body={"metadata": {**inherited, "version": str(version)}},
+                                 said=said)
+                if not (isinstance(labelled, dict) and str(
+                        (labelled.get("metadata") or {}).get("version") or "")
+                        == str(version)):
+                    unlabelled = ShareRefused(
+                        f"Zenodo's answer to giving the draft {page} version {version} did "
+                        "not say it was given. Its version is perhaps not yet written; the "
+                        "draft is kept, with the new archive.",
+                        code="environment.service.unreachable", url=page)
+                    unlabelled.later = unlabelled.whole = True
+                    raise unlabelled
             if said and by_earlier and not last:
                 said(f"The draft {page} was shared by an earlier release of FastMDXplora, "
                      "which kept no account of what it wrote: its description is not the "

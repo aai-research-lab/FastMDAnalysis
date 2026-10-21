@@ -69,7 +69,11 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
             type(self).stored["name"] = self.path.rsplit("/", 1)[1]
             return self._json({"key": self.path.rsplit("/", 1)[1]})
         type(self).stored["metadata"] = json.loads(body)["metadata"]
-        self._json(self._deposition(int(self.path.rsplit("/", 1)[1])))
+        # Answered, as Zenodo answers, with the draft holding what was sent.
+        answer = self._deposition(int(self.path.rsplit("/", 1)[1]))
+        answer["metadata"].update({k: v for k, v in type(self).stored["metadata"].items()
+                                   if k != "prereserve_doi"})
+        self._json(answer)
 
     def do_DELETE(self):  # noqa: N802
         type(self).calls.append(("DELETE", self.path, self.headers.get("Authorization")))

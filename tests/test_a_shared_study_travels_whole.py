@@ -3202,7 +3202,7 @@ def test_an_upload_answered_but_not_kept_is_not_said_done(tmp_path, unsteady, mo
     _empty_answer_to(monkeypatch, "PUT", "/files/b7/shared.zip", after=False)
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
-    assert "does not hold it" in capsys.readouterr().err
+    assert "did not say it was kept" in capsys.readouterr().err
 
 
 def test_an_archive_zenodo_said_it_took_away_and_did_not_is_said(tmp_path, unsteady,
@@ -3241,3 +3241,86 @@ def test_an_empty_answer_to_beginning_a_version_is_not_said_begun(tmp_path, unst
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     said = capsys.readouterr().err
     assert "Zenodo began the new version" not in said and "may have begun" in said
+
+
+def test_an_upload_answered_with_nothing_over_the_study_s_archive_takes_nothing_away(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Review of the thirty-first commit: an upload answered with nothing
+    under the archive's name had the study's own earlier archive said put
+    there by someone; under a new name, the earlier one was taken away."""
+    study = _study(tmp_path / "study")
+    out = tmp_path / "a.zip"
+    assert _share_to_zenodo(study, out) == 0
+    unsteady.files = [{"id": "a", "filename": "a.zip", "checksum": _md5_of(out)}]
+    _analysed_again(study, "Words of the second share.")
+    real = _empty_answer_to(monkeypatch, "PUT", "/files/b7/a.zip", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, out) == 2
+    said = capsys.readouterr().err
+    assert "during this share" not in said and "did not say it was kept" in said
+    monkeypatch.setattr(zenodo, "_call", real)
+    _empty_answer_to(monkeypatch, "PUT", "/files/b7/b.zip", after=False)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert not any(c[0] == "DELETE" for c in unsteady.calls)
+    assert "kept, with the new archive" not in said
+
+
+def test_a_version_answered_with_nothing_is_not_said_given(tmp_path, unsteady, monkeypatch,
+                                                         capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["description"] = "<p>Mine.</p>"
+    unsteady.published_ids = {7}
+    _empty_answer_to(monkeypatch, "PUT", "/api/deposit/depositions/8", after=False)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr()
+    assert "Draft of version 2 made" not in said.out
+    assert "version is perhaps not yet written" in said.err
+
+
+def test_a_gateway_s_404_beginning_a_version_says_to_share_again(tmp_path, unsteady,
+                                                                 monkeypatch, capsys):
+    import io
+    import urllib.error
+    import urllib.request
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = urllib.request.urlopen
+
+    def gateway(request, timeout=None):
+        if request.full_url.endswith("/actions/newversion"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
+                                         io.BytesIO(b"<html>Not Found</html>"))
+        return real(request, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "share again once Zenodo answers" in capsys.readouterr().err
+
+
+def test_a_gateway_s_404_downloading_is_not_said_closed(tmp_path, unsteady, monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    real = urllib.request.urlopen
+
+    def gateway(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
+                                     io.BytesIO(b"<html>Not Found</html>"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    with pytest.raises(ShareRefused) as refused:
+        _download(f"{os.environ['FASTMDXPLORA_ZENODO_URL']}/records/7/files/shared.zip",
+                  tmp_path / "got.zip", most=1 << 30, md5="", said=None, size=0)
+    assert "ask its owner" not in str(refused.value)
+    assert "open it again later" in str(refused.value)
+    assert real

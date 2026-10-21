@@ -188,7 +188,14 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                 if exc.code in zenodo.AGAIN and failures < zenodo.TRIES:
                     _again(f"{url} answered HTTP {exc.code}", failures, exc.headers, said)
                     continue
-                closed = exc.code in (401, 403, 404, 410)
+                try:
+                    said_back = exc.read().decode("utf-8", errors="replace")
+                except (OSError, http.client.HTTPException):
+                    said_back = ""
+                # A 404 is Zenodo's own only in its own words; a gateway's page
+                # is to be asked again.
+                closed = exc.code in (401, 403) or (exc.code in (404, 410)
+                                                    and zenodo._zenodo_s(said_back, exc.code))
                 raise ShareRefused(
                     f"The shared study could not be downloaded from {url}: HTTP {exc.code}"
                     + (f", still after {failures} tries" if failures > 1 else "")
