@@ -91,7 +91,9 @@ folder is named for the person), and every path to that folder is said as the
 folder it is carried in (`__FASTMDX_STUDY__/prepared/<name>`, below): as the
 runs name it, typed from a home folder (`~/prep`) included, and where its own
 records say its files were written (`.../setup/retained.pdb` for a preparation
-made in one folder and copied to another). Each run's record of the way
+made in one folder and copied to another; a file the package leaves out, such
+as `retained.pdb` by default, is named so too, though not carried). What setup
+read (another study's structure, say) is never said so: it is kept as written. Each run's record of the way
 from it to the system (`relative_to_run`) is written as the way in the archive,
 so a run opened elsewhere finds it as it did where it ran. The system is found
 as the run finds it: where its record says relative to the run, so a study

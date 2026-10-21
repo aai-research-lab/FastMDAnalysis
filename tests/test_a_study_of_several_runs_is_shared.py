@@ -330,7 +330,11 @@ def test_a_run_whose_preparation_is_not_found_keeps_the_study_back(tmp_path):
     with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert refused.value.refusal.code == "environment.share.not_finished"
-    assert "The run a " in str(refused.value) and "not found here" in str(refused.value)
+    # Every run that used it, at once.
+    assert str(refused.value).startswith(f"The runs a, c of the study in {root} simulated "
+                                         f"the prepared system named {elsewhere / 'setup'}, "
+                                         "which is "
+                                         "not found here")
     assert not (tmp_path / "o.zip").exists()
 
 
@@ -994,3 +998,70 @@ def test_a_name_typed_from_another_computer_s_home_is_said_as_carried(tmp_path):
     config = _texts_of(out)["runs/a/resolved_config.yml"]
     assert "~/preparation" not in config
     assert f"setup_from: {STUDY}/prepared/preparation" in config
+
+
+@pytest.mark.parametrize("kept", ["outside", "inside"])
+def test_what_setup_read_is_never_said_as_the_system_it_made(tmp_path, kept):
+    """Review of series 2: a structure setup read from another study's
+    `setup/` was said, with every path under that folder, as the carried
+    system, so the archive said the input was the system's own output."""
+    older = tmp_path / "older_study" / "setup"
+    older.mkdir(parents=True)
+    (older / "topology.pdb").write_text("END\n")
+    root = tmp_path / "campaign"
+    prep = _prepared(tmp_path / "prep" / "setup" if kept == "outside"
+                     else root / "shared_setup" / "setup")
+    record = json.loads((prep / "setup_parameters.json").read_text())
+    record["input"] = {"system": f"{older}/topology.pdb", "form": "file"}
+    (prep / "setup_parameters.json").write_text(json.dumps(record))
+    _run(root, "a", prep, str(prep.parent if kept == "outside" else prep))
+    _of_one_run(root)
+    with (root / "runs" / "a" / "report" / "report.md").open("a") as report:
+        report.write(f"\nBuilt from {older}/topology.pdb, see {older}/notes.txt.\n")
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    carried = ("prepared/prep/setup" if kept == "outside" else "shared_setup/setup")
+    assert json.loads(texts[f"{carried}/setup_parameters.json"])["input"]["system"] == \
+        f"{older}/topology.pdb"
+    assert f"{older}/notes.txt" in texts["runs/a/report/report.md"]
+
+
+def test_a_seed_holding_its_own_setup_record_is_shared(tmp_path):
+    """Review of series 2: a seed with a setup record of its own was refused
+    as though its preparation were not found."""
+    import shutil
+
+    from fastmdxplora.simulation.seeding import record_the_preparation
+
+    pull = _prepared(tmp_path / "pull" / "setup")
+    root = tmp_path / "umbrella"
+    seed = root / "seeds" / "window-00"
+    seed.mkdir(parents=True)
+    for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
+        shutil.copy2(pull / name, seed / name)
+    record_the_preparation(seed, pull, frame=3, centre=0.5)
+    _run(root, "w0", seed, str(seed))
+    _of_one_run(root, "w0")
+    share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+
+
+def test_a_linked_system_two_runs_used_names_both(tmp_path):
+    """Review of series 2: a system two runs used, kept as links, was said
+    as the first run's only."""
+    root = tmp_path / "campaign"
+    real = _prepared(tmp_path / "kept")
+    folder = root / "linked"
+    folder.mkdir(parents=True)
+    for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
+        (folder / name).symlink_to(real / name)
+    for run in ("a", "c"):
+        _run(root, run, folder, str(folder))
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = [{"run_id": "a"}, {"run_id": "c"}]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert str(refused.value).startswith(f"The runs a, c of the study in {root} simulated "
+                                         "the prepared system in linked, and its ")
