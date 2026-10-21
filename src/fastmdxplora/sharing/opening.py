@@ -284,7 +284,10 @@ def open_shared(source: str, *, into: str | Path | None = None,
             said(f"Checked {len(listed)} files against their SHA-256.")
         root = next((e for e in data["@graph"] if isinstance(e, dict) and e.get("@id") == "./"),
                     {})
-        target = _placed(parent, _slug(str(root.get("name") or given.stem)))
+        # Named for what it is, not for how every shared study's title begins.
+        title = re.sub(r"(?i)^a fastmdxplora study of\s+", "",
+                       str(root.get("name") or given.stem))
+        target = _placed(parent, _slug(title))
         held = root.get("fmx:placeholders")
         holding = next((p for p in (held if isinstance(held, list) else [])
                         if isinstance(p, dict) and p.get("fmx:placeholder") == STUDY), {})

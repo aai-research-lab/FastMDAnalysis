@@ -83,8 +83,9 @@ simulated a system prepared elsewhere: the study's own shared one
 whatever the package: the system as OpenMM built it (`system.xml`, which the
 run finds it by, from its SHA-256), the state it starts from, its topology and
 its setup record (`setup_parameters.json`, with the ligand's chemistry beside
-it). A system kept outside the study is carried once, however many runs used
-it, in `prepared/<name>/`, named from the folder the runs name it by, and every
+it). A system kept outside the study, or in a folder of it a shared study leaves
+out (one whose name begins with a dot, a run's folder the record of runs does
+not name), is carried once, however many runs used it, in `prepared/<name>/`, named from the folder the runs name it by, and every
 path to that folder is said as the folder it is carried in
 (`__FASTMDX_STUDY__/prepared/<name>`, below), and each run's record of the way
 from it to the system (`relative_to_run`) is written as the way in the archive,
@@ -96,8 +97,9 @@ where the system was when the study ran are said as the folder it is carried in
 too. A run whose system is not found, or
 is another one now, keeps the study back (`environment.share.not_finished`,
 naming the run and the system): shared without it, the run would be opened
-with no record of the system it simulated. `system.xml` and the states beside
-it are packed byte for byte, never read for paths, as a run finds its system
+with no record of the system it simulated; so does one kept as links, which
+are never packed (put the files they lead to in their place). `system.xml` and
+the states beside it are packed byte for byte, never read for paths, as a run finds its system
 by `system.xml`'s SHA-256. A window of an umbrella study simulates from its
 seed, which keeps no setup record; the preparation the seed was taken from is
 carried the same way.
@@ -137,6 +139,9 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
   computer that ran it;
 - the computer's name replaced by `__FASTMDX_HOST__`, and a record's own
   field for it (`"host"`) whatever the name, a short one (`vm`) included.
+
+Any other path, outside the study and the home folder (a structure read from
+`/data/pdb/x.pdb`), is kept as it is written.
 
 The placeholders are safe in YAML, JSON and Markdown alike. Once written, each
 packed text file is read again, and an archive in which the study's folder, the
@@ -390,7 +395,7 @@ The packing list of the demo study, cut to one file of each kind:
 
 | Code | When |
 |---|---|
-| `environment.share.not_finished` | The study is running or stopped short, or a run of a study of several did not finish. |
+| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; or a run's prepared system is not found, is another one now, or is kept as links. |
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
 | `environment.share.not_a_study` | No packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import socket
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -380,7 +380,7 @@ def test_the_way_from_a_run_to_its_preparation_names_no_home_folder(tmp_path, mo
     reference = json.loads(texts["runs/a/simulation/simulation_parameters.json"])
     assert reference["prepared_system"]["relative_to_run"] == "../../prepared/prep/setup"
     # Named with a slash at its end, as typed.
-    assert reference["parameters"]["setup_from"] == f"{STUDY}/prepared/prep"
+    assert reference["parameters"]["setup_from"] == f"{STUDY}/prepared/prep/"
 
 
 def test_a_prepared_system_is_packed_byte_for_byte(tmp_path):
@@ -469,29 +469,67 @@ def test_a_study_moved_with_its_preparation_keeps_no_path_of_where_it_ran(tmp_pa
     assert f"setup_from: {opened.resolve()}/prepared/preparation" in config
 
 
-@pytest.mark.parametrize("where", ["a run's folder not in the record", "a dot folder",
-                                   "a link"])
-def test_a_system_inside_the_study_the_archive_cannot_carry_is_refused(tmp_path, where):
-    """Review of round 2: a run's system inside the study but in a folder the
-    archive leaves out (or kept as a link) was dropped, and the run opened
-    with none."""
+@pytest.mark.parametrize("where", ["a run's folder not in the record", "a dot folder"])
+def test_a_system_in_a_folder_the_archive_leaves_out_is_carried(tmp_path, where):
+    """Review of round 2: a run's system inside the study, in a folder the
+    archive leaves out, was dropped and the run opened with none; refused
+    then (round 3), the refusal's remedy led to another refusal."""
+    import shutil
+
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
     root = tmp_path / "campaign"
     folder = {"a run's folder not in the record": root / "runs" / "old" / "setup",
-              "a dot folder": root / ".prep" / "setup", "a link": root / "linked"}[where]
-    if where == "a link":
-        real = _prepared(tmp_path / "kept")
-        folder.mkdir(parents=True)
-        for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
-            (folder / name).symlink_to(real / name)
-    else:
-        _prepared(folder)
+              "a dot folder": root / ".prep" / "setup"}[where]
+    _prepared(folder)
+    _run(root, "a", folder, str(folder.parent))
+    _of_one_run(root)
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    names = set(zipfile.ZipFile(out).namelist())
+    carried = {"a run's folder not in the record": "prepared/old/setup/system.xml",
+               "a dot folder": "prepared/prep/setup/system.xml"}[where]
+    assert carried in names
+    assert not any(n.startswith(("runs/old/", ".prep/")) for n in names)
+    shutil.rmtree(folder.parent)
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "a") == \
+        (opened / PurePosixPath(carried).parent).resolve()
+
+
+def test_a_system_inside_the_study_kept_as_links_is_refused(tmp_path):
+    """Review of round 2: a run's system kept as links was dropped."""
+    root = tmp_path / "campaign"
+    real = _prepared(tmp_path / "kept")
+    folder = root / "linked"
+    folder.mkdir(parents=True)
+    for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
+        (folder / name).symlink_to(real / name)
     _run(root, "a", folder, str(folder))
     _of_one_run(root)
     with pytest.raises(ShareRefused) as refused:
         share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert refused.value.refusal.code == "environment.share.not_finished"
-    assert "cannot go in the archive" in str(refused.value)
+    assert "is a link" in str(refused.value)
     assert not (tmp_path / "o.zip").exists()
+
+
+def test_each_run_s_own_recorded_folder_is_said_as_its_place(tmp_path):
+    """Review of round 3: a run whose own record gives another folder than
+    the record of runs (carried on elsewhere) kept that folder's path."""
+    root, _ = _campaign(tmp_path)
+    manifest = root / "runs" / "a" / "manifest.json"
+    found = json.loads(manifest.read_text())
+    found["output_dir"] = "/somewhere/else/ws/clean-own"
+    manifest.write_text(json.dumps(found))
+    out = tmp_path / "o.zip"
+    said = share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert "/somewhere/else" not in texts["runs/a/manifest.json"]
+    assert json.loads(texts["runs/a/manifest.json"])["output_dir"] == f"{STUDY}/runs/a"
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert opened.name == "1abc-in-3-runs"
+    assert _by_id(said["crate"])["runs/a/"]["fmx:system"] == "1ABC"
 
 
 def test_a_home_reached_through_a_link_is_said_as_home(tmp_path, monkeypatch):
@@ -616,3 +654,110 @@ def test_a_study_of_one_run_is_said_so(tmp_path):
     _of_one_run(root)
     said = share_study(root, tmp_path / "o.zip", authors=AUTHORS)
     assert _by_id(said["crate"])["./"]["name"].endswith("in one run")
+
+
+def test_a_preparation_outside_holding_a_link_is_refused(tmp_path):
+    """Review of round 3: a system outside the study whose files are links
+    was carried without them, and its runs opened with none."""
+    kept = _prepared(tmp_path / "kept")
+    prep = tmp_path / "prep" / "setup"
+    prep.mkdir(parents=True)
+    for name in ("system.xml", "state.xml", "topology.pdb", "setup_parameters.json"):
+        (prep / name).symlink_to(kept / name)
+    root = tmp_path / "campaign"
+    _run(root, "a", prep, str(prep.parent))
+    _of_one_run(root)
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    assert refused.value.refusal.code == "environment.share.not_finished"
+    assert "holds a link" in str(refused.value)
+
+
+def test_a_folder_carried_from_is_one_dataset(tmp_path):
+    """Review of round 3: a study's two systems gave two entities of one
+    `@id`, each with half the runs that used it."""
+    other = tmp_path / "other"
+    _prepared(other / "setup")
+    _prepared(other / "shared_setup" / "setup")
+    root = tmp_path / "campaign"
+    _run(root, "a", other / "shared_setup" / "setup", str(other))
+    _run(root, "c", other / "setup", str(other / "setup"))
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = [{"run_id": "a"}, {"run_id": "c"}]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    said = share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    ids = [e["@id"] for e in said["crate"]["@graph"]]
+    assert len(ids) == len(set(ids))
+    carried = _by_id(said["crate"])["prepared/other/"]
+    assert sorted(u["@id"] for u in carried["fmx:usedBy"]) == ["runs/a/", "runs/c/"]
+
+
+def test_a_name_alone_keeps_what_follows_it(tmp_path):
+    """Review of round 3: the slash after a study folder's name was taken
+    with it before a character that ends a path (`/x/prep/*`)."""
+    from fastmdxplora.sharing.pack import _Scrubber
+
+    scrub = _Scrubber(["/data/camp"], [], {"/data/prep": ("prepared/prep", True)})
+    assert scrub("copied /data/prep/* here")[0] == f"copied {STUDY}/prepared/prep/* here"
+    assert scrub("setup_from: /data/prep\n")[0] == f"setup_from: {STUDY}/prepared/prep\n"
+    assert scrub("/data/prep/manifest.json")[0] == "/data/prep/manifest.json"
+
+
+def test_a_preparation_moved_into_the_study_keeps_no_path_of_where_it_was(tmp_path):
+    """Review of round 3: a study fetched back with its preparation copied
+    into it kept the path the preparation had where it ran."""
+    import shutil
+
+    ran = tmp_path / "cluster" / "job7"
+    ran.mkdir(parents=True)
+    _campaign(ran)
+    here = tmp_path / "fetched"
+    shutil.move(str(ran), here)
+    root = here / "campaign"
+    shutil.move(str(here / "preparation"), root / "preparation")
+    for run in ("a", "c"):
+        record = root / "runs" / run / "simulation" / "simulation_parameters.json"
+        found = json.loads(record.read_text())
+        found["prepared_system"]["relative_to_run"] = "../../preparation/setup"
+        record.write_text(json.dumps(found))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    for name, text in _texts_of(out).items():
+        assert str(ran) not in text, name
+    assert not any(n.startswith("prepared/") for n in zipfile.ZipFile(out).namelist())
+
+
+def test_a_folder_named_for_the_person_is_not_carried_by_that_name(tmp_path, monkeypatch):
+    """Review of round 3: `/scratch/<login>/setup` named by itself was carried
+    as `prepared/<login>/`, the person's name in every path of it."""
+    import getpass
+
+    monkeypatch.setattr(getpass, "getuser", lambda: "u7x3q")
+    prep = _prepared(tmp_path / "scratch" / "u7x3q" / "setup")
+    root = tmp_path / "campaign"
+    _run(root, "a", prep, str(prep))
+    _of_one_run(root)
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    names = zipfile.ZipFile(out).namelist()
+    assert not any("u7x3q" in n for n in names)
+    assert "prepared/preparation/setup/system.xml" in names
+
+
+def test_the_recorded_seeds_study_is_shared_and_opened(tmp_path):
+    """A study of three replicas as FastMDXplora wrote one (the records of
+    tests/data/report_traced/seeds), named for its system, not its file."""
+    import shutil
+
+    from fastmdxplora.gui.exploration import runs_of_a_study
+    from fastmdxplora.gui.workspace import study_state
+
+    root = tmp_path / "seeds"
+    shutil.copytree(Path(__file__).parent / "data" / "report_traced" / "seeds", root)
+    said = share_study(root, tmp_path / "seeds.zip", authors=AUTHORS)
+    assert _by_id(said["crate"])["./"]["name"] == "A FastMDXplora study of tri-ala, in 3 runs"
+    opened = open_shared(str(tmp_path / "seeds.zip"), into=tmp_path / "x")
+    assert opened.name == "tri-ala-in-3-runs"
+    assert study_state(opened) == "completed"
+    assert [r["state"] for r in runs_of_a_study(opened)] == ["completed"] * 3
