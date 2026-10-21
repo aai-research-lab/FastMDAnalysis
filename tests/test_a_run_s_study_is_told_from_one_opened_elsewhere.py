@@ -938,6 +938,164 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
     assert errors == []
 
 
+def _held_for_the_run(page, session, here, other, words):
+    """Enter during the launch (held); the launch answers, and the page sees
+    `other` first: the held message is kept for the run's study (run1)."""
+    from fastmdxplora.gui.workspace import study_key
+
+    held, answered = [], []
+    page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
+    _say(page, "chignolin")
+    page.wait_for_selector(_RUN)
+    _shows(page, study_key(here))
+    page.wait_for_timeout(800)
+    _hold(page, held)
+    page.click(_RUN)
+    page.focus("#agent-request")
+    page.keyboard.type(words)
+    page.keyboard.press("Enter")
+    while not answered:
+        page.wait_for_timeout(50)
+    page.wait_for_timeout(400)
+    _switch_elsewhere(session, other)
+    _release(page, held)
+    _shows(page, study_key(other))
+    page.wait_for_timeout(3000)
+    assert _unsent(page).get(study_key(here.parent / "run1")) == words
+
+
+def test_a_held_message_kept_for_the_run_s_study_blocks_nothing_and_is_sent_there(tmp_path,
+                                                                                monkeypatch):
+    """L5 1 and 2, L6 H1 and M2: a held message kept for the run's study
+    (the page saw `other` first). On `other` a question is sent at once; a
+    new chat is not held either. When another window opens the run's study,
+    the held message is back in its box and sent into the run's thread."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("About other."),
+                                             _answer("A new chat."), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.fill("#agent-request", "a question about other")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('About other.')", timeout=15000)
+        page.wait_for_timeout(500)
+        page.click("#agent-new")
+        page.fill("#agent-request", "a new chat")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('A new chat.')", timeout=15000)
+        page.wait_for_timeout(1000)
+        _switch_elsewhere(session, run)
+        _shows(page, study_key(run))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=15000)
+        page.wait_for_timeout(1000)
+        box = page.input_value("#agent-request")
+        note = _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    requests = [a.get("request") for a in asked]
+    assert requests == ["chignolin", "a question about other", "a new chat", words], requests
+    assert "a question about other" in _texts(workspace, "other/agent")
+    assert words in _texts(workspace, "run1/agent")
+    assert box == "" and "Sent once" not in note, (box, note)
+    assert errors == []
+
+
+def test_a_held_message_kept_for_a_study_is_sent_when_this_window_opens_it(tmp_path,
+                                                                           monkeypatch):
+    """L6 M1, its end: a held message kept for the run's study was said to be
+    sent once that study is open in this window, but a way of this window's
+    own (a study's tab, its address) loads the page again, and the words were
+    only put back. Opened by its address, the run's study sends it, in the
+    run's thread."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words = "held message"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Held, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.goto(session.url.split("#")[0] + "?study=" + study_key(run) + "#agent",
+                  wait_until="domcontentloaded")
+        _shows(page, study_key(run))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Held, answered.')",
+                               timeout=15000)
+        page.wait_for_timeout(1000)
+        box = page.input_value("#agent-request")
+        kept = _unsent(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert [a.get("request") for a in asked] == ["chignolin", words], asked
+    assert (asked[1].get("current_view") or {}).get("study", "").endswith("run1")
+    assert words in _texts(workspace, "run1/agent")
+    assert box == "" and words not in json.dumps(kept), (box, kept)
+    assert errors == []
+
+
+def test_two_held_messages_each_stay_with_their_study(tmp_path, monkeypatch):
+    """L5 2, steps 3 and 4: a held message kept for the run's study; on
+    `other` a message is held too (a launch of this window unanswered).
+    Another window opens the run's study: `other`'s message goes out of the
+    box, kept and held for `other`, and the run's is put back and sent in the
+    run's thread once the launch answers. Another window opens `other`
+    again: its message is sent there. The hold was one flag for the page,
+    and each switch handed it to the other study."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    run = workspace / "run1"
+    words, mine = "held for the run", "held for other"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("The run's, answered."),
+                                             _answer("Other's, answered.")])
+    try:
+        _asking(page, asked)
+        _held_for_the_run(page, session, here, other, words)
+        page.evaluate("() => window.FastMDXDashboard.studyChangeAsked()")
+        page.fill("#agent-request", mine)
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => /Sent once/.test("
+                               "(document.getElementById('agent-unsent-note') || {}).textContent)")
+        _switch_elsewhere(session, run)
+        _shows(page, study_key(run))
+        page.wait_for_timeout(1500)
+        kept = _unsent(page)
+        page.evaluate("() => window.FastMDXDashboard.studyChangeAnswered('')")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text(\"The run's, answered.\")",
+                               timeout=15000)
+        page.wait_for_timeout(1500)
+        on_run = [a.get("request") for a in asked]
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_selector("#agent-thread .agent-answer:has-text(\"Other's, answered.\")",
+                               timeout=15000)
+        page.wait_for_timeout(1000)
+        box = page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert kept.get(study_key(other)) == mine, kept
+    assert on_run == ["chignolin", words], on_run
+    assert [a.get("request") for a in asked] == ["chignolin", words, mine], asked
+    assert (asked[1].get("current_view") or {}).get("study", "").endswith("run1")
+    assert (asked[2].get("current_view") or {}).get("study", "").endswith("other")
+    assert words in _texts(workspace, "run1/agent") and mine not in _texts(workspace, "run1/agent")
+    assert mine in _texts(workspace, "other/agent") and words not in _texts(workspace, "other/agent")
+    assert box == ""
+    assert errors == []
+
+
 def test_a_config_builder_launch_takes_only_its_run_s_study_as_its_own(browser, site,  # noqa: F811
                                                                          monkeypatch):
     """L1 4 and L2 M2: the Config Builder's Start pressed, another window

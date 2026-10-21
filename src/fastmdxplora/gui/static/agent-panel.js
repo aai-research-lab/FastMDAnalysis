@@ -1380,7 +1380,8 @@
       return f && typeof f === "object" && typeof f.path === "string" && typeof f.name === "string"
         && typeof f.size === "number";
     }).slice(0, 6) : [];
-    return { words: typeof kept.words === "string" ? kept.words.slice(0, 100000) : "", files: files };
+    return { words: typeof kept.words === "string" ? kept.words.slice(0, 100000) : "", files: files,
+             held: kept.held === true };
   }
   /* Unsent work this page holds that nothing outside it keeps: what the
    * browser is asked to leave the page over. */
@@ -1418,6 +1419,17 @@
         }
       });
     });
+  }
+  /* The kept words of `key` are a message held to be sent: marked so with
+   * them, they are held again when they are put back (`putBack`). */
+  function keepHeld(key) {
+    if (heldInPage[key]) { heldInPage[key].held = true; return; }
+    try {
+      var kept = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + key) || "null");
+      if (!kept || typeof kept !== "object") return;
+      kept.held = true;
+      sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify(kept));
+    } catch (e) { /* kept unmarked: put back, not sent */ }
   }
   /* Forgotten: a study's tab closed, or its folder gone (study-tabs.js). The
    * words on screen stay, with the study they were typed for. */
@@ -1523,8 +1535,11 @@
       restoring -= 1;
       var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
       if (sendHeld) {
-        /* Held to be sent: it goes with its study, and is sent there. */
-        heldFor = was;
+        /* Held to be sent: it goes with its study, marked held, and is sent
+         * there; nothing on the study shown is held for it (CI-774 reviews
+         * L5 and L6). */
+        sendHeld = false;
+        keepHeld(was);
         unsentSaid("The message held to be sent is kept for " + forTitle + ", not sent here: "
                    + "it is sent once " + forTitle + " is open in this window" + last, "moved", was);
       } else {
@@ -1584,9 +1599,14 @@
     keepUnsent();
     /* Open now: a note that its words are kept for it says so no more. */
     if (noteKind === "moved" && noteAbout === key) unsentSaid("");
-    if (sendHeld && heldFor === key) {
-      heldFor = "";
-      if (words.trim()) sayHeld();
+    /* A message held to be sent, kept for this study as it went: held
+     * again, and sent by the one rule (`sendWaits`). Words typed here
+     * beside it are the person's to send. */
+    if (kept && kept.held && words.trim() === kept.words.trim()) sendHeld = true;
+    if (sendHeld && words.trim()) {
+      /* Said beside where other words went, if that is said. */
+      var host = el("agent-unsent-note");
+      sayHeld(noteKind === "moved" && host ? { text: host.textContent, about: noteAbout } : null);
     }
     wakeHeldSend();
   }
@@ -4197,22 +4217,27 @@
    * and kept is held in the box, and sent once it can. The one rule: not
    * while the page is going, a launch is unanswered, or a conversation is
    * being read; not before the page has read where the GUI is once every
-   * launch answered; not while the thread on screen is one a run took to a
-   * study the page does not show; and, held for a study it was kept for,
-   * not until that study is shown. A reply is never asked with one study
-   * open and kept in another's thread (CI-774 reviews L1 to L4). */
+   * launch answered; and not while the thread on screen is one a run took
+   * to a study the page does not show. Held for the study shown only: one
+   * whose words are moved out for the study they were typed for is kept
+   * with them, marked held (`keepHeld`), and held again by this rule when
+   * they are put back in that study's box (`putBack`); no message on
+   * another study waits for it. A reply is never asked with one study open
+   * and kept in another's thread (CI-774 reviews L1 to L6). */
   var sendHeld = false;
-  var heldFor = "";
   function sendWaits() {
     if (leaving || launching > 0 || reading > 0) return true;
     var dashboard = window.FastMDXDashboard;
     if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) return true;
     var shown = shownStudy();
-    if (heldFor && heldFor !== shown) return true;
     return Boolean(conv.ranTo && conv.ranTo !== shown);
   }
-  function sayHeld() {
-    unsentSaid("Sent once this page has read which study is open and its conversation.", "held");
+  /* A note said beside the held one: said again once it is sent. */
+  var heldBeside = null;
+  function sayHeld(beside) {
+    heldBeside = beside || null;
+    unsentSaid((heldBeside ? heldBeside.text + " " : "")
+               + "Sent once this page has read which study is open and its conversation.", "held");
   }
   function holdSend() {
     if (!sendHeld) {
@@ -4234,8 +4259,11 @@
   function sendHeldNow() {
     if (!sendHeld || sendWaits()) return;
     sendHeld = false;
-    heldFor = "";
-    if (noteKind === "held") unsentSaid("");
+    if (noteKind === "held") {
+      if (heldBeside) unsentSaid(heldBeside.text, "moved", heldBeside.about);
+      else unsentSaid("");
+    }
+    heldBeside = null;
     draft();
   }
   var reading = 0;
