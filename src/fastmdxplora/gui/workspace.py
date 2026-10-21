@@ -1152,7 +1152,8 @@ def _how_far(base: Path, batch: Any, card: dict[str, Any],
     the page works out its progress and time left from, as the Overview and
     the status bar do (run-progress.js): each run's steps taken and planned,
     and for a run going its record and its newest samples; how the study
-    runs them (``mode``, ``workers``, from its Config's ``execution``). For
+    runs them (``mode``, ``workers``, from what its runner recorded in its
+    ``batch_manifest.json``, else its Config's ``execution``). For
     a study of one run, what was read of it is put in ``seen`` (``times``,
     ``running``)."""
     from fastmdxplora import record_access
@@ -1231,8 +1232,13 @@ def _how_far(base: Path, batch: Any, card: dict[str, Any],
     if of_runs:
         out["lengths"] = lengths
     if card.get("state") == "running" and any(r["state"] == "going" for r in paced):
+        # How the runner ran them, as it recorded (the workers it resolved
+        # where the Config set only ``mode: parallel``); else as the Config
+        # asks.
+        recorded = batch.get("execution") if of_runs else None
         execution = config.get("execution") if isinstance(config, dict) else None
-        execution = execution if isinstance(execution, dict) else {}
+        execution = (recorded if isinstance(recorded, dict) and recorded.get("mode")
+                     else execution if isinstance(execution, dict) else {})
         devices = execution.get("devices")
         workers = execution.get("workers") or (len(devices) if isinstance(devices, list) else None)
         mode = execution.get("mode") or ("parallel" if workers else "sequential")

@@ -145,6 +145,12 @@ def test_a_study_of_runs_counts_every_run_as_it_runs_them(tmp_path):
     unknown = _how_far(study, batch, {"state": "running"},
                        config={"execution": {"mode": "parallel"}})
     assert _paced(unknown["pace"])["seconds"] is None
+    # The workers its runner resolved and recorded, where the Config set
+    # only the mode: what it ran on, read first.
+    recorded = _how_far(study, {**batch, "execution": {"mode": "parallel", "workers": 3}},
+                        {"state": "running"}, config={"execution": {"mode": "parallel"}})
+    assert recorded["pace"]["workers"] == 3
+    assert _paced(recorded["pace"])["seconds"] == pytest.approx(300)
     # A run not begun where a length is swept: what was planned not known.
     (study / "runs" / "seed3" / "simulation" / "live_status.json").unlink()
     (study / "runs" / "seed3" / "simulation" / "live_metrics.csv").unlink()
