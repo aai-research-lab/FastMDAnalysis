@@ -547,8 +547,8 @@ def _card_read_once(base: Path) -> dict[str, Any]:
         card["means"] = part("means", lambda: [{"analysis": name, **mean}
                                                for name, mean in _means(base)], [])
     else:
-        card["means"] = part("means", lambda: _ensemble_means(base), [])
         card["runs"] = _runs_count(batch)
+        card["means"] = part("means", lambda: _ensemble_means(base, card["runs"]), [])
     if "length" not in unread:
         # A run's records not read: how long it ran is not a sum of the rest.
         card.update(far)
@@ -1051,14 +1051,16 @@ def _runs_count(batch: dict[str, Any]) -> int:
     return int(batch.get("n_runs") or len(planned) or 0)
 
 
-def _ensemble_means(base: Path) -> list[dict[str, Any]]:
+def _ensemble_means(base: Path, of: int | None = None) -> list[dict[str, Any]]:
     """The means of a study of replicas, as the runs' table gives them
     (`runs_compared`): its runs' records together (`batch.aggregate`, read
     as they stand, nothing written), each quantity's mean of means with its
     error and the spread, or without an error and why, by the one
     derivation (`runs_compared.mean_of_replicas`). The study's
     `members.json` is not read: written when its runs ended, it can say
-    less than their records now do, and a study need not keep one."""
+    less than their records now do, and a study need not keep one. A
+    mean of fewer replicas than the study's ``of`` runs keeps ``of``, and
+    says so."""
     from fastmdxplora.batch.aggregate import aggregate_members
     from fastmdxplora.gui.report_dashboard import unit_of
     from fastmdxplora.gui.runs_compared import mean_of_replicas
@@ -1070,7 +1072,7 @@ def _ensemble_means(base: Path) -> list[dict[str, Any]]:
     out = []
     for name in _in_order(analyses):
         found = analyses.get(name)
-        together = mean_of_replicas(found) if isinstance(found, dict) else None
+        together = mean_of_replicas(found, of=of) if isinstance(found, dict) else None
         if together is None:
             continue
         members = [m for m in found.get("members") or [] if isinstance(m, dict)]
@@ -1078,7 +1080,8 @@ def _ensemble_means(base: Path) -> list[dict[str, Any]]:
                     "error": together["error"], "spread": together["spread"],
                     "replicas": together["runs"],
                     "unit": unit_of(name, members[0]) if members else "",
-                    "withheld": together["withheld"]})
+                    "withheld": together["withheld"],
+                    **({"of": together["of"]} if "of" in together else {})})
     return out
 
 

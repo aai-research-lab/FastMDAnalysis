@@ -218,7 +218,8 @@ def test_the_replicas_mean_and_error_are_the_runs_tables(tmp_path, monkeypatch):
             assert together["withheld"] in written and together["withheld"] in table["rmsd"]["said"]
         else:
             assert "is not yet an error" not in written
-    monkeypatch.setattr(runs_compared, "mean_of_replicas", lambda found: {**together, "error": 0.5})
+    monkeypatch.setattr(runs_compared, "mean_of_replicas",
+                        lambda found, of=None: {**together, "error": 0.5})
     from fastmdxplora.gui import workspace
 
     workspace._CARDS_KEPT.clear()
@@ -572,6 +573,58 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
     assert "analysis/sasa/options.json" in opened[0] and opened[1]
     assert "a link to a file outside the study" in opened[0]
     assert back
+
+
+def test_a_replicas_mean_of_fewer_runs_says_how_many(tmp_path):
+    """Replicas one of whose runs is linked out of the study (not read):
+    the other two's mean and error were given as the study's, a filled dot,
+    "Determined, with its standard error", nothing on it saying it was two
+    of three. The runs' table, by the same function, the same."""
+    import shutil
+
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.runs_compared import runs_compared
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.workspace import card_of
+
+    reps = _replicas(tmp_path / "ws" / "reps")
+    _members(reps, [0.10, 0.12, 0.14])
+    outside = tmp_path / "outside" / "seed2"
+    shutil.move(str(reps / "runs" / "seed2"), str(outside))
+    (reps / "runs" / "seed2").symlink_to(outside)
+    (mean,) = card_of(reps)["means"]
+    assert (mean["replicas"], mean["of"]) == (2, 3)
+    # seed1 and seed3: their spread, 0.0283, over the square root of the two.
+    assert mean["error"] == pytest.approx(0.02)
+    # The runs' table: a run that gave no mean, by the same function.
+    whole = _replicas(tmp_path / "ws2" / "whole")
+    _members(whole, [0.10, 0.12, 0.14])
+    (together,) = [m["ensemble"] for m in runs_compared(whole)["measures"]]
+    assert together["runs"] == 3 and "of" not in together
+    (whole / "runs" / "seed3" / "analysis" / "rmsd" / "options.json").unlink()
+    (together,) = [m["ensemble"] for m in runs_compared(whole)["measures"]]
+    assert (together["runs"], together["of"]) == (2, 3)
+    session = start_dashboard_session(output=str(reps), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path / 'ws')!r})")
+            item = '#studies-table tr.studies-row[data-path$="/reps"] .studies-mean-item'
+            page.wait_for_selector(item)
+            said = page.inner_text(item)
+            title = page.get_attribute(item, "title")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert "from 2 of 3 replicas" in said
+    assert title == ("Determined: the mean of the means from 2 of the study's 3 replicas, its "
+                     "error their spread over √2")
 
 
 def test_a_study_that_ran_is_not_said_not_started(tmp_path):

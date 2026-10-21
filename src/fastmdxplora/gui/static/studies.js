@@ -476,7 +476,16 @@
                    make("span", "studies-mean-n", said.slice(at + 2)));
     }
     item.append(dot, make("span", "studies-mean-k", m.label || m.analysis), value);
-    item.title = m.withheld ? "Not determined: " + firstSentence(m.withheld) + " (M for why)"
+    // Replicas' mean of fewer runs than the study has (one not read, not
+    // ended, or without it): said on it, never given as every run's.
+    if (m.replicas && m.of) {
+      item.appendChild(make("span", "studies-mean-of muted", "from " + m.replicas + " of " + m.of + " replicas"));
+    }
+    var from = m.of ? "from " + m.replicas + " of the study's " + m.of + " replicas"
+      : m.replicas ? "from its " + m.replicas + " replicas" : "";
+    item.title = m.withheld ? "Not determined: " + firstSentence(m.withheld) + (from ? " Its mean is " + from + "." : "") + " (M for why)"
+      : m.error != null && m.replicas ? "Determined: the mean of the means " + from
+        + ", its error their spread over √" + m.replicas
       : m.error != null ? "Determined, with its standard error" : "Recorded without an error";
     return item;
   }
