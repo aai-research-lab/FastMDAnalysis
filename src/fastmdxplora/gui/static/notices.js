@@ -36,6 +36,8 @@
     try {
       var kept = JSON.parse(localStorage.getItem(SAVED) || "[]");
       notices = Array.isArray(kept) ? kept.filter(function (n) { return n && typeof n.said === "string"; }) : [];
+      // A folder is kept only by what opens it.
+      notices.forEach(function (n) { if (n.act !== "overview") n.folder = ""; });
       seenAt = Number(localStorage.getItem(SEEN)) || 0;
     } catch (e) { notices = []; }
   }
@@ -54,7 +56,9 @@
   }
 
   /* A notice saved: the same words of the same kind within two seconds are
-   * one (a toast shown again as a page is drawn again). */
+   * one (a toast shown again as a page is drawn again). Saved is what was
+   * said, the study's name and, only for what opens it (a run's end), its
+   * folder: nothing of the study the notice did not show. */
   function add(kind, said, about, act) {
     said = String(said || "").replace(/\s+/g, " ").trim();
     if (!said) return;
@@ -62,8 +66,8 @@
     var last = notices[0];
     if (last && last.said === said && last.kind === kind && now - last.at < 2000) return;
     var where = about || study();
-    notices.unshift({ at: now, kind: kind, said: said, folder: where.folder || "", name: where.name || "",
-                      act: act || "" });
+    notices.unshift({ at: now, kind: kind, said: said, name: where.name || "", act: act || "",
+                      folder: act === "overview" ? where.folder || "" : "" });
     if (notices.length > MOST) notices.length = MOST;
     write();
     drawBell();
@@ -109,6 +113,14 @@
         { folder: d.study || study().folder, name: d.name || study().name }, "overview");
   });
 
+  /* A refusal as a notice says it: its first line, at most 200
+   * characters; what follows (a traceback, the paths in it) stays in the
+   * Log. */
+  function firstLine(text) {
+    var line = String(text || "").split(/\r?\n/)[0].trim();
+    return line.length > 200 ? line.slice(0, 199) + "\u2026" : line;
+  }
+
   // A refusal the Log reads, written while the page is open: the events a
   // study had when it was first read are its past, the Log's to show.
   var since = {};
@@ -123,7 +135,7 @@
     events.forEach(function (e) {
       var at = Date.parse(e.timestamp || "");
       if (!isFinite(at) || at <= from || typeof d.refused !== "function" || !d.refused(e)) return;
-      add("refused", e.message, where);
+      add("refused", firstLine(e.message), where);
     });
     since[where.folder] = Math.max(from, newest);
   });

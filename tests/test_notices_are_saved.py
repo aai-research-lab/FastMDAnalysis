@@ -182,3 +182,35 @@ def test_a_notice_opens_another_study_only_as_every_switch_does(tmp_path):
     assert errors == []
     assert held == {"switches": [], "hash": "#analysis", "open": str(alpha)}
     assert len(switches) == 1
+
+
+def test_a_notice_saves_only_what_it_said(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(60000)
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("body.state-ready")
+        page.wait_for_function("() => !!window.FastMDXNotices")
+        page.evaluate("() => window.FastMDXDashboard.toast('Saved the view.', 'ok')")
+        page.evaluate("""() => window.dispatchEvent(new CustomEvent('fmx:events', {
+            detail: {events: [], refused: () => true}}))""")
+        page.evaluate("""([at, where]) => window.dispatchEvent(new CustomEvent('fmx:events', {
+            detail: {events: [{timestamp: at, message: 'analysis.rmsd.selection is refused: no atoms\\n'
+                + 'Traceback (most recent call last):\\n  File "' + where + '/secret_notes.py", line 3'}],
+                     refused: () => true}}))""", [later, str(alpha)])
+        page.evaluate(ENDED, str(beta))
+        page.wait_for_function("() => window.FastMDXNotices.all.length === 3")
+        saved = page.evaluate("() => JSON.parse(localStorage.getItem('fmx.notices'))")
+        browser.close()
+    said = {n["kind"]: n for n in saved}
+    assert said["refused"]["said"] == "analysis.rmsd.selection is refused: no atoms"
+    # The study's folder only where it opens the study (a run's end).
+    assert said["ok"]["folder"] == "" and said["refused"]["folder"] == ""
+    assert said["ended"]["folder"] == str(beta)
+    assert "secret_notes" not in json.dumps(saved) and str(alpha) not in json.dumps(saved)
