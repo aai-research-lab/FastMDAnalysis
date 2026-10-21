@@ -287,7 +287,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   ceiling); the replicas' mean of means and its error are the runs' table's
   own. Why a mean is not determined is reached from the keyboard on its
   row. Bound beyond this computer, Tag, Archive, Open, Files and Compare
-  are not offered.
+  are not offered. In a column too narrow for the table (the side panel
+  open, or the Agent beside, on a laptop) each study is two or three lines,
+  as on a phone, rather than a table scrolled sideways; the bar for the
+  studies chosen no longer covers the last row.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
