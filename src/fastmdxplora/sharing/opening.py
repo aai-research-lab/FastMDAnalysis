@@ -112,6 +112,11 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                     start = _range_start(answer) if answer.status == 206 else 0
                     if not size:
                         size = _whole_size(answer, start or 0)
+                        if size > most:
+                            raise ShareRefused(
+                                f"{url} holds {size / 1e9:.1f} GB, over {most / 1e9:.1f} GB; "
+                                "nothing was kept. Allow more with --open-most-gb.",
+                                code="environment.share.too_large", url=url)
                     if start is None and answer.status == 206:
                         # A part, not saying of what: taken as following
                         # what is here only where that was asked for.
@@ -196,11 +201,19 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             raise ShareRefused(_no_room(room or to.parent, unwritten, _got(read, size)),
                                code="environment.share.too_large",
                                path=str(room or to.parent)) from unwritten
+        if unwritten.errno == errno.EFBIG:
+            raise ShareRefused(
+                f"The shared study could not be written to {room or to.parent}: the disk "
+                f"there takes no file this large ({unwritten.strerror}). Open it into a "
+                "folder on another disk.", code="environment.share.too_large",
+                path=str(room or to.parent)) from unwritten
         raise unwritten
     if md5 and digest.hexdigest() != md5:
         raise ShareRefused(
             f"What {url} sent is not the file Zenodo recorded (MD5 {digest.hexdigest()}, "
-            f"not {md5}); nothing was kept.", code="environment.share.unverified", url=url)
+            f"not {md5}); nothing was kept. Open it again: if it says so again, the file "
+            "Zenodo serves is not the one it recorded.", code="environment.share.unverified",
+            url=url)
     if said:
         said(f"Downloaded {read / 1e6:.1f} MB.")
 
@@ -425,8 +438,14 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             try:
                 record = archive_of(site, number, said)
             except ShareRefused as exc:
-                raise ShareRefused(f"{exc} Nothing was kept; open it again later.",
-                                   code=exc.refusal.code) from exc
+                if not getattr(exc, "later", False):
+                    # No such record, or no one study in it: no later mends it.
+                    raise
+                said_so = str(exc).rstrip()
+                raise ShareRefused(
+                    f"{said_so}{'' if said_so.endswith('.') else '.'} Nothing was kept; open "
+                    "it again later.", code=exc.refusal.code,
+                    url=getattr(exc.refusal, "details", {}).get("url", "")) from exc
             if record["size"] and record["size"] > most_bytes:
                 raise ShareRefused(
                     f"Zenodo's record {number} holds {record['name']} of "

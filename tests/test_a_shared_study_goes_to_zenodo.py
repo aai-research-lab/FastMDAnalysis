@@ -49,7 +49,8 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
                 "links": {"bucket": f"{self._base()}/files/b{number}",
                           "html": f"{self._base()}/uploads/{number}",
                           "latest_draft": f"{self._base()}/api/deposit/depositions/8"},
-                "files": [{"id": "f1"}] if type(self).stored.get("archive") else []}
+                "files": [{"id": "f1", "filename": type(self).stored.get("name")}]
+                if type(self).stored.get("archive") else []}
 
     def do_POST(self):  # noqa: N802
         type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
@@ -138,10 +139,13 @@ def test_a_draft_is_made_with_its_doi_in_the_archive(tmp_path, zenodo):
     assert all(auth == "Bearer sandbox-token" for _, _, auth in zenodo.calls)
     assert not any("publish" in path for _, path, _ in zenodo.calls)
     assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
-    # Shared again before it was published: the same draft, its file replaced.
+    # Shared again before it was published: the same draft, its file
+    # replaced by the upload of the same name, never taken away first.
+    zenodo.calls.clear()
+    zenodo.stored["archive"] = b"the archive it had"
     assert _share_to_zenodo(study, out) == 0
-    assert ("DELETE", "/api/deposit/depositions/7/files/f1", "Bearer sandbox-token") \
-        in zenodo.calls
+    assert not any(method == "DELETE" for method, _, _ in zenodo.calls)
+    assert zenodo.stored["archive"] == out.read_bytes()
     # Shared again once published: a new version of the record.
     zenodo.submitted = True
     assert _share_to_zenodo(study, out) == 0

@@ -25,7 +25,8 @@ which Zenodo answers before doing anything. A new draft is asked for with a
 title of its own (:func:`_marked`) recorded in the study first: where the
 answer is lost after Zenodo may have made it (a 5xx, a connection cut), the
 draft of that title is looked for and taken as this one, then and at the
-next share, so a draft is never made twice and never one the person made.
+next share; a draft made twice that way (one Zenodo listed only late) is
+named for the person to delete, and one the person made is never taken.
 """
 
 from __future__ import annotations
@@ -164,13 +165,17 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
             except (OSError, http.client.HTTPException):
                 # The answer's own words cut short: said without them.
                 answered = ""
-            why = {401: "the token was refused", 403: "the token may not do this (its scopes)",
+            why = {401: "the token was refused (make one with the deposit:write scope, and "
+                        "give it in ZENODO_TOKEN, or ZENODO_SANDBOX_TOKEN for the sandbox)",
+                   403: "the token may not do this (its scopes: deposit:write, and "
+                        "deposit:actions for a new version of a published record)",
                    404: "no such record or draft",
                    429: f"too many requests, still after {attempt} tries"}.get(
                 exc.code, f"HTTP {exc.code}" + (f", still after {attempt} tries"
                                                  if exc.code in AGAIN and attempt > 1 else ""))
             refused = ShareRefused(f"Zenodo answered {method} {url}: {why}. {answered}".strip(),
                                    code="environment.service.unreachable", url=url)
+            refused.later = exc.code in AGAIN or exc.code >= 500
             # Zenodo, or the gateway before it, gave up part way: what was
             # asked may have been done.
             refused.unclear = exc.code >= 500
@@ -189,6 +194,7 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
             # connecting): nothing was done. Lost once it had gone, waiting
             # for or reading the answer: it may have been.
             refused.unclear = not isinstance(exc, urllib.error.URLError)
+            refused.later = True
             raise refused from exc
         finally:
             if isinstance(data, _Progress):
@@ -317,7 +323,11 @@ def _taken(depositions: str, token: str, title: str, made: list[str],
             "share again.", code="environment.service.unusable_response")
     if said:
         said(f"Zenodo made draft {made[0]} though its answer was lost; taking that one.")
-    return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
+    try:
+        return _call("GET", f"{depositions}/{made[0]}", token=token, said=said)
+    except ShareRefused as exc:
+        raise ShareRefused(f"{exc} Draft {made[0]} is as it was; share again once Zenodo "
+                           "answers, and it is taken then.", code=exc.refusal.code) from exc
 
 
 def _new_draft(depositions: str, token: str, title: str,
@@ -330,6 +340,9 @@ def _new_draft(depositions: str, token: str, title: str,
                      body={"metadata": {"prereserve_doi": True, "title": title}}, said=said)
     except ShareRefused as exc:
         if not getattr(exc, "unclear", False):
+            if getattr(exc, "later", False):
+                raise ShareRefused(f"{exc} Nothing was made; share again once Zenodo answers.",
+                                   code=exc.refusal.code) from exc
             raise
         for wait in _LOOKS_S:
             if wait:
@@ -342,8 +355,29 @@ def _new_draft(depositions: str, token: str, title: str,
                 return _taken(depositions, token, title, made, said)
         raise ShareRefused(
             f"{exc} Zenodo may still make the draft (titled {title!r}): sharing again looks "
-            "for it first and finishes it, rather than making another.",
+            "for it first and finishes it; one it makes later still is named for you to "
+            "delete.",
             code=exc.refusal.code) from exc
+
+
+def _changed_since(record: dict[str, Any], draft: dict[str, Any]) -> str:
+    """What a draft of a new version holds that the record it was made from
+    does not (its title, its description, its files): said, or "" where
+    the draft is as Zenodo began it."""
+    said = []
+    was = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    now = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
+    for key in ("title", "description"):
+        if now.get(key) and now.get(key) != was.get(key):
+            said.append(f"its {key}")
+
+    def names(entry: dict[str, Any]) -> set[str]:
+        return {str(f.get("filename") or f.get("key") or "") for f in entry.get("files") or []
+                if isinstance(f, dict)}
+
+    if names(draft) - names(record):
+        said.append("its files")
+    return ", ".join(said)
 
 
 def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -417,11 +451,24 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     version = int(earlier.get("version") or (0 if earlier.get("id") else 1)) \
         + (1 if earlier.get("id") else 0)
     deposition: dict[str, Any] | None = None
+    # The published record a draft of a new version was made from: its
+    # draft deleted, a new version of it is made again, not a record of its
+    # own.
+    published = str(earlier.get("record") or "")
     if earlier.get("id"):
         versioning = False
         try:
             found = _call("GET", f"{depositions}/{earlier['id']}", token=token,
                           missing_ok=True, said=said)
+            if not isinstance(found, dict) and published and published != str(earlier["id"]):
+                found = _call("GET", f"{depositions}/{published}", token=token,
+                              missing_ok=True, said=said)
+                if isinstance(found, dict) and found.get("submitted"):
+                    if said:
+                        said(f"The draft {earlier['id']} of a new version is gone from {site}; "
+                             f"making a new version of record {published} again.")
+                    # The version that draft was to be, never published.
+                    version = int(earlier.get("version") or 2)
             if not isinstance(found, dict):
                 if said:
                     said(f"The draft or record {earlier['id']} this study was shared as is gone "
@@ -432,6 +479,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 deposition, version = found, int(earlier.get("version") or 1)
             else:
                 versioning = True
+                published = str(found["id"])
                 newer = _call("POST", f"{depositions}/{found['id']}/actions/newversion",
                               token=token, said=said)
                 latest = str(((newer or {}).get("links") or {}).get("latest_draft") or "")
@@ -439,6 +487,15 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                     raise ShareRefused("Zenodo made no new version of the record.",
                                        code="environment.service.unreachable")
                 deposition = _call("GET", latest, token=token, said=said)
+                changed = _changed_since(found, deposition)
+                if changed:
+                    # Zenodo keeps one draft of a new version, and returns it
+                    # whoever began it: one the person has changed is theirs.
+                    raise ShareRefused(
+                        f"Zenodo holds a draft of a new version of record {published} "
+                        f"({latest.rsplit('/', 1)[-1]}) that has been changed ({changed}): "
+                        "publish or delete it there, then share again.",
+                        code="environment.service.unusable_response", url=latest)
         except ShareRefused as exc:
             began = versioning and getattr(exc, "unclear", False)
             raise ShareRefused(
@@ -446,7 +503,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 + (f"Zenodo may have begun the new version of record {earlier['id']}: look "
                    "among your uploads for its draft, then share again once Zenodo answers."
                    if began else f"The draft or record {earlier['id']} the study was shared as "
-                   "is as it was; share again once Zenodo answers."),
+                   "is as it was" + ("; share again once Zenodo answers."
+                                     if getattr(exc, "later", False) else ".")),
                 code=exc.refusal.code) from exc
     title = ""
     if deposition is None and earlier.get("asked_as") and not earlier.get("id"):
@@ -473,6 +531,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         raise ShareRefused("Zenodo made no draft.", code="environment.service.unreachable")
     identifier = str(deposition["id"])
     kept[site] = {"id": identifier, "version": version}
+    if published and published != identifier:
+        kept[site]["record"] = published
+    if earlier.get("asked_as"):
+        # Asked for again under that title: a draft Zenodo lists under it
+        # later is the first made, to be named.
+        kept[site]["asked_as"] = earlier["asked_as"]
     (study / SHARED_TO).write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
     inherited = deposition.get("metadata") if isinstance(deposition.get("metadata"), dict) \
         else {}
@@ -507,7 +571,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         uploaded = True
         for entry in earlier_files:
             name = str(entry.get("filename") or entry.get("key") or "")
-            if name != archive.name:
+            # Only another archive: a record of two opens as neither. A
+            # file the person put beside it (a paper, a figure) stays.
+            if name != archive.name and name.lower().endswith(".zip"):
                 kept_other = name or "an earlier file"
                 # Gone already is what was asked: a try that did it, then
                 # lost its answer, is asked again.
@@ -519,8 +585,8 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         _call("PUT", f"{depositions}/{identifier}", token=token,
               body={"metadata": {**inherited, **ours}}, said=said)
     except ShareRefused as exc:
-        kept_as = (f"with the new archive and the earlier {kept_other}, which Zenodo did not "
-                   "take away (a record of two archives opens as neither: share again, or "
+        kept_as = (f"with the new archive and the earlier {kept_other}, which Zenodo may not "
+                   "have taken away (a record of two archives opens as neither: share again, or "
                    "delete it there, before you publish)" if kept_other
                    else "with the new archive, its description not yet written" if uploaded
                    else "with the archive it had" if earlier_files else "with no archive yet")
@@ -528,6 +594,14 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             f"{exc} The draft {page} is kept, {kept_as}: share again once Zenodo answers, "
             "and that draft is finished, not another made.",
             code=exc.refusal.code, url=page) from exc
+    twice = str(kept[site].get("asked_as") or "")
+    others = [n for n in (_marked(depositions, token, twice, said) or []) if n != identifier] \
+        if twice else []
+    if others and said:
+        said(f"Zenodo also holds draft{'s' if len(others) > 1 else ''} {', '.join(others)} "
+             f"titled {twice!r}, made by a share whose answer was lost and listed only late: "
+             f"delete {'them' if len(others) > 1 else 'it'} among your uploads "
+             f"({base}/me/uploads).")
     if said:
         said(f"Draft {f'of version {version} ' if version > 1 else ''}made: {page}"
              + (f" (DOI {doi}, reserved until you publish)." if doi else ".")

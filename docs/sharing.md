@@ -224,11 +224,13 @@ asked for under a title of its own (`FastMDXplora: sharing <study>
 (<eight letters and digits>)`, replaced by the study's once it is filled
 in), kept in `shared_to.json` first. Where the answer to making it is lost
 once the request had gone (a 5xx, a connection cut while waiting for the
-answer), your drafts are looked through for that title for about half a
-minute; at the next share, they are looked through first and, if it is not
+answer), your drafts are looked through for that title for up to about two
+minutes; at the next share, they are looked through first and, if it is not
 among them, it is asked for again under the same title. The one found is
 taken as this one: a draft you made is never taken, and two found of that
-title are named for you to delete one (`environment.service.unusable_response`).
+title are named for you to delete one (`environment.service.unusable_response`);
+one Zenodo listed only after it was asked for again is named once the share
+is done, for you to delete.
 Where Zenodo does not list your drafts at the next share, nothing is made
 until it does. The new archive is uploaded before the draft's earlier
 one is taken away: a share that Zenodo stops part way keeps the draft as it
@@ -243,10 +245,13 @@ written nowhere.
 
 The study keeps the record it was shared as in `shared_to.json`. Shared
 again before you publish, the same draft is made again with the new
-archive. Shared again after (analysed again, say), it is a draft of a new
-version of the same record, which Zenodo makes only for a token that also
-has the **deposit:actions** scope; the record's concept DOI always leads to
-its latest version.
+archive; an earlier archive of another name is taken away, and a file you
+put beside it (a paper, a figure) stays. Shared again after (analysed
+again, say), it is a draft of a new version of the same record, which
+Zenodo makes only for a token that also has the **deposit:actions** scope;
+the record's concept DOI always leads to its latest version. Zenodo keeps one draft of a new version at a time: one
+you began and changed there is not taken (publish or delete it first), and
+one deleted is begun again from the published record.
 
 ---
 
@@ -281,11 +286,11 @@ FastMDXplora:
    piece is counted only once it is written here: a disk that fills, as it
    downloads or unpacks, says so (`environment.share.too_large`), and is
    never taken for a connection lost or a damaged archive. A server that
-   will not send the rest of the file (416) is asked for the whole of it. A download that has had
-   nothing for 30 seconds counts as stalled, and is asked for again from
-   where it stopped. A folder made to open into is not left behind when
-   the study is refused. An archive of
-   10 MB or more says how much of it has come at each tenth.
+   will not send the rest of the file (416) is asked for the whole of it.
+   A download that has had nothing for 30 seconds counts as stalled, and is
+   asked for again from where it stopped. A folder made to open into is not
+   left behind when the study is refused. An archive of 10 MB or more says
+   how much of it has come at each tenth.
 3. **Unpacks it into a folder of its own**, named from its title, in
    `--open-into` (else the current folder; in the GUI, where new studies
    go), and only into it: a member with an absolute path, a `..`, a link, a
@@ -475,3 +480,4 @@ The packing list of the demo study, cut to one file of each kind:
 | `environment.share.too_large` | The archive is over the download limit, or the disk it is opened into has no room for it. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |
 | `environment.service.unreachable` | Zenodo could not be reached, refused the token, or did not answer as it documents, still after five tries where it said to ask again. |
+| `environment.service.unusable_response` | Zenodo holds what a share cannot take as its own: two drafts under the title it asked for one with (delete all but one), or a draft of a new version that has been changed (publish or delete it). |
