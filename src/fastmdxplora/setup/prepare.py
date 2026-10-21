@@ -1720,7 +1720,7 @@ def _refuse_masses_not_positive(system: Any, topology: Any,
         f"The system built gives {len(wrong)} atom(s) a mass at or below "
         f"zero: {shown}. "
         + (f"setup.hydrogen_mass_amu {hydrogen_mass_amu} takes more mass from "
-           "the heavy atoms than they have; give 4.0 or less."
+           "the heavy atoms than they have; give 4.032 or less."
            if hydrogen_mass_amu is not None else
            "Check the force field's masses."),
         code="setup.system.mass_not_positive",

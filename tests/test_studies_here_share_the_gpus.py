@@ -458,7 +458,7 @@ class TestWhatIsStartedBeside:
         gpus((0, UUID_0, 24000, 23000))
         path = workspace / "pair.yml"
         path.write_text(f"systems:\n  - system: {workspace / 'top.pdb'}\n"
-                        f"  - system: {workspace / 'top.pdb'}\n    name: b\n"
+                        f"  - system: {workspace / 'top.pdb'}\n    id: b\n"
                         "simulation:\n  duration_ns: 1\n"
                         "execution:\n  mode: parallel\n  workers: 2\noutput: pair\n")
         window = DashboardRuntime(workspace_root=workspace, exploration_root=workspace)

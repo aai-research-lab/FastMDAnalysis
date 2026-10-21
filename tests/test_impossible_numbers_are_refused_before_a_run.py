@@ -239,6 +239,7 @@ def test_setup_refuses_a_system_built_with_a_mass_at_or_below_zero() -> None:
     reaches it."""
     import pytest
 
+    pytest.importorskip("openmm")
     from fastmdxplora.refusals import StudyError
     from fastmdxplora.setup import prepare
 
@@ -246,7 +247,7 @@ def test_setup_refuses_a_system_built_with_a_mass_at_or_below_zero() -> None:
     with pytest.raises(StudyError) as caught:
         prepare._refuse_masses_not_positive(system, topology, 6.0)
     assert caught.value.code == "setup.system.mass_not_positive"
-    assert "ALA1:A0" in str(caught.value) and "4.0 or less" in str(caught.value)
+    assert "ALA1:A0" in str(caught.value) and "4.032 or less" in str(caught.value)
     system, topology = _system_of([3.011, 4.0, 14.007, 0.0])
     with pytest.raises(StudyError):
         prepare._refuse_masses_not_positive(system, topology, None)
