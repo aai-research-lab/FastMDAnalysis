@@ -191,6 +191,26 @@ def test_undo_is_offered_while_it_shows_and_not_after(browser, session) -> None:
     assert left == 0
 
 
+def test_a_view_chosen_before_the_page_s_first_state_stays_chosen(browser, session) -> None:
+    """The page's first state is said as the study changed, though it is the
+    study the page opened: a view chosen before it came was put back to none,
+    and Forget, refusing it, could not be pressed."""
+    _save(session, "kept", {"camera": CAMERA, "frame": 1})
+    page = _page(browser, session, "#viewer")
+    page.wait_for_selector("#viewer-views option[value='kept']", state="attached")
+    hooks.tool(page, "side-saved")
+    page.select_option("#viewer-views", "kept")
+    page.evaluate("""() => window.dispatchEvent(new CustomEvent('dashboard:run-changed',
+        {detail: {previousRun: '', activeRun: '', first: true}}))""")
+    page.wait_for_timeout(500)
+    chosen = page.evaluate("""() => [document.getElementById('viewer-views').value,
+        document.getElementById('viewer-view-forget').disabled]""")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert chosen == ["kept", False]
+
+
 def test_a_view_is_not_undone_into_another_study(browser, session) -> None:
     """Undo pressed after another study was opened saved or forgot the view
     in that study."""
