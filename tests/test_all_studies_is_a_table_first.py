@@ -381,7 +381,7 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
     assert first["rows"][-1] == "begun" and first["groups"] == ["Not started"]
     assert first["tabs"][:4] == ["All 4", "Running 1", "Needs more sampling 1", "Not started 1"]
     assert molecule == ["molecule", 19]
-    assert going.strip().startswith("running, 50%") and "8 ps of 20 ps · 5m 0s left" in going
+    assert going.strip().startswith("running, 50%") and "8\u00a0ps of 20\u00a0ps · 5m 0s left" in going
     assert bar == "50"
     assert means == [["false", "0.120 nm, spread 0.020"]]
     assert unfolded["children"] == 3
@@ -570,7 +570,7 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
     assert seen["over"] <= 0 and seen["past"] == [] and seen["page"] <= 0, seen
     assert seen["rows"] == rows, seen
     assert seen["sort"] and seen["all"] and seen["active"], seen
-    assert "8 ps of 20 ps" in seen["left"] and "left" in seen["left"], seen
+    assert "8\u00a0ps of 20\u00a0ps" in seen["left"] and "left" in seen["left"], seen
     assert seen["count"] == ["5 studies", True, True], seen
     # The tagged study's name kept (about 8 characters or all of it), its
     # tags under it, within its cell; the running study's name kept whole.
@@ -677,8 +677,9 @@ def test_a_study_of_runs_says_how_many_began_in_one_unit_and_when_its_run_was_ac
             browser.close()
     finally:
         session.server.shutdown()
-    assert each == {"one_begun": "1 of 3 runs begun, 8 ps",
-                    "two_begun": "2 of 3 runs begun, 0 ps to 20 ps"}
+    # A number kept with its unit (a no-break space) where the line wraps.
+    assert each == {"one_begun": "1 of 3 runs begun, 8\u00a0ps",
+                    "two_begun": "2 of 3 runs begun, 0\u00a0ps to 20\u00a0ps"}
 
 
 def _shown_at(space, width, look, *, unfold=None):
@@ -726,6 +727,44 @@ def test_an_unfolded_run_s_connector_stays_in_its_row(tmp_path, width):
             return line.content === 'none' ? 0 : parseFloat(line.height) - row.getBoundingClientRect().height;
         })""", unfold="reps")
     assert len(tall) == 3 and max(tall) <= 0, tall
+
+
+def test_a_cut_name_is_said_whole_and_a_refused_archive_says_why_once(tmp_path):
+    """A name cut by a narrow column had nothing that gave the rest; a
+    refused Archive said its reason with two full stops."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    space = tmp_path / "ws"
+    long_name = "R-batch-live-replicas-of-chignolin-at-300K-seed-7"
+    _study(space / long_name, started="2026-09-02T10:00:00+00:00")
+    out = _study(space / "tags_out", started="2026-09-03T10:00:00+00:00")
+    (tmp_path / "tags.json").write_text(json.dumps({"tags": ["elsewhere"]}), encoding="utf-8")
+    (out / "study_tags.json").symlink_to(tmp_path / "tags.json")
+    session = start_dashboard_session(output=str(out), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1250, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(space)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            title = page.get_attribute(f'tr.studies-row[data-path$="/{long_name}"] .studies-name-text',
+                                       "title")
+            page.click('#studies-table tr.studies-row[data-path$="/tags_out"] .studies-pick input')
+            page.click("#studies-archive")
+            page.wait_for_function("() => document.querySelector('.studies-bar-said')"
+                                   ".textContent.includes('not changed')")
+            said = page.inner_text(".studies-bar-said")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert title.startswith(long_name + ": open ")
+    assert said.strip().endswith("not read.") and ".." not in said, said
 
 
 def test_a_study_that_ran_is_not_said_not_started(tmp_path):

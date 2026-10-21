@@ -443,8 +443,9 @@
     // In the unit of ``unitOf`` where given (a range in one unit: "0 ps to
     // 80 ps", not "0 ns to 80 ps").
     var by = unitOf == null ? ns : unitOf;
-    if (Math.abs(by) < 1) return Number((ns * 1000).toPrecision(3)) + " ps";
-    return Number(ns.toPrecision(4)) + " ns";
+    // A no-break space: a number is not left at a line's end without its unit.
+    if (Math.abs(by) < 1) return Number((ns * 1000).toPrecision(3)) + "\u00a0ps";
+    return Number(ns.toPrecision(4)) + "\u00a0ns";
   }
 
   /* A mean as a row says it: with its error where determined; a study of
@@ -998,10 +999,11 @@
     if (noActions(study)) {
       // Reached by j and k, as a row is, but not opened here.
       named.tabIndex = 0;
-      named.title = study.path;
+      named.title = named.textContent + ": " + study.path;
     } else {
       named.type = "button";
-      named.title = "Open " + study.path;
+      // Its whole name, which a narrow column cuts, then what it does.
+      named.title = named.textContent + ": open " + study.path;
       named.addEventListener("click", function () { openStudy(study.path, named); });
     }
     line.appendChild(named);
@@ -1864,6 +1866,12 @@
   }
 
   /* What was done, said in the bar for a while, with Undo where it can be. */
+  /* A reason ended with one full stop, whether or not it came with one. */
+  function sentence(text) {
+    text = String(text || "").trim();
+    return /[.!?]$/.test(text) ? text : text + ".";
+  }
+
   function barSays(text, undo) {
     var bar = el("studies-bar");
     var said = el("studies-bar-said");
@@ -2084,7 +2092,7 @@
       var refused = results.filter(function (r) { return r.reason; });
       if (refused.length && !done.length) {
         // Nothing kept: still chosen, as they were.
-        barSays((nameOf(refused[0].path) || "A study") + ": " + refused[0].reason + ".");
+        barSays((nameOf(refused[0].path) || "A study") + ": " + sentence(refused[0].reason));
         return;
       }
       // Those kept leave the view; any refused stay chosen.
@@ -2094,7 +2102,7 @@
       draw();
       if (refused.length) {
         barSays(done.length + " of " + results.length + " " + (on ? "archived" : "back") + "; " +
-          (nameOf(refused[0].path) || "a study") + ": " + refused[0].reason + ".");
+          (nameOf(refused[0].path) || "a study") + ": " + sentence(refused[0].reason));
         return;
       }
       var said = done.length === 1 ? nameOf(done[0]) : done.length + " studies";
