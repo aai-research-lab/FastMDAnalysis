@@ -29,10 +29,11 @@ of RO-Crate's own are a *profile*, given in full below.
 
 `--share FILE` on `fastmdx report` packs the study in `--output` as it stands.
 It does not write the report again: a study whose report was never written is
-shared without one. A study still running, one that
-stopped short, or a study of several runs (share each run's folder) is
+shared without one. A study still running, or one that stopped short, is
 refused (`environment.share.not_finished`); share it once it has finished,
-after `fastmdx resume` where it stopped.
+after `fastmdx resume` where it stopped. A study of several runs (a sweep,
+several systems, an umbrella's windows) is shared whole, as one archive,
+once every one of its runs has finished (below).
 
 | Flag | What it does |
 |---|---|
@@ -61,10 +62,36 @@ followed to the file it came from, and its Config run again.
 | The report | `report.md` and the pictures it shows | the PDF, the slides and the standalone page |
 | Kept from the Viewer | saved views, named selections, scenes | movies |
 
+### A study of several runs
+
+Its folder is packed as it is laid out: its Config (`resolved_config.yml`, every
+run it makes), its record of runs (`batch_manifest.json`), each run in
+`runs/<id>/` with what the table above says of a study, and what the study made
+of its runs together: the table of members (`members.json`), the comparison
+(`comparison/`), a free energy, the seeds an umbrella's windows started from. It
+is opened as the study it was, its runs and the pages that compare them
+included. A run still going, one that stopped short, or one the record of runs
+plans that never ran keeps the whole study back
+(`environment.share.not_finished`, naming the run).
+
+### A prepared system a run simulated from
+
+A run given `simulation.setup_from` (or `prepared_from`) prepared nothing and
+simulated a system prepared elsewhere: the study's own shared one
+(`shared_setup/setup/`), or another study's. What the run needs of it goes in
+whatever the package: the system as OpenMM built it (`system.xml`, which the
+run finds it by, from its SHA-256), the state it starts from, its topology and
+its setup record (`setup_parameters.json`, with the ligand's chemistry beside
+it). A system kept outside the study is carried once, however many runs used
+it, in `prepared/<name>/`, named from the folder the runs name it by, and every
+path to that folder is said as the folder it is carried in
+(`__FASTMDX_STUDY__/prepared/<name>`, below), so a run opened elsewhere finds
+it as it did where it ran.
+
 ### What is never in it
 
-- **Conversations with the Agent** (`agent/conversations/`). They are the
-  person's working notes, not the study's record.
+- **Conversations with the Agent** (`agent/conversations/`, a run's too). They
+  are the person's working notes, not the study's record.
 - **The record of the process that ran it** (`.fastmdxplora_run.json`): the
   computer's name, its boot and the process number.
 - **Tags and notes** (`study_tags.json`), which are the person's own.
@@ -88,7 +115,9 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
 `.sdf`, `.svg`, `.html` and the like) is written with:
 
 - the study's folder replaced by `__FASTMDX_STUDY__`
-  (`__FASTMDX_STUDY__/setup/ligands/BEN.sdf`);
+  (`__FASTMDX_STUDY__/setup/ligands/BEN.sdf`), and the folder of a prepared
+  system carried from outside it by the folder it is carried in
+  (`__FASTMDX_STUDY__/prepared/reference/setup`);
 - any other path in the home folder replaced by `__FASTMDX_HOME__`
   (`__FASTMDX_HOME__/structures/x.pdb`): a file outside the study, on the
   computer that ran it;
@@ -169,7 +198,7 @@ FastMDXplora:
    `--open-into` (else the current folder; in the GUI, where new studies
    go), and only into it: a member with an absolute path, a `..`, a link, a
    device or an encryption is refused, as is what packing never writes (the
-   Agent's conversations, a process's record, a file whose name begins with
+   Agent's conversations, a run's too, a process's record, a file whose name begins with
    a dot, scratch, what was set aside) and an archive that unpacks to more
    than four times the limit (`environment.share.unsafe`). A
    `ro-crate-preview.html` is never unpacked.
@@ -188,7 +217,7 @@ FastMDXplora:
 7. **Writes `shared_from.json`**: where it came from (the DOI, the record and
    its version, or the file), the archive's SHA-256, when it was opened and
    checked, and which files step 6 rewrote.
-8. **Opens it** in the GUI.
+8. **Opens it** in the GUI; a study of several runs as one, with its runs.
 
 Nothing in an archive is run. Its Config is a file like any other, run again
 only by someone who chooses to. The report is rendered as every report is,
@@ -196,9 +225,13 @@ with raw HTML shown as text and links only within the study or to the web.
 
 ---
 
-## The profile: a FastMDXplora study, version 1.0
+## The profile: a FastMDXplora study, version 1.1
 
-Profile identifier: `https://w3id.org/fastmdxplora/study/1.0`.
+Profile identifier: `https://w3id.org/fastmdxplora/study/1.1`. Version 1.1
+adds a study of several runs and a prepared system carried from outside the
+study (10 and 11 below) to 1.0; an archive of 1.0 keeps 1.1 too. A study of
+several runs is opened by FastMDXplora 2.6.1 or later: 2.6.0 refuses its
+record of runs.
 
 An archive keeps this profile when everything below holds. "MUST" is a rule a
 reader checks, and an archive that breaks one is not opened.
@@ -224,6 +257,7 @@ reader checks, and an archive that breaks one is not opened.
    `ro-crate-preview.html`, where there is one) MUST be a `File` in the root's
    `hasPart`, its `@id` its path in the study, with `contentSize` in bytes and
    `sha256`. No `@id` of a file is absolute, a web address, or holds `..`.
+   The root's `hasPart` may also name `Dataset`s (10 and 11 below).
    Each also has a `name` (as the Files page labels it), an `encodingFormat`,
    `fmx:phase` (`study`, `setup`, `simulation`, `analysis`, `report` or
    `viewer`) and `fmx:role`, one of:
@@ -231,7 +265,7 @@ reader checks, and an archive that breaks one is not opened.
    | `fmx:role` | What the file is |
    |---|---|
    | `config` | the Config the study ran, every setting filled in |
-   | `manifest` | the Manifest |
+   | `manifest` | the Manifest, a run's, or a study of several runs' record of runs |
    | `record` | a phase's settings, a run's record, an analysis's options |
    | `structure` | a structure: deposited, prepared, or the system as simulated |
    | `ligand` | a ligand's chemistry |
@@ -259,6 +293,21 @@ reader checks, and an archive that breaks one is not opened.
 8. Each phase that ran is a `CreateAction`, as Process Run Crate describes:
    its `instrument` FastMDXplora, its `object` the files it read, its `result`
    the files it wrote, with its `startTime` and `endTime` from the Manifest.
+   Its `@id` is `#<phase>`, and in a study of several runs `#<run>/<phase>`,
+   named "Simulation of the run `<run>`" and so on.
+
+### A study of several runs
+
+10. The root lists each run in `fmx:runs`, and each is a `Dataset`, its
+    `@id` its folder (`runs/<id>/`), in the root's `hasPart` too: its `name`,
+    its `hasPart` the files of the run, its `mainEntity` the run's Config
+    (`runs/<id>/resolved_config.yml`), `fmx:system` the system it ran and
+    `mentions` its phases (8). Each file of a run says which in `fmx:run`.
+    The root's `mainEntity` is the study's Config, every run it makes.
+11. A prepared system carried from outside the study is a `Dataset`, its
+    `@id` the folder it is carried in (`prepared/<name>/`), in the root's
+    `hasPart`: its `hasPart` its files, each with `fmx:phase` `setup`, and
+    `fmx:usedBy` the runs that simulated from it.
 
 ### Reading a newer one
 
@@ -287,7 +336,7 @@ The packing list of the demo study, cut to one file of each kind:
      "datePublished": "2026-10-07",
      "license": {"@id": "https://spdx.org/licenses/CC-BY-4.0"},
      "author": [{"@id": "https://orcid.org/0000-0000-0000-0000"}],
-     "conformsTo": [{"@id": "https://w3id.org/fastmdxplora/study/1.0"},
+     "conformsTo": [{"@id": "https://w3id.org/fastmdxplora/study/1.1"},
                     {"@id": "https://w3id.org/ro/wfrun/process/0.5"}],
      "mainEntity": {"@id": "resolved_config.yml"},
      "fmx:package": "view",
@@ -314,8 +363,8 @@ The packing list of the demo study, cut to one file of each kind:
      "object": [{"@id": "setup/topology.pdb"}],
      "result": [{"@id": "simulation/production.dcd"}],
      "startTime": "2026-10-07T01:12:40+00:00", "endTime": "2026-10-07T02:02:47+00:00"},
-    {"@id": "https://w3id.org/fastmdxplora/study/1.0", "@type": ["CreativeWork", "Profile"],
-     "name": "A FastMDXplora study", "version": "1.0"}
+    {"@id": "https://w3id.org/fastmdxplora/study/1.1", "@type": ["CreativeWork", "Profile"],
+     "name": "A FastMDXplora study", "version": "1.1"}
   ]
 }
 ```
@@ -326,7 +375,7 @@ The packing list of the demo study, cut to one file of each kind:
 
 | Code | When |
 |---|---|
-| `environment.share.not_finished` | The study is running, stopped short, or is a study of several runs. |
+| `environment.share.not_finished` | The study is running or stopped short, or a run of a study of several did not finish. |
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
 | `environment.share.not_a_study` | No packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |

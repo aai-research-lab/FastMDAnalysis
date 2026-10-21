@@ -9,6 +9,13 @@ it: the Agent's conversations, the record of the process that ran it, tags
 and notes, the Viewer's scratch, what `--rerun` set aside, deposits and the
 project bundle.
 
+A study of several runs is packed whole, as its folder lays it out: its
+Config and its record of runs, each run in `runs/<id>/`, and what it made
+of them together (the table of members, the comparison, a free energy). A
+prepared system a run simulated from (`setup_from`) is carried with what a
+run needs to find it and start from it; one kept outside the study is
+carried once, in `prepared/<name>/`, and its path said as that folder.
+
 A study's records name its files by the path they were written at. Each
 text file is packed with the study's folder said as `__FASTMDX_STUDY__`,
 any other home folder's path as `__FASTMDX_HOME__` and the computer's name
@@ -58,6 +65,13 @@ _NEVER_NAMES = frozenset({"project_bundle.zip", "study_tags.json", SHARED_FROM,
                           "shared_to.json", packing_list.METADATA, packing_list.PREVIEW})
 #: The Agent's conversations with the person.
 _NEVER_FOLDERS = ("agent/",)
+#: Where a prepared system kept outside the study is carried.
+PREPARED = "prepared"
+#: What a run needs of a prepared system it simulated from: its record and
+#: the system it finds it by (`system.xml`'s SHA-256), the state it starts
+#: from and its topology. Carried whatever the package.
+_PREPARED_NEEDS = frozenset({"system.xml", "state.xml", "topology.pdb",
+                             "setup_parameters.json"})
 _NEVER_PHASES = frozenset({"scratch", "previous", "deposit"})
 
 #: Left out unless everything is asked for: what only a run needs (the
@@ -96,11 +110,11 @@ def _load(path: Path) -> Any:
 
 def finished_manifest(root: Path) -> dict[str, Any]:
     """The study's Manifest, once the study has finished; refused where it
-    is running, stopped short or holds no study."""
+    is running, stopped short or holds no study. For a study of several
+    runs, its record of runs read as one Manifest: `kind` "batch", its
+    `runs`, their systems and every run's phases, each with its `run`."""
     if (root / "batch_manifest.json").is_file():
-        raise ShareRefused(
-            f"{root} is a study of several runs; each run is shared on its own: pass "
-            "the folder of one, under runs/.", code="environment.share.not_finished")
+        return _finished_runs(root)
     manifest = _load(root / "manifest.json")
     if not isinstance(manifest, dict) or not manifest.get("phases"):
         raise ShareRefused(f"{root} holds no FastMDXplora study (no manifest.json).",
@@ -126,6 +140,69 @@ def finished_manifest(root: Path) -> dict[str, Any]:
                            "ran, which a shared study is opened by.",
                            code="environment.share.not_finished")
     return manifest
+
+
+def _finished_runs(root: Path) -> dict[str, Any]:
+    """A study of several runs, once each of its runs has finished: refused
+    where one is running, stopped short or never ran."""
+    batch = _load(root / "batch_manifest.json")
+    planned = batch.get("planned") or batch.get("runs") if isinstance(batch, dict) else None
+    ids = list(dict.fromkeys(str(entry.get("run_id")) for entry in planned or []
+                             if isinstance(entry, dict) and entry.get("run_id")))
+    if not ids:
+        raise ShareRefused(f"{root} holds a record of runs (batch_manifest.json) that names "
+                           "none.", code="environment.share.not_a_study")
+    try:
+        from fastmdxplora.gui.workspace import study_state
+
+        state = study_state(root)
+    except Exception:  # noqa: BLE001 - each run's Manifest still says how it ended
+        state = ""
+    if state == "running":
+        raise ShareRefused(f"Runs of the study in {root} are still going; share it once "
+                           "every run has finished.", code="environment.share.not_finished")
+    results = {str(r.get("run_id")): r for r in batch.get("runs") or []
+               if isinstance(r, dict)}
+    named = {str(e.get("run_id")): _system_named(e.get("system"))
+             for e in planned or [] if isinstance(e, dict)}
+    phases: list[dict[str, Any]] = []
+    systems: list[str] = []
+    for run_id in ids:
+        folder = root / "runs" / run_id
+        if PurePosixPath(run_id).name != run_id or run_id in (".", ".."):
+            raise ShareRefused(f"{root}'s record of runs names {run_id!r}, which is no run's "
+                               "folder.", code="environment.share.not_a_study")
+        if not (folder / "manifest.json").is_file() or str(
+                (results.get(run_id) or {}).get("status") or "ok") in ("error", "failed"):
+            raise ShareRefused(
+                f"The run {run_id} of the study in {root} did not finish; share the study "
+                "once every run has, after `fastmdx resume` on it.",
+                code="environment.share.not_finished")
+        member = finished_manifest(folder)
+        phases += [{**phase, "run": run_id} for phase in member.get("phases") or []
+                   if isinstance(phase, dict)]
+        named[run_id] = named.get(run_id) or _system_named(member.get("system"))
+        if named[run_id]:
+            systems.append(named[run_id])
+    if not (root / "resolved_config.yml").is_file():
+        raise ShareRefused(f"The study in {root} has no resolved_config.yml, the Config of "
+                           "all its runs, which a shared study is opened by.",
+                           code="environment.share.not_finished")
+    return {"kind": "batch", "version": str(batch.get("version") or ""),
+            "system": ", ".join(dict.fromkeys(systems)),
+            "output_dir": str(batch.get("output_dir") or ""), "runs": ids, "phases": phases,
+            "systems_of_runs": named}
+
+
+def _system_named(system: Any) -> str:
+    """A run's system as a reader knows it: a PDB entry in capitals, a
+    structure file by its name, not the path it was read from."""
+    from fastmdxplora.system_id import PDB_ID
+
+    text = str(system or "").strip()
+    if PDB_ID.match(text):
+        return text.upper()
+    return PurePosixPath(text.replace("\\", "/")).name if text else ""
 
 
 def _walk(root: Path) -> list[str]:
@@ -157,9 +234,12 @@ def _opens_with(root: Path, trajectory: str, roots: list[str]) -> str:
 
 
 def chosen_files(root: Path, everything: bool = False,
-                 roots: list[str] | None = None) -> list[dict[str, Any]]:
+                 roots: list[str] | None = None,
+                 needed: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
     """The study's files that go in, in name order, each with its phase,
-    kind, label, and for a trajectory the topology it is read with."""
+    kind, label, and for a trajectory the topology it is read with;
+    ``needed`` go in whatever the package (a prepared system a run
+    simulated from)."""
     from fastmdxplora.deposit import _trajectory_parts
     from fastmdxplora.study_files import kind_of, label_of, place
 
@@ -179,7 +259,7 @@ def chosen_files(root: Path, everything: bool = False,
     out = []
     for entry in entries:
         path = PurePosixPath(entry["path"])
-        if not everything:
+        if not everything and entry["path"] not in needed:
             if path.name in _ONLY_ALL_NAMES or path.suffix.lower() in _ONLY_ALL_SUFFIXES \
                     or _MEDOID.search(path.name) or parts.get(entry["path"]) == "segments":
                 continue
@@ -194,30 +274,42 @@ def never_shared(rel: str) -> bool:
     """Whether a path of a study is never in a shared one: its Agent
     conversations, the record of its process, tags and notes, a file or
     folder whose name begins with a dot, the Viewer's scratch, what
-    `--rerun` set aside, deposits, a study of several runs' own record."""
+    `--rerun` set aside, deposits; a run's of a study of several alike."""
     from fastmdxplora.study_files import place
 
     path = PurePosixPath(rel)
+    phase, _, inner = place(rel)
     if path.name in _NEVER_NAMES or rel.startswith(_NEVER_FOLDERS) \
-            or any(part.startswith(".") for part in path.parts) \
-            or path.name == "batch_manifest.json":
+            or inner.startswith(_NEVER_FOLDERS) \
+            or any(part.startswith(".") for part in path.parts):
         return True
-    return place(rel)[0] in _NEVER_PHASES
+    return phase in _NEVER_PHASES
 
 
-def _hosts(root: Path, manifest: dict[str, Any]) -> list[str]:
-    """The names of the computers the study ran on, as its records give them."""
+def _hosts(root: Path, manifest: dict[str, Any],
+           elsewhere: list[Path] | None = None) -> list[str]:
+    """The names of the computers the study ran on, as its records give them:
+    its own, each of its runs', and those of ``elsewhere`` (the studies its
+    prepared systems were made in)."""
     names = {socket.gethostname()}
-    for phase in manifest.get("phases") or []:
+    folders = [root, *(root / "runs" / run for run in manifest.get("runs") or []),
+               *(elsewhere or [])]
+    phases = list(manifest.get("phases") or [])
+    for folder in elsewhere or []:
+        found = _load(folder / "manifest.json")
+        phases += (found.get("phases") or []) if isinstance(found, dict) else []
+    for phase in phases:
         produced = phase.get("produced_by") if isinstance(phase, dict) else None
         if isinstance(produced, dict) and produced.get("host"):
             names.add(str(produced["host"]))
-    for record in (root / ".fastmdxplora_run.json", root / "simulation" / "live_status.json"):
-        found = _load(record)
-        if isinstance(found, dict):
-            for key in ("host", "hostname"):
-                if found.get(key):
-                    names.add(str(found[key]))
+    for folder in folders:
+        for record in (folder / ".fastmdxplora_run.json",
+                       folder / "simulation" / "live_status.json"):
+            found = _load(record)
+            if isinstance(found, dict):
+                for key in ("host", "hostname"):
+                    if found.get(key):
+                        names.add(str(found[key]))
     short = {n.split(".")[0] for n in names}
     return sorted({n for n in short if len(n) >= 3 and n.lower() not in _COMMON_HOSTS},
                   key=len, reverse=True)
@@ -242,11 +334,23 @@ class _Scrubber:
     placeholders, and finds any left: one set of patterns for both, so what
     is not replaced is not then refused."""
 
-    def __init__(self, roots: list[str], hosts: list[str]) -> None:
-        spelled = {spelling.rstrip("/\\") for root in roots if _absolute(root)
-                   for spelling in _spellings(root) if len(spelling.strip("/\\")) > 1}
-        self.roots = [re.compile(_STARTS + re.escape(r) + _ENDS)
-                      for r in sorted(spelled, key=len, reverse=True)]
+    def __init__(self, roots: list[str], hosts: list[str],
+                 carried: dict[str, tuple[str, bool]] | None = None) -> None:
+        # Each folder the study's files are said by: the study's own, and
+        # each prepared system carried in it, as the folder it is carried in
+        # (``carried``: by path, where, and whether only that path itself
+        # is said so, not what is in it). Longest first, so a folder inside
+        # another is said as its own.
+        said = {spelling.rstrip("/\\"): (STUDY, False) for root in roots if _absolute(root)
+                for spelling in _spellings(root) if len(spelling.strip("/\\")) > 1}
+        for folder, (inside, alone) in (carried or {}).items():
+            for spelling in _spellings(folder):
+                if _absolute(folder) and len(spelling.strip("/\\")) > 1:
+                    said.setdefault(spelling.rstrip("/\\"), (f"{STUDY}/{inside}", alone))
+        self.roots = [(re.compile(_STARTS + re.escape(r)
+                                  + (r"(?![\w/\\-]|\.[\w])" if said[r][1] else _ENDS)),
+                       said[r][0])
+                      for r in sorted(said, key=len, reverse=True)]
         home = str(Path.home()).rstrip("/\\")
         self.homes = [re.compile(_STARTS + re.escape(h) + _ENDS)
                       for h in sorted(_spellings(home), key=len, reverse=True)
@@ -256,8 +360,8 @@ class _Scrubber:
 
     def __call__(self, text: str) -> tuple[str, set[str]]:
         used: set[str] = set()
-        for pattern in self.roots:
-            text, n = pattern.subn(STUDY, text)
+        for pattern, replacement in self.roots:
+            text, n = pattern.subn(replacement.replace("\\", "\\\\"), text)
             if n:
                 used.add(STUDY)
         for pattern in [*self.homes, _HOMES]:
@@ -272,7 +376,7 @@ class _Scrubber:
 
     def left(self, text: str) -> str:
         """What is still there that should not be, or ''."""
-        for pattern in [*self.roots, *self.homes, _HOMES, *self.hosts]:
+        for pattern in [*(p for p, _ in self.roots), *self.homes, _HOMES, *self.hosts]:
             found = pattern.search(text)
             if found:
                 return found.group(0)
@@ -283,6 +387,7 @@ def _title_and_summary(root: Path, manifest: dict[str, Any], scrub: _Scrubber
                        ) -> tuple[str, str]:
     demo = _load(root / "demo.json")
     system = str(manifest.get("system") or root.name)
+    runs = len(manifest.get("runs") or [])
     title = str(demo.get("study") or "") if isinstance(demo, dict) else ""
     summary = ""
     try:
@@ -303,9 +408,10 @@ def _title_and_summary(root: Path, manifest: dict[str, Any], scrub: _Scrubber
                 break
         summary = " ".join(body)
     version = str(manifest.get("version") or "")
-    summary = summary or (f"A molecular dynamics study of {system}, prepared, simulated, "
+    of = f"{system}, in {runs} runs" if runs else system
+    summary = summary or (f"A molecular dynamics study of {of}, prepared, simulated, "
                           f"analysed and reported by FastMDXplora {version}.").replace("  ", " ")
-    return (scrub(title or f"A FastMDXplora study of {system}")[0], scrub(summary)[0])
+    return (scrub(title or f"A FastMDXplora study of {of}")[0], scrub(summary)[0])
 
 
 def _frames_and_atoms(path: Path) -> tuple[int | None, int | None]:
@@ -322,35 +428,168 @@ def _frames_and_atoms(path: Path) -> tuple[int | None, int | None]:
         return None, None
 
 
-def _interval_ps(root: Path, trajectory: str) -> float | None:
+def _interval_ps(root: Path, trajectory: str, run: str = "") -> float | None:
     from fastmdxplora.gui.trajectory_frames import _interval_ns
 
     try:
-        ns = _interval_ns(root, {"trajectory": root / trajectory})
+        ns = _interval_ns(root / "runs" / run if run else root,
+                          {"trajectory": root / trajectory})
     except Exception:  # noqa: BLE001
         return None
     return round(ns * 1000.0, 9) if ns else None
 
 
-def _actions(manifest: dict[str, Any], files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _actions(manifest: dict[str, Any], files: list[dict[str, Any]],
+             prepared_of: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """Each phase that ran, of the study or of each of its runs, with what it
+    read and wrote; ``prepared_of`` is each run's prepared system's topology
+    where it simulated from one not its own."""
     have = {f["path"] for f in files}
-    trajectories = [f for f in files if f["role"] == "trajectory"]
-    inputs = {
-        "setup": ["setup/input.pdb"],
-        "simulation": ["setup/topology.pdb"],
-        "analysis": [p for f in trajectories for p in (f["path"], f.get("read_with") or "")],
-        "report": ["analysis/analysis_manifest.json"],
-    }
     out = []
     for phase in manifest.get("phases") or []:
         if not isinstance(phase, dict) or phase.get("status") != "ok":
             continue
         name = str(phase.get("name") or "")
+        run = str(phase.get("run") or "")
+        at = f"runs/{run}/" if run else ""
+        mine = [f for f in files if f["phase"] == name and str(f.get("run") or "") == run]
+        trajectories = [f for f in files if f["role"] == "trajectory"
+                        and str(f.get("run") or "") == run]
+        inputs = {
+            "setup": [f"{at}setup/input.pdb"],
+            "simulation": [(prepared_of or {}).get(run) or f"{at}setup/topology.pdb"],
+            "analysis": [p for f in trajectories for p in (f["path"], f.get("read_with") or "")],
+            "report": [f"{at}analysis/analysis_manifest.json"],
+        }
         out.append({
-            "name": name, "start": str(phase.get("started_at") or ""),
+            "id": f"{run}/{name}" if run else name, "name": name, "run": run,
+            "start": str(phase.get("started_at") or ""),
             "end": str(phase.get("finished_at") or ""),
-            "object": [p for p in ["resolved_config.yml", *inputs.get(name, [])] if p in have],
-            "result": [f["path"] for f in files if f["phase"] == name]})
+            "object": [p for p in [f"{at}resolved_config.yml", *inputs.get(name, [])]
+                       if p in have],
+            "result": [f["path"] for f in mine]})
+    return out
+
+
+def _within(path: Path, folder: Path) -> bool:
+    try:
+        path.relative_to(folder)
+    except ValueError:
+        return False
+    return True
+
+
+def _prepared_systems(root: Path, manifest: dict[str, Any]
+                      ) -> tuple[list[dict[str, Any]], frozenset[str], dict[str, str]]:
+    """The prepared systems the study's runs simulated from that are not
+    their own `setup/`: those kept outside the study, each once, with the
+    folder it is carried in (`inside`), the folders its paths are said by
+    (`names`) and where it is (`system`); the files of those inside the study
+    a run needs (:data:`_PREPARED_NEEDS`); and, by run, the topology each
+    such run simulated, as a path in the study."""
+    from fastmdxplora.simulation import pipeline
+
+    real = root.resolve()
+    runs = manifest.get("runs") or [""]
+    outside: dict[Path, dict[str, Any]] = {}
+    needed: set[str] = set()
+    topology_of: dict[str, str] = {}
+    for run in runs:
+        folder = root / "runs" / run if run else root
+        reference = pipeline._prepared_system_recorded(folder) or {}
+        named = [str(n) for n in (reference.get("given"), reference.get("resolved"))
+                 if n] + pipeline._setup_from_recorded(folder)
+        taken = pipeline._setup_taken_from(folder)
+        candidates = [pipeline.where_a_prepared_system_sits(pipeline._as_named(n))
+                      for n in named if Path(str(n)).expanduser().is_absolute()]
+        if taken is not None:
+            candidates.insert(0, taken)
+        wanted = reference.get("system_xml_sha256")
+        system = None
+        for candidate in candidates:
+            try:
+                candidate = candidate.resolve()
+            except OSError:
+                continue
+            if not (candidate / "system.xml").is_file():
+                continue
+            if wanted and pipeline.system_digest(candidate) != wanted:
+                continue
+            system = candidate
+            break
+        if system is None or system == (folder / "setup").resolve():
+            continue
+        if _within(system, real):
+            inner = system.relative_to(real).as_posix()
+            needed.update(f"{inner}/{n}" for n in _PREPARED_NEEDS
+                          if (system / n).is_file())
+            topology_of[run] = f"{inner}/topology.pdb"
+            continue
+        # The folders the run names it by: the system's own, or a study
+        # holding it where setup lays one out (`setup/`, `shared_setup/setup/`).
+        entry = outside.setdefault(system, {"system": system, "names": set(), "runs": []})
+        entry["runs"].append(run)
+        for given in named:
+            given_path = Path(given).expanduser()
+            if not given_path.is_absolute():
+                continue
+            for spelled in (Path(os.path.normpath(given_path)), given_path.resolve()):
+                try:
+                    holding = spelled.resolve()
+                except OSError:
+                    continue
+                if any(holding / layout == system if layout else holding == system
+                       for layout in pipeline.PREPARED_SYSTEM_LAYOUTS):
+                    entry["names"].add(spelled)
+    taken_names: set[str] = set()
+    carried = []
+    for system, entry in sorted(outside.items(), key=lambda item: str(item[0])):
+        # Carried as the shallowest folder it is named by, so each name
+        # finds it as it did: `setup_from: /x/prep` as `prepared/prep`, with
+        # its `setup/` in it.
+        entry["base"] = min((n.resolve() for n in entry["names"]),
+                            key=lambda n: len(n.parts), default=system)
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "-", entry["base"].name).strip("-.") or "system"
+        name, n = stem, 2
+        while name in taken_names:
+            name, n = f"{stem}-{n}", n + 1
+        taken_names.add(name)
+        inside = f"{PREPARED}/{name}"
+        inner = system.relative_to(entry["base"]).as_posix()
+        at = inside if inner == "." else f"{inside}/{inner}"
+        # Paths in the system's folder, as the folder it is carried in; each
+        # name it is given by, as that name alone (what else a study named
+        # by it holds is not carried, so is not said to be).
+        said = {str(system): (at, False)}
+        for named in entry["names"]:
+            below = named.resolve().relative_to(entry["base"]).as_posix()
+            said.setdefault(str(named), (inside if below == "." else f"{inside}/{below}",
+                                         named.resolve() != system))
+        entry.update(inside=inside, at=at, said=said)
+        for run in entry["runs"]:
+            topology_of[run] = f"{at}/topology.pdb"
+        carried.append(entry)
+    return carried, frozenset(needed), topology_of
+
+
+def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, Any]]:
+    """The files of a prepared system kept outside the study, as it is
+    carried in it: what a run needs of it (:data:`_PREPARED_NEEDS`) and the
+    records and chemistry setup wrote beside it; with ``everything``, all of
+    its folder."""
+    from fastmdxplora.study_files import kind_of, label_of
+
+    system: Path = entry["system"]
+    out = []
+    for rel in _walk(system):
+        path = PurePosixPath(rel)
+        if never_shared(rel) or (not everything and rel not in _PREPARED_NEEDS and (
+                path.name in _ONLY_ALL_NAMES or path.suffix.lower() in _ONLY_ALL_SUFFIXES)):
+            continue
+        out.append({"path": f"{entry['at']}/{rel}", "phase": "setup", "run": "",
+                    "kind": kind_of(rel), "opens_with": "", "source": system / rel,
+                    "label": f"{label_of('setup/' + rel)}, of the prepared system the runs "
+                             "simulated from"})
     return out
 
 
@@ -400,8 +639,16 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
     if isinstance(demo, dict) and demo.get("made_in"):
         roots.append(str(demo["made_in"]))
     roots = [r for r in roots if r and _absolute(r)]
-    scrub = _Scrubber([r for r in roots if r], _hosts(root, manifest))
-    entries = chosen_files(root, everything, [r for r in roots if r])
+    carried, needed, prepared_of = _prepared_systems(root, manifest)
+    elsewhere = [folder for entry in carried
+                 for folder in dict.fromkeys((entry["base"], entry["system"].parent))]
+    scrub = _Scrubber(roots, _hosts(root, manifest, elsewhere),
+                      {name: said for entry in carried
+                       for name, said in entry["said"].items()})
+    entries = chosen_files(root, everything, roots, needed)
+    for entry in carried:
+        entries += _carried_files(entry, everything)
+    entries.sort(key=lambda e: e["path"])
     topologies = frozenset(e["opens_with"] for e in entries if e["opens_with"])
 
     with tempfile.TemporaryDirectory(prefix="fastmdx-share-") as spooled_in:
@@ -411,7 +658,7 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
         placeholders: dict[str, list[str]] = {STUDY: [], HOME: [], HOST: []}
         for entry in entries:
             rel = entry["path"]
-            source = root / rel
+            source = entry.get("source") or root / rel
             data: bytes | None = None
             if PurePosixPath(rel).suffix.lower() in TEXT_SUFFIXES:
                 raw = source.read_bytes()
@@ -446,6 +693,7 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
             phase = entry["phase"]
             record = {"path": rel, "name": entry["label"], "size": size, "sha256": digest,
                       "phase": {"saved": "viewer", "record": "study"}.get(phase, phase),
+                      "run": entry["run"],
                       "role": packing_list.role_of(rel, phase=phase, kind=entry["kind"],
                                                    topologies=topologies)}
             if record["role"] == "trajectory":
@@ -457,7 +705,7 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                 record["read_with"] = entry["opens_with"]
                 if PurePosixPath(rel).suffix.lower() == ".dcd":
                     record["frames"], record["atoms"] = _frames_and_atoms(source)
-                record["interval_ps"] = _interval_ps(root, rel)
+                record["interval_ps"] = _interval_ps(root, rel, entry["run"])
             files.append(record)
 
         title, summary = _title_and_summary(root, manifest, scrub)
@@ -466,7 +714,10 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
             name=title, description=summary,
             published=(published or datetime.now(timezone.utc).date()).isoformat(),
             license_id=license_id or DEFAULT_LICENSE, authors=list(authors or []),
-            files=files, actions=_actions(manifest, files),
+            files=files, actions=_actions(manifest, files, prepared_of),
+            runs=[{"id": run, "system": (manifest.get("systems_of_runs") or {}).get(run, "")}
+                  for run in manifest.get("runs") or []],
+            prepared=[{"at": entry["inside"], "runs": entry["runs"]} for entry in carried],
             software={"version": str(manifest.get("version") or ""),
                       "url": "https://github.com/aai-research-lab/FastMDXplora"},
             package="all" if everything else "view", placeholders=placeholders,

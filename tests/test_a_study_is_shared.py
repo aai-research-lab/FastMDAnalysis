@@ -181,7 +181,9 @@ def test_the_same_study_packs_to_the_same_bytes(tmp_path):
 def test_a_study_that_did_not_finish_is_not_shared(tmp_path, how):
     study = _study(tmp_path / "study", phase_status="error" if how == "stopped" else "ok")
     if how == "several":
-        (study / "batch_manifest.json").write_text("{}", encoding="utf-8")
+        # A study of several runs one of which never ran.
+        (study / "batch_manifest.json").write_text(
+            json.dumps({"planned": [{"run_id": "r1"}]}), encoding="utf-8")
     if how == "none":
         (study / "manifest.json").unlink()
     with pytest.raises(ShareRefused) as refused:

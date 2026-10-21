@@ -1,0 +1,280 @@
+"""A study of several runs is shared as one file and opened as the study it was.
+
+Every study of a paper is one of several runs: seeds of one preparation,
+arms and mutants, umbrella windows. `fastmdx report --share` refused them, so
+each run went alone and what joined them (the record of runs, the table of
+members, the comparison) did not go at all. Packed now as its folder lays it
+out, each run a dataset of its own files and phases, with a prepared system a
+run simulated from carried once: kept outside the study, in `prepared/`, its
+paths said as that folder, so a run opened elsewhere finds it as it did here.
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from fastmdxplora.sharing import PROFILE, STUDY, ShareRefused
+from fastmdxplora.sharing.crate import METADATA, check
+from fastmdxplora.sharing.opening import open_shared
+from fastmdxplora.sharing.pack import share_study
+
+AUTHORS = [("Adekunle Aina", "0000-0002-8215-7452")]
+COMPUTER = "labbox07"
+
+
+def _trajectory(folder: Path) -> None:
+    md = pytest.importorskip("mdtraj")
+    import numpy as np
+
+    topology = md.Topology()
+    residue = topology.add_residue("ALA", topology.add_chain())
+    for name in ("N", "CA", "C"):
+        topology.add_atom(name, md.element.carbon, residue)
+    xyz = np.zeros((4, 3, 3), dtype=np.float32)
+    xyz[:, 1, 1] = 0.15
+    xyz[:, 2, 2] = 0.15
+    trajectory = md.Trajectory(xyz, topology)
+    trajectory[0].save_pdb(str(folder / "trajectory_topology.pdb"))
+    trajectory.save_dcd(str(folder / "production.dcd"))
+
+
+def _prepared(folder: Path) -> Path:
+    """A prepared system as setup leaves one."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "system.xml").write_text("<System atoms='3'/>", encoding="utf-8")
+    (folder / "state.xml").write_text("<State/>", encoding="utf-8")
+    (folder / "topology.pdb").write_text("ATOM      1  N   ALA A   1\nEND\n",
+                                         encoding="utf-8")
+    (folder / "setup_parameters.json").write_text(json.dumps({
+        "forcefield": "amber14", "output_dir": str(folder),
+        "ligands": [{"name": "BEN", "charge": 1}]}), encoding="utf-8")
+    (folder / "ligands").mkdir(exist_ok=True)
+    (folder / "ligands" / "BEN.sdf").write_text(f"BEN\n  {folder}\n\nM  END\n",
+                                                encoding="utf-8")
+    return folder
+
+
+def _run(root: Path, run_id: str, prepared: Path, given: str, *,
+         status: str = "ok") -> Path:
+    """A run of the study, simulated from ``prepared``, as the batch lays it out."""
+    from fastmdxplora.simulation.pipeline import prepared_system_reference
+
+    run = root / "runs" / run_id
+    for folder in ("simulation", "analysis/rmsd", "report", "agent/conversations"):
+        (run / folder).mkdir(parents=True, exist_ok=True)
+    _trajectory(run / "simulation")
+    phases = [{"name": "setup", "status": "skipped", "taken_from": str(prepared)}] + [
+        {"name": name, "status": status if name == "analysis" else "ok",
+         "output_dir": f"{run}/{name}", "started_at": "2026-10-07T01:00:00+00:00",
+         "finished_at": f"2026-10-07T0{2 + len(run_id)}:00:00+00:00",
+         "produced_by": {"version": "2.6.0", "host": COMPUTER}}
+        for name in ("simulation", "analysis", "report")]
+    (run / "manifest.json").write_text(json.dumps({
+        "tool": "FastMDXplora", "version": "2.6.0", "system": "1ABC",
+        "output_dir": str(run), "phases": phases}), encoding="utf-8")
+    (run / "resolved_config.yml").write_text(
+        f"systems:\n- system: 1ABC\noutput: {run}\nsimulation:\n  setup_from: {given}\n",
+        encoding="utf-8")
+    (run / "simulation" / "simulation_parameters.json").write_text(json.dumps({
+        "parameters": {"timestep_fs": 2.0, "integrator": "langevin_middle",
+                       "setup_from": given},
+        "resolved": {"trajectory_interval_steps": 500, "production_steps": 2000},
+        "prepared_system": prepared_system_reference(prepared, run, given)}),
+        encoding="utf-8")
+    (run / "simulation" / "live_status.json").write_text(json.dumps({
+        "status": "completed", "host": COMPUTER}), encoding="utf-8")
+    (run / "analysis" / "analysis_manifest.json").write_text(json.dumps({
+        "trajectory_input": f"{run}/simulation/production.dcd"}), encoding="utf-8")
+    (run / "analysis" / "rmsd" / "rmsd.dat").write_text("0 0.1\n1 0.2\n", encoding="utf-8")
+    (run / "report" / "report.md").write_text(f"# Run {run_id}\n\nRan on {COMPUTER}.\n",
+                                              encoding="utf-8")
+    # Never shared: a run's conversations, its process, its tags.
+    (run / "agent" / "conversations" / "c1.json").write_text("{}", encoding="utf-8")
+    (run / ".fastmdxplora_run.json").write_text('{"pid": 1}', encoding="utf-8")
+    (run / "study_tags.json").write_text('{"tags": ["mine"]}', encoding="utf-8")
+    return run
+
+
+def _campaign(tmp_path: Path, *, b_status: str = "ok") -> tuple[Path, Path]:
+    """Three seeds of one system: `a` and `c` simulated from a preparation
+    kept outside the study (`a` naming its study's folder, `c` the system's
+    own), `b` from the study's own shared one. Returns the study and the
+    preparation's study."""
+    root = tmp_path / "campaign"
+    elsewhere = _prepared(tmp_path / "preparation" / "setup").parent
+    (elsewhere / "manifest.json").write_text(json.dumps({
+        "phases": [{"name": "setup", "status": "ok",
+                    "produced_by": {"host": "prepbox3"}}]}), encoding="utf-8")
+    shared = _prepared(root / "shared_setup" / "setup")
+    _run(root, "a", elsewhere / "setup", str(elsewhere))
+    _run(root, "b", shared, str(shared), status=b_status)
+    _run(root, "c", elsewhere / "setup", str(elsewhere / "setup"))
+    (root / "comparison").mkdir()
+    (root / "comparison" / "comparison_report.md").write_text(
+        f"# Cross-run comparison report\n\nRuns in {root}/runs.\n", encoding="utf-8")
+    (root / "members.json").write_text(json.dumps({
+        "members": [{"run": "a", "dir": f"{root}/runs/a"},
+                    {"run": "b", "dir": f"{root}/runs/b"}]}), encoding="utf-8")
+    (root / "resolved_config.yml").write_text(
+        f"systems:\n- system: 1ABC\nsweep:\n  seed: [1, 2]\noutput: {root}\n",
+        encoding="utf-8")
+    runs = [{"run_id": run, "status": "ok", "output_dir": f"{root}/runs/{run}",
+             "output_dir_relative": f"runs/{run}"} for run in ("a", "b", "c")]
+    (root / "batch_manifest.json").write_text(json.dumps({
+        "tool": "FastMDXplora", "kind": "batch", "version": "2.6.0",
+        "config": "/home/someone/configs/seeds.yml", "output_dir": str(root),
+        "n_runs": 3, "systems": [{"id": "1ABC", "system": "1ABC"}],
+        "planned": [{"run_id": "a"}, {"run_id": "b"}, {"run_id": "c"}], "runs": runs}),
+        encoding="utf-8")
+    (root / "agent" / "conversations").mkdir(parents=True)
+    (root / "agent" / "conversations" / "c0.json").write_text("{}", encoding="utf-8")
+    return root, elsewhere
+
+
+def _shared(tmp_path: Path, **options) -> tuple[Path, dict, Path, Path]:
+    root, elsewhere = _campaign(tmp_path)
+    out = tmp_path / "out" / "campaign.zip"
+    return out, share_study(root, out, authors=AUTHORS, **options), root, elsewhere
+
+
+def _by_id(crate: dict) -> dict:
+    return {e["@id"]: e for e in crate["@graph"]}
+
+
+def test_a_study_of_several_runs_is_packed_whole(tmp_path):
+    out, said, _, _ = _shared(tmp_path)
+    names = set(zipfile.ZipFile(out).namelist())
+    assert {"batch_manifest.json", "resolved_config.yml", "members.json",
+            "comparison/comparison_report.md", METADATA,
+            "runs/a/manifest.json", "runs/a/resolved_config.yml",
+            "runs/a/simulation/production.dcd", "runs/a/simulation/trajectory_topology.pdb",
+            "runs/a/analysis/rmsd/rmsd.dat", "runs/b/report/report.md"} <= names
+    # The preparation kept outside the study is carried once, whole enough
+    # to be found and started from; the study's own shared one alike.
+    assert {"prepared/preparation/setup/system.xml", "prepared/preparation/setup/state.xml",
+            "prepared/preparation/setup/topology.pdb",
+            "prepared/preparation/setup/setup_parameters.json",
+            "prepared/preparation/setup/ligands/BEN.sdf",
+            "shared_setup/setup/system.xml", "shared_setup/setup/state.xml"} <= names
+    for never in ("runs/a/agent/conversations/c1.json", "agent/conversations/c0.json",
+                  "runs/a/.fastmdxplora_run.json", "runs/a/study_tags.json",
+                  "prepared/preparation/manifest.json"):
+        assert never not in names
+    crate = said["crate"]
+    root = _by_id(crate)["./"]
+    assert {"@id": PROFILE} in root["conformsTo"] and PROFILE.endswith("/1.1")
+    assert root["fmx:runs"] == [{"@id": "runs/a/"}, {"@id": "runs/b/"}, {"@id": "runs/c/"}]
+    assert "in 3 runs" in root["name"]
+    # Two runs of one preparation, named two ways: carried once.
+    assert not any(name.startswith("prepared/") and not name.startswith(
+        "prepared/preparation/") for name in names)
+    listed = check(crate)
+    assert set(listed) == names - {METADATA}
+
+
+def test_each_run_is_a_dataset_of_its_files_and_phases(tmp_path):
+    _, said, _, _ = _shared(tmp_path)
+    by_id = _by_id(said["crate"])
+    member = by_id["runs/a/"]
+    assert member["@type"] == "Dataset" and member["fmx:system"] == "1ABC"
+    assert member["mainEntity"] == {"@id": "runs/a/resolved_config.yml"}
+    assert {"@id": "runs/a/simulation/production.dcd"} in member["hasPart"]
+    assert all(part["@id"].startswith("runs/a/") for part in member["hasPart"])
+    assert by_id["runs/a/simulation/production.dcd"]["fmx:run"] == "a"
+    assert by_id["runs/a/manifest.json"]["fmx:role"] == "manifest"
+    assert by_id["batch_manifest.json"]["fmx:role"] == "manifest"
+    simulation = by_id["#a/simulation"]
+    assert simulation["@type"] == "CreateAction" and simulation["name"] == \
+        "Simulation of the run a"
+    # Each run's simulation read the prepared system it simulated from.
+    assert {"@id": "prepared/preparation/setup/topology.pdb"} in simulation["object"]
+    assert {"@id": "shared_setup/setup/topology.pdb"} in by_id["#b/simulation"]["object"]
+    assert {"@id": "runs/a/simulation/production.dcd"} in simulation["result"]
+    assert {"@id": "#a/simulation"} in member["mentions"]
+    carried = by_id["prepared/preparation/"]
+    assert carried["fmx:usedBy"] == [{"@id": "runs/a/"}, {"@id": "runs/c/"}]
+
+
+def test_no_folder_or_computer_of_its_own_is_left(tmp_path):
+    out, said, root, elsewhere = _shared(tmp_path)
+    with zipfile.ZipFile(out) as archive:
+        texts = {name: archive.read(name).decode("utf-8") for name in archive.namelist()
+                 if name.endswith((".json", ".yml", ".md", ".sdf"))}
+    for name, text in texts.items():
+        for left in (str(tmp_path), COMPUTER, "prepbox3", socket.gethostname()):
+            assert left not in text, (name, left)
+    reference = json.loads(texts["runs/a/simulation/simulation_parameters.json"])
+    assert reference["prepared_system"]["resolved"] == f"{STUDY}/prepared/preparation/setup"
+    assert reference["parameters"]["setup_from"] == f"{STUDY}/prepared/preparation"
+    named_alone = json.loads(texts["runs/c/simulation/simulation_parameters.json"])
+    assert named_alone["parameters"]["setup_from"] == f"{STUDY}/prepared/preparation/setup"
+    assert "__FASTMDX_HOME__/configs/seeds.yml" in texts["batch_manifest.json"]
+
+
+def test_it_opens_as_the_study_it_was(tmp_path):
+    from fastmdxplora.gui.workspace import study_state
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    out, said, root, elsewhere = _shared(tmp_path)
+    opened = open_shared(str(out), into=tmp_path / "elsewhere")
+    batch = json.loads((opened / "batch_manifest.json").read_text(encoding="utf-8"))
+    assert batch["output_dir"] == str(opened.resolve())
+    # Each run finds the prepared system it simulated from inside the study
+    # it is now, the one carried in and the study's own, by its content.
+    assert setup_records_of(opened / "runs" / "a") == \
+        (opened / "prepared" / "preparation" / "setup").resolve()
+    assert setup_records_of(opened / "runs" / "b") == \
+        (opened / "shared_setup" / "setup").resolve()
+    assert setup_records_of(opened / "runs" / "c") == \
+        (opened / "prepared" / "preparation" / "setup").resolve()
+    config = (opened / "runs" / "a" / "resolved_config.yml").read_text(encoding="utf-8")
+    assert f"setup_from: {opened.resolve()}/prepared/preparation" in config
+    assert study_state(opened) == "completed"
+    assert json.loads((opened / "shared_from.json").read_text())["files_checked"] == \
+        said["files"]
+
+
+def test_it_packs_to_the_same_bytes_twice(tmp_path):
+    root, _ = _campaign(tmp_path)
+    first = share_study(root, tmp_path / "a.zip", authors=AUTHORS)
+    second = share_study(root, tmp_path / "b.zip", authors=AUTHORS)
+    assert first["sha256"] == second["sha256"]
+
+
+def test_a_run_that_did_not_finish_keeps_the_study_back(tmp_path):
+    root, _ = _campaign(tmp_path, b_status="error")
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "shared.zip", authors=AUTHORS)
+    assert refused.value.refusal.code == "environment.share.not_finished"
+    assert "runs/b" in str(refused.value)
+    assert not (tmp_path / "shared.zip").exists()
+
+
+@pytest.mark.parametrize("planned", [[], [{"run_id": "../x"}]])
+def test_a_record_of_runs_that_names_no_run_here_is_refused(tmp_path, planned):
+    root, _ = _campaign(tmp_path)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"], batch["runs"] = planned, []
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    with pytest.raises(ShareRefused) as refused:
+        share_study(root, tmp_path / "shared.zip", authors=AUTHORS)
+    assert refused.value.refusal.code == "environment.share.not_a_study"
+
+
+def test_a_run_s_conversation_in_an_archive_is_never_opened(tmp_path):
+    """Packing never writes one; an archive holding one is not opened."""
+    out, _, _, _ = _shared(tmp_path)
+    crafted = tmp_path / "crafted.zip"
+    with zipfile.ZipFile(out) as source, zipfile.ZipFile(crafted, "w") as sink:
+        for info in source.infolist():
+            sink.writestr(info, source.read(info))
+        sink.writestr("runs/a/agent/conversations/c9.json", "{}")
+    with pytest.raises(ShareRefused) as refused:
+        open_shared(str(crafted), into=tmp_path / "elsewhere")
+    assert refused.value.refusal.code == "environment.share.unsafe"
+    assert not any((tmp_path / "elsewhere").iterdir())

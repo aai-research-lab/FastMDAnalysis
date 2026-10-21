@@ -16,8 +16,9 @@ from fastmdxplora.refusals import CodedError
 __all__ = ["HOME", "HOST", "PLACEHOLDERS", "PROFILE", "PROFILE_VERSION", "STUDY",
            "ShareRefused"]
 
-#: The profile an archive keeps, and its version (MAJOR.MINOR).
-PROFILE_VERSION = "1.0"
+#: The profile an archive keeps, and its version (MAJOR.MINOR): 1.1 adds a
+#: study of several runs and a prepared system carried from outside it.
+PROFILE_VERSION = "1.1"
 PROFILE = f"https://w3id.org/fastmdxplora/study/{PROFILE_VERSION}"
 
 #: What a packed record says in place of the study's folder, any home
