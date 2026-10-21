@@ -1231,6 +1231,9 @@ def _how_far(base: Path, batch: Any, card: dict[str, Any],
             out["planned_ns"] = round(planned, 6)
     if of_runs:
         out["lengths"] = lengths
+        # Every run with a record of its simulation began, its length
+        # given or not.
+        out["begun"] = sum(1 for run in paced if run["state"] != "waiting")
     if card.get("state") == "running" and any(r["state"] == "going" for r in paced):
         # How the runner ran them, as it recorded (the workers it resolved
         # where the Config set only ``mode: parallel``); else as the Config

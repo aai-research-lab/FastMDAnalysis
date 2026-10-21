@@ -715,15 +715,23 @@
     // Each run's: "3 × 40 ps" only where all three ran as long; else the
     // range, never an average said as if each ran it.
     var each = (study.lengths || []).filter(function (n) { return n != null; });
+    // How many began: those with a record of their simulation, whether or
+    // not it gives their length.
+    var begun = study.begun != null ? study.begun : each.length;
     if (study.runs > 1 && each.length) {
       var low = Math.min.apply(null, each), high = Math.max.apply(null, each);
       var span = low === high ? lengthSaid(low) : lengthSaid(low, high) + " to " + lengthSaid(high);
+      var unknown = begun - each.length;
       // Not every run begun: how many have, and how long they ran ("1 of 3
-      // runs begun, 18.5 ps"), not "1 × 18.5 ps".
-      host.appendChild(make("span", "studies-length-each muted small",
-        each.length < study.runs ? each.length + " of " + study.runs + " runs begun, " + span
-          + (low === high && each.length > 1 ? " each" : "")
-          : low === high ? each.length + " × " + span : each.length + " runs, " + span));
+      // runs begun, 18.5 ps"), not "1 × 18.5 ps"; a length not recorded
+      // said not known, not taken as a run not begun.
+      var alike = low === high && each.length > 1 ? " each" : "";
+      var said = [];
+      if (begun < study.runs) said.push(begun + " of " + study.runs + " runs begun");
+      if (unknown > 0) said.push(each.length + " of " + begun + " lengths known");
+      said.push(said.length ? span + alike
+        : low === high ? each.length + " × " + span : each.length + " runs, " + span);
+      host.appendChild(make("span", "studies-length-each muted small", said.join(", ")));
     }
     return host;
   }

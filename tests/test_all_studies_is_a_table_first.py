@@ -652,12 +652,20 @@ def test_a_study_of_runs_says_how_many_began_in_one_unit_and_when_its_run_was_ac
     two = _replicas(space / "two_begun")
     _live(two / "runs" / "seed1", status="completed", current=2000)
     _live(two / "runs" / "seed2", status="completed", current=12000)
+    # All three began; one failed early, its record not giving its length.
+    failed = _replicas(space / "one_failed")
+    for seed in ("seed1", "seed2"):
+        _live(failed / "runs" / seed, status="completed", current=12000)
+    (failed / "runs" / "seed3" / "simulation").mkdir(parents=True)
+    (failed / "runs" / "seed3" / "simulation" / "live_status.json").write_text(json.dumps({
+        "stage": "production", "status": "failed", "current_step": 3000}), encoding="utf-8")
     hour_ago = time.time() - 3600
     for study in (one, two):
         for name in ("batch_manifest.json", "resolved_config.yml"):
             os.utime(study / name, (hour_ago, hour_ago))
     card = card_of(one)
     assert card["last_active"] == card_of(one / "runs" / "seed1")["last_active"]
+    assert (card_of(failed)["begun"], len(card_of(failed)["lengths"])) == (3, 2)
     from datetime import datetime
 
     assert time.time() - datetime.fromisoformat(card["last_active"]).timestamp() < 600
@@ -673,13 +681,14 @@ def test_a_study_of_runs_says_how_many_began_in_one_unit_and_when_its_run_was_ac
             page.wait_for_selector("#studies-table tbody tr.studies-row")
             each = {name: page.inner_text(f'#studies-table tr.studies-row[data-path$="/{name}"] '
                                           '.studies-length-each')
-                    for name in ("one_begun", "two_begun")}
+                    for name in ("one_begun", "two_begun", "one_failed")}
             browser.close()
     finally:
         session.server.shutdown()
     # A number kept with its unit (a no-break space) where the line wraps.
     assert each == {"one_begun": "1 of 3 runs begun, 8\u00a0ps",
-                    "two_begun": "2 of 3 runs begun, 0\u00a0ps to 20\u00a0ps"}
+                    "two_begun": "2 of 3 runs begun, 0\u00a0ps to 20\u00a0ps",
+                    "one_failed": "2 of 3 lengths known, 20\u00a0ps each"}
 
 
 def _shown_at(space, width, look, *, unfold=None):
