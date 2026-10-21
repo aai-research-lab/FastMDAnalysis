@@ -99,7 +99,8 @@ class TestTheCards:
         assert card["production_ns"] == 10 and card["forcefield"] == "amber14"
         assert card["means"][0] == {"analysis": "rmsd", "label": "RMSD", "mean": 0.1234,
                                     "error": 0.0056, "unit": "nm", "withheld": None}
-        assert card["thumbnail"]
+        # Its figure is the thumbnail route's, no longer read for each card.
+        assert "thumbnail" not in card and thumbnail_of(workspace / "ubiquitin")
 
     def test_where_a_study_stands(self, workspace):
         assert card_of(workspace / "stopped")["state"] == "stopped"

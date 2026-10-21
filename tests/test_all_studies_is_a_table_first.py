@@ -219,6 +219,9 @@ def test_the_replicas_mean_and_error_are_the_runs_tables(tmp_path, monkeypatch):
         else:
             assert "is not yet an error" not in written
     monkeypatch.setattr(runs_compared, "mean_of_replicas", lambda found: {**together, "error": 0.5})
+    from fastmdxplora.gui import workspace
+
+    workspace._CARDS_KEPT.clear()
     assert card_of(study)["means"][0]["error"] == 0.5
 
 
@@ -532,3 +535,39 @@ def test_a_study_that_ran_is_not_said_not_started(tmp_path):
         session.server.shutdown()
     assert length == "not known"
     assert "Not started" not in groups
+
+
+def test_a_card_is_read_once_while_its_records_stand(tmp_path, monkeypatch):
+    """All studies took two to four times as long as before its cards were
+    held to their studies, and the sidebar's Recent asks for the list again
+    and again. A card is read again only where a record of its study
+    changed (its place, size or time), and a study running every time."""
+    import os
+
+    from fastmdxplora.gui import workspace
+
+    study = _study(tmp_path / "helix", means={"rmsd": (0.05, 0.01)})
+    reads: list[str] = []
+    real = workspace._card_of
+    monkeypatch.setattr(workspace, "_card_of", lambda base: reads.append(base.name) or real(base))
+    first = workspace.card_of(study)
+    again = workspace.card_of(study)
+    assert reads == ["helix"] and again == first
+    # A record rewritten: read again, with what it says now.
+    options = study / "analysis" / "rmsd" / "options.json"
+    record = json.loads(options.read_text())
+    record["findings"]["mean"]["mean"] = 0.07
+    options.write_text(json.dumps(record))
+    later = os.stat(options).st_mtime_ns + 10_000_000
+    os.utime(options, ns=(later, later))
+    assert workspace.card_of(study)["means"][0]["mean"] == 0.07 and reads == ["helix"] * 2
+    # A record put in place of a link out of the study: read again, not read.
+    outside = tmp_path / "outside.json"
+    options.rename(outside)
+    options.symlink_to(outside)
+    assert workspace.card_of(study)["means"] == [] and len(reads) == 3
+    # A study running: read each time.
+    going = _live(_study(tmp_path / "going"))
+    workspace.card_of(going)
+    workspace.card_of(going)
+    assert reads[3:] == ["going", "going"]

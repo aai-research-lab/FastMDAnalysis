@@ -101,10 +101,10 @@ def test_the_n_terminus_is_on_the_left(tmp_path):
 
 def test_where_there_is_no_backbone(tmp_path):
     from fastmdxplora.gui.backbone_picture import backbone_svg
-    from fastmdxplora.gui.workspace import card_of
+    from fastmdxplora.gui.workspace import _picture_of
 
     nothing = _study(tmp_path / "nothing", system="1L2Y")
-    assert backbone_svg(nothing) is None and card_of(nothing)["thumbnail"] is None
+    assert backbone_svg(nothing) is None and _picture_of(nothing) is None
     # Two atoms are not a trace.
     short = _study(tmp_path / "short", system="2RES")
     _pdb(short / "setup" / "prepared.pdb", _helix(2, "A", 1))
@@ -119,18 +119,20 @@ def test_where_there_is_no_backbone(tmp_path):
 
 
 def test_a_card_s_picture(tmp_path):
-    from fastmdxplora.gui.workspace import card_of
+    # The picture `/api/study-thumbnail` sends; no longer read for each card
+    # on All studies, whose rows draw the molecule.
+    from fastmdxplora.gui.workspace import _picture_of as picture
 
     plotted = _study(tmp_path / "plotted", means={"rmsd": (0.1, 0.01)})
     _pdb(plotted / "setup" / "prepared.pdb", _helix(10, "A", 1))
-    assert card_of(plotted)["thumbnail"] == "figure"
+    assert picture(plotted) == "figure"
     unplotted = _study(tmp_path / "unplotted")
     _pdb(unplotted / "setup" / "prepared.pdb", _helix(10, "A", 1))
-    assert card_of(unplotted)["thumbnail"] == "backbone"
+    assert picture(unplotted) == "backbone"
     # A study of runs: the first run's structure.
     runs = _replicas(tmp_path / "chignolin")
     _pdb(runs / "runs" / "seed1" / "setup" / "prepared.pdb", _helix(10, "A", 1))
-    assert card_of(runs)["thumbnail"] == "backbone"
+    assert picture(runs) == "backbone"
 
 
 def test_the_route_sends_it(tmp_path):

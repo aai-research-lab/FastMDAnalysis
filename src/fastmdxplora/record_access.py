@@ -36,7 +36,9 @@ class ReadScope:
             relative = path.relative_to(self.root)
             resolved = path.resolve()
             resolved.relative_to(self.root)
-            if self.admitted(path) and self.admitted(resolved):
+            # One check where the address is where it leads (no link on
+            # the way): the same answer, asked once.
+            if self.admitted(path) and (resolved == path or self.admitted(resolved)):
                 return resolved
             # Not there, where it would be is in the study: nothing is
             # refused, so it is not named as not read; the system's own
@@ -197,6 +199,14 @@ def refusals_noted() -> Iterator[set[str]]:
     finally:
         before |= noted
         scope.denied = before
+
+
+def note_refused(names: frozenset[str] | set[str]) -> None:
+    """Name again records this call's held read refused before, where a
+    reader gives an answer it kept rather than read them again."""
+    scope = _scope.get()
+    if scope is not None:
+        scope.denied.update(names)
 
 
 def refused() -> frozenset[str]:

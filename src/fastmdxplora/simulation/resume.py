@@ -654,6 +654,11 @@ def extended_production(study: str | Path) -> tuple[float, int] | None:
     try:
         # A piece a held read refuses is not a piece that is not there.
         _refuse_pieces(Path(study))
+        # No piece but the study's own: not extended, and its pieces are
+        # not surveyed (each one's Config read again for its digest).
+        if not any(folder.name[8:].isdigit()
+                   for folder in _records.glob(Path(study), "segment-*")):
+            return None
         ran = [piece for piece in survey_segments(study) if piece.trajectory is not None]
     except OutsideWorkspace:
         raise

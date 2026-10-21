@@ -32,11 +32,13 @@ def _with_series(root, n=1000):
 
 
 def test_the_card_names_the_series_it_plots(tmp_path):
-    from fastmdxplora.gui.workspace import card_of
+    # The series `/api/study-thumbnail?series=1` plots; no longer read for
+    # each card on All studies, whose rows draw the molecule.
+    from fastmdxplora.gui.workspace import _series_of
 
-    assert card_of(_with_series(tmp_path / "with"))["series"] == "rmsd"
+    assert _series_of(_with_series(tmp_path / "with")) == "rmsd"
     # A figure without its numbers keeps its picture.
-    assert card_of(_study(tmp_path / "without", means={"rmsd": (0.1, 0.01)}))["series"] is None
+    assert _series_of(_study(tmp_path / "without", means={"rmsd": (0.1, 0.01)})) is None
 
 
 def test_the_series_is_thinned_to_what_a_card_shows(tmp_path):

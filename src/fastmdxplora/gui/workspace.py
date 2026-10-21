@@ -14,9 +14,13 @@ Everything is read from the studies' own records; nothing is written.
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
+import threading
+from collections import OrderedDict
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -304,12 +308,76 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     words), and what it would have given is said not read (``unread``:
     ``state``, ``length``, ``means``, ``molecule``), never taken from its
     absence."""
-    from fastmdxplora.gui.server import _as_opened, _confined
-
     base = Path(folder)
     out = _out_of_its_study(base)
     if out:
         return _a_run_not_read(base, out)
+    # Read once while the study's records stand as they were: a list of a
+    # hundred studies took several times as long as before the cards were
+    # held to their studies. A study running is read each time (its
+    # process can end without a record changing).
+    stamp = _stamp_of(base)
+    with _CARDS_LOCK:
+        kept = _CARDS_KEPT.get(str(base))
+        if kept is not None and stamp is not None and kept[0] == stamp:
+            _CARDS_KEPT.move_to_end(str(base))
+            return copy.deepcopy(kept[1])
+    card = _card_of(base)
+    if stamp is not None and card.get("state") != "running" and "pace" not in card:
+        with _CARDS_LOCK:
+            _CARDS_KEPT[str(base)] = (stamp, copy.deepcopy(card))
+            while len(_CARDS_KEPT) > _MOST_CARDS_KEPT:
+                _CARDS_KEPT.popitem(last=False)
+    return card
+
+
+#: Cards kept in memory by their study's records' places, sizes and times.
+_MOST_CARDS_KEPT = 1024
+_CARDS_KEPT: "OrderedDict[str, tuple[tuple, dict[str, Any]]]" = OrderedDict()
+_CARDS_LOCK = threading.Lock()
+#: The folders of a study whose files a card reads, looked into for its
+#: stamp; a run's folder under `runs`, and an analysis's under `analysis`.
+_STAMPED = {"analysis", "simulation", "setup", "report", "runs", "pmf", "agent",
+            "conversations", "free_energy", "comparison"}
+
+
+def _stamp_of(base: Path) -> tuple | None:
+    """What a study's card is read from, by each file's place, size and
+    time (no file read, no link followed): its folder and those it keeps
+    its records in. None where the folder cannot be looked in."""
+    seen: list[tuple] = []
+
+    def look(folder: Path, relative: str, depth: int) -> None:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                name = f"{relative}{entry.name}"
+                seen.append((name, info.st_mode, info.st_size, info.st_mtime_ns))
+                if (depth < 5 and entry.is_dir(follow_symlinks=False)
+                        and (entry.name in _STAMPED or entry.name.startswith("segment-")
+                             or folder.name in ("runs", "analysis"))):
+                    look(Path(entry.path), name + "/", depth + 1)
+
+    try:
+        info = os.stat(base)
+        look(base, "", 1)
+        if base.parent.name == "runs":
+            # A run of a study of several is read with its study's records
+            # of its rounds (`server._a_run_in_its_study`).
+            with os.scandir(base.parent.parent) as entries:
+                for entry in entries:
+                    found = entry.stat(follow_symlinks=False)
+                    seen.append((f"../../{entry.name}", found.st_mode, found.st_size,
+                                 found.st_mtime_ns))
+    except OSError:
+        return None
+    return (info.st_mtime_ns, tuple(sorted(seen)))
+
+
+def _card_of(base: Path) -> dict[str, Any]:
+    """`card_of`, read."""
+    from fastmdxplora.gui.server import _as_opened, _confined
+
     card = _confined(base, _card_read)
     if not isinstance(card, dict) or "state" not in card:
         # The study's folder could not be opened to hold the read in.
@@ -356,6 +424,14 @@ def _card_read(base: Path) -> dict[str, Any]:
     """`card_of`, its records read as they are: within `_confined`, held to
     the study. Each part of the card a refused record leaves unknown is
     named in ``unread``."""
+    token = _READ_ONCE.set({})
+    try:
+        return _card_read_once(base)
+    finally:
+        _READ_ONCE.reset(token)
+
+
+def _card_read_once(base: Path) -> dict[str, Any]:
     from fastmdxplora import record_access
 
     unread: list[str] = []
@@ -392,11 +468,6 @@ def _card_read(base: Path) -> dict[str, Any]:
         # was not read: it may be the newest.
         "last_active": "" if "active" in unread else active,
         "means": [],
-        # A figure it plotted, else a picture of its backbone, else none.
-        "thumbnail": part("picture", lambda: _picture_of(base)),
-        # The measure whose series the card plots in the page's colours,
-        # where it has one: its figure is white on any scheme.
-        "series": part("picture", lambda: _series_of(base)),
     }
     from fastmdxplora.study_tags import tags_of
 
@@ -877,9 +948,7 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
         # a run ends, so a run cut short has none, or the one before it. A
         # record still saying the run goes on is believed unless the run has
         # ended without saying so (telemetry.status_as_it_stands).
-        from fastmdxplora.gui.telemetry import status_as_it_stands
-
-        status = status_as_it_stands(base)
+        status = _status_of(base)
         if status.get("between_rounds"):
             # Its study extends it again in its next round: the Manifest's
             # phases, all ok, say how its pieces so far ended.
@@ -996,7 +1065,7 @@ def _how_far(base: Path, batch: Any, card: dict[str, Any],
     from fastmdxplora.gui.overview_view import thinned_metrics
     from fastmdxplora.gui.server import MOST_CHART_SAMPLES
     from fastmdxplora.gui.simulated_time import simulated_times
-    from fastmdxplora.gui.telemetry import read_metrics, status_as_it_stands
+    from fastmdxplora.gui.telemetry import read_metrics
 
     of_runs = isinstance(batch, dict)
     runs = base / "runs"
@@ -1018,7 +1087,7 @@ def _how_far(base: Path, batch: Any, card: dict[str, Any],
         if not record_access.is_dir(folder / "simulation"):
             paced.append({"state": "waiting"})
             continue
-        status = status_as_it_stands(folder)
+        status = _status_of(folder)
         times = simulated_times(folder, status, wall=False) or {}
         going = str(status.get("status") or "").lower() in ("running", "starting", "paused")
         if seen is not None and folder == base:
@@ -1155,14 +1224,50 @@ def _read_json(path: Path) -> Any:
 
 
 def _read_yaml(path: Path) -> Any:
+    """A YAML record, read once within a card's read (`_once`)."""
     import yaml
 
     from fastmdxplora import record_access
 
-    try:
-        return yaml.safe_load(record_access.read_text(path, encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return None
+    def read() -> Any:
+        try:
+            return yaml.load(record_access.read_text(path, encoding="utf-8"),
+                             Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+        except (OSError, yaml.YAMLError):
+            return None
+
+    return _once(("yaml", str(path)), read)
+
+
+#: What a card's read has read once, for the rest of that read (a study's
+#: Config, read for its head, its length and its molecule; a run's record
+#: as it stands, read for its state and how far it got).
+_READ_ONCE: ContextVar[dict | None] = ContextVar("card_read_once", default=None)
+
+
+def _once(key: tuple, read: Any) -> Any:
+    """``read()``, or within a card's read its answer of the first time,
+    the records it refused then named again."""
+    from fastmdxplora import record_access
+
+    kept = _READ_ONCE.get()
+    if kept is None:
+        return read()
+    if key in kept:
+        value, refused = kept[key]
+        record_access.note_refused(refused)
+        return value
+    with record_access.refusals_noted() as refused:
+        value = read()
+    kept[key] = (value, frozenset(refused))
+    return value
+
+
+def _status_of(folder: Path) -> dict[str, Any]:
+    """`telemetry.status_as_it_stands`, read once within a card's read."""
+    from fastmdxplora.gui.telemetry import status_as_it_stands
+
+    return _once(("status", str(folder)), lambda: status_as_it_stands(folder))
 
 
 def _finite(value: Any) -> float | None:
