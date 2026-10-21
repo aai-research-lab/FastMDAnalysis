@@ -187,9 +187,9 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
 
 def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0) -> str:
     """Why replicas' spread is not yet their error: ``unbacked`` of the
-    ``runs`` did not determine their own mean, ``said_so`` of them by saying
-    their mean is not a measurement (an error of their own given or not),
-    the rest by giving no error of their own."""
+    ``runs`` did not determine their own mean, ``said_so`` of them by
+    withholding it (``not_a_measurement``, an error of their own given or
+    not), the rest by giving no error of their own."""
     which = (f"None of the {runs} replicas determined its own mean" if unbacked == runs
              else f"{unbacked} of the {runs} replicas did not determine "
                   f"{'its' if unbacked == 1 else 'their'} own mean")
@@ -197,11 +197,11 @@ def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0) -> str:
     if not said_so:
         how = " with an error of its own"
     elif not plain:
-        how = (": it said its mean is not a measurement" if unbacked == 1
-               else ": each said its mean is not a measurement")
+        how = (": it withheld its mean as not determined" if unbacked == 1
+               else ": each withheld its mean as not determined")
     else:
-        how = (f": {said_so} said {'its' if said_so == 1 else 'their'} mean is not a "
-               f"measurement, and {plain} gave no error of {'its' if plain == 1 else 'their'} own")
+        how = (f": {said_so} withheld {'its' if said_so == 1 else 'their'} mean as not "
+               f"determined, and {plain} gave no error of {'its' if plain == 1 else 'their'} own")
     return (f"{which}{how}, so their spread is not yet an "
             "error: begun from one structure, runs too short to resolve their "
             "correlation time are not yet independent samples.")

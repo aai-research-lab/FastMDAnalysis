@@ -173,8 +173,8 @@ class TestTheCalibrationComparison:
         said = aggregate_members(_campaign(tmp_path / "mixed", mixed, seeds))["analyses"]["rmsd"][
             "calibration"]
         assert "(from the 1 of 3 runs that gave an error of their own)" in said
-        assert ("None of the 3 replicas determined its own mean: 1 said its mean is not a "
-                "measurement, and 2 gave no error of their own, so their spread is not yet "
+        assert ("None of the 3 replicas determined its own mean: 1 withheld its mean as not "
+                "determined, and 2 gave no error of their own, so their spread is not yet "
                 "an error") in said
         assert "said as much themselves" in said
 

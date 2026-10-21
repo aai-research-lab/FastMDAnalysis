@@ -252,6 +252,9 @@ def test_the_range_is_marked_on_the_viewer_s_timeline(study):
             browser, page, errors = _page(pw, session)
             page.goto(session.url + "#analysis", wait_until="domcontentloaded")
             page.wait_for_selector('.series-chart[data-analysis="rmsd"] .plot-tools')
+            # The cells say their frame counts once the records are read,
+            # which can move the chart under a drag begun before.
+            page.wait_for_function("() => window.FastMDXAnalysisPage.overviewRead()")
             _drag(page, '.series-chart[data-analysis="rmsd"]', (0.4, 0.4), (0.8, 0.45))
             page.wait_for_selector("#analysis-cell-range:not([hidden])")
             page.click('[data-view-link="viewer"]')

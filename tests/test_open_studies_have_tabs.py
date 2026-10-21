@@ -697,6 +697,12 @@ def test_many_tabs_fit_the_page_and_work_by_keyboard(browser, site, width, besid
             page.click("#agent-beside-open")
             page.locator("#agent-drawer").wait_for()
         page.wait_for_function("document.getElementById('study-tabs').matches('.more-before, .more-after')")
+        # The strip narrows as the Agent opens beside it; its observer puts
+        # the open tab back in view on the next frame. Asserted below.
+        try:
+            page.wait_for_function(IN_VIEW, timeout=10000)
+        except Exception:
+            pass
         facts = page.evaluate(LAYOUT)
         # The open study is in view at the end of a long strip; a fade says
         # more tabs lie past the edge; nothing runs past the page or under
@@ -741,6 +747,12 @@ def test_a_delayed_success_does_not_show_new_records_under_the_old_tab(browser, 
         page.route("**/api/explore/switch", switch)
         _link(page, site["keys"][0]).click()
         expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
+        # The handler appends once the server has answered, which on a busy
+        # runner comes after the strip says it is busy.
+        for _ in range(200):
+            if held:
+                break
+            page.wait_for_timeout(100)
         assert held
         assert page.evaluate("getComputedStyle(document.querySelector('.page-shell')).visibility") == "hidden"
         assert page.evaluate("window.FastMDXDashboard.state.studyShown") == site["keys"][1]
