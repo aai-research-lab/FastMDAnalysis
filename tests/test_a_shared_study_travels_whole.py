@@ -1510,7 +1510,7 @@ def test_a_description_sent_twice_and_lost_is_still_the_study_s(tmp_path, unstea
     unsteady.faults = {}
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
-    assert "changed since this study last wrote it" not in capsys.readouterr().out
+    assert "changed there since this study last described it" not in capsys.readouterr().out
     assert "Words of the third share." in unsteady.meta[7]["description"]
 
 
@@ -1743,3 +1743,62 @@ def test_an_answer_that_is_no_draft_is_not_taken_for_one_gone(tmp_path, unsteady
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert "is no draft or record; nothing was made" in capsys.readouterr().err
     assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+def test_a_new_version_begun_on_a_disk_that_then_fills_is_named(tmp_path, unsteady,
+                                                                monkeypatch, capsys):
+    """Hands-on review of the eleventh commit: a new version begun, the
+    study's disk full just after, was not named, and the next share took it
+    for one whose answer was lost."""
+    import errno
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real, writes = Path.write_text, []
+
+    def fills(self, *args, **kwargs):
+        if self.name.startswith(f".{zenodo.SHARED_TO}."):
+            writes.append(self)
+            if len(writes) > 1:
+                raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fills)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "Zenodo had begun a new version of record 7, draft 8" in said
+    assert "delete that draft there, make room, then share again" in said
+
+
+def test_a_new_version_left_as_begun_is_not_told_to_be_published(tmp_path, unsteady,
+                                                                 capsys):
+    """Hands-on review of the eleventh commit: a draft of a new version
+    holding the record as it was was said to be published or deleted;
+    published, it is the record again."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    unsteady.versions_begun = [8]
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "delete it there (it holds the record as it was)" in said
+    assert "publish it" not in said
+
+
+def test_names_changed_on_a_described_draft_are_not_said_a_description(tmp_path, unsteady,
+                                                                       capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["creators"] = [{"name": "Aina, Adekunle"}, {"name": "Their, Co-author"}]
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    said = capsys.readouterr().out
+    assert "holds a description changed" not in said
+    assert "changed there since this study last described it (its words, names or " \
+        "keywords)" in said

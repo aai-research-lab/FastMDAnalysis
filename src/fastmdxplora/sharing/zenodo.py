@@ -656,7 +656,20 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
         # described (a co-author added after a failed upload), the person's.
         if answered:
             kept[site]["written"] = _written(deposition.get("metadata"))
-    _keep(study, kept)
+    try:
+        _keep(study, kept)
+    except ShareRefused as exc:
+        if not versioned or same:
+            raise
+        # Begun, and not remembered: named, as no later share can tell it
+        # from one begun on Zenodo's site.
+        begun_at = str((deposition.get("links") or {}).get("html")
+                       or f"{base}/uploads/{identifier}")
+        raise ShareRefused(
+            f"{exc} Zenodo had begun a new version of record {published}, draft "
+            f"{identifier} ({begun_at}), which this study could not remember: delete that "
+            "draft there, make room, then share again.",
+            code=exc.refusal.code, path=str(study / SHARED_TO)) from exc
     held = deposition.get("metadata") if isinstance(deposition.get("metadata"), dict) else {}
     inherited = {k: v for k, v in held.items() if k not in ("doi", "prereserve_doi")}
     page = str((deposition.get("links") or {}).get("html") or f"{base}/uploads/{identifier}")
@@ -780,9 +793,9 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                      "it is kept as it is, with no description, and only the archive is "
                      "new. Describe it there before you publish.")
             elif said:
-                said(f"The draft {page} holds a description changed since this study last "
-                     "wrote it: it is kept as it is, and only the archive is new. Write it "
-                     "there as you want it before you publish.")
+                said(f"The draft {page} was changed there since this study last described "
+                     "it (its words, names or keywords): it is kept as it is, and only the "
+                     "archive is new. Write it there as you want it before you publish.")
         _keep(study, kept)
     except ShareRefused as exc:
         kept_as = (f"with the new archive and the earlier {removing}, which Zenodo may not "
@@ -903,10 +916,13 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             # asks: one there already is the person's, or one a share began
             # and lost the answer to; either way left alone.
             draft_id = str(begun[0].get("id"))
+            # Unchanged, it is the record again: publishing it adds nothing.
+            what = ("delete it there (it holds the record as it was), then share again"
+                    if not _changed_since(newest, begun[0])
+                    else "publish it, or delete it there, then share again")
             raise ShareRefused(
                 f"Zenodo holds a draft of a new version of record {published} ({draft_id}), "
-                "begun on its site or by a share whose answer was lost: publish it, or "
-                "delete it there, then share again.",
+                f"begun on its site or by a share whose answer was lost: {what}.",
                 code="environment.service.unusable_response",
                 url=str((begun[0].get("links") or {}).get("html") or ""))
         # Where the study is written, written first: a disk with no room

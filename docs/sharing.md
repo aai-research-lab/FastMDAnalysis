@@ -258,11 +258,13 @@ latest one published (one you published by hand included), in that one's
 own form: 3 after 2, 1.3 after 1.2, v4 after v3. Zenodo keeps one draft
 of a new version at a time, and gives it to whoever asks: one there
 already, begun on its site or by a share whose answer was lost, cannot be
-told apart, so it is left alone (publish or delete it, then share again).
-One a share began and you deleted is begun again from the published
-record, holding its archive. What you changed on the
-record before publishing it is carried into its new version, not written
-over. Only an archive the study put there is taken away: another `.zip` on
+told apart, so it is left alone (publish or delete it, then share again;
+one still holding the record as it was is said to be deleted, as
+published it would be the record again). One a share began and could not
+remember, its disk full just after, is named for you to delete. One a
+share began and you deleted is begun again from the published record,
+holding its archive. What you changed on the record before publishing it
+is carried into its new version, not written over. Only an archive the study put there is taken away: another `.zip` on
 the draft keeps the share back, as a record of two archives opens as
 neither.
 
