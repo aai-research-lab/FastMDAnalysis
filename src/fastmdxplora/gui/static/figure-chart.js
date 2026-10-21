@@ -349,8 +349,8 @@
       // Each cell its own colour, not blended with the next.
       style: "image-rendering: pixelated",
     }, f.layer);
-    el("title", {}, shown).textContent = "Drawn as a picture of its " + nx + " by " + ny +
-      " cells: more runs of a colour than are drawn one by one";
+    el("title", {}, shown).textContent = "Plotted as a picture of its " + nx + " by " + ny +
+      " cells: more runs of a colour than are plotted one by one";
     shown.setAttributeNS("http://www.w3.org/1999/xlink", "href", canvas.toDataURL("image/png"));
     shown.setAttribute("href", canvas.toDataURL("image/png"));
   }
@@ -966,7 +966,7 @@
     return rows;
   }
 
-  /* The plots on the simulation's clock, drawn again as the page's time
+  /* The plots on the simulation's clock, plotted again as the page's time
    * range changes. */
   var drawnOnTheClock = [];
   document.addEventListener("fmx:time-range", function () {
