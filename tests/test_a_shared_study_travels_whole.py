@@ -113,8 +113,12 @@ class _Unsteady(_Zenodo):
         self.send_response(status)
         if status == 429:
             self.send_header("Retry-After", "7")
-        self.send_header("Content-Length", "0")
+        # Zenodo's own refusals say so in JSON; a gateway's 5xx says nothing.
+        said = json.dumps({"status": status, "message": "refused"}).encode() \
+            if 400 <= status < 500 else b""
+        self.send_header("Content-Length", str(len(said)))
         self.end_headers()
+        self.wfile.write(said)
 
     def do_POST(self):  # noqa: N802
         latest = type(self).latest
@@ -2933,3 +2937,105 @@ def test_a_licence_removed_on_an_earlier_release_s_draft_stays_removed(tmp_path,
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert not unsteady.meta[7].get("license")
     assert "licence and access are kept" in capsys.readouterr().out
+
+
+def test_a_new_version_begun_again_of_an_earlier_release_s_record_keeps_its_words(
+        tmp_path, unsteady, capsys):
+    """Review of the twenty-seventh commit: a new version begun again, the
+    person having changed the record's names, lost what told the study's
+    description, and was never described again."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.meta[7]["creators"] = [{"name": "Aina, Adekunle"}, {"name": "New, Author"}]
+    words = zenodo._written({"description": unsteady.meta[7]["description"]})
+    (study / "shared_to.json").write_text(json.dumps({"zenodo-sandbox": {
+        "id": "8", "version": "2", "record": "7", "by_earlier": True,
+        "record_written": "not what the record holds", "record_words": words,
+        "archive": "shared.zip", "record_archive": ["shared.zip"]}}))
+    unsteady.gone = {8}
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+
+
+def test_names_changed_after_a_lost_answer_on_an_earlier_release_s_draft(tmp_path,
+                                                                         unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _analysed_again(study, "Words of the second share.")
+    unsteady.faults = {"PUT metadata": ["applied"] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7]["creators"] = [{"name": "Aina, Adekunle"}, {"name": "New, Author"}]
+    report = study / "report" / "report.md"
+    report.write_text(report.read_text().replace("Words of the second share.",
+                                                 "Words of the third share."))
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the third share." in unsteady.meta[7]["description"]
+
+
+def test_what_a_lost_first_write_added_and_the_person_removed_stays_removed(tmp_path,
+                                                                            unsteady):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    for key in ("license", "keywords"):
+        unsteady.meta[7].pop(key, None)
+    unsteady.faults = {"PUT metadata": ["applied"] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.meta[7].update(license="", keywords=[])
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert not unsteady.meta[7].get("license") and not unsteady.meta[7].get("keywords")
+
+
+def test_an_empty_404_for_the_study_s_draft_is_not_taken_for_it_gone(tmp_path, unsteady,
+                                                                     monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = urllib.request.urlopen
+
+    def gateway(request, timeout=None):
+        if request.get_method() == "GET" and request.full_url.endswith("/depositions/7"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
+                                         io.BytesIO(b""))
+        return real(request, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+def test_a_gateway_s_404_on_reserving_a_doi_is_not_said_gone(tmp_path, unsteady,
+                                                            monkeypatch, capsys):
+    import io
+    import urllib.error
+    import urllib.request
+
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["prereserve_doi"] = {}
+    real = urllib.request.urlopen
+
+    def gateway(request, timeout=None):
+        if request.get_method() == "PUT" and request.full_url.endswith("/depositions/7"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
+                                         io.BytesIO(b"<html>Not Found</html>"))
+        return real(request, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", gateway)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "is gone from" not in capsys.readouterr().err

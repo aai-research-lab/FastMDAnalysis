@@ -260,7 +260,8 @@ analysed again since, or you rewrote it) may be yours, and is kept, said
 so (clear it there, and the next share writes the study's). Its title,
 creators, keywords, licence and access, which the study cannot tell from
 yours, stay as the draft holds them in that record (change them there);
-once this release has written it, it is as any other. A
+once this release has written it, its description stays the study's
+while it is what the study wrote, whatever you change of the rest. A
 licence or access you set on a draft is a change of yours too: from then
 on only the version is the study's to set. A `.zip` put on the draft while
 the study's archive uploads is said once it is up, for you to delete

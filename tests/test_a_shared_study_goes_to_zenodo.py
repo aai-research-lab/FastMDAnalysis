@@ -59,7 +59,7 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
             return self._json(self._deposition(7), 201)
         if self.path.endswith("/actions/newversion"):
             return self._json(self._deposition(7))
-        self._json({}, 404)
+        self._json({"status": 404, "message": "not found"}, 404)
 
     def do_PUT(self):  # noqa: N802
         body = self._body()
@@ -97,7 +97,7 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(archive)
             return
-        self._json({}, 404)
+        self._json({"status": 404, "message": "not found"}, 404)
 
     def log_message(self, *args):
         return

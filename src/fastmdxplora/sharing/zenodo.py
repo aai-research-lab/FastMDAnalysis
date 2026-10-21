@@ -122,6 +122,17 @@ def base_url(site: str) -> str:
     return (os.environ.get("FASTMDXPLORA_ZENODO_URL") or SITES[site]).rstrip("/")
 
 
+def _zenodo_s(answer: str, code: int) -> bool:
+    """Whether an error's body is Zenodo's own answer: a JSON object giving
+    its status or a message (as its API documents), not a gateway's page."""
+    try:
+        said_back = json.loads(answer)
+    except ValueError:
+        return False
+    return isinstance(said_back, dict) and (said_back.get("status") in (code, str(code))
+                                             or bool(said_back.get("message")))
+
+
 def _call(method: str, url: str, *, token: str = "", body: Any = None,
           upload: Path | None = None, missing_ok: bool = False,
           said: Callable[[str], None] | None = None, tries: int = TRIES,
@@ -158,8 +169,9 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
             if missing_ok and exc.code in (404, 410):
                 try:
                     said_back = exc.read().decode("utf-8", errors="replace")
-                    json.loads(said_back or "{}")
-                except (OSError, http.client.HTTPException, ValueError):
+                except (OSError, http.client.HTTPException):
+                    said_back = ""
+                if not _zenodo_s(said_back, exc.code):
                     # A gateway's page, not Zenodo's own answer: not known.
                     unknown = ShareRefused(
                         f"Zenodo answered {method} {url} with HTTP {exc.code} in a page not "
@@ -195,6 +207,8 @@ def _call(method: str, url: str, *, token: str = "", body: Any = None,
             refused = ShareRefused(f"Zenodo answered {method} {url}: {why}. {answered}".strip(),
                                    code="environment.service.unreachable", url=url)
             refused.status = exc.code
+            # Said by Zenodo itself (a gateway's page is not).
+            refused.own = _zenodo_s(answered, exc.code)
             refused.later = exc.code in AGAIN or exc.code >= 500
             # Zenodo, or the gateway before it, gave up part way: what was
             # asked may have been done.
@@ -740,14 +754,16 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                                              "sending", "record_written", "record_sending",
                                              "record_archive", "record_sums", "stale",
                                              "uploading", "made_as", "sums", "by_earlier",
-                                             "written_words")
+                                             "written_words", "record_words", "sending_words")
                      if same and earlier.get(k)}}
     if versioned:
         kept[site]["record"] = published
         if earlier.get("by_earlier"):
             kept[site]["by_earlier"] = True
-            if earlier.get("written_words") and not found_as["begun_again"]:
-                kept[site]["written_words"] = earlier["written_words"]
+            recorded_words = earlier.get("record_words") if found_as["begun_again"] \
+                else earlier.get("written_words")
+            if recorded_words:
+                kept[site]["written_words"] = kept[site]["record_words"] = recorded_words
         # The archive the record holds, the study's: begun again, a draft of
         # it holds that one, not the one put on the draft deleted.
         # (And any it was replacing, or sent whose answer was lost: one of
@@ -793,12 +809,14 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 "written", "sending", "asked_as", "archive", "sums", "record_written",
                 "record_sending", "record_archive", "stale", "uploading", "made_as",
                 "record")))
-    if by_earlier and not kept[site].get("by_earlier"):
+    if by_earlier:
         kept[site]["by_earlier"] = True
         # The zip it holds of the archive's name, as that release left it,
-        # is the study's (that release kept no account of it).
+        # is the study's (that release kept no account of it), until this
+        # release has named one there.
         held_there = dict(_contents(deposition)).get(archive.name)
-        if held_there:
+        if held_there and not kept[site].get("archive") \
+                and archive.name not in _sums_kept(kept[site].get("sums")):
             kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
                                   archive.name: [_md5(held_there)]}
     if made_here and title:
@@ -864,7 +882,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                              body={"metadata": {**inherited, "prereserve_doi": True}},
                              said=said)
         except ShareRefused as exc:
-            if getattr(exc, "status", 0) in (404, 410):
+            if getattr(exc, "status", 0) in (404, 410) and getattr(exc, "own", False):
                 raise ShareRefused(
                     f"{exc} The draft {page} is gone from {site} (deleted there during this "
                     "share): share again and a new one is made.",
@@ -976,12 +994,14 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
             not said_there or (bool(_EARLIER_WROTE.fullmatch(said_there))
                                and said_there.split("</p>")[0] == summary_now))
 
-    words = str(kept[site].get("written_words") or "")
+    # The study's description alone, as written or sent there (an earlier
+    # release's draft, whose other fields stay the person's).
+    words = [w for w in (str(kept[site].get("written_words") or ""),
+                         *_sendings(kept[site].get("sending_words"))) if w]
 
     def _the_study_s(held: dict[str, Any]) -> bool:
         return (bool(last) and _written(held) == last) or _sent(held) in sending \
-            or (by_earlier and bool(words)
-                and _written({"description": held.get("description")}) == words) \
+            or (by_earlier and _written({"description": held.get("description")}) in words) \
             or _as_earlier_wrote(held) or (
             # Still as asked for: titled so, and no one's words or names in it
             # (whatever defaults Zenodo gave it since).
@@ -1080,7 +1100,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 # title, names, keywords, licence, access) stays as it holds it.
                 wanted = {key: value for key, value in ours_said.items()
                           if key in ("description", "version", "prereserve_doi")
-                          or (not held.get(key) and not last)}
+                          or (not held.get(key) and not last and not sending)}
                 if said and any(held.get(key) and _described({key: held.get(key)})
                                 != _described({key: ours_said.get(key)})
                                 for key in ("creators", "license", "keywords", "title",
@@ -1093,6 +1113,12 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                 ours_said = wanted
             kept[site]["sending"] = [*_sendings(kept[site].get("sending")),
                                      _sent({**inherited, **ours_said})][-_SENDINGS:]
+            if by_earlier:
+                # Its description alone too: names the person changes after it
+                # landed, its answer lost, leave it the study's.
+                kept[site]["sending_words"] = [
+                    *_sendings(kept[site].get("sending_words")),
+                    _written({"description": ours_said.get("description")})][-_SENDINGS:]
             _keep(study, kept)
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
@@ -1105,6 +1131,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
                     kept[site]["written_words"] = _written(
                         {"description": answer["metadata"].get("description")})
                 kept[site].pop("sending", None)
+                kept[site].pop("sending_words", None)
             # Else what it holds is not known: what was sent stays the study's.
         else:
             # The person's words, kept; the version is the study's to say.
@@ -1129,7 +1156,7 @@ def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[s
     except ShareRefused as exc:
         if getattr(exc, "gone", False) or getattr(exc, "whole", False):
             raise
-        if getattr(exc, "status", 0) in (404, 410):
+        if getattr(exc, "status", 0) in (404, 410) and getattr(exc, "own", False):
             raise ShareRefused(
                 f"{exc} The draft {page} is gone from {site} (deleted there during this "
                 "share): share again and a new one is made.",
