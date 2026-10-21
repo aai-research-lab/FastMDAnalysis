@@ -464,6 +464,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   study whose tags were not read offers no Tag; a run begun whose length is
   not recorded counts as begun ("2 of 3 lengths known"); a cut name gives
   its whole name on hover; unfolded runs draw no stray line in lines.
+- Notices are saved: every notice the page gives, each run seen ending and
+  each refusal written while the page is open, the last 200 on this
+  computer, behind a bell in the status bar with how many are new (All,
+  Runs, Refusals and warnings; Clear the list with Undo).
+- One confirmation for what cannot be undone (stopping a run, a job on one
+  of your machines, clearing the scratch), beside the button pressed; a
+  selection forgotten asks nothing and offers Undo. One empty, loading and
+  error block on All studies, Compare, Files, the Problems tab and the Log;
+  the Files page says when its files could not be read, with Try again,
+  where it said "Reading the study's files..." for ever. Conversations and
+  Chats are one list in the sidebar.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never

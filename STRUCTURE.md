@@ -245,6 +245,10 @@ FastMDXplora/
 │       │   │                      #   rows with their molecules, the gallery, a phone's rows,
 │       │   │                      #   the bar for the studies chosen), run-progress.js (a run's
 │       │   │                      #   progress and time left as the status bar says them),
+│       │   │                      #   notices.js and notices.css (notices saved, behind the
+│       │   │                      #   status bar's bell), confirm.js (one confirmation),
+│       │   │                      #   page-states.js and page-states.css (one empty, loading and
+│       │   │                      #   error block; the confirmation's look),
 │       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,
