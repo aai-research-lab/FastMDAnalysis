@@ -438,7 +438,7 @@ def _card_read(base: Path) -> dict[str, Any]:
     if "length" not in unread:
         # A run's records not read: how long it ran is not a sum of the rest.
         card.update(far)
-    if card["state"] == "analysed" and card["kind"] == "one run":
+    if card["state"] == "analysed" and card["kind"] == "one run" and not _simulated(base):
         card["kind"] = "a trajectory analysed"
     # The molecule, as All studies draws it (backbone_picture.py).
     from fastmdxplora.gui.backbone_picture import backbone_points, start_outside
@@ -916,14 +916,16 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
         return "incomplete"
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
     if not isinstance(phases, list) or not phases:
-        # A trajectory analysed here, with no run of its own recorded: its
-        # analyses say it was, and "not started" said the opposite beside
-        # its means.
+        # No phase recorded: what its other records say. Analysed (a
+        # trajectory analysed here, or a run whose Manifest is missing,
+        # analysed after it simulated); simulated and no more, not known;
+        # "not started" said the opposite beside its length and means.
         from fastmdxplora import record_access
 
-        if (record_access.is_file(base / "analysis" / "analysis_manifest.json")
-                and not _simulated(base)):
+        if record_access.is_file(base / "analysis" / "analysis_manifest.json"):
             return "analysed"
+        if _simulated(base):
+            return "not known"
         return "not started"
     for phase in phases:
         if isinstance(phase, dict) and phase.get("status") == "error":

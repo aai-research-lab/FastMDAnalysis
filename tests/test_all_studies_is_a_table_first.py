@@ -420,3 +420,48 @@ def test_no_row_runs_past_the_list_in_a_narrow_column(tmp_path, width, beside):
         assert seen["rows"] == "table-row", seen
     if width == 390:
         assert seen["rows"] == "grid", seen
+
+
+def test_a_study_that_ran_is_not_said_not_started(tmp_path):
+    """A study with no Manifest that simulated and analysed was said "not
+    started", grouped under "nothing ran", beside its 40 ps and its RMSD;
+    one that completed without recording its timestep said its length was
+    "none", "Nothing simulated yet"."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.workspace import card_of
+
+    ran = _study(tmp_path / "no_manifest", means={"rmsd": (0.01, 0.001)})
+    (ran / "manifest.json").unlink()
+    _live(ran, status="completed", current=12000)
+    (ran / "analysis" / "analysis_manifest.json").write_text("{}", encoding="utf-8")
+    simulated = _study(tmp_path / "simulated_only")
+    (simulated / "manifest.json").unlink()
+    _live(simulated, status="completed", current=12000)
+    untimed = _live(_study(tmp_path / "untimed"), status="completed", current=12000)
+    record = json.loads((untimed / "simulation" / "live_status.json").read_text())
+    del record["timestep_fs"]
+    (untimed / "simulation" / "live_status.json").write_text(json.dumps(record))
+    cards = {name: card_of(tmp_path / name) for name in ("no_manifest", "simulated_only")}
+    assert (cards["no_manifest"]["state"], cards["no_manifest"]["kind"]) == ("analysed", "one run")
+    assert cards["simulated_only"]["state"] == "not known"
+    session = start_dashboard_session(output=str(untimed), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1920, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            length = page.inner_text('#studies-table tr.studies-row[data-path$="/untimed"] .studies-length')
+            groups = page.eval_on_selector_all("#studies-table .studies-group b",
+                                               "g => g.map((x) => x.textContent)")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert length == "not known"
+    assert "Not started" not in groups

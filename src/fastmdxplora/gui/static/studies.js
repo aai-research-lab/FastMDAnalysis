@@ -611,9 +611,12 @@
       return host;
     }
     if (study.simulated_ns == null) {
-      host.textContent = "none";
-      host.title = study.state === "analysed" ? "A trajectory analysed: its length is its frames'"
-        : "Nothing simulated yet";
+      // "none" only where nothing ran: a run that ran and did not record
+      // how long is not known, not none.
+      var none = study.state === "not started" || study.kind === "a trajectory analysed";
+      host.textContent = none ? "none" : "not known";
+      host.title = study.kind === "a trajectory analysed" ? "A trajectory analysed: its length is its frames'"
+        : none ? "Nothing simulated yet" : "Its records do not say how long it ran";
       return host;
     }
     host.appendChild(make("span", "mono", lengthSaid(study.simulated_ns)));
