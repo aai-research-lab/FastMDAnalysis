@@ -70,8 +70,15 @@
     return document.body.dataset.beyondLoopback === "true";
   }
 
+  /* Nothing of a study is acted on here: beyond loopback, or a run whose
+   * folder is a link out of its study (`outside`), which was not read
+   * and is not opened, tagged or chosen from its row. */
+  function noActions(study) {
+    return beyondLoopback() || !!(study && study.outside);
+  }
+
   function tagButton(study) {
-    if (beyondLoopback()) return null;
+    if (noActions(study)) return null;
     var count = (study.tags || []).length;
     var some = count || study.note;
     // Tags once it has some, marked so on the icon; the count to a reader.
@@ -712,7 +719,7 @@
   }
 
   function openButton(study, page) {
-    if (beyondLoopback()) return null;
+    if (noActions(study)) return null;
     var button = ICONS.button(page === "files" ? "files" : "open",
       page === "files" ? "Its files" : "Open", page === "files" ? "study-files" : "study-open");
     button.addEventListener("click", function () { openStudy(study.path, button, page); });
@@ -756,7 +763,7 @@
     }
     var actions = make("div", "study-actions");
     var pick = null;
-    if (!beyondLoopback()) {
+    if (!noActions(study)) {
       pick = make("label", "study-pick");
       var box = make("input");
       box.type = "checkbox";
@@ -937,8 +944,8 @@
     tr.dataset.state = String(study.state || "").toLowerCase();
     var pick = make("td", "studies-pick");
     // Beyond loopback nothing in the bar can act on the studies chosen:
-    // choosing is not offered either.
-    if (!beyondLoopback()) {
+    // choosing is not offered either; nor for a run linked out.
+    if (!noActions(study)) {
       var box = make("input");
       box.type = "checkbox";
       box.checked = chosen.indexOf(study.path) >= 0;
@@ -963,9 +970,9 @@
       line.appendChild(fold);
     }
     // The name opens the study, as Open does at the row's end.
-    var named = make(beyondLoopback() ? "span" : "button", "studies-name-text",
+    var named = make(noActions(study) ? "span" : "button", "studies-name-text",
                      child ? runName(study) : study.name);
-    if (beyondLoopback()) {
+    if (noActions(study)) {
       // Reached by j and k, as a row is, but not opened here.
       named.tabIndex = 0;
       named.title = study.path;

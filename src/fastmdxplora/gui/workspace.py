@@ -65,6 +65,18 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
         return {"ok": True, "root": str(given), "studies": [], "more": False,
                 "tags_used": [], "unavailable": ["runs"],
                 "not_read": "runs was not read: it is a link to a folder outside the study."}
+    for asked in (given, *given.parents):
+        # A run of a study asked by its own path (or a folder in it), where
+        # the run or its study's ``runs`` leads out of the study: told from
+        # the path as given, before anything there is resolved or read, as
+        # the thumbnail of it is refused. Its card is the one its study
+        # lists, not read; nothing outside is said.
+        out = _out_of_its_study(asked) if asked.parent.name == "runs" else None
+        if out:
+            card = _a_run_not_read(asked, out)
+            return {"ok": True, "root": str(given),
+                    "studies": [card] if asked == given else [], "more": False,
+                    "tags_used": [], "unavailable": [out], "not_read": card["not_read"]}
     base = given
     try:
         base = base.resolve()
@@ -151,7 +163,7 @@ def _a_run_not_read(folder: Path, name: str | None = None) -> dict[str, Any]:
     return {"path": str(folder), "name": folder.name, "system": "", "structure": "",
             "kind": "", "state": "not known", "when": "", "last_active": "", "means": [],
             "tags": [], "note": "", "molecule": None, "unread": list(_PARTS),
-            "unavailable": [name], "unavailable_why": {name: "outside"},
+            "unavailable": [name], "unavailable_why": {name: "outside"}, "outside": True,
             "not_read": f"{name} was not read: it is a link to a folder outside the study."}
 
 

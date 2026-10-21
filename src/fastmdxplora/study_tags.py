@@ -60,6 +60,24 @@ def _kept(folder: str | Path) -> dict[str, Any]:
     return kept if isinstance(kept, dict) else {}
 
 
+def _not_changed_here(folder: Path) -> str | None:
+    """Why a study's tags are not changed, where its ``study_tags.json`` is
+    a link its held read refuses (out of the study, or to a hidden file of
+    it): a change is made to the tags as kept, so they would be read from
+    there, and copied into the study. None where they can be changed."""
+    from fastmdxplora import record_access
+    from fastmdxplora.refusals import OutsideWorkspace
+
+    try:
+        record_access.read_text(folder / TAGS_FILE, encoding="utf-8")
+    except OutsideWorkspace:
+        return (f"Its tags were not changed: {TAGS_FILE} is a link out of the study's own "
+                "records, and is not read.")
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _archived_at(kept: dict[str, Any]) -> str | None:
     when = kept.get("archived")
     return when if isinstance(when, str) and when else None
@@ -130,6 +148,9 @@ def set_tags(folder: str | Path, tags: Any, note: Any = None,
     is given (an empty one clears it), and archived or not where that is
     given (True or False; anything else leaves it as it was)."""
     base = Path(folder)
+    refused = _not_changed_here(base)
+    if refused:
+        return {"ok": False, "reason": refused}
     checked, reason = _checked_tags(tags)
     if checked is None:
         return {"ok": False, "reason": reason}
@@ -151,6 +172,9 @@ def change_tags(folder: str | Path, add: Any = None, remove: Any = None, note: A
     or False). A tag another writer kept since the page read the study (an
     AI app through `fastmdx mcp`, another window) stays."""
     base = Path(folder)
+    refused = _not_changed_here(base)
+    if refused:
+        return {"ok": False, "reason": refused}
     adding, reason = _checked_tags([] if add is None else add)
     if adding is None:
         return {"ok": False, "reason": reason}
@@ -175,6 +199,9 @@ def change_tags(folder: str | Path, add: Any = None, remove: Any = None, note: A
 def add_tags(folder: str | Path, tags: Any) -> dict[str, Any]:
     """Tags added to those a study has, the note left as it is."""
     base = Path(folder)
+    refused = _not_changed_here(base)
+    if refused:
+        return {"ok": False, "reason": refused}
     checked, reason = _checked_tags(tags)
     if checked is None:
         return {"ok": False, "reason": reason}

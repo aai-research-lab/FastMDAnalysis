@@ -1816,25 +1816,38 @@ def make_handler(
             if path == "/api/study-tags":
                 # A study's tags and note, as the person set them on its card,
                 # kept in its folder beside its records (study_tags.py).
+                from fastmdxplora.gui.workspace import _out_of_its_study
                 from fastmdxplora.study_tags import change_tags, set_tags
 
                 named = self._path_for(str(payload.get("path") or ""))
                 if named is None:
                     return
+                out = _out_of_its_study(Path(named))
+                if out:
+                    # A run linked out of its study, as All studies lists
+                    # it: not read, so not tagged or archived there.
+                    self._send_json({"ok": False, "reason": (
+                        f"{out} is a link to a folder outside the study: it is not read, "
+                        "and its tags are not changed.")})
+                    return
                 if not is_study(Path(named)):
                     self._send_json({"ok": False, "reason": f"{named} is not a study."})
                     return
+
                 # The page sends a change (tags added and taken off, archived
                 # or not), applied to the tags as kept: a tag kept since it
                 # read the study, by an AI app or another window, stays. A
-                # whole list given replaces them, as before.
-                if "tags" in payload:
-                    self._send_json(set_tags(named, payload.get("tags"), payload.get("note"),
-                                             archived=payload.get("archived")))
-                else:
-                    self._send_json(change_tags(named, payload.get("add"), payload.get("remove"),
-                                                payload.get("note"),
-                                                archived=payload.get("archived")))
+                # whole list given replaces them, as before. Held to the
+                # study, as its card is read: tags linked out of it are not
+                # read, so not changed.
+                def kept(inside: Path) -> dict[str, Any]:
+                    if "tags" in payload:
+                        return set_tags(inside, payload.get("tags"), payload.get("note"),
+                                        archived=payload.get("archived"))
+                    return change_tags(inside, payload.get("add"), payload.get("remove"),
+                                       payload.get("note"), archived=payload.get("archived"))
+
+                self._send_json(_confined(Path(named), kept))
                 return
             if path == "/api/movies":
                 # A movie of the study's frames started: ffmpeg on this

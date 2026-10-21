@@ -312,6 +312,16 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
             page.click('#studies-table tr.studies-row[data-path$="/reps_out"] .studies-fold')
             page.wait_for_selector(".studies-child-wait:has-text('runs was not read')")
             unfolded = page.inner_text(".studies-child-wait")
+            # A run linked out of its study: named, and nothing offered on
+            # it that would open, tag or choose it.
+            page.click('#studies-table tr.studies-row[data-path$="/reps"] .studies-fold')
+            page.wait_for_selector('#studies-table tr.studies-child[data-path$="/seed2"]')
+            offered = page.evaluate("""() => Object.fromEntries(['seed1', 'seed2'].map((run) => {
+                const row = document.querySelector(`#studies-table tr.studies-child[data-path$="/${run}"]`);
+                return [run, ['.study-tag-edit', '.study-open', '.study-files',
+                              'input[type=checkbox]', 'button.studies-name-text']
+                  .filter((s) => row.querySelector(s))];
+            }))""")
             page.click('[data-studies-view="cards"]')
             card = page.inner_text('.study-card[data-path$="/linked"]')
             browser.close()
@@ -326,6 +336,9 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
     assert "Rg" not in hidden["means"] and "not read" in hidden["means"]
     assert own["said"] == "" and "not read" not in own["means"]
     assert "Not read: " in card
+    assert offered == {"seed1": [".study-tag-edit", ".study-open", ".study-files",
+                                 "input[type=checkbox]", "button.studies-name-text"],
+                       "seed2": []}
     assert unfolded == ("Not read: runs was not read: it is a link to a folder outside "
                         "the study.")
 
@@ -370,3 +383,92 @@ def test_runs_linked_out_and_a_folder_linked_in_are_not_read(workspace):
     assert "elsewhere" not in names and "reps_out" in names
     for value in LEAKED:
         assert value not in json.dumps([runs, run, picture]), value
+
+
+def _post_tags(url: str, body: dict) -> dict:
+    import urllib.request
+
+    request = urllib.request.Request(url + "/api/study-tags", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read())
+
+
+def test_tags_linked_out_and_a_run_linked_out_are_not_changed(workspace):
+    """Archive, the bar's Tag and a card's Save change the tags as kept:
+    the change read a ``study_tags.json`` linked out of the study, copied
+    what it held into the study and showed it; for a run linked out of its
+    study, it wrote the outside folder."""
+    import os
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    space, outside = workspace
+    tagged = _a_study(space / "tagged")
+    (tagged / "study_tags.json").unlink()
+    _write(outside, "tags.json", {"tags": ["leaked tag"], "note": "leaked note",
+                                  "archived": "2026-01-01T00:00:00+00:00"})
+    _link(tagged / "study_tags.json", outside / "tags.json")
+    before = sorted(str(p) for p in outside.rglob("*"))
+    held = (outside / "seed2" / "study_tags.json").read_bytes()
+    session = start_dashboard_session(output=str(space / "own"), host="127.0.0.1", port=0)
+    said: dict[str, dict] = {}
+
+    def post_all() -> None:
+        said["archive"] = _post_tags(session.url, {"path": str(tagged), "archived": True})
+        said["tag"] = _post_tags(session.url, {"path": str(tagged), "add": ["mine"],
+                                               "remove": []})
+        said["save"] = _post_tags(session.url, {"path": str(tagged), "tags": ["mine"],
+                                                "note": ""})
+        said["run"] = _post_tags(session.url, {"path": str(space / "reps" / "runs" / "seed2"),
+                                               "add": ["mine"], "remove": [], "note": ""})
+        said["own"] = _post_tags(session.url, {"path": str(space / "own"), "add": ["mine"]})
+
+    try:
+        _, opened = _opened_outside(outside, post_all)
+    finally:
+        session.server.shutdown()
+    assert opened == []
+    for key in ("archive", "tag", "save"):
+        assert said[key]["ok"] is False, key
+        assert "study_tags.json is a link out of the study" in said[key]["reason"]
+    assert said["run"] == {"ok": False, "reason": (
+        "runs/seed2 is a link to a folder outside the study: it is not read, and its tags "
+        "are not changed.")}
+    assert said["own"]["ok"] is True and said["own"]["tags"] == ["wild type", "mine"]
+    for value in LEAKED:
+        assert value not in json.dumps(said), value
+    # Nothing written outside, and the link left as it was.
+    assert os.path.islink(tagged / "study_tags.json")
+    assert sorted(str(p) for p in outside.rglob("*")) == before
+    assert (outside / "seed2" / "study_tags.json").read_bytes() == held
+
+
+def test_a_run_asked_by_its_own_path_through_a_link_is_not_read(workspace):
+    """``/api/studies?path=<study>/runs/<run>``, the run linked out of its
+    study (or under ``runs`` linked out): the path was resolved first, and
+    the outside run read as a study of its own, its folder the answer's
+    ``root``."""
+    from fastmdxplora.gui.workspace import studies_in
+
+    space, outside = workspace
+    study = _runs_linked_out(space, outside)
+    asked = {"run": space / "reps" / "runs" / "seed2",
+             "under_runs": study / "runs" / "seed1",
+             "inside_it": space / "reps" / "runs" / "seed2" / "analysis"}
+    said = {}
+    for key, path in asked.items():
+        said[key], opened = _opened_outside(outside, lambda path=path: studies_in(path))
+        assert opened == [], key
+        assert str(outside.resolve()) not in json.dumps(said[key]), key
+        assert said[key]["root"] == str(path), key
+    (run,) = said["run"]["studies"]
+    assert run["outside"] is True and run["state"] == "not known"
+    assert run["unavailable"] == ["runs/seed2"] and run["path"] == str(asked["run"])
+    (under,) = said["under_runs"]["studies"]
+    assert under["outside"] is True and under["unavailable"] == ["runs"]
+    assert said["inside_it"]["studies"] == []
+    assert said["inside_it"]["not_read"] == ("runs/seed2 was not read: it is a link to a "
+                                             "folder outside the study.")
+    for value in LEAKED:
+        assert value not in json.dumps(said), value
