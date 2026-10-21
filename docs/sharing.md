@@ -120,6 +120,9 @@ carried the same way.
 - **The record of the process that ran it** (`.fastmdxplora_run.json`): the
   computer's name, its boot and the process number.
 - **Tags and notes** (`study_tags.json`), which are the person's own.
+- **Where a study fetched back from another machine was sent from**
+  (`fetched.json`): folders of this computer; each run finds its system
+  without it.
 - **What the study does not need:** the Viewer's scratch, the snapshots a
   run keeps as it goes (`live_frames/`; its last frame is kept, which the
   Viewer shows), what `--rerun` set aside (`previous/`, `superseded/`),
@@ -150,6 +153,9 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
 - a run's own folder as its records give it, where the record of runs gives
   another (a run carried on elsewhere), replaced by its place in the study
   (`__FASTMDX_STUDY__/runs/<id>`), when no other run gives the same folder;
+- for a study fetched back from another machine, each input carried named as
+  that machine named it (`inputs/<name>`, `<remote folder>/inputs/<name>`)
+  replaced by the folder it is carried in;
 - the computer's name replaced by `__FASTMDX_HOST__`, and a record's own
   field for it (`"host"`) whatever the name, a short one (`vm`) included.
 
@@ -411,7 +417,7 @@ The packing list of the demo study, cut to one file of each kind:
 
 | Code | When |
 |---|---|
-| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; or a run's prepared system is not found, is another one now, or is kept as links. |
+| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; or a file of it cannot be read. |
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
 | `environment.share.not_a_study` | No packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |

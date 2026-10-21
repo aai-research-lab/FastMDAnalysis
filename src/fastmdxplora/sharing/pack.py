@@ -59,10 +59,12 @@ TEXT_SUFFIXES = frozenset({
 
 #: Never shared: the record of the process that ran the study (its
 #: computer, boot and process number), the person's tags and notes, a copy
-#: of the rest, where an archive opened here came from, and the Zenodo
-#: record it was shared as.
+#: of the rest, where an archive opened here came from, the Zenodo record it
+#: was shared as, and where on this computer a study fetched back from
+#: another machine was sent from (`fetched.json`).
 _NEVER_NAMES = frozenset({"project_bundle.zip", "study_tags.json", SHARED_FROM,
-                          "shared_to.json", packing_list.METADATA, packing_list.PREVIEW})
+                          "shared_to.json", "fetched.json", packing_list.METADATA,
+                          packing_list.PREVIEW})
 #: The Agent's conversations with the person.
 _NEVER_FOLDERS = ("agent/",)
 #: Where a prepared system kept outside the study is carried.
@@ -359,7 +361,8 @@ def _hosts(root: Path, manifest: dict[str, Any],
                 for key in ("host", "hostname"):
                     if found.get(key):
                         names.add(str(found[key]))
-    short = {n.split(".")[0] for n in names}
+    # A study opened from a share names its computer as the placeholder.
+    short = {n.split(".")[0] for n in names if not n.startswith("__FASTMDX_")}
     return sorted({n for n in short if len(n) >= 3 and n.lower() not in _COMMON_HOSTS},
                   key=len, reverse=True)
 
@@ -394,10 +397,12 @@ class _Scrubber:
                 for spelling in _spellings(root) if len(spelling.strip("/\\")) > 1}
         for folder, (inside, alone) in (carried or {}).items():
             for spelling in _spellings(folder):
-                if ((_absolute(folder) or folder.startswith("~/"))
+                if ((_absolute(folder) or folder.startswith(("~/", "inputs/")))
                         and len(spelling.strip("/\\")) > 1):
                     said.setdefault(spelling.rstrip("/\\"), (f"{STUDY}/{inside}", alone))
-        self.roots = [(re.compile(_STARTS + re.escape(r)
+        # A relative name (`inputs/<name>`) only where it starts a path.
+        self.roots = [(re.compile((r"(?<![\w./\\-])" if r.startswith("inputs/") else _STARTS)
+                                  + re.escape(r)
                                   + (r"(?=/?(?![\w/\\-]|\.[\w]))" if said[r][1] else _ENDS)),
                        said[r][0])
                       for r in sorted(said, key=len, reverse=True)]
@@ -652,10 +657,14 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             given_path = _full(given)
             if given_path is None:
                 continue
-            for spelled in (Path(os.path.normpath(given_path)), given_path.resolve()):
+            try:
+                spellings = (Path(os.path.normpath(given_path)), given_path.resolve())
+            except (OSError, RuntimeError):
+                continue
+            for spelled in spellings:
                 try:
                     holding = spelled.resolve()
-                except OSError:
+                except (OSError, RuntimeError):
                     continue
                 if any(holding / layout == system if layout else holding == system
                        for layout in pipeline.PREPARED_SYSTEM_LAYOUTS):
@@ -763,6 +772,12 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     studies = {os.path.normpath(str(p)) for p in (real, root.absolute(),
                                                     manifest.get("output_dir")) if p}
     systems_found = {os.path.normpath(str(system)) for system in found_systems}
+    for run in manifest.get("runs") or []:
+        # A run's own folder as its records give it (carried on elsewhere).
+        recorded = _load(root / "runs" / run / "manifest.json")
+        recorded = recorded.get("output_dir") if isinstance(recorded, dict) else None
+        if isinstance(recorded, str) and _absolute(recorded):
+            systems_found.add(os.path.normpath(recorded))
 
     def is_here(path: str) -> bool:
         # A folder of the study the archive leaves out is carried elsewhere,
@@ -785,7 +800,10 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         # finds it as it did: `setup_from: /x/prep` as `prepared/prep`, with
         # its `setup/` in it; one named by itself alone, as the study that
         # holds it where setup lays one out, so it is named by that study.
-        home = Path.home().resolve()
+        try:
+            home = Path.home().resolve()
+        except (OSError, RuntimeError):
+            home = Path.home()
         holding = [system.parents[len(PurePosixPath(layout).parts) - 1]
                    for layout in pipeline.PREPARED_SYSTEM_LAYOUTS
                    if layout and system.as_posix().endswith("/" + layout)]
@@ -973,6 +991,44 @@ def _logins() -> frozenset[str]:
     return frozenset(n.casefold() for n in names if n)
 
 
+def _fetched_names(root: Path, carried: list[dict[str, Any]]
+                   ) -> dict[str, tuple[str, bool]]:
+    """For a study fetched back (`fetched.json` at its top), each name the
+    machine it ran on gave an input that is carried, as its carried folder."""
+    record = _load(root / "fetched.json")
+    if not isinstance(record, dict) or not isinstance(record.get("inputs"), dict):
+        return {}
+    remote = str(record.get("remote_dir") or "").rstrip("/")
+    out: dict[str, tuple[str, bool]] = {}
+    for name, source in sorted(record["inputs"].items()):
+        here = _full(source)
+        if here is None or not re.fullmatch(r"[\w.-]+", str(name)):
+            continue
+        try:
+            here = here.resolve()
+        except (OSError, RuntimeError):
+            continue
+        for entry in carried:
+            if entry["base"] == here:
+                place = entry["inside"]
+            elif entry["system"] == here or _within(entry["system"], here):
+                below = entry["system"].relative_to(here).as_posix()
+                place = entry["at"] if below == "." else None
+                if place is None:
+                    # The input names a study holding the system: as the
+                    # folder carried for it, the system's place below it.
+                    place = entry["at"][:-len(below) - 1] if entry["at"].endswith(
+                        "/" + below) else None
+            else:
+                continue
+            if place is None:
+                continue
+            for typed in (f"inputs/{name}", f"{remote}/inputs/{name}" if remote else ""):
+                if typed:
+                    out.setdefault(typed, (place, False))
+    return out
+
+
 def _carried_folders(carried: list[dict[str, Any]],
                      order: list[str] | None = None) -> list[dict[str, Any]]:
     """Each folder systems are carried in, once, with every run that
@@ -1091,6 +1147,11 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
     for entry in carried:
         for name, rule in entry["said"].items():
             rules.setdefault(name, rule)
+    # A study fetched back from another machine names its inputs as they
+    # were named there (`inputs/<name>`, `<remote_dir>/inputs/<name>`):
+    # each one carried is said as the folder it is carried in.
+    for name, rule in _fetched_names(root, carried).items():
+        rules.setdefault(name, rule)
     # A run's own folder as its records give it, where the record of runs
     # gives another (a run carried on elsewhere): only one only that run
     # gives, and outside the study, so no rule says another run's paths.
@@ -1179,7 +1240,8 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                     raw = source.read_bytes()
                 except OSError as exc:
                     raise ShareRefused(f"{source} could not be read ({exc}); nothing was "
-                                       "written.", code="environment.share.not_finished",
+                                       "written. Make it readable and share it again.",
+                                       code="environment.share.not_finished",
                                        path=rel) from exc
                 try:
                     text = raw.decode("utf-8")
@@ -1224,7 +1286,8 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                     size, digest = source.stat().st_size, _sha256_of(source)
                 except OSError as exc:
                     raise ShareRefused(f"{source} could not be read ({exc}); nothing was "
-                                       "written.", code="environment.share.not_finished",
+                                       "written. Make it readable and share it again.",
+                                       code="environment.share.not_finished",
                                        path=rel) from exc
             phase = entry["phase"]
             record = {"path": rel, "name": entry["label"], "size": size, "sha256": digest,

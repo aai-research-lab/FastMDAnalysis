@@ -1205,3 +1205,122 @@ def test_a_fetched_study_s_preparation_is_found_as_the_run_finds_it(tmp_path):
     opened = open_shared(str(tmp_path / "o.zip"), into=tmp_path / "x")
     assert setup_records_of(opened / "runs" / "a") == \
         (opened / "prepared" / "prep" / "setup").resolve()
+
+
+def test_a_study_opened_from_a_share_is_shared_again(tmp_path):
+    """Review of series 3: a study opened from a share names its computer as
+    the placeholder, which was then taken for a computer's name and refused."""
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    root, _ = _campaign(tmp_path)
+    share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    opened = open_shared(str(tmp_path / "o.zip"), into=tmp_path / "x")
+    share_study(opened, tmp_path / "o2.zip", authors=AUTHORS)
+    names = set(zipfile.ZipFile(tmp_path / "o2.zip").namelist())
+    assert "prepared/preparation/setup/system.xml" in names
+    again = open_shared(str(tmp_path / "o2.zip"), into=tmp_path / "y")
+    for run in "ac":
+        assert setup_records_of(again / "runs" / run) == \
+            (again / "prepared" / "preparation" / "setup").resolve()
+    assert not any(str(tmp_path) in text for text in _texts_of(tmp_path / "o2.zip").values())
+
+
+def test_a_run_s_own_setup_copied_out_keeps_its_own_place(tmp_path):
+    """Review of series 3: a run carried on elsewhere whose own setup was
+    copied out for another run had its own setup said as the copy."""
+    import shutil
+
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    root = tmp_path / "campaign"
+    scratch = tmp_path / "scratch" / "a"
+    own = _prepared(scratch / "setup")
+    ext = tmp_path / "ext" / "prep" / "setup"
+    shutil.copytree(own, ext)
+    shutil.copytree(own, root / "runs" / "a" / "setup")
+    shutil.rmtree(scratch)
+    _run(root, "b", ext, str(ext.parent))
+    run = _run(root, "a", ext, str(ext.parent))
+    manifest = json.loads((run / "manifest.json").read_text())
+    manifest["output_dir"] = str(scratch)
+    manifest["phases"][0] = {"name": "setup", "status": "ok", "output_dir": f"{scratch}/setup"}
+    (run / "manifest.json").write_text(json.dumps(manifest))
+    record = json.loads((run / "simulation" / "simulation_parameters.json").read_text())
+    record.pop("prepared_system")
+    record["parameters"].pop("setup_from")
+    (run / "simulation" / "simulation_parameters.json").write_text(json.dumps(record))
+    (run / "resolved_config.yml").write_text(f"output: {scratch}\n")
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["planned"] = [{"run_id": "a"}, {"run_id": "b"}]
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    own_record = json.loads(_texts_of(out)["runs/a/setup/setup_parameters.json"])
+    assert own_record["parameters"]["_retained_pdb"] == f"{STUDY}/runs/a/setup/retained.pdb"
+    opened = open_shared(str(out), into=tmp_path / "x")
+    assert setup_records_of(opened / "runs" / "a") == (opened / "runs" / "a" / "setup").resolve()
+
+
+def test_a_name_that_is_a_loop_of_links_is_a_refusal_or_found(tmp_path):
+    """Review of series 3: a recorded name that is a loop of links raised an
+    error that was no refusal."""
+    root, elsewhere = _campaign(tmp_path)
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    config = root / "runs" / "c" / "resolved_config.yml"
+    config.write_text(config.read_text().replace(f"setup_from: {elsewhere}/setup",
+                                                 f"setup_from: {loop}"))
+    try:
+        share_study(root, tmp_path / "o.zip", authors=AUTHORS)
+    except ShareRefused:
+        pass
+
+
+def test_where_a_fetched_study_was_sent_from_is_not_packed(tmp_path):
+    """Review of series 3: `fetched.json`, the record of where on this
+    computer a fetched study's inputs were sent from, went as written."""
+    test_a_fetched_study_s_preparation_is_found_as_the_run_finds_it(tmp_path)
+    assert "fetched.json" not in zipfile.ZipFile(tmp_path / "o.zip").namelist()
+
+
+def test_a_fetched_study_s_inputs_are_named_as_carried(tmp_path):
+    """Review of series 3: a study fetched back kept its preparation named as
+    the machine it ran on named it (`inputs/wt-prep`, and that machine's
+    folder with the login in it), so its Config named nothing once opened."""
+    from fastmdxplora.simulation import pipeline
+
+    remote = "/scratch/kaina/fastmdxplora-jobs/job42"
+    prep = _prepared(tmp_path / "preps" / "wt-prep" / "setup")
+    root = tmp_path / "studies" / "job42"
+    run = _run(root, "a", prep, "inputs/wt-prep")
+    record = json.loads((run / "simulation" / "simulation_parameters.json").read_text())
+    record["prepared_system"].update(given="inputs/wt-prep",
+                                     resolved=f"{remote}/inputs/wt-prep/setup",
+                                     relative_to_run="../../../inputs/wt-prep/setup")
+    (run / "simulation" / "simulation_parameters.json").write_text(json.dumps(record))
+    manifest = json.loads((run / "manifest.json").read_text())
+    manifest["output_dir"] = f"{remote}/run/runs/a"
+    manifest["phases"][0]["taken_from"] = f"{remote}/inputs/wt-prep/setup"
+    (run / "manifest.json").write_text(json.dumps(manifest))
+    (run / "resolved_config.yml").write_text(
+        f"output: {remote}/run/runs/a\nsimulation:\n  setup_from: inputs/wt-prep\n")
+    with (run / "report" / "report.md").open("a") as report:
+        report.write(f"\nPrepared in {remote}/inputs/wt-prep.\n")
+    _of_one_run(root)
+    batch = json.loads((root / "batch_manifest.json").read_text())
+    batch["output_dir"] = f"{remote}/run"
+    (root / "batch_manifest.json").write_text(json.dumps(batch))
+    (root / pipeline.FETCHED_RECORD).write_text(json.dumps(
+        {"remote_dir": remote, "machine": "csudh-hpc",
+         "inputs": {"wt-prep": str(prep.parent)}}))
+    out = tmp_path / "o.zip"
+    share_study(root, out, authors=AUTHORS)
+    texts = _texts_of(out)
+    assert f"setup_from: {STUDY}/prepared/wt-prep" in texts["runs/a/resolved_config.yml"]
+    assert "kaina" not in texts["runs/a/report/report.md"]
+    opened = open_shared(str(out), into=tmp_path / "x")
+    config = (opened / "runs" / "a" / "resolved_config.yml").read_text()
+    assert f"setup_from: {opened.resolve()}/prepared/wt-prep" in config
+    assert pipeline.setup_records_of(opened / "runs" / "a") == \
+        (opened / "prepared" / "wt-prep" / "setup").resolve()
