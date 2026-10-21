@@ -322,8 +322,11 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
                               'input[type=checkbox]', 'button.studies-name-text']
                   .filter((s) => row.querySelector(s))];
             }))""")
+            tag_offered = page.evaluate("""() => ['linked', 'own'].map((name) => !!document.querySelector(
+                `#studies-table tr.studies-row[data-path$="/${name}"] .study-tag-edit`))""")
             page.click('[data-studies-view="cards"]')
             card = page.inner_text('.study-card[data-path$="/linked"]')
+            tag_offered += [bool(page.query_selector('.study-card[data-path$="/linked"] .study-tag-edit'))]
             browser.close()
     finally:
         session.server.shutdown()
@@ -336,6 +339,9 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
     assert "Rg" not in hidden["means"] and "not read" in hidden["means"]
     assert own["said"] == "" and "not read" not in own["means"]
     assert "Not read: " in card
+    # Its tags not read: Tag not offered on its row or card, as a change
+    # to them is refused.
+    assert tag_offered == [False, True, False]
     assert offered == {"seed1": [".study-tag-edit", ".study-open", ".study-files",
                                  "input[type=checkbox]", "button.studies-name-text"],
                        "seed2": []}
@@ -430,7 +436,8 @@ def test_tags_linked_out_and_a_run_linked_out_are_not_changed(workspace):
     assert opened == []
     for key in ("archive", "tag", "save"):
         assert said[key]["ok"] is False, key
-        assert "study_tags.json is a link out of the study" in said[key]["reason"]
+        assert said[key]["reason"] == ("Its tags were not changed: study_tags.json was not "
+                                       "read: it is a link to a file outside the study.")
     assert said["run"] == {"ok": False, "reason": (
         "runs/seed2 is a link to a folder outside the study: it is not read, and its tags "
         "are not changed.")}
@@ -598,3 +605,23 @@ def test_a_held_read_finds_where_an_address_leads_once(tmp_path, monkeypatch):
             record_access.read_text(options)
         assert record_access.is_file(options) is False
         assert "analysis/rmsd/options.json" in record_access.refused()
+
+
+def test_tags_linked_to_a_hidden_file_are_refused_as_the_row_says(tmp_path):
+    """A ``study_tags.json`` linked to a hidden file of the study: the
+    change was refused as "a link out of the study's own records" while the
+    row said it leads to a file of the study that is not one of its
+    results. One wording for both."""
+    from fastmdxplora.gui.server import _confined
+    from fastmdxplora.gui.workspace import card_of
+    from fastmdxplora.study_tags import change_tags
+
+    study = _a_study(tmp_path / "hidden_tags")
+    (study / "study_tags.json").rename(study / ".tags.json")
+    _link(study / "study_tags.json", Path(".tags.json"))
+    card = card_of(study)
+    said = _confined(study, lambda inside: change_tags(inside, add=["mine"]))
+    assert said["ok"] is False
+    assert "study_tags.json was not read: it leads to a file of the study" in card["not_read"]
+    assert said["reason"] == ("Its tags were not changed: study_tags.json was not read: it "
+                              "leads to a file of the study that is not one of its results.")

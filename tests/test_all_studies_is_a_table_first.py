@@ -764,7 +764,7 @@ def test_a_cut_name_is_said_whole_and_a_refused_archive_says_why_once(tmp_path):
     finally:
         session.server.shutdown()
     assert title.startswith(long_name + ": open ")
-    assert said.strip().endswith("not read.") and ".." not in said, said
+    assert said.strip().endswith("outside the study.") and ".." not in said, said
 
 
 def test_a_study_that_ran_is_not_said_not_started(tmp_path):

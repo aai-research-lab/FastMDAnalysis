@@ -71,8 +71,10 @@ def _not_changed_here(folder: Path) -> str | None:
     try:
         record_access.read_text(folder / TAGS_FILE, encoding="utf-8")
     except OutsideWorkspace:
-        return (f"Its tags were not changed: {TAGS_FILE} is a link out of the study's own "
-                "records, and is not read.")
+        # Said as the study's row says it (`series.refused_said`).
+        from fastmdxplora.gui.series import refused_said
+
+        return f"Its tags were not changed: {refused_said(folder, folder / TAGS_FILE)}."
     except (OSError, ValueError):
         pass
     return None

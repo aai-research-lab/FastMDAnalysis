@@ -78,7 +78,9 @@
   }
 
   function tagButton(study) {
-    if (noActions(study)) return null;
+    // Its tags not read (a link out of it): not offered, as a change to
+    // them is refused; the row says why under its name.
+    if (noActions(study) || (study.unavailable || []).indexOf("study_tags.json") >= 0) return null;
     var count = (study.tags || []).length;
     var some = count || study.note;
     // Tags once it has some, marked so on the icon; the count to a reader.
