@@ -288,6 +288,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A study of several runs (seeds, arms, mutants, umbrella windows) is
+  shared as one file with `fastmdx report --share`, and opened as the study
+  it was: its record of runs, members and comparison with each run's own
+  files and phases. A prepared system a run simulated from, kept outside
+  the study, is carried once in `prepared/<name>/` and its paths said as
+  that folder, so each run opened elsewhere finds its system (profile 1.1).
+  A run running, stopped short or never run, a system not found or another
+  one now, a file or folder kept as a link, and one that cannot be read
+  keep the study back, each named with what to do
+  (`environment.share.not_finished`). See [Sharing](docs/sharing.md).
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's
