@@ -196,6 +196,58 @@ def test_the_bar_chooses_tags_compares_and_clears(tmp_path):
     assert phone["shown"] and phone["bottom"] == phone["height"]
 
 
+def test_beyond_loopback_nothing_that_posts_is_offered(tmp_path):
+    """Bound beyond loopback the server refuses every POST but the Config's
+    and `/api/compared`: Tag, Archive, Open and Files, which POST, and
+    Compare were offered on a row and in the bar all the same. Its list is
+    given here as the page would be given it (the route is loopback's)."""
+    import re
+
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.workspace import studies_in
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _serving
+
+    for k, name in enumerate(("alpha", "beta")):
+        _study(tmp_path / name, means={"rmsd": (0.1 + 0.01 * k, 0.004)},
+               started=f"2026-09-0{k + 1}T10:00:00+00:00")
+    listed = json.dumps(studies_in(tmp_path))
+    runtime = DashboardRuntime(workspace_root=tmp_path / "alpha", exploration_root=tmp_path,
+                               active_root=tmp_path / "alpha")
+    look = """() => ({
+        row: [...document.querySelectorAll('#studies-table tr.studies-row button')]
+            .filter((b) => b.offsetParent !== null).map((b) => b.className),
+        bar: [...document.querySelectorAll('#studies-bar button')]
+            .filter((b) => b.offsetParent !== null).map((b) => b.id || b.className),
+        tagger: !!document.querySelector('.studies-tagger'),
+        page: location.hash})"""
+    with _serving(runtime, allow_control=False) as url, sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(60000)
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route(re.compile(r".*/api/studies(\?.*)?$"), lambda route: route.fulfill(
+            status=200, content_type="application/json", body=listed))
+        page.goto(url + "#studies", wait_until="domcontentloaded")
+        page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+        page.wait_for_selector("#studies-table tbody tr.studies-row")
+        bound = page.evaluate("() => document.body.dataset.beyondLoopback")
+        for name in ("alpha", "beta"):
+            page.click(f'#studies-table tr.studies-row[data-path$="/{name}"] .studies-pick input')
+        page.focus('#studies-table tr.studies-row[data-path$="/beta"] .studies-name-text')
+        page.keyboard.press("t")
+        page.keyboard.press("c")
+        seen = page.evaluate(look)
+        browser.close()
+    assert errors == []
+    assert bound == "true"
+    assert seen["row"] == [] and not seen["tagger"] and seen["page"] == "#studies"
+    assert seen["bar"] == ["studies-clear"]
+
+
 def test_no_rule_is_left_for_the_offer_beside_the_pointer():
     """The bar replaced Compare and Clear beside the pointer: the page's
     rules for that offer, left in `dashboard.css`, are gone with it."""

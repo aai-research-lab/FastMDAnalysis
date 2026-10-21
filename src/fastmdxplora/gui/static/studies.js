@@ -62,7 +62,16 @@
 
   /* Tags and a note of the person's own, changed on the card or under
    * the table's row. */
+  /* A page bound beyond loopback (the page's bind flag): the server
+   * refuses every POST there but the Config's, so Tag, Archive, Open and
+   * Files, which POST, and Compare, which is read on loopback only, are
+   * not offered. */
+  function beyondLoopback() {
+    return document.body.dataset.beyondLoopback === "true";
+  }
+
   function tagButton(study) {
+    if (beyondLoopback()) return null;
     var count = (study.tags || []).length;
     var some = count || study.note;
     // Tags once it has some, marked so on the icon; the count to a reader.
@@ -593,6 +602,7 @@
   }
 
   function openButton(study, page) {
+    if (beyondLoopback()) return null;
     var button = ICONS.button(page === "files" ? "files" : "open",
       page === "files" ? "Its files" : "Open", page === "files" ? "study-files" : "study-open");
     button.addEventListener("click", function () { openStudy(study.path, button, page); });
@@ -643,7 +653,8 @@
     box.dataset.path = study.path;
     box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
     pick.append(box, document.createTextNode(" Choose"));
-    actions.append(openButton(study), tagButton(study), openButton(study, "files"), pick);
+    actions.append.apply(actions, [openButton(study), tagButton(study), openButton(study, "files"), pick]
+      .filter(Boolean));
     body.appendChild(actions);
     item.appendChild(body);
     return item;
@@ -835,10 +846,17 @@
       line.appendChild(fold);
     }
     // The name opens the study, as Open does at the row's end.
-    var named = make("button", "studies-name-text", child ? runName(study) : study.name);
-    named.type = "button";
-    named.title = "Open " + study.path;
-    named.addEventListener("click", function () { openStudy(study.path, named); });
+    var named = make(beyondLoopback() ? "span" : "button", "studies-name-text",
+                     child ? runName(study) : study.name);
+    if (beyondLoopback()) {
+      // Reached by j and k, as a row is, but not opened here.
+      named.tabIndex = 0;
+      named.title = study.path;
+    } else {
+      named.type = "button";
+      named.title = "Open " + study.path;
+      named.addEventListener("click", function () { openStudy(study.path, named); });
+    }
     line.appendChild(named);
     (study.tags || []).forEach(function (t) { line.appendChild(make("span", "study-tag studies-row-tag", t)); });
     name.appendChild(line);
@@ -869,7 +887,8 @@
       tr.appendChild(active);
     }
     var acts = make("div", "studies-actions");
-    acts.append(openButton(study), tagButton(study), openButton(study, "files"));
+    acts.append.apply(acts, [openButton(study), tagButton(study), openButton(study, "files")]
+      .filter(Boolean));
     tr.appendChild(cell("studies-acts", acts));
     return tr;
   }
@@ -1337,6 +1356,8 @@
         choose(box.dataset.path, box.checked, box);
         focusRow(here);
       }
+    } else if (beyondLoopback() && (event.key === "c" || event.key === "t")) {
+      return;
     } else if (event.key === "c" && chosen.length === 2) {
       event.preventDefault();
       compare();
@@ -2254,11 +2275,15 @@
 
   /* Beyond loopback /api/compared is refused (the page's bind flag, as the
    * palette leaves out Compare with...): the way to the Compare page is
-   * not offered. */
+   * not offered; nor are the bar's Tag, Files and Archive, which POST. */
   function compareOnLoopbackOnly() {
-    if (document.body.dataset.beyondLoopback !== "true") return;
+    if (!beyondLoopback()) return;
     var link = el("studies-compare-page");
     if (link) link.remove();
+    // Hidden, not taken out: the page's handlers are given them as ever.
+    Array.prototype.forEach.call(document.querySelectorAll(
+      "#studies-compare, #studies-tag-chosen, #studies-files-chosen, #studies-archive, " +
+      "#studies-bar .studies-bar-sep"), function (node) { node.hidden = true; });
   }
 
   if (document.readyState === "loading") {
