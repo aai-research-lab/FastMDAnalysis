@@ -5312,16 +5312,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .study-actions { display: flex; align-items: center; justify-content: flex-start; gap: 6px; margin-top: 4px; }
 .study-actions .study-pick { margin-left: 6px; }
 .study-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); cursor: pointer; }
-/* Compare and Clear, beside the pointer that chose the second study
-   (studies.js `place`), above the cards and the page's sticky bars, below
-   the Agent beside the page, the sidebar's peek and every dialog. */
-.studies-compare-bar { display: flex; align-items: center; gap: 10px;
-    position: fixed; z-index: 15; padding: 6px 8px 6px 12px; width: max-content;
-    background: var(--background-elevated); border: 1px solid var(--border-strong);
-    border-radius: 10px; box-shadow: var(--shadow-modal); color: var(--text-primary); }
-/* Put aside while every place for it would cover what is being read. */
-.studies-compare-bar.is-aside { visibility: hidden; }
-.studies-compare-bar[hidden], .studies-empty[hidden] { display: none; }
+.studies-empty[hidden] { display: none; }
 /* A study's tags and note (studies.js, study_tags.py). */
 .study-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .study-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
@@ -5726,7 +5717,7 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     .main { height: auto; overflow: visible; }
     .sidebar, .side-panel, .col-handle, .sidebar-expand, .side-expand,
     .agent-dialog, .agent-drawer, .page-header-actions, .report-notices, .report-write-ask,
-    .report-figure-made, .figure-provenance, .studies-compare-bar {
+    .report-figure-made, .figure-provenance {
         display: none !important;
     }
     .page-shell { padding: 0; max-width: none; }

@@ -194,3 +194,12 @@ def test_the_bar_chooses_tags_compares_and_clears(tmp_path):
     assert not escaped["shown"] and escaped["chosen"] == []
     assert "#compare" in compared
     assert phone["shown"] and phone["bottom"] == phone["height"]
+
+
+def test_no_rule_is_left_for_the_offer_beside_the_pointer():
+    """The bar replaced Compare and Clear beside the pointer: the page's
+    rules for that offer, left in `dashboard.css`, are gone with it."""
+    from fastmdxplora.gui import server
+
+    css = (Path(server.__file__).parent / "static" / "dashboard.css").read_text(encoding="utf-8")
+    assert "studies-compare-bar" not in css
