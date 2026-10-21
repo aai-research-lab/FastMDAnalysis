@@ -177,7 +177,7 @@ def build(*, name: str, description: str, published: str, license_id: str,
     for c in prepared or []:
         graph.append({
             "@id": f"{c['at']}/", "@type": "Dataset",
-            "name": "A prepared system the runs simulated from, kept outside the study",
+            "name": "A prepared system the runs simulated from, carried into the study",
             "hasPart": [{"@id": f["path"]} for f in files
                         if f["path"].startswith(f"{c['at']}/")],
             "fmx:usedBy": [{"@id": f"runs/{run}/" if run else "./"}

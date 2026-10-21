@@ -85,8 +85,11 @@ run finds it by, from its SHA-256), the state it starts from, its topology and
 its setup record (`setup_parameters.json`, with the ligand's chemistry beside
 it). A system kept outside the study, or in a folder of it a shared study leaves
 out (one whose name begins with a dot, a run's folder the record of runs does
-not name), is carried once, however many runs used it, in `prepared/<name>/`, named from the folder the runs name it by, and every
-path to that folder is said as the folder it is carried in
+not name), is carried once, however many runs used it, in `prepared/<name>/`,
+named from the folder the runs name it by (`prepared/preparation/` where that
+folder is named for the person), and every path to that folder, and to where
+its setup record says it was made (a preparation copied since), is said as the
+folder it is carried in
 (`__FASTMDX_STUDY__/prepared/<name>`, below), and each run's record of the way
 from it to the system (`relative_to_run`) is written as the way in the archive,
 so a run opened elsewhere finds it as it did where it ran. The system is found
@@ -136,7 +139,11 @@ Every text file packed (`.json`, `.yml`, `.md`, `.csv`, `.dat`, `.log`, `.pdb`,
   (`__FASTMDX_STUDY__/prepared/reference/setup`);
 - any other path in the home folder replaced by `__FASTMDX_HOME__`
   (`__FASTMDX_HOME__/structures/x.pdb`): a file outside the study, on the
-  computer that ran it;
+  computer that ran it; another person's home folder named as a shell names it
+  (`~<name>/`) too;
+- a run's own folder as its records give it, where the record of runs gives
+  another (a run carried on elsewhere), replaced by its place in the study
+  (`__FASTMDX_STUDY__/runs/<id>`), when no other run gives the same folder;
 - the computer's name replaced by `__FASTMDX_HOST__`, and a record's own
   field for it (`"host"`) whatever the name, a short one (`vm`) included.
 
@@ -324,7 +331,8 @@ reader checks, and an archive that breaks one is not opened.
    (`runs/<id>/resolved_config.yml`), `fmx:system` the system it ran and
    `mentions` its phases (8). Each file of a run says which in `fmx:run`.
    The root's `mainEntity` is the study's Config, every run it makes.
-10. A prepared system carried from outside the study is a `Dataset`, its
+10. A prepared system carried from outside the study, or from a folder of it
+    the archive leaves out, is a `Dataset`, its
     `@id` the folder it is carried in (`prepared/<name>/`), in the root's
     `hasPart`: its `hasPart` its files, each with `fmx:phase` `setup`, and
     `fmx:usedBy` the runs that simulated from it.

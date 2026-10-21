@@ -98,6 +98,8 @@ _MEDOID = re.compile(r"_medoid_\d+\.pdb$")
 _NAME_ON = r"(?:[^/\\\n\"'`<>,;()|]{1,64}?(?=[/\\])|[^/\\\s\"'`,;)\]}<>|]+)"
 _HOMES = re.compile(r"(?<![\w.-])(?:/(?:home|Users)/|[A-Za-z]:(?:\\\\|\\)Users(?:\\\\|\\))"
                     + _NAME_ON)
+#: Another person's home folder as a shell names it (`~<name>/prep`).
+_TILDE_HOMES = re.compile(r"(?<![\w.-])~(?=[A-Za-z_])[\w.-]+(?=[/\\])")
 #: The same reached by a relative path (`../../home/<name>`), as a record of
 #: where a prepared system was relative to its run says it.
 _RELATIVE_HOMES = re.compile(r"(?<![\w.-])(?:\.\.(?:/|\\\\|\\))+(?:home|Users)(?:/|\\\\|\\)"
@@ -392,7 +394,8 @@ class _Scrubber:
                 for spelling in _spellings(root) if len(spelling.strip("/\\")) > 1}
         for folder, (inside, alone) in (carried or {}).items():
             for spelling in _spellings(folder):
-                if _absolute(folder) and len(spelling.strip("/\\")) > 1:
+                if ((_absolute(folder) or folder.startswith("~/"))
+                        and len(spelling.strip("/\\")) > 1):
                     said.setdefault(spelling.rstrip("/\\"), (f"{STUDY}/{inside}", alone))
         self.roots = [(re.compile(_STARTS + re.escape(r)
                                   + (r"(?=/?(?![\w/\\-]|\.[\w]))" if said[r][1] else _ENDS)),
@@ -417,7 +420,7 @@ class _Scrubber:
             text, n = pattern.subn(replacement.replace("\\", "\\\\"), text)
             if n:
                 used.add(STUDY)
-        for pattern in [*self.homes, _HOMES, _RELATIVE_HOMES]:
+        for pattern in [*self.homes, _HOMES, _RELATIVE_HOMES, _TILDE_HOMES]:
             text, n = pattern.subn(HOME, text)
             if n:
                 used.add(HOME)
@@ -436,6 +439,7 @@ class _Scrubber:
         """What is still there that should not be, or ''; with ``hosts``
         false, a computer's name is not looked for."""
         for pattern in [*(p for p, _ in self.roots), *self.homes, _HOMES, _RELATIVE_HOMES,
+                        _TILDE_HOMES,
                         *(self.hosts if hosts else [])]:
             found = pattern.search(text)
             if found:
@@ -596,9 +600,12 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         return ShareRefused(f"{who} {said}", code="environment.share.not_finished")
 
     def note(system: Path, names: list[Any], run: str, itself: list[Any] = ()) -> None:
+        made = _load(system / "setup_parameters.json")
+        itself = [*itself, made.get("output_dir") if isinstance(made, dict) else None]
         """``system`` a run simulated from, ``names`` the folders its records
         name it by, and ``itself`` the paths they record it was at: where
-        the study ran, which a study moved since no longer has. One in a
+        the study ran, which a study moved since no longer has, and where its
+        own setup record says it was made (a preparation copied since). One in a
         folder of the study a shared study leaves out (one whose name begins
         with a dot, a run's the record of runs does not name) is carried as
         one outside it is."""
@@ -615,7 +622,7 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             for was in gone:
                 was_inside.setdefault(was, (inner, False))
                 for named in names:
-                    if not named or not Path(str(named)).expanduser().is_absolute():
+                    if _full(named) is None:
                         continue
                     named = os.path.normpath(str(named))
                     below = os.path.relpath(was, named)
@@ -633,12 +640,12 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             if path and Path(str(path)).is_absolute() and Path(str(path)) != system:
                 entry["was"].add(os.path.normpath(str(path)))
         entry["was_named"].update(os.path.normpath(str(n)) for n in names
-                                  if n and Path(str(n)).expanduser().is_absolute())
+                                  if _full(n) is not None)
         # The folders it is named by: its own, or a study holding it where
         # setup lays one out (`setup/`, `shared_setup/setup/`).
         for given in names:
-            given_path = Path(str(given or "")).expanduser()
-            if not given or not given_path.is_absolute():
+            given_path = _full(given)
+            if given_path is None:
                 continue
             for spelled in (Path(os.path.normpath(given_path)), given_path.resolve()):
                 try:
@@ -655,16 +662,23 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         recorded = pipeline._setup_from_recorded(folder)
         try:
             if reference is not None:
-                simulated = pipeline._the_system_recorded(folder, reference)
+                # A name this computer cannot read (another person's `~`) is
+                # left out of the lookup, as the rest find the system.
+                readable = {k: v for k, v in reference.items()
+                            if k not in ("given", "resolved") or _full(v) is not None}
+                simulated = pipeline._the_system_recorded(folder, readable)
             else:
                 taken = pipeline._setup_taken_from(folder)
                 candidates = ([taken] if taken is not None else []) + [
-                    pipeline.where_a_prepared_system_sits(Path(n).expanduser())
-                    for n in recorded if Path(n).expanduser().is_absolute()]
+                    pipeline.where_a_prepared_system_sits(_full(n))
+                    for n in recorded if _full(n) is not None]
                 simulated = next((c for c in candidates if (c / "system.xml").is_file()), None)
         except CodedError as exc:
             raise refused(run, f"simulated a prepared system that is another one now: {exc}") \
                 from exc
+        except RuntimeError as exc:
+            raise refused(run, f"names its prepared system by a path this computer cannot "
+                               f"read ({exc}); share it where that path is read.") from exc
         named = [str(v) for v in ((reference or {}).get("given"),
                                   (reference or {}).get("resolved")) if v] + recorded
         if simulated is None:
@@ -759,6 +773,12 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                     was_said[named] = (at, False)
                 elif below == inner and not below.startswith(".."):
                     was_said[named] = (inside, True)
+        # As typed under the home folder (`setup_from: ~/prep`).
+        home_here = Path.home()
+        for name, rule in list(said.items()):
+            for base in {home_here, home_here.resolve()}:
+                if _within(Path(name), base) and Path(name) != base:
+                    said.setdefault("~/" + Path(name).relative_to(base).as_posix(), rule)
         entry.update(inside=inside, at=at, said=said, was_said=was_said)
         carried.append(entry)
 
@@ -781,12 +801,23 @@ def _looked_for(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             "relative": relative}
 
 
+def _full(name: Any) -> Path | None:
+    """A recorded path as a full path here, or None: not a full path, or a
+    home this computer does not know (`~otheruser/prep`)."""
+    try:
+        path = Path(str(name or "")).expanduser()
+    except RuntimeError:
+        return None
+    return path if name and path.is_absolute() else None
+
+
 def _left_out(inner: str, runs: Any) -> bool:
     """Whether a folder of the study, as a path in it, is one a shared study
-    leaves out: one whose name begins with a dot, or a run's folder the
-    record of runs does not name."""
+    leaves out: one whose name begins with a dot, one never shared (what
+    `--rerun` set aside, a deposit, scratch), or a run's folder the record of
+    runs does not name."""
     parts = PurePosixPath(inner).parts
-    if any(part.startswith(".") for part in parts):
+    if any(part.startswith(".") for part in parts) or never_shared(f"{inner}/system.xml"):
         return True
     return bool(runs) and len(parts) >= 2 and parts[0] == "runs" and parts[1] not in runs
 
@@ -831,15 +862,17 @@ def _carried_files(entry: dict[str, Any], everything: bool) -> list[dict[str, An
     from fastmdxplora.study_files import kind_of, label_of
 
     system: Path = entry["system"]
-    for path in sorted(system.rglob("*")):
-        if path.is_symlink() and "__pycache__" not in path.parts:
-            # A link is never packed: carried without what it leads to, the
-            # run would be opened missing it.
-            raise ShareRefused(
-                f"The prepared system in {system}, which runs of the study simulated from, "
-                f"holds a link, {path}, which a shared study does not carry. Make it a file of "
-                "the folder, and share it again.",
-                code="environment.share.not_finished", path=str(path))
+    links = [path for path in sorted(system.rglob("*"))
+             if path.is_symlink() and "__pycache__" not in path.parts]
+    if links:
+        # A link is never packed: carried without what it leads to, the run
+        # would be opened missing it.
+        raise ShareRefused(
+            f"The prepared system in {system}, which runs of the study simulated from, holds "
+            f"{'a link' if len(links) == 1 else f'{len(links)} links'}, which a shared study "
+            f"does not carry: {', '.join(str(p) for p in links)}. Put the files they lead to "
+            "in their place, and share it again.",
+            code="environment.share.not_finished", path=str(links[0]))
     out = []
     for rel in _walk(system):
         path = PurePosixPath(rel)
@@ -907,16 +940,23 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
     # path one system was at and another is at now is said as the one there.
     runs = manifest.get("runs")
     rules: dict[str, tuple[str, bool]] = {}
-    for run in runs or []:
-        # A run's own folder as its records give it, where the record of
-        # runs gives another (a run carried on elsewhere, then joined).
-        recorded = _load(root / "runs" / run / "manifest.json")
-        recorded = str(recorded.get("output_dir") or "") if isinstance(recorded, dict) else ""
-        if recorded and _absolute(recorded):
-            rules.setdefault(os.path.normpath(recorded), (f"runs/{run}", False))
     for entry in carried:
         for name, rule in entry["said"].items():
             rules.setdefault(name, rule)
+    # A run's own folder as its records give it, where the record of runs
+    # gives another (a run carried on elsewhere): only one only that run
+    # gives, and outside the study, so no rule says another run's paths.
+    given_by: dict[str, list[str]] = {}
+    for run in runs or []:
+        recorded = _load(root / "runs" / run / "manifest.json")
+        recorded = str(recorded.get("output_dir") or "") if isinstance(recorded, dict) else ""
+        if recorded and _absolute(recorded):
+            given_by.setdefault(os.path.normpath(recorded), []).append(run)
+    inside_roots = [os.path.normpath(r) for r in roots]
+    for recorded, by in sorted(given_by.items()):
+        if len(by) == 1 and not any(recorded == r or recorded.startswith(r.rstrip("/") + "/")
+                                    for r in inside_roots):
+            rules.setdefault(recorded, (f"runs/{by[0]}", False))
     for name, rule in [*(item for entry in carried for item in entry["was_said"].items()),
                        *prepared["was_inside"].items()]:
         rules.setdefault(name, rule)
@@ -934,17 +974,19 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
         elif name == SEEDED_FROM:
             entry["label"] = "Which preparation this window's seed was taken from"
     have = {e["path"] for e in entries}
-    for path, run in sorted(prepared["needed"].items()):
-        if path not in have:
-            # Left out of the archive (a run's folder the record of runs does
-            # not name, a folder whose name begins with a dot, a link), the
-            # run would be opened with none.
-            who = f"The run {run} of the study in {root}" if run else f"The study in {root}"
-            raise ShareRefused(
-                f"{who} simulated the prepared system in {PurePosixPath(path).parent}, and its "
-                f"{PurePosixPath(path).name} is a link, which a shared study does not carry. "
-                "Put the file it leads to in its place, and share it again.",
-                code="environment.share.not_finished", path=path)
+    missing = [(path, run) for path, run in sorted(prepared["needed"].items())
+               if path not in have]
+    if missing:
+        # Kept as links, which are never packed: the run would be opened
+        # with none.
+        path, run = missing[0]
+        who = f"The run {run} of the study in {root}" if run else f"The study in {root}"
+        names = ", ".join(PurePosixPath(p).name for p, r in missing if r == run)
+        raise ShareRefused(
+            f"{who} simulated the prepared system in {PurePosixPath(path).parent}, and its "
+            f"{names} {'is a link' if ', ' not in names else 'are links'}, which a shared "
+            "study does not carry. Put the files they lead to in their place, and share it "
+            "again.", code="environment.share.not_finished", path=path)
     for entry in carried:
         entries += _carried_files(entry, everything)
     entries.sort(key=lambda e: e["path"])
@@ -1065,6 +1107,8 @@ def share_study(root: str | Path, to: str | Path, *, everything: bool = False,
                    "placeholders": {k: v for k, v in placeholders.items() if v},
                    "package": "all" if everything else "view"}
         if said:
-            said(f"Shared {len(files)} files of {root} as {target} "
-                 f"({written['bytes'] / 1e6:.1f} MB), SHA-256 {written['sha256']}.")
+            size = (f"{written['bytes'] / 1e6:.1f} MB" if written["bytes"] >= 1e5
+                    else f"{written['bytes'] / 1e3:.1f} kB")
+            said(f"Shared {len(files)} files of {root} as {target} ({size}), "
+                 f"SHA-256 {written['sha256']}.")
         return written
