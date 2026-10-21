@@ -46,6 +46,8 @@ _AGENT = "FastMDXplora (https://github.com/aai-research-lab/FastMDXplora)"
 #: How long a download waits for a byte more before it counts as stalled,
 #: and is asked for again from where it stopped.
 STALLED_S = 30
+#: What a disk out of room says: full, or its owner's share of it used.
+_NO_ROOM = frozenset({errno.ENOSPC, errno.EDQUOT})
 
 
 def unpacked_limit(most_bytes: int) -> int:
@@ -72,8 +74,15 @@ def _range_start(answer: Any) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def _no_room(where: Path, error: OSError, how_far: str = "") -> str:
+    return (f"The shared study could not be written to {where}: the disk there has no room "
+            f"for it ({error.strerror}){how_far}. Make room there, or open it into another "
+            "folder.")
+
+
 def _download(url: str, to: Path, *, most: int, md5: str,
-              said: Callable[[str], None] | None, size: int = 0) -> None:
+              said: Callable[[str], None] | None, size: int = 0,
+              room: Path | None = None) -> None:
     """``url`` written to ``to``, checked against ``md5`` as it lands. A
     download cut short goes on from where it stopped (an HTTP range), one
     Zenodo says to ask again for is asked again after a wait, each up to
@@ -149,6 +158,16 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             except urllib.error.HTTPError as exc:
                 if exc.code == 416 and size and read == size:
                     break
+                if exc.code == 416 and read:
+                    # A range it would not send: the whole file again.
+                    out.seek(0)
+                    out.truncate()
+                    digest, read, tenth = hashlib.md5(), 0, 0  # noqa: S324
+                    failures += 1
+                    if failures < zenodo.TRIES:
+                        _again(f"{url} would not send the rest of the file", failures, None,
+                               said)
+                        continue
                 failures = 0 if read > furthest else failures + 1
                 furthest = max(furthest, read)
                 if exc.code in zenodo.AGAIN and failures < zenodo.TRIES:
@@ -173,12 +192,10 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             _again(f"The download from {url} stopped{_got(read, size, 'at')} ({why})",
                    failures, None, said)
     if unwritten is not None:
-        if unwritten.errno in (errno.ENOSPC, errno.EDQUOT):
-            raise ShareRefused(
-                f"The shared study could not be written to {to.parent}: the disk there has "
-                f"no room for it ({unwritten.strerror}){_got(read, size)}. Make room there, "
-                "or open it into another folder with --open-into.",
-                code="environment.share.too_large", path=str(to.parent)) from unwritten
+        if unwritten.errno in _NO_ROOM:
+            raise ShareRefused(_no_room(room or to.parent, unwritten, _got(read, size)),
+                               code="environment.share.too_large",
+                               path=str(room or to.parent)) from unwritten
         raise unwritten
     if md5 and digest.hexdigest() != md5:
         raise ShareRefused(
@@ -372,7 +389,13 @@ def open_shared(source: str, *, into: str | Path | None = None,
     made = [folder for folder in (parent, *parent.parents) if not folder.exists()]
     parent.mkdir(parents=True, exist_ok=True)
     try:
-        return _opened(source, given, parent, most_bytes, said)
+        try:
+            return _opened(source, given, parent, most_bytes, said)
+        except OSError as exc:
+            if exc.errno in _NO_ROOM:
+                raise ShareRefused(_no_room(parent, exc), code="environment.share.too_large",
+                                   path=str(parent)) from exc
+            raise
     except BaseException:
         # Folders made only to open this into are not left behind, empty;
         # one holding anything (put there meanwhile) is kept.
@@ -399,7 +422,11 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             from fastmdxplora.sharing.zenodo import archive_of, record_of
 
             site, number = record_of(str(source))
-            record = archive_of(site, number, said)
+            try:
+                record = archive_of(site, number, said)
+            except ShareRefused as exc:
+                raise ShareRefused(f"{exc} Nothing was kept; open it again later.",
+                                   code=exc.refusal.code) from exc
             if record["size"] and record["size"] > most_bytes:
                 raise ShareRefused(
                     f"Zenodo's record {number} holds {record['name']} of "
@@ -410,7 +437,7 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
                      + (f" ({record['size'] / 1e6:.1f} MB)" if record["size"] else "") + "...")
             archive = work_dir / "archive.zip"
             _download(record["url"], archive, most=most_bytes, md5=record["md5"], said=said,
-                      size=int(record["size"] or 0))
+                      size=int(record["size"] or 0), room=parent)
         try:
             opened = zipfile.ZipFile(archive)
         except PermissionError as exc:
@@ -427,6 +454,9 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             raise
         except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError,
                 OSError, ValueError) as exc:
+            if isinstance(exc, OSError) and exc.errno in _NO_ROOM:
+                # The disk, not the archive: said as such where it is caught.
+                raise
             # A member damaged, compressed in a way this Python cannot read,
             # or a file named where the archive also has a folder.
             raise ShareRefused(f"{archive.name} could not be unpacked: {exc}; nothing was "

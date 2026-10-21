@@ -221,12 +221,16 @@ five times; so is one whose connection was lost or not made, the upload
 included. A request that makes a draft or a new version is asked again
 only after a 429, which Zenodo gives before doing anything. A new draft is
 asked for under a title of its own (`FastMDXplora: sharing <study>
-(<8 letters>)`, replaced by the study's once it is filled in), kept in
-`shared_to.json` first. Where the answer to making it is lost after Zenodo
-may have made it (a 5xx, a connection cut), your drafts are looked through
-for that title for half a minute, and again at the next share, and the one
-found is taken as this one: a draft is never made twice, and one you made
-is never taken. The new archive is uploaded before the draft's earlier
+(<eight letters and digits>)`, replaced by the study's once it is filled
+in), kept in `shared_to.json` first. Where the answer to making it is lost
+once the request had gone (a 5xx, a connection cut while waiting for the
+answer), your drafts are looked through for that title for about half a
+minute; at the next share, they are looked through first and, if it is not
+among them, it is asked for again under the same title. The one found is
+taken as this one: a draft you made is never taken, and two found of that
+title are named for you to delete one (`environment.service.unusable_response`).
+Where Zenodo does not list your drafts at the next share, nothing is made
+until it does. The new archive is uploaded before the draft's earlier
 one is taken away: a share that Zenodo stops part way keeps the draft as it
 was, says so with its address, and sharing again finishes that draft. An
 archive of 10 MB or more says how much of it has gone at each tenth.
@@ -274,9 +278,10 @@ FastMDXplora:
    (`environment.service.unreachable`, saying how far it got); a server
    that sends the whole file again is read from its start, and a part of
    it from anywhere but where the download stopped is asked for again. A
-   piece is counted only once it is written here: a disk that fills says
-   so (`environment.share.too_large`), and is never taken for a connection
-   lost. A download that has had
+   piece is counted only once it is written here: a disk that fills, as it
+   downloads or unpacks, says so (`environment.share.too_large`), and is
+   never taken for a connection lost or a damaged archive. A server that
+   will not send the rest of the file (416) is asked for the whole of it. A download that has had
    nothing for 30 seconds counts as stalled, and is asked for again from
    where it stopped. A folder made to open into is not left behind when
    the study is refused. An archive of
