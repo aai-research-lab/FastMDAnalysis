@@ -391,13 +391,12 @@
       button.disabled = !!spent;
       button.addEventListener("click", function () {
         if (writing) return;
-        Array.prototype.forEach.call(grid.querySelectorAll("button"), function (b) {
-          b.disabled = true;
+        sendPressed(id ? id[1] : text, function () {
+          Array.prototype.forEach.call(grid.querySelectorAll("button"), function (b) {
+            b.disabled = true;
+          });
+          button.classList.add("is-chosen");
         });
-        button.classList.add("is-chosen");
-        var area = el("agent-request");
-        area.value = id ? id[1] : text;
-        draft();
       });
       grid.appendChild(button);
     });
@@ -1430,13 +1429,21 @@
   function shownStudy() {
     var dashboard = window.FastMDXDashboard;
     var key = dashboard && dashboard.state ? dashboard.state.studyShown : "";
+    /* No study open (a run that failed at once leaves none): the study the
+     * page showed last is no longer the page's (CI-774 review L11). */
+    if (noStudyOpen()) return "";
     return validStudyKey(key) ? key : "";
+  }
+  function noStudyOpen() {
+    var dashboard = window.FastMDXDashboard;
+    var app = dashboard && dashboard.state ? dashboard.state.appState : null;
+    return Boolean(app && Object.keys(app).length && !app.active_run);
   }
   /* The study this page is for: the one it shows, or before that is known,
    * the one its address names. */
   function pageStudy() {
     var key = shownStudy();
-    if (key) return key;
+    if (key || noStudyOpen()) return key;
     try { key = new URL(location.href).searchParams.get("study") || ""; } catch (e) { key = ""; }
     return validStudyKey(key) ? key : "";
   }
@@ -2179,9 +2186,8 @@
               body.textContent = before;
               return;
             }
-            cutFrom(msg);
-            el("agent-request").value = edited;
-            draft();
+            /* While Send waits, nothing is cut, and the edit is undone. */
+            if (!sendPressed(edited, function () { cutFrom(msg); })) body.textContent = before;
           }
           function onKey(e) {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); done(true); }
@@ -2193,9 +2199,7 @@
         } },
       { label: "Retry", icon: "refresh", title: "Send this again from here",
         run: function () {
-          cutFrom(msg);
-          el("agent-request").value = text;
-          draft();
+          sendPressed(text, function () { cutFrom(msg); });
         } }
     ]);
     el("agent-thread").appendChild(msg);
@@ -2262,30 +2266,38 @@
     area.style.height = Math.min(area.scrollHeight + border, window.innerHeight * 0.4) + "px";
   }
 
-  function draft() {
+  /* `text`: the words of a button that sends (`sendPressed`), sent as they
+   * are; the box and its files are the person's, and are left as they are. */
+  function draft(text) {
     var area = el("agent-request");
-    var typed = area.value.trim();
+    var own = typeof text === "string";
+    var typed = (own ? text : area.value).trim();
     if (!typed || writing) return;
     if (heldByReview("sending another message")) return;
-    /* Not before the thread has been read: sent first, it went into a
-     * second conversation (seventeenth review, 10-08). Sent once it has. */
-    if (!threadRead) { firstRead.then(draft); return; }
-    /* Not while it cannot be known where it would be answered: said, and
-     * the words stay in the box (`sendWaits`). Where only the page's view
-     * is still to be read after the status of the study shown (a study
-     * changed under the page a moment ago), it is read now, and this Enter
-     * sends once it is, only if nothing has changed meanwhile: the same
-     * words, the same thread, the same study, no launch. */
+    /* Not while it cannot be known where it would be answered, nor before
+     * the thread has been read (seventeenth review, 10-08; CI-774 review
+     * L12: queued until it was, it went by itself): said, and the words
+     * stay in the box (`sendWaits`). Where only the page's view is still
+     * to be read after the status of the study shown (a study changed
+     * under the page a moment ago), it is read now, as the note says, and
+     * this Enter sends once it is, only if nothing changed meanwhile: the
+     * same words, the same thread, the same study, nothing else to wait
+     * for, and within two seconds; else it says it was not sent. */
     if (sendWaits()) {
       var dashboard = window.FastMDXDashboard;
-      if (viewOnlyWaits() && dashboard.readView) {
+      if (!own && viewOnlyWaits() && dashboard.readView) {
         var words = area.value, thread = conv, study = shownStudy();
-        dashboard.readView().then(function (read) {
+        unsentSaid(VIEW_READS, "waits");
+        var late = new Promise(function (done) { window.setTimeout(function () { done(false); }, 2000); });
+        Promise.race([dashboard.readView(), late]).then(function (read) {
           if (read && area.value === words && conv === thread && shownStudy() === study
               && !sendWaits()) {
+            if (noteKind === "waits") unsentSaid("");
             draft();
           } else {
-            sendWaitSaid(true);
+            unsentSaid("Not sent: the study, its conversation or the words changed, or the "
+                       + "study's view took too long to read. Send it again.", "moved", "");
+            sendReady();
           }
         });
         return;
@@ -2299,9 +2311,11 @@
      * message, the question in it, so an answer is read as one. */
     var request = typed;
 
-    var files = pendingFiles.slice();
-    pendingFiles = [];
-    renderChips();
+    var files = own ? [] : pendingFiles.slice();
+    if (!own) {
+      pendingFiles = [];
+      renderChips();
+    }
     var record = files.map(function (f) {
       return { name: f.name, path: f.path, size: f.size, sha256: f.sha256, truncated: !!f.truncated };
     });
@@ -2315,10 +2329,12 @@
      * server, never kept twice. */
     said.eid = newEid();
     transcript.push(said);
-    area.value = "";
-    keepUnsent();
-    autosize(area);
-    renderMentions();
+    if (!own) {
+      area.value = "";
+      keepUnsent();
+      autosize(area);
+      renderMentions();
+    }
     /* The thread this was said in. Another shown before the answer came
      * stops the answer, which is said in this one, not the one on screen
      * (sixteenth review, 10-08: it was written into the other thread). */
@@ -2576,7 +2592,7 @@
     var on = button.classList.contains("is-writing");
     var blank = !on && !area.value.trim();
     /* Offered again once the page knows where it would be answered. */
-    var waits = !on && !blank && sendWaits() && !viewOnlyWaits();
+    var waits = Boolean(!on && !blank && sendWaits() && !viewOnlyWaits());
     button.classList.toggle("is-blank", blank || waits);
     button.setAttribute("aria-disabled", String(blank || waits));
     // Named Send either way; aria-disabled and the title say why it waits.
@@ -2812,9 +2828,7 @@
       button.disabled = !!spent;
       button.addEventListener("click", function () {
         if (writing) return;
-        button.classList.add("is-chosen");
-        el("agent-request").value = b[1];
-        draft();
+        sendPressed(b[1], function () { button.classList.add("is-chosen"); });
       });
       row.appendChild(button);
     });
@@ -4147,14 +4161,14 @@
     ask.className = "ctl-btn agent-fix-ask";
     ask.textContent = "Ask the Agent to fix it";
     ask.addEventListener("click", function () {
-      ask.disabled = true;
-      /* A new instruction, so nothing still waiting for a yes takes it. */
-      stopPending = null; runPending = null; fixPending = null;
-      currentConfig = data.yaml;
-      var area = el("agent-request");
-      area.value = "Running it was refused: " + (started.error || remedy.why || "") +
+      var asked = "Running it was refused: " + (started.error || remedy.why || "") +
         "\nWhat would fix it: " + (remedy.fix || "") + "\nChange the config so it runs.";
-      draft();
+      sendPressed(asked, function () {
+        ask.disabled = true;
+        /* A new instruction, so nothing still waiting for a yes takes it. */
+        stopPending = null; runPending = null; fixPending = null;
+        currentConfig = data.yaml;
+      });
     });
     host.appendChild(ask);
   }
@@ -4218,42 +4232,64 @@
   }
   /* Send waits while it cannot be known where a message would be answered
    * and kept: while a launch of this page is unanswered, before the page
-   * has read which study is open once every launch answered, while the
-   * thread on screen is one a run took to a study the page does not show,
-   * and before the page's view of the study shown is read after the status
-   * that showed it. Send and Enter then send nothing: they say so beside
-   * the box, the words stay there (kept per study as any unsent words),
-   * and once the page knows, Send is offered again for the person to
-   * press. Nothing is ever sent later by itself (CI-774 reviews L1 to
-   * L10: a message held to be sent later was lost, sent twice, sent into
-   * another thread or study, or held every switch of the window). */
+   * has read which study is open (at first, and once every launch
+   * answered), while a run this page started is not yet a study, while
+   * the thread of the study shown is being read, while the thread on
+   * screen is another study's (one a run took away, or the one before a
+   * study changed under the page), and before the page's view of the study
+   * shown is read after the status that showed it. Send and Enter then
+   * send nothing: they say so beside the box, the words stay there (kept
+   * per study as any unsent words), and once the page knows, Send is
+   * offered again for the person to press. Nothing is ever sent later by
+   * itself (CI-774 reviews L1 to L12: a message held to be sent later was
+   * lost, sent twice, sent into another thread or study, or held every
+   * switch of the window). `sendWaits` says why: "run", "read", "view"
+   * (only the view is left to read), or "" when a message can go. */
   var SEND_WAITS = "Send waits until the run has started and this page shows which study is open.";
+  var SEND_READS = "Send waits until this page has read the study open and its conversation.";
+  var VIEW_READS = "Sent once this page has read the study's view, if nothing changes meanwhile.";
   function sendWaits() {
-    if (launching > 0) return true;
     var dashboard = window.FastMDXDashboard;
-    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) return true;
-    if (conv.ranTo && conv.ranTo !== shownStudy()) return true;
-    return Boolean(dashboard && dashboard.viewKnown && !dashboard.viewKnown());
+    var dash = (dashboard && dashboard.state) || {};
+    if (launching > 0 || dash.launchesAsked > 0) return "run";
+    if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) {
+      return dash.answeredAt ? "run" : "read";
+    }
+    if (!threadRead || reading > 0) return "read";
+    /* No study open (a run that failed at once leaves none): the study
+     * the page last showed is no thread's or view's to wait for (CI-774
+     * review L11: Send never sent again). */
+    var shown = shownStudy();
+    if (conv.ranTo && shown && conv.ranTo !== shown) return "run";
+    /* A run of this page whose folder is not yet a study, or holds no
+     * conversation of its own yet (a chat of no study stood in for its
+     * thread, CI-774 reviews L10 to L12): the run has not started. */
+    var ours = Boolean(shown && dashboard.launchedHere && dashboard.launchedHere(shown));
+    if (ours && (dash.studyIsOne === false || conv.unread === shown)) return "run";
+    /* The thread on screen is the study's shown: a study's other than it
+     * (read before the study changed), or a chat of no study the page put
+     * up for a folder that was not yet a study, waits for its own. */
+    if (conv.study && conv.page && shown && conv.page !== shown) return "read";
+    if (shown && dashboard.viewKnown && !dashboard.viewKnown()) return "view";
+    return "";
   }
   /* All the page waits for is its view read after the study's status. */
-  function viewOnlyWaits() {
-    var dashboard = window.FastMDXDashboard;
-    if (!dashboard || launching > 0 || (dashboard.studyKnown && !dashboard.studyKnown())) return false;
-    if (conv.ranTo && conv.ranTo !== shownStudy()) return false;
-    return Boolean(dashboard.viewKnown && !dashboard.viewKnown());
-  }
+  function viewOnlyWaits() { return sendWaits() === "view"; }
   /* What Send says and offers now; `asked`: Send or Enter was pressed. */
   function sendWaitSaid(asked) {
-    var waits = sendWaits();
-    if (waits && (asked || noteKind === "waits")) unsentSaid(SEND_WAITS, "waits");
-    else if (!waits && noteKind === "waits") unsentSaid("");
-    if (waits) {
-      var dashboard = window.FastMDXDashboard;
-      if (dashboard && dashboard.studyKnown && !dashboard.studyKnown() && dashboard.readStatusNow) {
-        if (asked) dashboard.readStatusNow();
-      } else if (dashboard && dashboard.viewKnown && !dashboard.viewKnown() && dashboard.readView) {
-        dashboard.readView();
-      }
+    var why = sendWaits();
+    var text = why === "run" ? SEND_WAITS : why === "read" ? SEND_READS : "";
+    if (text && (asked || noteKind === "waits")) unsentSaid(text, "waits");
+    else if (!why && noteKind === "waits") unsentSaid("");
+    var dashboard = window.FastMDXDashboard;
+    if (why === "run" && asked && dashboard && dashboard.studyKnown && !dashboard.studyKnown()
+        && dashboard.readStatusNow) {
+      dashboard.readStatusNow();
+    }
+    /* The view is read meanwhile, whatever else is still waited for. */
+    if ((why === "view" || why === "read") && dashboard && dashboard.readView && dashboard.viewKnown
+        && !dashboard.viewKnown() && dashboard.studyKnown && dashboard.studyKnown()) {
+      dashboard.readView();
     }
     sendReady();
   }
@@ -4262,6 +4298,26 @@
   function sendWaitLater() { window.setTimeout(function () { sendWaitSaid(false); }, 0); }
   window.addEventListener("dashboard:status-updated", sendWaitLater);
   window.addEventListener("dashboard:view-read", sendWaitLater);
+  /* A button that sends words of its own (a choice, a confirm answer,
+   * Retry, an Edit, a fix asked for, a starter): while Send waits it says
+   * so and changes nothing (no thread cut, no choice spent); else `before`
+   * is done and its words are sent as they are, the box and what the
+   * person typed in it left as they are (CI-774 reviews L10, L11, L12: it
+   * wrote over the words kept in the box). */
+  function sendPressed(text, before) {
+    if (!String(text || "").trim()) return false;
+    if (sendWaits()) {
+      unsentSaid(sendWaits() === "run" ? SEND_WAITS : SEND_READS, "waits");
+      sendReady();
+      return false;
+    }
+    if (before) before();
+    draft(text);
+    if (boxNow().trim()) {
+      unsentSaid("The words in the box are kept, not sent with it: send them with Enter.", "moved", "");
+    }
+    return true;
+  }
   var reading = 0;
   var readFirst;
   var firstRead = new Promise(function (done) { readFirst = done; });
@@ -4297,6 +4353,12 @@
         conv = threadOf(d.id, d.study, entries);
         convFor = d.study_key || "";
         if (!conv.page) conv.page = convFor;
+        /* A folder open that is not yet a study (a run just started): the
+         * chat of no study given in its place is not one the person chose;
+         * for a run this page started, its own thread is read once it is
+         * one, and Send waits until then (CI-774 reviews L10, L11, L12: a
+         * message went into that chat). */
+        conv.unread = !d.study && validStudyKey(d.study_key) ? d.study_key : "";
       }
       replay(entries);
     }).catch(function () {}).then(function () {
@@ -4828,7 +4890,10 @@
         /* A read refused as the GUI had gone on (a run's study, its
          * thread on screen): the page is on that study now. */
         if (readAgain && convFor === key && conv.study) { readAgain = false; return; }
-        if (readAgain || (conv.study && convFor && convFor !== key)) {
+        var dash = window.FastMDXDashboard;
+        var nowOne = conv.unread === key && dash.state && dash.state.studyIsOne !== false
+          && dash.launchedHere && dash.launchedHere(key);
+        if (readAgain || nowOne || (conv.study && convFor && convFor !== key)) {
           readAgain = false;
           hideList();
           restore(true).then(function () { readAway(); told(); });
@@ -4854,6 +4919,8 @@
       fresh: freshConversation,
       list: function () { return showList(); },
       get current() { return { id: conv.id, study: conv.study }; },
+      /* Why Send waits now, or "" (`sendWaits`). */
+      get waits() { return sendWaits(); },
     };
 
     if (!el("agent-provider")) return;
@@ -4964,23 +5031,31 @@
       b.addEventListener("click", function () {
         // Not over a reply still being written.
         if (writing) return;
-        area.value = b.getAttribute("data-prompt") || b.textContent;
-        /* A question about the study open, which its records answer where
-         * no AI model is set: asked as it was offered, it says which. */
-        fromStarter = b.getAttribute("data-records")
-          ? { key: b.getAttribute("data-records"), prompt: area.value } : null;
-        autosize(area);
+        var prompt = b.getAttribute("data-prompt") || b.textContent;
         /* Sent as it is pressed. Written into the box to be changed
          * first, a question asked by a press read as not asked, and the
          * box sat waiting with the question in it. In autonomous mode a
          * study the Agent writes is started without being shown, so there
-         * a suggestion waits in the box to be read and sent. */
+         * a suggestion waits in the box to be read and sent, never over
+         * words already in it. */
         if (el("agent-mode").value === "autonomous") {
+          if (area.value.trim()) return;
+          fromStarter = b.getAttribute("data-records")
+            ? { key: b.getAttribute("data-records"), prompt: prompt } : null;
+          area.value = prompt;
+          autosize(area);
+          keepUnsent();
           area.focus();
           area.setSelectionRange(area.value.length, area.value.length);
-        } else {
-          draft();
+          return;
         }
+        sendPressed(prompt, function () {
+          /* A question about the study open, which its records answer
+           * where no AI model is set: asked as it was offered, it says
+           * which. */
+          fromStarter = b.getAttribute("data-records")
+            ? { key: b.getAttribute("data-records"), prompt: prompt } : null;
+        });
       });
     });
     var chooseEngine = el("agent-start-settings");

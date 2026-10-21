@@ -278,7 +278,8 @@ def _when_known(page):
     """Once the page has read which study is open after a launch: Send is
     offered then, not while the run starts (CI-774 round 3)."""
     page.wait_for_function("() => { const d = window.FastMDXDashboard;"
-                           " return d.studyKnown() && d.viewKnown(); }", timeout=30000)
+                           " return d.studyKnown() && d.viewKnown()"
+                           " && !window.FastMDXAgentPanel.waits; }", timeout=30000)
     page.wait_for_timeout(300)
 
 
@@ -800,11 +801,14 @@ def test_the_read_asked_at_a_launch_s_answer_counts_as_after_it(tmp_path, monkey
     assert errors == []
 
 
-def _stale_status(page, stale):
+def _stale_status(page, stale, later=None):
     """The next status read is answered as the server reads it now, and
-    handed to the page only when the test says (`stale[0][0].fulfill`)."""
+    handed to the page only when the test says (`stale[0][0].fulfill`);
+    with `later`, the reads after it are held there too."""
     def hold(route):
-        if stale:
+        if stale and later is not None:
+            later.append(route)
+        elif stale:
             route.continue_()
         else:
             stale.append((route, route.fetch()))
@@ -824,7 +828,7 @@ def test_a_read_of_another_study_asked_before_the_answer_leaves_the_run_this_win
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=0.0)
-    runs, stale, answered = [], [], []
+    runs, stale, answered, later = [], [], [], []
     page, errors, close = _page_on(session, [dict(_CONFIG)])
     try:
         page.on("response", lambda r: answered.append(r) if "/api/agent/run" in r.url else None)
@@ -838,13 +842,19 @@ def test_a_read_of_another_study_asked_before_the_answer_leaves_the_run_this_win
         while not runs:
             page.wait_for_timeout(50)
         _switch_elsewhere(session, other)
-        _stale_status(page, stale)
+        _stale_status(page, stale, later)
         runs[0].continue_()
         page.unroute("**/api/agent/run")
         while not answered:
             page.wait_for_timeout(50)
         page.wait_for_timeout(200)
+        # The read of `other`, asked before the answer, is applied first;
+        # the reads asked at the answer after it.
         stale[0][0].fulfill(response=stale[0][1])
+        page.wait_for_timeout(500)
+        page.unroute("**/api/status*")
+        for route in later:
+            route.continue_()
         _shows(page, study_key(workspace / "run1"))
         page.wait_for_timeout(3000)
         said = page.evaluate("() => window.__else")
@@ -1209,6 +1219,67 @@ def test_reloading_during_a_launch_asks_nothing_and_sends_nothing(tmp_path, monk
     assert errors == []
 
 
+def test_enter_after_a_reload_during_a_launch_sends_nothing_by_itself(tmp_path, monkeypatch):
+    """L12 F1: Run (the run's switch comes a few seconds in, as a real
+    run's does), words typed, Enter (Send waits), the page reloaded. On the
+    page that came back Send was offered, and Enter queued the message until
+    the thread was read: when the launch answered it went by itself, with
+    the start study's view, was refused and lost. Now Enter there sends
+    nothing, says why, and nothing goes by itself after."""
+    import time as clock
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    run = workspace / "run1"
+
+    def launch(self, state, *, dashboard_url=None, config=None):
+        clock.sleep(4.0)
+        run.mkdir()
+        (run / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+        made.append(str(run))
+        self.active_root = run
+        clock.sleep(0.5)
+        return {"ok": True, "output": str(run)}
+
+    monkeypatch.setattr(DashboardRuntime, "launch_from_config", launch)
+    words = "typed, reloaded, entered"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG)])
+    try:
+        _asking(page, asked)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(800)
+        page.click(_RUN)
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector("#agent-request", state="visible")
+        page.wait_for_timeout(500)
+        if not page.input_value("#agent-request").strip():
+            page.fill("#agent-request", words)
+        page.focus("#agent-request")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        note = _note(page)
+        _shows(page, study_key(run))
+        page.wait_for_timeout(5000)
+        kept, box = _unsent(page), page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert made
+    assert note in (_SEND_READS, _SEND_WAITS), note
+    assert _requests(asked) == ["chignolin"], asked
+    assert words in json.dumps(kept) or words in box, (kept, box)
+    assert errors == []
+
+
 def test_the_page_s_own_switches_go_on_with_words_kept(tmp_path, monkeypatch):
     """L9 1: words kept for the run's study (Enter during the launch,
     another window opening `other` first). The page opens `here`, then the
@@ -1421,6 +1492,7 @@ def test_send_and_the_notice_do_not_wait_for_the_study_s_results(tmp_path, monke
                     == study_key(other))
         shown = time.time()
         page.fill("#agent-request", "about other")
+        assert pump(lambda: _send_offered(page), 20.0)
         page.keyboard.press("Enter")
         assert pump(lambda: bool(asked), 20.0)
         assert pump(lambda: page.evaluate(
@@ -1433,6 +1505,486 @@ def test_send_and_the_notice_do_not_wait_for_the_study_s_results(tmp_path, monke
         close()
         session.server.shutdown()
     assert asked[0] - shown < 3.0 and said - shown < 3.0, (asked[0] - shown, said - shown)
+    assert errors == []
+
+
+def _where(workspace, text):
+    """The conversations on disk that hold `text`, by their path."""
+    return sorted(str(f.relative_to(workspace)) for f in workspace.rglob("conv-*.json")
+                  if text in f.read_text(encoding="utf-8"))
+
+
+#: Holds the page's reads of a study's conversation while `__holdConv`.
+_HOLD_CONV = ("(() => { const real = window.fetch; window.__holdConv = false;"
+              " window.fetch = function (url, opts) {"
+              "   const p = real.call(this, url, opts);"
+              "   const u = String(url);"
+              "   if (window.__holdConv && /[/]api[/]agent[/]conversation([?]|$)/.test(u)"
+              "       && (!opts || !opts.method || opts.method === 'GET')) {"
+              "     window.__held = (window.__held || 0) + 1;"
+              "     return p.then((r) => new Promise((ok) => { const t = setInterval(() => {"
+              "       if (!window.__holdConv) { clearInterval(t); ok(r); } }, 100); })); }"
+              "   return p; }; })();")
+
+#: Holds the page's status reads until `__release`.
+_HOLD_STATUS = ("(() => { const real = window.fetch; window.fetch = function (url, opts) {"
+                "   const p = real.call(this, url, opts);"
+                "   if (String(url).indexOf('/api/status') >= 0 && !window.__release) {"
+                "     return p.then((r) => new Promise((ok) => { const t = setInterval(() => {"
+                "       if (window.__release) { clearInterval(t); ok(r); } }, 100); })); }"
+                "   return p; }; })();")
+
+
+def _page_with(session, replies, script=None):
+    """A page on the session's Agent, `script` run before its own."""
+    from playwright.sync_api import sync_playwright
+
+    pw = sync_playwright().start()
+    chromium = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+    page = chromium.new_page(viewport={"width": 1400, "height": 900})
+    page.set_default_timeout(30000)
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.route("**/api/agent/propose*", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=json.dumps(replies.pop(0))))
+    if script:
+        page.add_init_script(script)
+
+    def close():
+        chromium.close()
+        pw.stop()
+    return page, errors, close
+
+
+_SEND_READS = "Send waits until this page has read the study open and its conversation."
+_VIEW_READS = "Sent once this page has read the study's view, if nothing changes meanwhile."
+
+
+def test_after_a_run_left_no_study_open_a_question_is_sent(tmp_path, monkeypatch):
+    """L11 1: a run that failed at once leaves the GUI with no study open
+    (`data_stale`, no `active_root`). The person asks why: Send waited for
+    the study the page had shown, for ever, and the page read its status
+    without pause meanwhile."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked, reads = [], []
+    page, errors, close = _page_on(session, [_answer("Because.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(1500)
+        session.runtime.data_stale = True
+        session.runtime.active_root = None
+        page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                               timeout=30000)
+        page.wait_for_timeout(2000)
+        page.on("request", lambda r: reads.append(r.url) if "/api/status" in r.url else None)
+        page.wait_for_timeout(5000)
+        page.fill("#agent-request", "why did it fail?")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Because.')", timeout=15000)
+        page.wait_for_timeout(2000)
+        note, box = _note(page), page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["why did it fail?"], asked
+    assert len(reads) < 10, len(reads)
+    # Kept in a chat of no study, as the GUI has none open; not refused.
+    assert box == "" and "Not saved" not in note, (box, note)
+    where = _where(workspace, "why did it fail?")
+    assert where and not any(w.startswith("here/") for w in where), where
+    assert errors == []
+
+
+@pytest.mark.parametrize("elsewhere", [False, True], ids=["here", "another study opened"])
+def test_enter_before_the_page_has_read_its_study_sends_nothing(tmp_path, monkeypatch,
+                                                                 elsewhere):
+    """L11 3 and L12 F1: the page's first status not yet read. Enter was
+    sent with no view of a study (or queued until the thread was read, and
+    sent by itself), and with another study opened meanwhile it was kept in
+    no conversation. It sends nothing then, and says why. Once Send is
+    offered it goes into the thread of the page's study, with its view;
+    with another study opened meanwhile, the words are kept for the page's
+    own, as any words typed for a study the GUI left."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    replies, asked = [_answer("First.")], []
+    page, errors, close = _page_with(session, replies, _HOLD_STATUS)
+    try:
+        _asking(page, asked)
+        page.goto(session.url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_selector("#agent-request", state="visible")
+        page.wait_for_timeout(1500)
+        if elsewhere:
+            _switch_elsewhere(session, other)
+            page.wait_for_timeout(300)
+        page.fill("#agent-request", "first question")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(2000)
+        before, note = _requests(asked), _note(page)
+        page.evaluate("() => { window.__release = true; }")
+        _shows(page, study_key(other if elsewhere else here))
+        _when_known(page)
+        page.wait_for_timeout(1000)
+        kept = _unsent(page)
+        if not elsewhere:
+            _send_when_offered(page)
+            page.wait_for_selector("#agent-thread .agent-answer:has-text('First.')", timeout=15000)
+        page.wait_for_timeout(1500)
+    finally:
+        close()
+        session.server.shutdown()
+    assert before == [] and note == _SEND_READS, (before, note)
+    if elsewhere:
+        assert asked == [] and kept.get(study_key(here)) == "first question", (asked, kept)
+        assert _where(workspace, "first question") == []
+    else:
+        assert _requests(asked) == ["first question"]
+        assert (asked[0].get("current_view") or {}).get("study", "").endswith("here"), asked
+        where = _where(workspace, "first question")
+        assert where and all(w.startswith("here/") for w in where), where
+    assert errors == []
+
+
+@pytest.mark.parametrize("then", ["typed", "new", "nothing"])
+def test_enter_with_only_the_view_left_says_what_it_does(tmp_path, monkeypatch, then):
+    """L11 4 and L12 F5: only the view is left to read after another window
+    opened a study. Enter said nothing while it was read, and, with the
+    words or the thread changed meanwhile, sent nothing and said nothing.
+    It says so at once, and after."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked = []
+    page, errors, close = _page_on(session, [_answer("About other.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        page.wait_for_timeout(1500)
+        page.evaluate("""() => { const real = window.fetch; let seq = 0, metricsAt = -1;
+            window.__holdView = true;
+            window.fetch = function (url, opts) {
+                const u = String(url), n = ++seq, self = this;
+                if (u.indexOf('/api/metrics') >= 0) metricsAt = n;
+                if (u.indexOf('/api/app-state') < 0) return real.call(self, url, opts);
+                return new Promise((ok) => setTimeout(ok, 0)).then(() => {
+                    if (metricsAt > n || !window.__holdView) return real.call(self, url, opts);
+                    return new Promise((ok) => { const t = setInterval(() => {
+                        if (!window.__holdView) { clearInterval(t); ok(real.call(self, url, opts)); }
+                    }, 50); });
+                });
+            }; }""")
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_timeout(1000)
+        page.fill("#agent-request", "view only")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(200)
+        during = _note(page)
+        if then == "typed":
+            page.type("#agent-request", " and more")
+        elif then == "new":
+            page.evaluate("() => window.FastMDXAgentPanel.fresh(null)")
+        if then != "nothing":
+            page.wait_for_timeout(2500)
+        page.evaluate("() => { window.__holdView = false; }")
+        page.wait_for_timeout(3000)
+        after = _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert during == _VIEW_READS, during
+    if then == "nothing":
+        assert _requests(asked) == ["view only"], asked
+        assert (asked[0].get("current_view") or {}).get("study", "").endswith("other")
+    else:
+        assert asked == [] and after.startswith("Not sent:"), (asked, after)
+    assert errors == []
+
+
+def test_enter_while_the_shown_study_s_thread_is_read_sends_nothing(tmp_path, monkeypatch):
+    """L11 3 and L12 F3: another window opens `other`; the page shows it
+    and reads its view, while `other`'s thread is still being read. Enter
+    was asked with `other`'s view and filed in `here`'s thread. It sends
+    nothing until the thread is read, then goes into `other`'s."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    replies, asked = [_answer("Here."), _answer("Other.")], []
+    page, errors, close = _page_with(session, replies, _HOLD_CONV)
+    try:
+        _asking(page, asked)
+        page.goto(session.url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_selector("#agent-request", state="visible")
+        _shows(page, study_key(here))
+        _when_known(page)
+        page.fill("#agent-request", "first in here")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Here.')", timeout=15000)
+        page.wait_for_timeout(1000)
+        page.evaluate("() => { window.__holdConv = true; }")
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => window.FastMDXDashboard.viewKnown() && (window.__held || 0) > 0",
+                               timeout=20000)
+        page.fill("#agent-request", "asked about other")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(1500)
+        before, note = _requests(asked), _note(page)
+        page.evaluate("() => { window.__holdConv = false; }")
+        _send_when_offered(page)
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Other.')", timeout=15000)
+        page.wait_for_timeout(1000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert before == ["first in here"] and note == _SEND_READS, (before, note)
+    assert (asked[1].get("current_view") or {}).get("study", "").endswith("other")
+    where = _where(workspace, "asked about other")
+    assert where and all(w.startswith("other/") for w in where), where
+    assert errors == []
+
+
+def test_enter_after_a_launch_while_the_run_s_thread_is_read_sends_nothing(tmp_path,
+                                                                            monkeypatch):
+    """L11 3: Run, New while it starts; the launch answers and the page
+    shows run1, its view read, its thread still being read. Enter was asked
+    with run1's view and lost when the thread read landed. It sends nothing
+    until the thread is read, then goes into run1's."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    replies, asked = [dict(_CONFIG), _answer("After.")], []
+    page, errors, close = _page_with(session, replies, _HOLD_CONV)
+    try:
+        _asking(page, asked)
+        page.goto(session.url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_selector("#agent-request", state="visible")
+        _shows(page, study_key(here))
+        _when_known(page)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        page.click(_RUN)
+        page.wait_for_timeout(500)
+        page.click("#agent-new")
+        page.wait_for_timeout(300)
+        page.evaluate("() => { window.__holdConv = true; }")
+        run1 = workspace / "run1"
+        page.wait_for_function("(k) => window.FastMDXDashboard.state.studyShown === k"
+                               " && window.FastMDXDashboard.viewKnown() && (window.__held || 0) > 0",
+                               arg=study_key(run1), timeout=30000)
+        page.fill("#agent-request", "after the run")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(1500)
+        before, note = _requests(asked), _note(page)
+        page.evaluate("() => { window.__holdConv = false; }")
+        _send_when_offered(page)
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('After.')", timeout=15000)
+        page.wait_for_timeout(1500)
+    finally:
+        close()
+        session.server.shutdown()
+    assert before == ["chignolin"] and note in (_SEND_READS, _SEND_WAITS), (before, note)
+    where = _where(workspace, "after the run")
+    assert where and all(w.startswith("run1/") for w in where), where
+    assert errors == []
+
+
+@pytest.mark.parametrize("way", ["retry", "edit", "choice"])
+def test_a_button_while_send_waits_leaves_the_words_and_the_thread(tmp_path, monkeypatch, way):
+    """L10 F4, L11 2 and L12 F2: words typed and Entered while a launch goes
+    on (Send waits); then Retry, an Edit, or a choice pressed. Each wrote
+    over the words kept in the box, cut the thread, spent the choice, and
+    sent nothing. Now each says Send waits and changes nothing; once the
+    launch has answered, the choice sends its own words, the person's words
+    still in the box."""
+    from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _RETRY
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    question = {"ok": False, "question": "Which lysozyme?", "asked": "Which lysozyme?",
+                "choices": ["2VB1 hen egg-white", "1LYZ hen egg-white"], "attempts": []}
+    asked = []
+    page, errors, close = _page_on(session, [question, _answer("Chosen.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        _say(page, "lysozyme please")
+        page.wait_for_selector("#agent-thread .agent-choice")
+        page.wait_for_timeout(500)
+        # A launch going on (the Config Builder's, as it asks it).
+        page.evaluate("() => window.FastMDXDashboard.studyChangeAsked()")
+        page.fill("#agent-request", "my own words")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        first = page.locator("#agent-thread .agent-msg-user").first
+        if way == "retry":
+            first.hover()
+            first.locator(_RETRY).first.click(force=True)
+        elif way == "edit":
+            first.hover()
+            first.locator("button[aria-label='Edit'], button[title^='Edit this message']") \
+                .first.click(force=True)
+            page.keyboard.type(" edited")
+            page.keyboard.press("Enter")
+        else:
+            page.locator("#agent-thread .agent-choice").first.click()
+        page.wait_for_timeout(500)
+        mid = {"box": page.input_value("#agent-request"), "note": _note(page),
+               "users": page.locator("#agent-thread .agent-msg-user").count(),
+               "first": first.inner_text(),
+               "choices": page.locator("#agent-thread .agent-choice:not([disabled])").count()}
+        kept = _unsent(page)
+        before = _requests(asked)
+        page.evaluate("() => window.FastMDXDashboard.studyChangeAnswered('')")
+        _when_known(page)
+        page.locator("#agent-thread .agent-choice").first.click()
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Chosen.')", timeout=15000)
+        box = page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert mid["box"] == "my own words" and mid["note"] == _SEND_WAITS, mid
+    assert mid["users"] == 1 and "edited" not in mid["first"] and mid["choices"] == 2, mid
+    assert kept.get(study_key(here)) == "my own words", kept
+    assert before == ["lysozyme please"], before
+    assert _requests(asked) == ["lysozyme please", "2VB1"], asked
+    assert box == "my own words"
+    assert errors == []
+
+
+def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(tmp_path,
+                                                                                monkeypatch):
+    """L10 F3, L11 5 and L12 F4: the Config Builder's Start; its run's folder
+    is no study for a while (as a real run's is), and the Agent's thread was
+    then a chat of no study, where a message on the run's study went; the
+    start study's words were offered for sending there. Send waits until
+    the run's folder is a study; the start study's words go back to it, and
+    a message on the run's study goes into its own thread."""
+    import threading
+    import time as clock
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.workspace import study_key
+    from tests.test_open_studies_have_tabs import _builder
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    run = workspace / "run1"
+
+    def launch(self, state, *, dashboard_url=None, config=None):
+        run.mkdir()
+        self.active_root = run
+        clock.sleep(1.0)
+        # As a real run: its folder is a study once setup has begun.
+        threading.Timer(4.0, lambda: ((run / "exploration.yml").write_text(
+            "systems: []\n", encoding="utf-8"), (run / "setup").mkdir())).start()
+        return {"ok": True, "output": str(run)}
+
+    monkeypatch.setattr(DashboardRuntime, "launch_from_config", launch)
+    asked, built = [], []
+    page, errors, close = _page_on(session, [_answer("In here."), _answer("On run1.")])
+    try:
+        _asking(page, asked)
+        page.on("response", lambda r: built.append(r) if r.url.endswith("/api/run") else None)
+        _shows(page, study_key(here))
+        _when_known(page)
+        _say(page, "q in here")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('In here.')", timeout=15000)
+        _builder(page, {"root": workspace})
+        page.click("#run-start-button")
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        page.fill("#agent-request", "the start study's words")
+        page.keyboard.press("Enter")
+        while not built:
+            page.wait_for_timeout(100)
+        _shows(page, study_key(run))
+        page.wait_for_timeout(1000)
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        page.focus("#agent-request")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        waiting = {"note": _note(page), "asked": _requests(asked)}
+        page.wait_for_function("() => window.FastMDXDashboard.state.studyIsOne"
+                               " && window.FastMDXAgentPanel.current.study", timeout=30000)
+        _when_known(page)
+        page.wait_for_timeout(1500)
+        moved = {"box": page.input_value("#agent-request"), "kept": _unsent(page)}
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        page.fill("#agent-request", "asked on run1")
+        _send_when_offered(page)
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('On run1.')", timeout=15000)
+        page.wait_for_timeout(1000)
+        current = page.evaluate("() => window.FastMDXAgentPanel.current")
+    finally:
+        close()
+        session.server.shutdown()
+    assert waiting == {"note": _SEND_WAITS, "asked": ["q in here"]}, waiting
+    assert moved["box"] == "" and moved["kept"].get(study_key(here)) == "the start study's words", moved
+    assert _requests(asked) == ["q in here", "asked on run1"], asked
+    where = _where(workspace, "asked on run1")
+    assert where and all(w.startswith("run1/") for w in where), where
+    assert str(current.get("study") or "").endswith("run1"), current
+    assert errors == []
+
+
+def _pump(page, pending, until, most=40.0, after=6.0):
+    """Waits for `until`, answering each held read once it has waited
+    `after` seconds (a study whose results take long to read)."""
+    end = time.time() + most
+    while time.time() < end:
+        now = time.time()
+        for when, route in list(pending):
+            if now - when > after:
+                pending.remove((when, route))
+                route.continue_()
+        if until():
+            return True
+        page.wait_for_timeout(50)
+    return False
+
+
+def test_send_is_offered_soon_after_a_launch_whatever_the_results_take(tmp_path, monkeypatch):
+    """L12 F7: Send waited for a whole poll after the launch answered, the
+    study's results with it (seconds on a study of runs). It waits for the
+    app state and the status alone."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=1.0)
+    pending, asked, answered = [], [], []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("After.")])
+    try:
+        _asking(page, asked)
+        page.on("response", lambda r: answered.append(time.time())
+                if "/api/agent/run" in r.url else None)
+        _shows(page, study_key(here))
+        _when_known(page)
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        page.wait_for_timeout(800)
+        page.route("**/api/results*", lambda route: pending.append((time.time(), route)))
+        page.click(_RUN)
+        page.focus("#agent-request")
+        page.keyboard.type("typed as it starts")
+        page.keyboard.press("Enter")
+        assert _pump(page, pending, lambda: bool(answered))
+        assert _pump(page, pending, lambda: _send_offered(page)
+                     and page.evaluate("() => window.FastMDXDashboard.state.studyShown")
+                     == study_key(workspace / "run1"), 20.0)
+        offered = time.time()
+        _send_when_offered(page)
+        assert _pump(page, pending, lambda: len(asked) == 2, 20.0)
+        page.unroute("**/api/results*")
+        for _, route in pending:
+            route.continue_()
+    finally:
+        close()
+        session.server.shutdown()
+    assert offered - answered[0] < 4.0, offered - answered[0]
+    assert (asked[1].get("current_view") or {}).get("study", "").endswith("run1"), asked
     assert errors == []
 
 

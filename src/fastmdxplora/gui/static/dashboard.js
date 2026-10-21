@@ -1197,7 +1197,9 @@
   let viewNamed = {key: "", name: ""};
   let viewRead = null;
   function viewKnown() {
-    return !state.studyShown
+    // No study open (a run that failed at once leaves none): no view to
+    // read (CI-774 review L11).
+    return !state.studyShown || !state.appState?.active_run
       || viewFor === `${state.studyShown}|${state.appState?.active_run || ""}`;
   }
   function readView() {
@@ -1220,6 +1222,9 @@
     } catch (error) {
       return false;
     }
+    // No study open is a view read: there is none to tell, and the page's
+    // own polls say so (asked again, they were asked without end).
+    if (!app?.active_run) return true;
     // Another study since, or a view the page has not applied (a poll read
     // it before a switch elsewhere): read where the GUI is again, and the
     // view with it; the page's own state is changed by its polls alone.
@@ -1244,6 +1249,7 @@
     state.launchesAsked = Math.max(0, state.launchesAsked - 1);
     if (typeof key === "string" && /^[0-9a-f]{16}$/.test(key)) {
       state.ownStudies.push({key, until: Date.now() + 60000});
+      launchedHere.add(key);
     } else if (key === null) {
       // Not read: the GUI goes to the run's study last before it answers,
       // so the last change seen meanwhile, still shown, is the run's; with
@@ -1258,7 +1264,9 @@
     // below is asked in the same millisecond as the answer (CI-774 reviews
     // L5 and L6).
     state.answeredAt = pollsAsked + 1;
-    // Where the GUI is now that every run's switch is made: asked at once.
+    // Where the GUI is now that every run's switch is made: asked at once,
+    // the status alone first, then the whole poll.
+    readStatusAlone();
     readStatusNow();
     // Each change seen meanwhile, in turn: one still shown is said as any
     // study opened elsewhere, one gone past in past words.
@@ -1281,9 +1289,32 @@
    * (or none was made): the study it names is where the GUI is, every
    * run's switch made. */
   function studyKnown() {
-    return state.launchesAsked === 0
+    // Not before the page's first status is read (CI-774 review L11).
+    return state.statusAsked > 0 && state.launchesAsked === 0
       && (state.answeredAt === 0 || state.statusAsked >= state.answeredAt);
   }
+
+  /* The app state and the status alone, read now as one poll and applied
+   * unless a newer poll is: a launch's answer waits for no study's results
+   * to say where the GUI is (CI-774 review L12). */
+  async function readStatusAlone() {
+    const number = ++pollsAsked;
+    let app, payload;
+    try {
+      [app, payload] = await Promise.all([fetchJSON("/api/app-state"), fetchJSON("/api/status")]);
+    } catch (error) {
+      return;
+    }
+    if (state.addressAsking || number < state.pollApplied) return;
+    state.pollApplied = number;
+    safeApply("app", () => applyAppState(app));
+    state.statusAsked = number;
+    safeApply("status", () => applyStatus(payload));
+  }
+
+  /* The studies the runs this page started went to, by key, for the page's
+   * life: one not yet a study is a run still starting. */
+  const launchedHere = new Set();
 
   function readStatusNow() {
     if (polling) changedWhilePolling = true;
@@ -2965,6 +2996,8 @@
      * had answered. */
     readStatusNow,
     studyKnown,
+    /* A run this page started went to the study `key`. */
+    launchedHere: (key) => launchedHere.has(key),
     /* The view the page tells the Agent, read after the status of the
      * study shown; and asked for again. */
     viewKnown,

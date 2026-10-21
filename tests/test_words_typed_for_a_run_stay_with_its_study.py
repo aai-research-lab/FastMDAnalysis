@@ -77,7 +77,8 @@ def _when_known(page):
     """Once the page has read which study is open after a launch: Send is
     offered then, not while the run starts (CI-774 round 3)."""
     page.wait_for_function("() => { const d = window.FastMDXDashboard;"
-                           " return d.studyKnown() && d.viewKnown(); }", timeout=30000)
+                           " return d.studyKnown() && d.viewKnown()"
+                           " && !window.FastMDXAgentPanel.waits; }", timeout=30000)
     page.wait_for_timeout(300)
 
 
