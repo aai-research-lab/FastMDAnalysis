@@ -341,3 +341,64 @@ def test_why_a_mean_is_not_determined_is_reached_from_the_keyboard(tmp_path):
     assert errors == []
     assert offered == 1 and determined == 0
     assert "could not determine their own mean" in said
+
+
+@pytest.mark.parametrize("width, beside", [(1920, False), (1440, False), (1250, True),
+                                           (900, False), (390, False)])
+def test_no_row_runs_past_the_list_in_a_narrow_column(tmp_path, width, beside):
+    """In a column too narrow for the table (the side panel open at 1440,
+    the Agent beside at about 1250, a window of 900) it ran past its edge,
+    its means and buttons under a sideways scroll: there, as on a phone,
+    each study is two or three lines."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    _study(tmp_path / "helix", system="1L2Y", started="2026-09-03T10:00:00+00:00",
+           means={"rmsd": (0.0074123, 0.00071), "rg": (0.313961, 0.00096), "sasa": (12.0, 0.1)})
+    _live(_study(tmp_path / "going", system="1UAO", started="2026-09-02T10:00:00+00:00"))
+    _members(_replicas(tmp_path / "chignolin"), [0.10, 0.12, 0.14], short=("seed2",))
+    session = start_dashboard_session(output=str(tmp_path / "helix"), host="127.0.0.1", port=0)
+    look = """() => {
+        const wrap = document.getElementById('studies-table-wrap');
+        const edge = wrap.getBoundingClientRect().right;
+        const past = [...wrap.querySelectorAll('tbody td *')].filter((n) => {
+            const r = n.getBoundingClientRect();
+            return r.width > 0 && r.right > edge + 1;
+        }).map((n) => n.className);
+        return {over: wrap.scrollWidth - wrap.clientWidth, past: past.slice(0, 4),
+                column: Math.round(wrap.getBoundingClientRect().width),
+                rows: getComputedStyle(wrap.querySelector('tr.studies-row')).display,
+                page: document.documentElement.scrollWidth - innerWidth};
+    }"""
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": width, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            if beside:
+                page.click("#agent-beside-open")
+                page.locator("#agent-drawer").wait_for()
+                page.wait_for_timeout(400)
+            elif width == 1440 and page.is_visible("#side-expand"):
+                # The side panel open beside the page, as a laptop has it.
+                page.click("#side-expand")
+                page.wait_for_timeout(400)
+            seen = page.evaluate(look)
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert seen["over"] <= 0 and seen["past"] == [] and seen["page"] <= 0, seen
+    # A table where the column holds it; lines where it does not.
+    if width == 1920:
+        assert seen["rows"] == "table-row", seen
+    if width == 390:
+        assert seen["rows"] == "grid", seen

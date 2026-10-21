@@ -1413,6 +1413,29 @@
     said();
   }
 
+  /* Each study as two or three lines where the column cannot hold the
+   * table (studies-table.css `.is-lines`): the side panel open, or the
+   * Agent beside, on a laptop, and a phone. The table is measured as it
+   * would be laid out, what it holds and the column's width together; it
+   * ran past its edge, its means and buttons under a sideways scroll. */
+  function fitTheList(wrap) {
+    if (!wrap || wrap.hidden) return;
+    wrap.classList.remove("is-lines");
+    if (wrap.scrollWidth > wrap.clientWidth + 1) wrap.classList.add("is-lines");
+    if (!wrap.dataset.fitted && window.ResizeObserver) {
+      wrap.dataset.fitted = "1";
+      var width = wrap.clientWidth;
+      // Measured again as the column widens or narrows, not as rows are
+      // unfolded, which changes only its height.
+      new ResizeObserver(function () {
+        if (wrap.hidden || wrap.clientWidth === width) return;
+        width = wrap.clientWidth;
+        fitTheList(wrap);
+        moreToTheRight(wrap);
+      }).observe(wrap);
+    }
+  }
+
   function draw() {
     var grid = el("studies-grid");
     var empty = el("studies-empty");
@@ -1433,6 +1456,7 @@
     if (asTable) {
       grid.replaceChildren();
       table(shown);
+      fitTheList(wrap);
       moreToTheRight(wrap);
     } else {
       grid.replaceChildren.apply(grid, shown.map(card));

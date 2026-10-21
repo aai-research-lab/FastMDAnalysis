@@ -158,37 +158,48 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 /* A trajectory analysed: its light. */
 .recent-light[data-state="analysed"] { background: var(--accent); }
 
-/* On a phone, and in a column as narrow: each study two or three lines,
-   no table to scroll sideways. */
+/* On a phone, and in a column too narrow for the table (the side panel
+   open, or the Agent beside, on a laptop): each study two or three lines,
+   no table to scroll sideways (studies.js `fitTheList`, which measures the
+   table as it would be laid out). The table ran past its edge there, its
+   means and buttons under a sideways scroll. */
 @media (max-width: 640px) {
     .studies-table-wrap { overflow-x: visible; border-radius: 10px; }
-    .studies-table thead { display: none; }
-    .studies-table, .studies-table tbody { display: block; }
-    .studies-table tr.studies-row { display: grid; grid-template-columns: 26px 64px minmax(0, 1fr) auto;
-        grid-template-areas: "pick mol name state" "pick mol sys len" "pick mol means means";
-        align-items: center; column-gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); }
-    .studies-table tr.studies-row td { display: block; padding: 0; border: 0; white-space: normal; position: static;
-        box-shadow: none; background: transparent; }
-    .studies-table tr.studies-row td.studies-pick { grid-area: pick; }
-    .studies-table tr.studies-row td.studies-mol { grid-area: mol; width: auto; align-self: start; }
-    .studies-table tr.studies-row td.studies-name { grid-area: name; min-width: 0; max-width: none; }
-    .studies-table tr.studies-row td.studies-state { grid-area: state; }
-    .studies-table tr.studies-row td.studies-system { grid-area: sys; min-width: 0; overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
-    .studies-table tr.studies-row td.studies-len { grid-area: len; justify-self: end; font-size: var(--text-xs); }
-    .studies-table tr.studies-row td.studies-means-cell { grid-area: means; min-width: 0; margin-top: 2px; }
-    .studies-table tr.studies-row .studies-means { flex-direction: column; gap: 2px; }
-    .studies-table tr.studies-row .studies-means > * { overflow-wrap: anywhere; }
-    .studies-table tr.studies-row td.studies-active, .studies-table tr.studies-row td.studies-acts { display: none; }
-    .studies-table tr.studies-row .studies-progress { width: 80px; }
-    .studies-table tr.studies-row .studies-state-more { display: none; }
-    .studies-means { min-width: 0; }
-    .studies-table tr.studies-group, .studies-table tr.studies-editing,
-    .studies-table tr.studies-child-wait { display: block; }
-    .studies-table tr.studies-group td, .studies-table tr.studies-editing td,
-    .studies-table tr.studies-child-wait td { display: block; }
     .studies-keys { display: none; }
 }
+.studies-table-wrap.is-lines .studies-table thead { display: none; }
+.studies-table-wrap.is-lines .studies-table, .studies-table-wrap.is-lines .studies-table tbody { display: block; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row { display: grid;
+    grid-template-columns: 26px 64px minmax(0, 1fr) auto;
+    grid-template-areas: "pick mol name state" "pick mol sys len" "pick mol means means"; align-items: center;
+    column-gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td { display: block; padding: 0; border: 0;
+    white-space: normal; position: static; box-shadow: none; background: transparent; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-pick { grid-area: pick; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-mol { grid-area: mol; width: auto;
+    align-self: start; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-name { grid-area: name; min-width: 0;
+    max-width: none; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-state { grid-area: state; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-system { grid-area: sys; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-len { grid-area: len; justify-self: end;
+    font-size: var(--text-xs); }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-means-cell { grid-area: means; min-width: 0;
+    margin-top: 2px; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-means { flex-direction: column; gap: 2px; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-means > * { overflow-wrap: anywhere; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-active,
+.studies-table-wrap.is-lines .studies-table tr.studies-row td.studies-acts { display: none; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-progress { width: 80px; }
+.studies-table-wrap.is-lines .studies-table tr.studies-row .studies-state-more { display: none; }
+.studies-table-wrap.is-lines .studies-means { min-width: 0; }
+.studies-table-wrap.is-lines .studies-table tr.studies-group,
+.studies-table-wrap.is-lines .studies-table tr.studies-editing,
+.studies-table-wrap.is-lines .studies-table tr.studies-child-wait { display: block; }
+.studies-table-wrap.is-lines .studies-table tr.studies-group td,
+.studies-table-wrap.is-lines .studies-table tr.studies-editing td,
+.studies-table-wrap.is-lines .studies-table tr.studies-child-wait td { display: block; }
 
 /* The studies chosen: one bar at the foot of the list while any is
    (studies.js drawBar), kept clear of the rows by the room left under
