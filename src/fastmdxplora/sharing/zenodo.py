@@ -122,6 +122,26 @@ def base_url(site: str) -> str:
     return (os.environ.get("FASTMDXPLORA_ZENODO_URL") or SITES[site]).rstrip("/")
 
 
+def _a_draft(answer: Any, identifier: str = "", doi: str = "") -> bool:
+    """Whether an answer is the draft asked for as Zenodo gives one: its id,
+    metadata holding something, and the DOI reserved for it where known. A
+    draft read wrong is never written back."""
+    if not isinstance(answer, dict) or not isinstance(answer.get("metadata"), dict) \
+            or not answer["metadata"]:
+        return False
+    if identifier and str(answer.get("id") or "") != str(identifier):
+        return False
+    reserved = answer["metadata"].get("prereserve_doi")
+    held_doi = str(reserved.get("doi") or "") if isinstance(reserved, dict) else ""
+    return not (doi and held_doi and held_doi != doi)
+
+
+def _text(described: Any) -> str:
+    """A description's words, whatever markup Zenodo gives them back in."""
+    plain = html.unescape(re.sub(r"<[^>]*>", " ", str(described or "")))
+    return " ".join(plain.split())
+
+
 def _zenodo_s(answer: str, code: int) -> bool:
     """Whether an error's body is Zenodo's own answer: a JSON object giving
     its status or a message (as its API documents), not a gateway's page."""
@@ -395,7 +415,7 @@ def _taken(depositions: str, token: str, title: str, made: list[str],
         if said:
             said(f"Draft {made[0]} is gone from Zenodo since it was listed.")
         return None
-    if not isinstance(found, dict):
+    if not _a_draft(found, made[0]):
         unread = ShareRefused(f"Zenodo's answer for draft {made[0]} was no draft. It is as "
                               "it was; share again once Zenodo answers, and it is taken then.",
                               code="environment.service.unreachable")
@@ -1094,6 +1114,18 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         # gives one, its checksum the one sent); an answer that says nothing
         # leaves it not known, and nothing of the draft is taken away.
         put_sum = _md5((put or {}).get("checksum")) if isinstance(put, dict) else ""
+        if isinstance(put, dict) and put_sum and put_sum != sent_sums[archive.name][-1] \
+                and str(put.get("key") or put.get("filename") or "") == archive.name:
+            # Kept, but not as sent: the study's still, replaced at the next share.
+            kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
+                                  archive.name: [*sent_sums[archive.name], put_sum]}
+            _keep(study, kept)
+            damaged = ShareRefused(
+                f"Zenodo kept {archive.name} with other contents than were sent (its "
+                "checksum is not the archive's).", code="environment.service.unreachable",
+                url=page)
+            damaged.later = damaged.unclear = True
+            raise damaged
         if not (isinstance(put, dict) and str(put.get("key") or put.get("filename") or "")
                 == archive.name and (not put_sum or put_sum == sent_sums[archive.name][-1])):
             unsaid = ShareRefused(
@@ -1129,7 +1161,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 url=page)
             deleted.gone = True
             raise deleted
-        if not (isinstance(again, dict) and isinstance(again.get("metadata"), dict)):
+        if not _a_draft(again, identifier, doi):
             # Not read: what the person wrote meanwhile is not known, and is
             # not written over.
             unread = ShareRefused(f"Zenodo's answer reading the draft {page} again was no "
@@ -1222,7 +1254,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
             described = True
-            if not (isinstance(answer, dict) and isinstance(answer.get("metadata"), dict)):
+            answered_as = answer.get("metadata") if isinstance(answer, dict) else None
+            if not (isinstance(answered_as, dict)
+                    and _text(answered_as.get("description"))
+                    == _text(ours_said.get("description"))
+                    and str(answered_as.get("version") or "") == str(version)):
                 # Not said: whether it was written is not known.
                 unsaid = ShareRefused(
                     f"Zenodo's answer to describing the draft {page} said nothing of it.",
@@ -1252,7 +1288,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                     unlabelled = ShareRefused(
                         f"Zenodo's answer to giving the draft {page} version {version} did "
                         "not say it was given. Its version is perhaps not yet written; the "
-                        "draft is kept, with the new archive.",
+                        "draft is kept, with the new archive: share again once Zenodo "
+                        "answers, and that draft is finished, not another made.",
                         code="environment.service.unreachable", url=page)
                     unlabelled.later = unlabelled.whole = True
                     raise unlabelled
@@ -1376,7 +1413,15 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             out["version"] = "1"
             return out
         if not found.get("submitted"):
-            # The draft made last time, never published: made again.
+            # The draft made last time, never published: made again (read as
+            # Zenodo gives it, else not written over).
+            if not _a_draft(found, str(earlier["id"]), str(earlier.get("doi") or "")):
+                misread = ShareRefused(
+                    f"Zenodo's answer for the draft {earlier['id']} held not the draft. It is "
+                    "as it was; share again once Zenodo answers.",
+                    code="environment.service.unreachable")
+                misread.whole = misread.later = True
+                raise misread
             out["deposition"] = found
             return out
     except ShareRefused as exc:
@@ -1439,7 +1484,7 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             unnamed.unclear = unnamed.later = True
             raise unnamed
         deposition = _call("GET", latest, token=token, said=said)
-        if not isinstance(deposition, dict):
+        if not _a_draft(deposition, latest.rsplit("/", 1)[-1]):
             raise ShareRefused(f"Zenodo's answer for {latest} was no draft.",
                                code="environment.service.unreachable")
     except ShareRefused as exc:

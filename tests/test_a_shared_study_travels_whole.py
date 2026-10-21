@@ -3311,8 +3311,6 @@ def test_a_gateway_s_404_downloading_is_not_said_closed(tmp_path, unsteady, monk
     import urllib.error
     import urllib.request
 
-    real = urllib.request.urlopen
-
     def gateway(request, timeout=None):
         raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {},
                                      io.BytesIO(b"<html>Not Found</html>"))
@@ -3323,7 +3321,6 @@ def test_a_gateway_s_404_downloading_is_not_said_closed(tmp_path, unsteady, monk
                   tmp_path / "got.zip", most=1 << 30, md5="", said=None, size=0)
     assert "ask its owner" not in str(refused.value)
     assert "open it again later" in str(refused.value)
-    assert real
 
 
 def test_an_upload_whose_answer_was_lost_stays_the_study_s_after_another_fails(tmp_path,
@@ -3345,7 +3342,7 @@ def test_an_upload_whose_answer_was_lost_stays_the_study_s_after_another_fails(t
         "/api/deposit/depositions/7/files/s"]
 
 
-def test_two_opens_at_once_take_two_folders(tmp_path):
+def test_each_open_takes_a_folder_of_its_own_as_it_names_it(tmp_path):
     from fastmdxplora.sharing.opening import _placed
 
     first, second = _placed(tmp_path, "the-study"), _placed(tmp_path, "the-study")
@@ -3386,8 +3383,8 @@ def test_a_draft_s_doi_not_zenodo_s_is_not_a_crash(tmp_path, unsteady, monkeypat
 
 @pytest.mark.parametrize("files", [["s.zip"], {"entries": ["s.zip"]},
                                    [{"key": "s.zip", "size": "big"}]])
-def test_a_record_whose_files_are_not_zenodo_s_is_a_refusal(tmp_path, unsteady,
-                                                            monkeypatch, files):
+def test_a_record_whose_files_are_not_zenodo_s_is_no_crash(tmp_path, unsteady,
+                                                           monkeypatch, files):
     real = zenodo._call
 
     def strange(method, url, **kwargs):
@@ -3396,10 +3393,12 @@ def test_a_record_whose_files_are_not_zenodo_s_is_a_refusal(tmp_path, unsteady,
         return real(method, url, **kwargs)
 
     monkeypatch.setattr(zenodo, "_call", strange)
-    try:
-        zenodo.archive_of("zenodo-sandbox", "7")
-    except ShareRefused:
-        pass
+    if isinstance(files, list) and isinstance(files[0], dict):
+        # Its size not a number: taken as not known.
+        assert zenodo.archive_of("zenodo-sandbox", "7")["size"] == 0
+    else:
+        with pytest.raises(ShareRefused):
+            zenodo.archive_of("zenodo-sandbox", "7")
 
 
 def test_a_gateway_s_404_on_the_upload_is_said_as_such(tmp_path, unsteady, monkeypatch,
@@ -3422,3 +3421,81 @@ def test_a_gateway_s_404_on_the_upload_is_said_as_such(tmp_path, unsteady, monke
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     said = capsys.readouterr().err
     assert "a gateway's" in said and "no such record or draft" not in said
+
+
+def _reads_of_the_draft_hold_nothing(monkeypatch, *, from_read: int = 1) -> None:
+    """Zenodo's answers for the draft, from its ``from_read``-th read on,
+    hold an empty metadata."""
+    real, reads = zenodo._call, []
+
+    def empty(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "GET" and url.endswith("/api/deposit/depositions/7"):
+            reads.append(url)
+            if len(reads) >= from_read and isinstance(answer, dict):
+                return {**answer, "metadata": {}}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", empty)
+
+
+@pytest.mark.parametrize("from_read", [1, 2])
+def test_a_draft_read_holding_nothing_is_never_written_back(tmp_path, unsteady,
+                                                            monkeypatch, from_read):
+    """Review of the thirty-third commit: a read of the draft answered with an
+    empty metadata was taken as the draft, and the person's words written
+    over or wiped."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7].update(description="<p>Mine.</p>", notes="My notes.")
+    _reads_of_the_draft_hold_nothing(monkeypatch, from_read=from_read)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert unsteady.meta[7]["description"] == "<p>Mine.</p>"
+    assert unsteady.meta[7]["notes"] == "My notes."
+
+
+def test_a_description_answered_without_it_is_not_taken_as_written(tmp_path, unsteady,
+                                                                   monkeypatch, capsys):
+    """Review of the thirty-third commit: a description written, answered with
+    an empty metadata, was taken as written: the study's own description
+    then said the person's for good."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def empty(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "PUT" and (kwargs.get("body") or {}).get("metadata", {}).get(
+                "description"):
+            return {**answer, "metadata": {}}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", empty)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    monkeypatch.setattr(zenodo, "_call", real)
+    _analysed_again(study, "Words of the next share.")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+    assert "Words of the next share." in unsteady.meta[7]["description"]
+
+
+def test_an_archive_kept_damaged_is_the_study_s_to_replace(tmp_path, unsteady,
+                                                           monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def damaged(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if kwargs.get("upload") is not None:
+            return {"key": "shared.zip", "checksum": "md5:dead"}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", damaged)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "with other contents than were sent" in capsys.readouterr().err
+    monkeypatch.setattr(zenodo, "_call", real)
+    unsteady.files = [{"id": "s", "filename": "shared.zip", "checksum": "md5:dead"}]
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
