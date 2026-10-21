@@ -293,6 +293,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   studies chosen no longer covers the last row. A list read before tags or
   an archive were kept, and answered after, no longer draws them as they
   were.
+- All studies, reviewed: a study's runs linked out of it are not read when
+  unfolded, a run linked out has no picture served, and a folder linked
+  into the workspace is not looked in. Tag and Archive send what changes,
+  kept on the tags as they are, so a tag an AI app added since stays; a run
+  of a study is not archived alone. Replicas' mean and error, or why there
+  is none, are read from their runs as the runs' table and the written
+  comparison read them, the spread called an error only where every
+  replica determined its own mean with an error of its own (the comparison
+  says so too). A study of several runs counts every run, begun or not,
+  says each run's length or their range, and its time left as it runs them;
+  progress and time left are the status bar's own (run-progress.js). A
+  study with no Manifest that ran says what its records do. Columns give
+  way in turn before the list becomes lines, which keep the sort, choosing
+  all, the time left and Open, Tag and Files; what was not read opens from
+  the row. Cards are read once while a study's records stand.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
