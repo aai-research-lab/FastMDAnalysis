@@ -299,3 +299,45 @@ def test_the_list_first_with_views_molecules_means_and_keys(tmp_path):
     assert searching == "studies-search"
     assert gallery == ["molecule", 130]
     assert phone_row == "grid" and not phone["wide"]
+
+
+def test_why_a_mean_is_not_determined_is_reached_from_the_keyboard(tmp_path):
+    """A row of one or two means, one not determined, said why only on
+    hover over its ring: no button to reach it from the keyboard, as +N is
+    where there are more means than a row shows."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    replicas = _replicas(tmp_path / "chignolin")
+    _members(replicas, [0.10, 0.12, 0.14], short=("seed2",))
+    _study(tmp_path / "helix", means={"rmsd": (0.05, 0.01)})
+    session = start_dashboard_session(output=str(tmp_path / "helix"), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            # The page settled: drawn again, a list closes what is open on it.
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            row = '#studies-table tr.studies-row[data-path$="/chignolin"]'
+            offered = page.locator(f"{row} .studies-means-more").count()
+            determined = page.locator(
+                '#studies-table tr.studies-row[data-path$="/helix"] .studies-means-more').count()
+            page.focus(f"{row} .studies-means-more")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".studies-means-pop")
+            said = page.inner_text(".studies-means-pop")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert offered == 1 and determined == 0
+    assert "could not determine their own mean" in said

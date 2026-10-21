@@ -508,22 +508,39 @@
     box.style.left = left + "px";
     box.style.top = top + "px";
     popover = box;
+    popoverAt = { anchor: anchor, top: r.top, left: r.left };
+  }
+
+  /* Closed once the page moves under it: not by a scroll that put its
+   * button in view just before it opened (Tab, or a click that scrolled
+   * first), which closed it as it opened. */
+  var popoverAt = null;
+  function movedUnder() {
+    if (!popover || !popoverAt) return;
+    var r = popoverAt.anchor.getBoundingClientRect();
+    if (Math.abs(r.top - popoverAt.top) > 1 || Math.abs(r.left - popoverAt.left) > 1) closeMeans();
   }
 
   document.addEventListener("click", function (event) {
     if (popover && !popover.contains(event.target) && !event.target.closest(".studies-means-more")) closeMeans();
   });
-  document.addEventListener("scroll", function () { closeMeans(); }, true);
+  document.addEventListener("scroll", movedUnder, true);
 
   function meansShown(study, most) {
     var host = make("div", "studies-means");
     var means = study.means || [];
     means.slice(0, most).forEach(function (m) { host.appendChild(meanItem(m)); });
-    if (means.length > most) {
-      var more = make("button", "studies-means-more", "+" + (means.length - most));
+    // The rest, or with none more why those shown are not determined: a
+    // button, so the why is reached from the keyboard, not on hover only.
+    var why = means.slice(0, most).some(function (m) { return !!m.withheld; });
+    if (means.length > most || why) {
+      var more = make("button", "studies-means-more",
+        means.length > most ? "+" + (means.length - most) : "why");
       more.type = "button";
-      more.title = "Every mean " + study.name + " recorded (M)";
-      more.setAttribute("aria-label", "Every mean recorded, " + means.length + " in all");
+      more.title = (means.length > most ? "Every mean " + study.name + " recorded"
+        : "Why it is not determined") + " (M)";
+      more.setAttribute("aria-label", means.length > most
+        ? "Every mean recorded, " + means.length + " in all" : "Why it is not determined");
       more.addEventListener("click", function () { openMeans(study, more); });
       host.appendChild(more);
     }
