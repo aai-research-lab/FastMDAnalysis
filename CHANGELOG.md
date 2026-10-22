@@ -158,6 +158,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   leg runs the tests that drive no browser on every core and the browser
   tests one at a time after them; tests held to what the code now does.
 
+- The Agent's mode and GPU-hour ceiling are saved as they are chosen: a
+  reload put the Agent back in Seeker with no ceiling, whatever was set.
+
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
   extreme: on four segments the verdict had turned on rounding. A segment
