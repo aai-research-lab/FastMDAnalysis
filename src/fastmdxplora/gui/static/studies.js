@@ -420,11 +420,11 @@
       frame.appendChild(make("span", "study-thumb-none", shownId(study) || study.name));
       frame.dataset.picture = "none";
       frame.title = unread(study, "molecule")
-        ? "Not drawn: its structure was not read. " + (study.not_read || "")
+        ? "Not rendered: its structure was not read. " + (study.not_read || "")
         : study.molecule_outside
-          ? "Not drawn: the structure it is to start from, " + study.molecule_outside +
+          ? "Not rendered: the structure it is to start from, " + study.molecule_outside +
             ", is outside its folder, and only the study's own files are read"
-          : "Nothing to draw yet: no structure of it is here";
+          : "Nothing to render yet: no structure of it is here";
     }
     return frame;
   }
