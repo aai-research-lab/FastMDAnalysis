@@ -810,6 +810,15 @@ def _this_pid_space() -> str:
         return ""
 
 
+def _began_since(pid: int, record: dict[str, Any]) -> bool:
+    """Whether the process ``pid`` began more than a few seconds after the
+    process record was written: another process given the number, never the
+    run that wrote it. False where either time is not known."""
+    began = _process_started_at(pid)
+    written = _parse_iso_datetime(record.get("started_at"))
+    return began is not None and written is not None and began > written.timestamp() + 5
+
+
 def _what_its_process_says(root: Path, record: dict[str, Any]) -> str | None:
     """"gone" where the record's process has certainly ended, "running"
     where it is this study's run, None where it cannot be told here (and
@@ -822,7 +831,9 @@ def _what_its_process_says(root: Path, record: dict[str, Any]) -> str | None:
     whose command line is not a run's is not taken for gone: a run started
     from a script, a notebook or a pool's worker has such a command line.
     Only one that began after the record was written is another process
-    given the number, and the run gone.
+    given the number, and the run gone, whatever its command line says and
+    even where it is the process asking: a run writes its record once it
+    has begun.
     """
     from fastmdxplora.orchestrator import this_machine
     from fastmdxplora.simulation.resume import _this_process_and_its_parents
@@ -842,7 +853,7 @@ def _what_its_process_says(root: Path, record: dict[str, Any]) -> str | None:
     if record.get("pidns") and _this_pid_space() and record["pidns"] != _this_pid_space():
         return None
     if pid in _this_process_and_its_parents():
-        return "running"
+        return "gone" if _began_since(pid, record) else "running"
     key = (str(root), pid, str(record.get("started_at") or ""))
     now = datetime.now(timezone.utc).timestamp()
     kept = _ASKED.get(key)
@@ -851,15 +862,12 @@ def _what_its_process_says(root: Path, record: dict[str, Any]) -> str | None:
     from fastmdxplora.gui.exploration import _identify_run, _process_alive
 
     try:
-        if not _process_alive(pid):
+        if not _process_alive(pid) or _began_since(pid, record):
             said: str | None = "gone"
         elif _identify_run(pid, root, record.get("argv")) is True:
             said = "running"
         else:
-            began = _process_started_at(pid)
-            written = _parse_iso_datetime(record.get("started_at"))
-            said = ("gone" if began is not None and written is not None
-                    and began > written.timestamp() + 5 else None)
+            said = None
     except Exception:  # noqa: BLE001 - a record, not a verdict
         said = None
     if len(_ASKED) > 256:

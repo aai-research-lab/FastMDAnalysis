@@ -133,6 +133,29 @@ class TestWhatThePageIsGiven:
         (root / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
         page = stopping_payload(root)
         assert page["outcome"] == "running" and page["live"] is False
+
+    @pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+    def test_a_process_given_its_number_since_is_not_its_run(self, finished):
+        """A process named `fastmdx` begun after the record was written was
+        taken for the run of a record with no arguments: "Running"."""
+        import subprocess
+        import sys
+        from datetime import datetime, timedelta, timezone
+
+        from tests.test_a_run_that_ended_unsaid_is_interrupted import _its_process
+
+        root, mid = finished
+        (root / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
+        written = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        stand_in = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                                     "fastmdx"])
+        try:
+            _its_process(root, stand_in.pid, started=written)
+            page = stopping_payload(root)
+            assert page["live"] is False and page["outcome_label"] != "Running"
+        finally:
+            stand_in.kill()
+            stand_in.wait()
         assert page["outcome_label"] == "Not finished when this was written"
         assert page["next"] is not None
 

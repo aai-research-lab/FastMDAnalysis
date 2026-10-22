@@ -55,6 +55,17 @@ def _a_gone_process() -> int:
 
 
 @pytest.fixture
+def a_stand_in():
+    """A live process whose command line names the program, as a run's
+    does: any process given a run's number since."""
+    running = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                                "fastmdx"])
+    yield running.pid
+    running.kill()
+    running.wait()
+
+
+@pytest.fixture
 def a_script():
     """A live process whose command line is a script's, not `fastmdx`'s:
     a run started from Python, a notebook or a pool's worker."""
@@ -103,6 +114,31 @@ class TestWhetherItEnded:
     def test_its_number_given_to_a_process_begun_since_it_ended(self, tmp_path, a_script):
         root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(5))
         _its_process(root, a_script, started=_ago(3600))
+        assert how_the_run_ended(root) == "process"
+
+    @linux
+    def test_its_number_given_to_a_run_like_process_begun_since_it_ended(self, tmp_path,
+                                                                          a_stand_in):
+        """A record with no arguments (the Python API's) took any live
+        process with a `fastmdx` token for its run, before asking when that
+        process began: a killed study read "Running"."""
+        root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(5))
+        _its_process(root, a_stand_in, started=_ago(3600))
+        assert how_the_run_ended(root) == "process"
+        # Begun when the record was written, it is the run.
+        going = _a_run_said_it_was_going(tmp_path / "going", last=_ago(5))
+        _its_process(going, a_stand_in)
+        assert how_the_run_ended(going) is None
+
+    @linux
+    def test_its_number_given_to_the_process_asking_since_it_ended(self, tmp_path):
+        """The GUI's own number in a record written weeks before it began (a
+        container restarted, its record with no process namespace) read
+        running."""
+        import os
+
+        root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(5))
+        _its_process(root, os.getpid(), started=_ago(30 * 86400))
         assert how_the_run_ended(root) == "process"
 
     def test_this_host_restarted_since_it_ended(self, tmp_path, a_script):
