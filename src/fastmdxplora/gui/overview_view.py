@@ -210,6 +210,10 @@ def _tiles(root: Path) -> dict[str, Any]:
                 "from_ns": quantity.get("from_ns"),
                 "reweighted": bool(quantity.get("reweighted")),
                 "series": series,
+                # Its image note beside the verdict, which it does not change,
+                # and the analysis's paragraph of it on hover.
+                "noted": quantity.get("noted") or "",
+                "noted_why": quantity.get("noted_why") or "",
             })
     shown = tiles[:MOST_TILES]
     # The means not shown, as the heading counts means: the RMSF tile is
@@ -433,6 +437,14 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
         entry = recorded.get(key)
         if isinstance(entry, dict) and ("mean" in entry or "not_a_measurement" in entry):
             means[key] = _said(entry, unit, _count(recorded.get("samples")))
+            if means[key] is not None:
+                # Its image note beside its verdict, as every page says it.
+                from fastmdxplora.image_note import note_of, said_short
+
+                short = said_short(note_of(entry))
+                means[key]["noted"] = short or None
+                means[key]["noted_why"] = (recorded.get("solute_image_said") or None
+                                           if short else None)
             if means[key] is None and entry.get("not_a_measurement"):
                 why = entry["not_a_measurement"]
                 if isinstance(why, dict):
@@ -566,7 +578,12 @@ def _recorded_thermodynamics(root: Path) -> dict[str, Any] | NotRead:
     except (OSError, ValueError, AttributeError):
         return {}
     record = found.get("thermodynamics") if isinstance(found, dict) else None
-    return record if isinstance(record, dict) else {}
+    if not isinstance(record, dict):
+        return {}
+    from fastmdxplora.image_note import paragraph_of
+
+    # The analysis's paragraph of its image note, said where a mean's is.
+    return {**record, "solute_image_said": paragraph_of(found) or None}
 
 
 def _count(value: Any) -> int | None:

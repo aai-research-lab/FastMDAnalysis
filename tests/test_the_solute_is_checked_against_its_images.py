@@ -804,8 +804,8 @@ class TestTheReportPageSaysWhy:
             "solute_image": {"frames_used": 60, "frames_under_cutoff": 5,
                              "cutoff_nm": 1.0, "may_bias": "shape", "said": "..."}})
         assert "±" in said
-        assert said.endswith("may be biased: the solute met its own periodic image in 5 of "
-                             "60 frames used (8%)")
+        assert said.endswith("; may be biased: 5 of 60 frames used (8%) came within 1 nm "
+                             "of the solute's own image")
 
 
 class TestHowItIsSaid:

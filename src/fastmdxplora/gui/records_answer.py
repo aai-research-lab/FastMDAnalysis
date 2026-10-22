@@ -101,8 +101,11 @@ def _means(base: Path) -> list[str]:
                 elif why:
                     lines.append(f"{label}: no mean; {why}.")
                 continue
+            # Its image note beside its verdict, which it does not change.
+            noted = f"; {quantity['noted']}" if quantity.get("noted") else ""
             if not quantity.get("determined"):
-                lines.append(f"{label}: {said}, not determined" + (f"; {why}." if why else "."))
+                lines.append(f"{label}: {said}, not determined" + (f"; {why}" if why else "")
+                             + noted + ".")
                 continue
             samples = quantity.get("samples")
             discard, frames = quantity.get("from_frame"), quantity.get("of_frames")
@@ -115,7 +118,7 @@ def _means(base: Path) -> list[str]:
                 # have withheld a mean still drifting; the report may differ.
                 said += (", determined by an earlier version's rules (Analyze again "
                          "to judge it by this version's)")
-            lines.append(f"{label}: {said}.")
+            lines.append(f"{label}: {said}{noted}.")
     if not any(row.get("analysis") == "thermodynamics" for row in rows):
         lines += _thermodynamic_means(base)
     return lines
@@ -136,13 +139,15 @@ def _thermodynamic_means(base: Path) -> list[str]:
         said = means.get(key)
         if not isinstance(said, dict) or not said.get("said"):
             continue
+        noted = f"; {said['noted']}" if said.get("noted") else ""
         if said.get("determined"):
             samples = said.get("samples")
             more = f", {samples:.0f} independent samples" if isinstance(samples, (int, float)) else ""
-            lines.append(f"{label}: {said['said']}{more}.")
+            lines.append(f"{label}: {said['said']}{more}{noted}.")
         else:
             why = _first_clause(said.get("why"))
-            lines.append(f"{label}: {said['said']}, not determined" + (f"; {why}." if why else "."))
+            lines.append(f"{label}: {said['said']}, not determined" + (f"; {why}" if why else "")
+                         + noted + ".")
     return lines
 
 

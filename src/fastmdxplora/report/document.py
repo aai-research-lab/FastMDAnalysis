@@ -1109,10 +1109,11 @@ def image_note_said(image: Any) -> str | None:
     if "frames_used" not in image:
         # The image check's own finding.
         return str(image["said"]) if image.get("said") else None
-    used, under = image.get("frames_used"), image.get("frames_under_cutoff")
-    if not (isinstance(used, int) and isinstance(under, int) and used > 0 and under > 0):
+    from fastmdxplora.image_note import COUNTED_OVER, note_of, share_said
+
+    if note_of({"solute_image": image}) is None:
         return None
-    from fastmdxplora.analysis.image_check import COUNTED_OVER, share_said
+    used, under = int(image["frames_used"]), int(image["frames_under_cutoff"])
 
     noun = COUNTED_OVER.get(str(image.get("counted_over") or "frames"), "frames used")
     cutoff = image.get("cutoff_nm")

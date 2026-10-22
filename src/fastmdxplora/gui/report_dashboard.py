@@ -155,6 +155,7 @@ DASHBOARD_SUMMARY_SPECS: tuple[tuple[str, str, str], ...] = (
     ("Secondary structure", "analysis/ss/ss.dat", "ss"),
     ("Fraction of native contacts", "analysis/qvalue/qvalue.dat", "line"),
     ("Dihedrals", "analysis/dihedrals/dihedrals.dat", "dihedrals"),
+    ("Image check", "analysis/image_check/image_check.dat", "image"),
 )
 
 
@@ -219,6 +220,10 @@ class MetricRow:
     status: str
     #: Why a mean was not determined.
     why: str = ""
+    #: Its image note beside the verdict (:func:`fastmdxplora.image_note.said_short`),
+    #: and the analysis's paragraph of it.
+    noted: str = ""
+    noted_why: str = ""
 
 
 def _system_label(system: object) -> str:
@@ -672,6 +677,8 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
             status=("Not read" if quantity.get("unavailable")
                     else "Determined" if quantity.get("determined") else "Not determined"),
             why=str(quantity.get("why") or ""),
+            noted=str(quantity.get("noted") or ""),
+            noted_why=str(quantity.get("noted_why") or ""),
         ))
 
     if reweighted and reweighted.get("applies", True):
@@ -842,9 +849,10 @@ def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
         if not _records.is_file(data_path):
             continue
         try:
-            summary = (_biased_caption(data_path, corrected) if biased else None) \
-                or (_what_the_analysis_found(data_path) if kind == "line" else None) \
-                or _summarise_data_file(data_path, kind)
+            summary = (_image_check_caption(data_path) if kind == "image" else
+                       (_biased_caption(data_path, corrected) if biased else None)
+                       or (_what_the_analysis_found(data_path) if kind == "line" else None)
+                       or _summarise_data_file(data_path, kind))
         except Exception as exc:  # noqa: BLE001 - a caption must never fail a report
             logger.debug("dashboard: no summary for %s: %s", title, exc)
             continue
@@ -934,19 +942,30 @@ def _what_the_analysis_found(data_path: Path) -> str | None:
 
 
 def _image_noted(record: Any) -> str:
-    """The note of an analysis whose frames the solute met its own image
-    in, as the report says it, in a few words for a caption."""
-    found = (record.get("findings") or {}) if isinstance(record, dict) else {}
-    image = found.get("solute_image") if isinstance(found, dict) else None
-    if not isinstance(image, dict) or "frames_used" not in image:
-        return ""
-    used, under = image.get("frames_used"), image.get("frames_under_cutoff")
-    if not (isinstance(used, int) and isinstance(under, int) and used > 0 and under > 0):
-        return ""
-    from fastmdxplora.analysis.image_check import share_said
+    """The note of a mean whose frames the solute came within the cutoff of
+    its own image in, beside its verdict in a caption, as every page says it
+    (:func:`fastmdxplora.image_note.said_short`): the main mean's own note,
+    else the analysis's."""
+    from fastmdxplora.image_note import note_of, said_short
 
-    return (f"; may be biased: the solute met its own periodic image in {under:,} of "
-            f"{used:,} frames used ({share_said(under, used)})")
+    found = (record.get("findings") or {}) if isinstance(record, dict) else {}
+    found = found if isinstance(found, dict) else {}
+    short = said_short(note_of(found.get("mean")) or note_of(found))
+    return f"; {short}" if short else ""
+
+
+def _image_check_caption(data_path: Path) -> str | None:
+    """The image check's card: its finding in a sentence, as its row on the
+    Analysis page says it (:func:`fastmdxplora.image_note.finding_said`)."""
+    from fastmdxplora.image_note import finding_said
+
+    try:
+        record = json.loads(_records.read_text(data_path.parent / "options.json",
+                                               encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    found = (record.get("findings") or {}) if isinstance(record, dict) else {}
+    return finding_said(found.get("solute_image") if isinstance(found, dict) else None) or None
 
 
 def _biased_caption(data_path: Path, corrected: dict[Any, Any]) -> str:
@@ -1303,6 +1322,7 @@ def _figure_title_from_path(path: Path) -> str:
         "apo_holo_comparison": "Apo/holo comparison",
         "qvalue": "Fraction of native contacts",
         "dihedrals": "Dihedrals",
+        "image_check": "Image check",
     }
     if stem in special:
         return special[stem]
@@ -2313,12 +2333,16 @@ def _render_phase_row(row: PhaseRow) -> str:
 
 def _render_metric_row(row: MetricRow) -> str:
     why = f' title="{escape(row.why)}"' if row.why else ""
+    # The verdict is the record's; its image note beside it, the analysis's
+    # paragraph on hover.
+    noted = (f'<div class="metric-noted" title="{escape(row.noted_why)}">'
+             f"{escape(row.noted)}</div>" if row.noted else "")
     return (
         "<tr>"
         f"<td>{escape(row.metric)}</td>"
         f'<td class="mono">{escape(row.average)}</td>'
         f'<td class="mono">{escape(row.samples)}</td>'
-        f'<td class="muted"{why}>{escape(row.status)}</td>'
+        f'<td class="muted"{why}>{escape(row.status)}{noted}</td>'
         "</tr>"
     )
 

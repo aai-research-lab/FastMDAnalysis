@@ -71,6 +71,7 @@ import numpy as np
 from fastmdxplora.analysis.base import Analysis, narrowest_width
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.analysis.plotting import colour
+from fastmdxplora.image_note import COUNTED_OVER, share_said  # noqa: F401 - said here too
 from fastmdxplora.refusals import StudyError
 
 #: The cutoff a solute's image is checked against where neither the run's
@@ -99,27 +100,6 @@ PLAIN_NOTE = frozenset({
     "area_per_lipid", "bilayer_thickness", "lipid_order",
     "pmf", "metad_surface", "steered_work",
 })
-
-
-def share_said(part: int, whole: int) -> str:
-    """A share of frames as a percentage, never rounded to 0% or 100%."""
-    value = 100.0 * part / whole if whole else 0.0
-    if 0 < value < 1:
-        return f"{value:.2g}%"
-    if 99 < value < 100:
-        return f"{value:.1f}%"
-    return f"{value:.0f}%"
-
-
-#: What a note's count is of, as it says it: the trajectory's frames a mean
-#: uses, the energy rows a thermodynamic mean averages (each read at the
-#: trajectory frame nearest its time), or, for an analysis without a main
-#: mean, the frames its means use.
-COUNTED_OVER = {
-    "frames": "frames used",
-    "energy rows": "energy rows used",
-    "means' frames": "frames its means use",
-}
 
 
 def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = None, *,

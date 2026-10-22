@@ -514,8 +514,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   mean keeps its error, since meeting its copy may bias a mean but does not
   make its error unknown; the shape analyses' note says the shape may be
   biased. The report says the check's finding once, in its "Image check"
-  section, and one line under each analysis; the Report page says the
-  mean "may be biased". `end_to_end` alone withholds its error, as it did
+  section, and one line under each analysis. Every page that shows a noted
+  mean says the note beside its verdict, which it does not change ("may be
+  biased: 54 of 270 frames used (20%) came within 1 nm of the solute's own
+  image"): the Overview's tiles and production means, the Analysis page's
+  table (the analysis's paragraph a click away, and in its CSV), the line
+  over each card, its caption and its convergence, the series, and the
+  Report page; and the Agent, in its reading of the analyses, its answers
+  from the records and the means of the study cards; all from the record
+  through one reader (`image_note`). The image check's own row and card
+  give its finding in a sentence, the card titled "Image check" and its
+  atoms said as the heavy atoms of the macromolecules. `end_to_end` alone withholds its error, as it did
   for its two ends, now from the same note rather than its ends, a check
   that passed a chignolin chain which came to 0.261 nm of its own copy. It runs with every plan where there is a box
   and a solute, a study's listed analyses (`include`, as the GUI writes

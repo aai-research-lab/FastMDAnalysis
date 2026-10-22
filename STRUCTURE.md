@@ -37,6 +37,7 @@ FastMDXplora/
 │       ├── naming.py              # One rule for the name of a study's output folder
 │       ├── refusals.py            # What a refusal is, in a word a program can read
 │       ├── record_access.py       # Request-local admission of actual record reads
+│       ├── image_note.py          # How a mean's image note is said, read from its record, by every page and the Agent
 │       ├── remedies.py            # What would fix a refusal, and what the fix costs here
 │       ├── marking.py             # Marking what nothing checked, where the mark has to survive
 │       ├── uncertainty.py         # An error bar on a quantity that is not a mean

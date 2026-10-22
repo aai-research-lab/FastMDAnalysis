@@ -70,7 +70,11 @@
       return key + " " + (Array.isArray(value) ? value.join(", ") : String(value));
     });
     host.appendChild(document.createTextNode(parts.join(" \u00b7 ")));
-    if (record.selection) {
+    if (row && row.atoms_said) {
+      // The atoms it reads, as it says them (the image check: the heavy
+      // atoms of the macromolecules), not the analyses' scope.
+      host.appendChild(document.createTextNode((parts.length ? " \u00b7 " : "") + row.atoms_said));
+    } else if (record.selection) {
       host.appendChild(document.createTextNode((parts.length ? " \u00b7 " : "") + "atoms "));
       host.appendChild(make("code", "", String(record.selection)));
     }
@@ -93,7 +97,14 @@
       item.dataset.determined = String(!!q.determined);
       item.appendChild(make("b", "", q.key === "mean" ? "Mean" : q.label));
       item.appendChild(make("span", "mono", q.said));
-      if (!q.determined && q.why) item.title = "Not determined: " + q.why;
+      var titles = [];
+      if (!q.determined && q.why) titles.push("Not determined: " + q.why);
+      if (q.noted) {
+        // Its image note beside it, as the table above says it.
+        item.appendChild(make("span", "cell-noted", q.noted));
+        if (q.noted_why) titles.push(q.noted_why);
+      }
+      if (titles.length) item.title = titles.join("\n\n");
       host.appendChild(item);
     });
     if (quantities.length > 4) host.appendChild(make("span", "muted", "+" + (quantities.length - 4) + " in the table above"));

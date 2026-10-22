@@ -121,7 +121,14 @@ average of a biased run. For an analysis of the solute's shape or
 conformation the note says its shape may be biased; for the thermodynamics
 and the solvent's analyses, that a mean may be. The report says the check's
 finding once, in its own section, and under each analysis one line pointing
-there; the Report page gives the mean with its error and "may be biased".
+there. Every page that shows the mean (the Overview's tiles and production
+means, the Analysis page's table, the line over each card, its caption and its
+convergence, the Report page's table) and the Agent say the note beside the
+mean's verdict, which it does not change ("may be biased: 54 of 270 frames
+used (20%) came within 1 nm of the solute's own image"), the analysis's
+paragraph a click away, all read from the record by one reader
+(`fastmdxplora.image_note`); the image check's own row and card give its
+finding in a sentence.
 Frames where no mean is used (the discarded equilibration) do not count, and
 an analysis whose frames never met the image carries no note. `end_to_end`
 alone withholds its error for it, as it did before the whole chain was

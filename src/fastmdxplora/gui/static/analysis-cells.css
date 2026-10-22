@@ -13,7 +13,11 @@
 .cell-value b { font-weight: 500; color: var(--text-muted); margin-right: 4px; }
 .cell-value .mono { color: var(--text-primary); }
 .cell-value[data-determined="false"] .mono { color: var(--text-secondary); }
-.cell-value[data-determined="false"]::after { content: " not determined"; color: var(--text-muted); }
+.cell-value[data-determined="false"] > .mono::after { content: " not determined"; color: var(--text-muted); }
+/* A mean's image note under it; the verdict is the record's. */
+.cell-value:has(.cell-noted) { white-space: normal; min-width: 0; max-width: 100%; }
+.cell-value:has(.cell-noted) > b, .cell-value:has(.cell-noted) > .mono { white-space: nowrap; }
+.cell-noted { display: block; color: var(--text-secondary); font-size: var(--text-2xs); }
 .cell-params { color: var(--text-muted); min-width: 0; overflow-wrap: anywhere; }
 .cell-params code { font-size: var(--text-2xs); }
 .cell-again { margin-left: auto; }

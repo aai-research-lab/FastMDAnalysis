@@ -1421,10 +1421,16 @@ def _results_summary(root: Any, first: str | None = None) -> str:
 
     # Each row is its folder, its name and its parts; a part is what it says
     # before a reason, how the reason is joined on, and the reason (or None).
+    from fastmdxplora import record_access
+    from fastmdxplora.image_note import note_of, paragraph_of, said_short
+
     rows: list[tuple[str, str, list[tuple[str, str, str | None]]]] = []
+    # Each analysis's image note in full, said once for the analysis where
+    # one of its means carries it.
+    paragraphs: dict[str, str] = {}
     for options in sorted(analysis.glob("*/options.json")):
         try:
-            data = json.loads(options.read_text(encoding="utf-8"))
+            data = json.loads(record_access.read_text(options, encoding="utf-8"))
         except (OSError, ValueError):
             continue
         name = str(data.get("analysis") or options.parent.name)
@@ -1479,6 +1485,12 @@ def _results_summary(root: Any, first: str | None = None) -> str:
                     piece += " -- too few for the mean to describe the system rather than this run"
             if isinstance(discard, int) and isinstance(n, int):
                 piece += f", first {discard} of {n} frames discarded as unequilibrated"
+            # Its image note beside its verdict, which it does not change, as
+            # every page says it; the analysis's paragraph once, below.
+            noted = said_short(note_of(f))
+            if noted:
+                piece += f" -- {noted}"
+                paragraphs.setdefault(options.parent.name, paragraph_of(findings))
             parts.append((piece, " -- not determined: ", str(withheld) if withheld else None))
         if parts:
             rows.append((options.parent.name, name, parts))
@@ -1504,6 +1516,11 @@ def _results_summary(root: Any, first: str | None = None) -> str:
                 said_parts.append(head + joiner + " ".join(withheld.split()))
             else:
                 said_parts.append(head + joiner + _reason_said_once(withheld, notes))
+        paragraph = paragraphs.get(folder)
+        if paragraph:
+            said_parts.append(("the image note: " + " ".join(paragraph.split()))
+                              if folder == first else
+                              "the image note: " + _reason_said_once(paragraph, notes))
         lines.append(f"  {name}: " + "; ".join(said_parts))
     said = "what the analyses found:\n" + "\n".join(lines)
     if notes:

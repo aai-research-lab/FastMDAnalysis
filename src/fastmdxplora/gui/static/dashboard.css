@@ -1560,6 +1560,18 @@ button {
     white-space: normal;
 }
 .analysis-results-note { color: var(--text-muted); font-size: var(--text-2xs); }
+/* A mean's image note under its value, its paragraph a click away; the
+   verdict beside it is the record's. */
+.analysis-results-noted {
+    display: block; margin-top: 2px; max-width: 42ch; white-space: normal;
+    font-family: var(--font-stack); font-size: var(--text-2xs); color: var(--text-secondary);
+}
+.analysis-results-noted > summary { cursor: pointer; line-height: 1.4; }
+.analysis-results-noted p { margin: 4px 0 0; color: var(--text-secondary); line-height: 1.45; }
+.analysis-results-finding { color: var(--text-secondary); white-space: normal; }
+.analysis-results-finding details > summary { cursor: pointer; }
+.analysis-results-finding p { margin: 4px 0 0; font-size: var(--text-2xs); line-height: 1.45; }
+.metric-noted { margin-top: 2px; font-size: var(--text-2xs); color: var(--text-secondary); }
 .analysis-results-other { color: var(--text-muted); }
 .analysis-results-status {
     display: inline-block;
@@ -5814,6 +5826,13 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     margin-top: 2px; font-size: var(--text-2xs); color: var(--text-muted); line-height: 1.4;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* A mean's image note, beside its verdict, which it does not change. */
+.tile-noted {
+    margin-top: 2px; font-size: var(--text-2xs); color: var(--text-secondary); line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tile-why-noted { display: block; }
+.tile-why-noted:not(:first-child) { margin-top: 6px; }
 .overview-lead { margin: -2px 0 12px; font-size: var(--text-sm); color: var(--text-primary); line-height: 1.5; }
 .overview-lead[hidden] { display: none; }
 .tile-value { margin: 4px 0 2px; font-size: var(--text-lg); letter-spacing: -0.01em; color: var(--text-primary); overflow-wrap: anywhere; }

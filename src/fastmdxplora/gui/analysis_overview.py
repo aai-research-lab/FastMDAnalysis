@@ -67,7 +67,12 @@ def overview_of(root: str | Path, *, include_time: bool = True,
     ``determined``, ``why`` (where it is not), ``samples`` (independent
     samples, rounded), ``from_frame``, ``of_frames``, ``from_ns`` and
     ``reweighted`` and ``judged_earlier`` (determined by an earlier
-    version's rules); and ``data``, its data files with their addresses.
+    version's rules), ``noted`` and ``noted_why`` (its image note beside
+    the verdict, which it does not change, and the analysis's paragraph of
+    it: :mod:`fastmdxplora.image_note`); and ``data``, its data files with
+    their addresses. The image check's row gives its ``finding`` in a
+    sentence, ``finding_why`` its paragraph and ``atoms_said`` the atoms it
+    checks.
     ``judged_earlier`` beside the rows names the analyses holding such a
     mean.
 
@@ -163,11 +168,22 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
         return row
     findings = record.get("findings") if isinstance(record.get("findings"), dict) else {}
     found = findings.get("mean") if isinstance(findings.get("mean"), dict) else None
+    if name == "image_check":
+        # Its finding as a sentence in its row, the paragraph one click away,
+        # and the atoms it checks said as they are (not the analyses' scope).
+        from fastmdxplora.image_note import finding_said, paragraph_of
+
+        image = findings.get("solute_image")
+        row["finding"] = finding_said(image)
+        row["finding_why"] = paragraph_of(findings)
+        if isinstance(image, dict) and image.get("solute"):
+            row["atoms_said"] = "heavy atoms of " + str(image["solute"]).split(";")[0]
     main = None
     if biased and name in corrected:
         main = _reweighted(name, corrected[name], found)
     elif found is not None:
-        main = _recorded(root, name, found, biased, include_time=include_time)
+        main = _recorded(root, name, found, biased, include_time=include_time,
+                         findings=findings)
     if main is not None:
         row["mean"] = main
         row["quantities"].append({"key": "mean", "label": title, **main})
@@ -175,7 +191,8 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
         if key != "mean" and _is_a_mean_record(other):
             row["quantities"].append({"key": key, "label": _label(key),
                                       **_recorded(root, name, other, biased,
-                                                  include_time=include_time)})
+                                                  include_time=include_time,
+                                                  findings=findings)})
         elif key != "mean" and isinstance(other, dict):
             # A group of quantities read from another record than the
             # trajectory (thermodynamics: the run's energy file), each with
@@ -189,7 +206,8 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
                               "n_frames": quantity.get("n_frames", samples)}
                     row["quantities"].append({
                         "key": f"{key}.{inner}", "label": _label(inner),
-                        **_recorded(root, name, record, biased, timed=False)})
+                        **_recorded(root, name, record, biased, timed=False,
+                                    findings=findings)})
     if row["quantities"]:
         row["kind"] = "mean"
     return row
@@ -246,8 +264,23 @@ def _is_a_mean_record(value: Any) -> bool:
             and ("mean" in value or "not_a_measurement" in value))
 
 
+def _noted(found: dict[str, Any] | None, findings: dict[str, Any] | None) -> dict[str, Any]:
+    """A mean's image note, beside its verdict, which it does not change: the
+    note in a line (``noted``) and the analysis's paragraph of it
+    (``noted_why``), read from the record by the one reader every page and
+    the Agent use (:mod:`fastmdxplora.image_note`); empty where the solute
+    did not come within the cutoff of its image in the frames it uses."""
+    from fastmdxplora.image_note import note_of, paragraph_of, said_short
+
+    short = said_short(note_of(found))
+    if not short:
+        return {"noted": None, "noted_why": None}
+    return {"noted": short, "noted_why": paragraph_of(findings) or None}
+
+
 def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
-              timed: bool = True, *, include_time: bool = True) -> dict[str, Any]:
+              timed: bool = True, *, include_time: bool = True,
+              findings: dict[str, Any] | None = None) -> dict[str, Any]:
     from fastmdxplora.statistics import (
         RESOLVED_SAMPLES,
         four_figures,
@@ -311,6 +344,7 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
         # Determined by the rules of the version that analysed it, which
         # may have called a mean still drifting determined.
         "judged_earlier": determined and judged_by_earlier_rules(found),
+        **_noted(found, findings),
     }
 
 
@@ -321,7 +355,7 @@ def _not_read(root: Path, path: Path) -> dict[str, Any]:
         "determined": False, "why": refused_said(root, path) + ".",
         "samples": None, "from_frame": None, "of_frames": None, "from_ns": None,
         "reweighted": False, "constant": False, "judged_earlier": False,
-        "unavailable": True,
+        "unavailable": True, "noted": None, "noted_why": None,
     }
 
 
@@ -348,6 +382,8 @@ def _reweighted(name: str, item: dict[str, Any], found: dict[str, Any] | None) -
         "samples": int(round(samples)) if samples is not None else None,
         "from_frame": None, "of_frames": None, "from_ns": None, "reweighted": True,
         "constant": False, "judged_earlier": False,
+        # Over every frame, as the reweighting weighs them: its own note.
+        **_noted(item, item),
     }
 
 
@@ -429,6 +465,8 @@ def convergence_payload(root: str | Path, analysis: str) -> dict[str, Any]:
             "not_a_measurement": str(found["not_a_measurement"])
             if found.get("not_a_measurement") else None,
             "error_withheld_because": found.get("error_withheld_because") or None,
+            # Its image note, as the table above says it.
+            **_noted(found, findings),
             "discard_frames": recorded_start,
             "same_start": recorded_start is None or recorded_start == start,
             "start_shared_with_replicas": bool(found.get("start_shared_with_replicas")),
