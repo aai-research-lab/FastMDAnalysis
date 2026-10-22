@@ -248,7 +248,7 @@ the strip is not shown.
 
 **Go to anything, and the keys.** ⌘K (Ctrl+K) finds a page (with its key),
 a study of the workspace, a file of the open study, an analysis, a tool of
-the Viewer, Settings, the scheme and the actions (a study
+the Viewer, Settings and each setting of its You, the scheme and the actions (a study
 opens on the page shown, its Overview from a page of no study); ⌘P
 (Ctrl+P) the open study's files alone. `@TRP23` (or `@A:23`) selects that
 residue in the Viewer, `@` and part of a name or number lists the
@@ -348,7 +348,8 @@ there. Two scopes:
   the camera kept as frames change, the pocket cutoff), the time in 24 or 12
   hours, how many samples a live chart keeps and a notice when a run ends;
   and the Agent's engine and mode, changed in its own settings (**Change the
-  Agent's settings**; that dialog's **All settings** leads back here).
+  Agent's settings**; that dialog's **All settings** leads back here). The
+  Agent's mode and GPU-hour ceiling are saved as they are chosen.
   **Restore defaults** puts the release's back for the Display size, the
   Viewer, time, charts and notices. Nothing in You changes a study or its
   files.
