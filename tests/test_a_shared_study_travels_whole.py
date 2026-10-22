@@ -5308,3 +5308,32 @@ def test_the_copy_refusal_s_remedy_to_carry_on_the_record_followed_makes_no_seco
     assert json.loads((copy / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
     assert not any(c[0] == "POST" and c[1] == "/api/deposit/depositions"
                    for c in unsteady.calls)
+
+
+def test_a_copy_refusal_names_the_record_before_a_title_no_longer_on_zenodo(
+        tmp_path, unsteady, capsys):
+    """Hands-on review of the sixty-seventh commit: after a first share, the
+    copy refusal named the title the draft was first asked for under, long
+    since replaced on Zenodo by the study's own."""
+    import shutil
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    kept = json.loads((study / "shared_to.json").read_text())
+    kept["zenodo-sandbox"].update(id="104", record="103")
+    (study / "shared_to.json").write_text(json.dumps(kept))
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    copied = json.loads((copy / "shared_to.json").read_text())
+    copied["zenodo-sandbox"].update(id="7", record="")
+    (copy / "shared_to.json").write_text(json.dumps(copied))
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert "both name versions of the record c7" in said and "asked for as" not in said
+
+
+def test_a_download_that_got_nothing_says_so_in_bytes():
+    from fastmdxplora.sharing.opening import _got
+
+    assert _got(0, 5000, "at") == " at 0 bytes of 5.0 kB"

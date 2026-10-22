@@ -265,7 +265,7 @@ def _got(read: int, size: int, how: str = "having") -> str:
         unit, scale, shown = "bytes", 1, ".0f"
     if scale == 1 and (size or read) == 1:
         unit = "byte"
-    if size and 0 < read < {"kB": 1000, "MB": 100_000}.get(unit, 0):
+    if size and read < {"kB": 1000, "MB": 100_000}.get(unit, 0):
         # Begun, by less than the whole's unit says: each in its own.
         got = f"{said_size(read)} of {size / scale:{shown}} {unit}"
     else:

@@ -251,7 +251,8 @@ version of the same record, or a draft asked for and its answer lost), is refuse
 folder reached by another path (a container's bind mount, say), goes on with
 its draft or record. Not told apart: a copy made before its `shared_to.json`
 named its folder (as every one written by 2.6.0 or before this release), and a
-copy of a study moved since it last shared (neither folder is the one named).
+copy of a study moved since it last shared (neither folder is the one named),
+and a copy whose original's folder this account may not look into.
 To share a copy as a study of its own, delete its `shared_to.json` first.
 
 It needs a Zenodo token in `ZENODO_TOKEN` (`ZENODO_SANDBOX_TOKEN` for

@@ -987,7 +987,7 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
         if both:
             # The draft or record itself where both name it, before its concept.
             where, key, which = min((b.split(":", 2) for b in both),
-                                    key=lambda b: _NAMED.index(b[1]))
+                                    key=lambda b: _SAID_FIRST.index(b[1]))
             named_as = {"id": f"the draft or record {which}", "record": f"the record {which}",
                         "asked_as": f'the draft asked for as "{which}"',
                         "concept": f"versions of the record {which}"}[key]
@@ -1006,6 +1006,9 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
 # the title a draft was asked for under (its answer lost), the title its
 # first draft was asked for under (kept through every version), its concept's.
 _NAMED = ("id", "record", "asked_as", "asked_first", "concept")
+# Named in a refusal in this order: what the person finds on Zenodo first (a
+# title asked for is the draft's only until the share describes it).
+_SAID_FIRST = ("id", "record", "concept", "asked_as")
 
 
 def _named_in(kept: dict[str, Any]) -> set[str]:
