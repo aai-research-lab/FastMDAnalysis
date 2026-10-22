@@ -162,6 +162,59 @@ class TestWhatThePageIsGiven:
         assert page["production_ns"] == 0.0 and page["next"] is None
 
 
+def _killed_in_its_round(root: Path, mid: dict, where: Path) -> Path:
+    """The study as it stood mid-round, one of its runs killed while it was
+    extended: its process gone, no end written."""
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import (
+        _a_gone_process, _a_run_said_it_was_going, _its_process)
+
+    shutil.copytree(root, where)
+    (where / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
+    run = where / "runs" / "seed1"
+    _a_run_said_it_was_going(run)
+    _its_process(run, _a_gone_process())
+    return where
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+def test_a_study_killed_in_its_round_is_not_said_still_running(finished, tmp_path):
+    """Its header and Timeline said it stopped without finishing; the card
+    said "Still running" and "Now running" from the record it wrote as it
+    ran."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    root, mid = finished
+    killed = _killed_in_its_round(root, mid, tmp_path / "killed")
+    page = stopping_payload(killed)
+    assert page["outcome"] == "interrupted" and page["recorded_outcome"] == "running"
+    assert page["outcome_label"] == "Stopped without finishing" and page["next"] is None
+    last = page["rounds"][-1]
+    assert page["said"] == (
+        f"Stopped without finishing, in seed1, in round {last['round']}: extending each run by "
+        f"{length_said(last['more_ns'])}; the record does not say it finished; its process is "
+        "gone, and it wrote no end."), page["said"]
+    assert last["decided"].startswith("extending each run by ")
+    assert "running" not in page["outcome_label"].lower()
+    # A study still going is said so: its run wrote a moment ago, and no
+    # process of its is known to be gone.
+    (killed / "runs" / "seed1" / ".fastmdxplora_run.json").unlink()
+    assert stopping_payload(killed)["outcome"] == "running"
+
+
+def test_its_lengths_are_said_in_ps_under_1_ns(finished, tmp_path):
+    root, mid = finished
+    small = tmp_path / "small"
+    shutil.copytree(root, small)
+    record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))
+    record["max_duration_ns"] = 0.0012
+    for entry in record["rounds"]:
+        entry["production_ns"] = 0.0006
+    (small / "stopping.json").write_text(json.dumps(record), encoding="utf-8")
+    page = stopping_payload(small)
+    assert page["ceiling_said"] == "1.2 ps" and page["production_said"] == "0.6 ps"
+    assert {r["production_said"] for r in page["rounds"]} == {"0.6 ps"}
+
+
 def test_it_is_served_and_answered_beyond_loopback(finished):
     from fastmdxplora.gui.server import GETS_ANSWERED_BEYOND_LOOPBACK, start_dashboard_session
 
@@ -185,8 +238,9 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
     running = tmp_path / "running"
     shutil.copytree(root, running)
     (running / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
+    killed = _killed_in_its_round(root, mid, tmp_path / "killed")
     seen = {}
-    for name, where in (("finished", root), ("running", running)):
+    for name, where in (("finished", root), ("running", running), ("killed", killed)):
         session = start_dashboard_session(output=str(where), host="127.0.0.1", port=0)
         try:
             with sync_playwright() as pw:
@@ -215,6 +269,7 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
                     "strip": page.locator("#stopping-strip dd").all_text_contents(),
                     "rows": page.locator("#stopping-rounds-table tbody tr").count(),
                     "labels": page.locator('.stopping-svg[aria-label]').count(),
+                    "card": page.inner_text("#stopping-card"),
                     "errors": errors,
                 }
                 browser.close()
@@ -231,3 +286,8 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
     assert now["outcome"] == "Still running" and now["projection"] >= 1
     assert now["strip"][3].startswith("+") and "about" in now["strip"][3]
     assert done["errors"] == [] and now["errors"] == []
+    # Killed in its round: as its header and Timeline say it, never running.
+    gone = seen["killed"]
+    assert gone["outcome"] == "Stopped without finishing" and gone["errors"] == []
+    assert "running" not in gone["card"].lower(), gone["card"]
+    assert gone["projection"] >= 1 and len(gone["strip"]) == 3

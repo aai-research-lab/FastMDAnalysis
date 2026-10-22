@@ -57,6 +57,13 @@ def _asked(target: dict[str, Any], unit: str) -> str:
     return f"±{100 * float(target.get('relative_error') or 0):g}%"
 
 
+def _said(ns: float | None) -> str:
+    """A length as every page says one, in ps under 1 ns (`length_said`)."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    return length_said(ns) if ns is not None else ""
+
+
 def _projection(point: dict[str, Any]) -> dict[str, Any] | None:
     """Where the error would reach the target, if it falls as one over the
     root of the frames kept after equilibration: the arithmetic the next
@@ -70,7 +77,7 @@ def _projection(point: dict[str, Any]) -> dict[str, Any] | None:
         return None
     kept = more / ((error / allowed) ** 2 - 1.0)
     return {"from_ns": production, "kept_ns": kept, "error": error, "allowed": allowed,
-            "to_ns": production + more}
+            "to_ns": production + more, "to_said": _said(production + more)}
 
 
 def _measures(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -95,6 +102,7 @@ def _measures(record: dict[str, Any]) -> list[dict[str, Any]]:
             value, error = _finite(v.get("value")), _finite(v.get("error"))
             points.append({
                 "round": number, "production_ns": _finite(entry.get("production_ns")),
+                "production_said": _said(_finite(entry.get("production_ns"))),
                 "value": value, "error": error, "allowed": _finite(v.get("allowed")),
                 "met": bool(v.get("met")), "agree": v.get("agree"),
                 "more_ns": _finite(v.get("more_ns")),
@@ -151,7 +159,8 @@ def _next_piece(record: dict[str, Any], where: Path) -> dict[str, Any] | None:
     if last.get("decision") != "extend" or more is None:
         return None
     production = _finite(last.get("production_ns")) or 0.0
-    piece = {"more_ns": more, "to_ns": production + more, "seconds": None, "platform": ""}
+    piece = {"more_ns": more, "to_ns": production + more, "more_said": _said(more),
+             "to_said": _said(production + more), "seconds": None, "platform": ""}
     runs = [str(r) for r in record.get("runs") or []]
     first = next((f for f in (_run_folder(where, r, alone=len(runs) == 1) for r in runs)
                   if f is not None), None)
@@ -166,9 +175,33 @@ def _next_piece(record: dict[str, Any], where: Path) -> dict[str, Any] | None:
     return piece
 
 
+def _ended_without_finishing(record: dict[str, Any], where: Path) -> dict[str, Any] | None:
+    """A study whose record still says it is running, though the run it was
+    extending ended without writing its end (its process gone, or a day of
+    silence: `telemetry.status_as_it_stands`, as its header and Timeline
+    read it): said stopped without finishing, never still running."""
+    from fastmdxplora.gui.study_timeline import ENDED_HOW
+    from fastmdxplora.gui.telemetry import status_as_it_stands
+
+    if str(record.get("outcome") or "running") != "running":
+        return None
+    runs = [str(r) for r in record.get("runs") or []]
+    places = [where] + [f for f in (_run_folder(where, r, alone=len(runs) == 1) for r in runs)
+                        if f is not None and f != where]
+    for place in places:
+        try:
+            status = status_as_it_stands(place, include_campaign=False)
+        except Exception:  # noqa: BLE001 - said as the record says it
+            continue
+        if isinstance(status, dict) and str(status.get("status") or "") == "interrupted":
+            return {"run": "" if place == where else place.name,
+                    "how": ENDED_HOW.get(str(status.get("ended_by") or ""), "")}
+    return None
+
+
 def stopping_payload(root: Path | str) -> dict[str, Any]:
     """What the Overview's "Running until it is determined" card draws."""
-    from fastmdxplora.simulation.stopping import _OUTCOME
+    from fastmdxplora.simulation.stopping import _OUTCOME, round_decided
 
     found = _record_of(Path(root))
     if found is None:
@@ -176,23 +209,43 @@ def stopping_payload(root: Path | str) -> dict[str, Any]:
     record, where = found["record"], found["where"]
     rounds = [r for r in record.get("rounds") or [] if isinstance(r, dict)]
     outcome = str(record.get("outcome") or "running")
+    said = str(record.get("said") or "")
+    ended = _ended_without_finishing(record, where)
+    shown = outcome
+    if ended is not None:
+        # Its record was written while it ran: said as it stands.
+        shown = "interrupted"
+        going = (round_decided(rounds[-1], last=True, record=record)["said"]
+                 if rounds else "running its first piece")
+        said = ("Stopped without finishing" + (f", in {ended['run']}" if ended["run"] else "")
+                + (f", in round {len(rounds)}" if rounds else "") + f": {going}"
+                + (f"; {ended['how']}" if ended["how"] else "") + ".")
+    production = _finite(rounds[-1].get("production_ns")) if rounds else 0.0
+    ceiling = _finite(record.get("max_duration_ns"))
     return {
         "ok": True,
-        "outcome": outcome,
-        "outcome_label": _OUTCOME.get(outcome, outcome.replace("_", " ")),
-        "said": str(record.get("said") or ""),
-        "ceiling_ns": _finite(record.get("max_duration_ns")),
+        "outcome": shown,
+        "recorded_outcome": outcome,
+        "outcome_label": ("Stopped without finishing" if ended is not None
+                          else _OUTCOME.get(outcome, outcome.replace("_", " "))),
+        "said": said,
+        "ceiling_ns": ceiling,
+        "ceiling_said": _said(ceiling),
         "independent_starts": str(record.get("independent_starts") or "required"),
         "runs": [str(r) for r in record.get("runs") or []],
-        "production_ns": _finite(rounds[-1].get("production_ns")) if rounds else 0.0,
+        "production_ns": production,
+        "production_said": _said(production),
         "measures": _measures(record),
         "rounds": [{"round": n, "production_ns": _finite(r.get("production_ns")),
+                    "production_said": _said(_finite(r.get("production_ns"))),
                     "decision": str(r.get("decision") or ""),
-                    "more_ns": _finite(r.get("more_ns"))}
+                    "more_ns": _finite(r.get("more_ns")),
+                    # As the report and the Timeline say it.
+                    "decided": round_decided(r, last=n == len(rounds), record=record)["said"]}
                    for n, r in enumerate(rounds, start=1)],
-        "next": _next_piece(record, where),
+        "next": _next_piece(record, where) if ended is None else None,
         # Changes whenever the record does, so the page redraws only then.
-        "version": f"{len(rounds)}:{outcome}:{_stamp(where)}",
+        "version": f"{len(rounds)}:{shown}:{_stamp(where)}",
     }
 
 

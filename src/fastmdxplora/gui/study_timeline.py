@@ -312,6 +312,12 @@ _CARRYING = frozenset({
 })
 
 
+#: How a run that ended without writing its end is known to have ended
+#: (`telemetry.status_as_it_stands`'s ``ended_by``), as the pages say it.
+ENDED_HOW = {"process": "its process is gone, and it wrote no end",
+             "silence": "nothing written for a day, and no end written"}
+
+
 def _ended(base: Path) -> dict[str, Any] | None:
     """A run that stopped without finishing: its live record says it was
     going, and it is known to have ended without writing its end (its
@@ -334,9 +340,7 @@ def _ended(base: Path) -> dict[str, Any] | None:
     if (where and isinstance(step, (int, float)) and isinstance(total, (int, float))
             and not isinstance(step, bool) and total > 0):
         where += f", at step {int(step):,} of {int(total):,}"
-    how = {"process": "its process is gone, and it wrote no end",
-           "silence": "nothing written for a day, and no end written"}.get(
-        str(status.get("ended_by") or ""), "")
+    how = ENDED_HOW.get(str(status.get("ended_by") or ""), "")
     return {"kind": "ended", "phase": "simulation" if stage else "",
             "said": "Stopped without finishing" + (f", {where}" if where else ""),
             "status": "interrupted", "at": status.get("last_update_timestamp") or None,
