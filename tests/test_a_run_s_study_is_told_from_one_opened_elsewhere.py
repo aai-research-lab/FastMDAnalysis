@@ -3501,3 +3501,20 @@ def test_at_390_a_note_of_two_lines_hides_the_page_beneath(tmp_path, monkeypatch
     assert (dark == "rgb(0, 0, 0)") == (scheme == "dark"), dark
     assert shown == alone
     assert errors == []
+
+
+def test_a_folder_holding_only_a_moved_conversation_is_no_study_open(tmp_path):
+    """L19 L1, L20: a folder the GUI shows as no study that holds only a
+    conversation moved there (a run stopped in its first second) counted as
+    a study open, so every message sent there, naming no study, was refused."""
+    from fastmdxplora.gui.agent_panel import _active_view_error
+    from fastmdxplora.gui.exploration import DashboardRuntime
+
+    workspace = tmp_path / "workspace"
+    run = workspace / "run1"
+    (run / "agent" / "conversations").mkdir(parents=True)
+    (run / "agent" / "conversations" / "conv-1.json").write_text('{"entries": []}', encoding="utf-8")
+    runtime = DashboardRuntime(workspace_root=workspace, exploration_root=workspace)
+    runtime.active_root = run
+    assert runtime.snapshot().get("active_run") is None
+    assert _active_view_error({"page": "agent", "study": ""}, runtime, None) is None
