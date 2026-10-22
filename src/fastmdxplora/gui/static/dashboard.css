@@ -1265,7 +1265,7 @@ button {
 .files-ic { width: 16px; height: 16px; }
 .files-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .files-mono, .files-path, .files-size, .files-when, .files-val, .files-chip, .files-code { font-family: var(--font-mono); }
-.files-empty, .files-none { color: var(--text-muted); font-size: var(--text-sm); padding: 18px 4px; }
+.files-none { color: var(--text-muted); font-size: var(--text-sm); padding: 18px 4px; }
 
 .files-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .files-search {
@@ -1426,7 +1426,7 @@ button {
 .files-menu-path { display: block; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-muted); margin-top: 2px; overflow-wrap: anywhere; }
 
 .files-deposit-panel { width: min(760px, 100%); }
-#files-deposit-dialog .agent-dialog-foot, #files-clear-dialog .agent-dialog-foot { gap: 8px; align-items: center; flex-wrap: wrap; }
+#files-deposit-dialog .agent-dialog-foot { gap: 8px; align-items: center; flex-wrap: wrap; }
 #files-deposit-done { margin-top: 12px; }
 .files-dep-list { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; margin: 0; padding: 0; }
 .files-dep-row {
@@ -1449,7 +1449,6 @@ button {
 .files-dep-total { margin-right: auto; font-size: var(--text-xs); color: var(--text-muted); }
 .files-sha { overflow-wrap: anywhere; font-size: var(--text-2xs); }
 .files-dialog-said { margin: 0; font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
-.files-dialog-kept { margin: 10px 0 0; padding-left: 18px; font-size: var(--text-xs); color: var(--text-muted); }
 
 @media (max-width: 760px) {
     .files-tiles { grid-template-columns: 1fr; }
@@ -4163,7 +4162,6 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .sidebar-stop[hidden], .stop-run-ask[hidden] { display: none; }
 .sidebar-stop:hover { background: color-mix(in srgb, var(--accent-red) 10%, transparent); }
 .stop-run-ask { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-xs); }
-.stop-run-ask .stop-run-answers { display: flex; flex-wrap: wrap; gap: 6px; }
 .health-stop { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .health-stop:has(> [hidden] + [hidden]) { display: none; }
 .sidebar .sidebar-controls { align-items: center; gap: 2px; flex-wrap: nowrap; }

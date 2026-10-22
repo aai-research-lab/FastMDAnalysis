@@ -2,6 +2,8 @@
 .sb-notices .sb-count { min-width: 14px; height: 14px; padding: 0 4px; box-sizing: border-box; border-radius: 7px;
     font-size: 9.5px; line-height: 14px; text-align: center; background: var(--accent); color: var(--on-accent);
     font-variant-numeric: tabular-nums; }
+/* The count whole, however narrow the bar: "12", never "1...". */
+.sb-notices .sb-count { flex: none; overflow: visible; text-overflow: clip; }
 .sb-notices .sb-count[hidden] { display: none; }
 
 .notices { position: fixed; right: 12px; bottom: calc(var(--status-bar-height, 24px) + 10px); z-index: 900;
@@ -37,4 +39,6 @@
 .notices-none { margin: 0; padding: 18px 14px; color: var(--text-muted); font-size: var(--text-xs); }
 .notices-foot { display: flex; justify-content: space-between; gap: 10px; padding: 8px 14px;
     border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--text-xs); }
+/* A notice shown while the list is open goes beside it, not over its foot. */
+body:has(.notices:not([hidden])) .dashboard-toast { right: calc(min(400px, 100vw - 24px) + 24px); }
 @media print { .notices { display: none !important; } }

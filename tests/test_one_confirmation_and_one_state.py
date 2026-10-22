@@ -207,3 +207,50 @@ def test_not_now_and_escape_do_nothing_and_give_the_keyboard_back(tmp_path):
     assert answers == [{"focus": True, "asked": False}] * 5
     assert sent == [s for s in sent if '"dry":true' in s] and len(sent) == 2
     assert (root / "simulation" / "frames.dcd").exists()
+
+
+def test_one_frame_for_a_question_a_whole_count_and_a_notice_beside_the_list(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.files_page import render
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    study = _study(tmp_path / "alpha")
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1250, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.wait_for_function("() => !!window.FastMDXNotices && !!window.FastMDXStop")
+            page.evaluate("() => window.dispatchEvent(new CustomEvent('dashboard:app-state',"
+                          " {detail: {process_running: true}}))")
+            page.click("#sb-stop")
+            frame = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('#sb-stop-ask .fmx-ask'));
+                return [s.borderTopWidth, s.paddingTop]; }""")
+            page.keyboard.press("Escape")
+            # The bell's count whole, however narrow the bar.
+            page.set_viewport_size({"width": 900, "height": 900})
+            for n in range(12):
+                page.evaluate(f"() => window.FastMDXDashboard.toast('Notice {n}.', 'ok')")
+            page.wait_for_function("() => document.querySelector('#sb-notices .sb-count').textContent === '12'")
+            whole = page.evaluate("""() => { const c = document.querySelector('#sb-notices .sb-count');
+                return c.scrollWidth <= c.clientWidth && getComputedStyle(c).textOverflow !== 'ellipsis'; }""")
+            page.click("#sb-notices")
+            page.evaluate("() => window.FastMDXDashboard.toast('Shown while the list is open.', 'ok')")
+            page.wait_for_function("() => document.getElementById('dashboard-toast').classList.contains('show')")
+            page.wait_for_timeout(300)
+            apart = page.evaluate("""() => { const a = document.getElementById('dashboard-toast').getBoundingClientRect();
+                const b = document.getElementById('notices').getBoundingClientRect();
+                return a.right <= b.left || a.bottom <= b.top; }""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert frame == ["0px", "0px"]
+    assert whole and apart
+    empty = render({"files": []}, None)
+    assert 'class="fmx-state" data-kind="empty"' in empty and "files-empty" not in empty

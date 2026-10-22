@@ -23,6 +23,8 @@
     border-radius: 10px; border: 1px solid color-mix(in srgb, var(--accent-red) 35%, var(--border-primary));
     background: var(--background-elevated); color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45;
 }
+/* In the status bar's card (statusbar.css), which is its frame: one frame. */
+.sb-stop-ask .fmx-ask { border: 0; padding: 0; background: none; }
 .fmx-ask-title { color: var(--text-primary); font-weight: 600; }
 .fmx-ask-list { flex-basis: 100%; margin: 2px 0 0; padding-left: 18px; font-size: var(--text-xs); }
 .fmx-ask-answers { flex-basis: 100%; display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }

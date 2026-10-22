@@ -1503,9 +1503,11 @@ def _gui_stylesheet() -> str:
     styled by the GUI's own rules rather than by a second set written to
     look like them: the two looked different for as long as there were two.
     """
-    sheet = Path(__file__).resolve().parent / "static" / "dashboard.css"
+    static = Path(__file__).resolve().parent / "static"
     try:
-        return sheet.read_text(encoding="utf-8")
+        # With the one empty, loading and error block every page says it in.
+        return "\n".join((static / name).read_text(encoding="utf-8")
+                         for name in ("dashboard.css", "page-states.css"))
     except OSError:  # pragma: no cover - only if the installed package is incomplete
         return ""
 
@@ -2115,7 +2117,8 @@ def _render_report_page(report: dict[str, Any]) -> str:
 
 
 def _render_files_page(files_html: str) -> str:
-    body = files_html or '<div class="files-empty">This study has not written any files yet.</div>'
+    body = files_html or ('<div class="fmx-state" data-kind="empty" role="status"><span class="fmx-state-title">'
+                          'This study has not written any files yet.</span></div>')
     return ('<section class="page" data-page="files" hidden>'
             + _page_header("Files", "Everything the study wrote, in the order it ran")
             + f'<div id="files-page" class="files-page">{body}</div></section>')
