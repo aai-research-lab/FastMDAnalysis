@@ -778,3 +778,61 @@ class TestTheReportPageSaysWhy:
         assert "±" in said
         assert said.endswith("may be biased: the solute met its own periodic image in 5 of "
                              "60 frames used (8%)")
+
+
+class TestHowItIsSaid:
+    def test_a_time_under_a_nanosecond_is_in_picoseconds(self):
+        traj = _stretched()
+        _, record = solute_image_record(traj, np.arange(traj.n_atoms))
+        frame = record["nearest_frame"]
+        assert f"frame {frame}, {frame * 10} ps" in record["said"]
+        assert " ns" not in record["said"]
+
+    def test_the_first_sentence_says_what_matters_whole(self):
+        """A page giving a reason's first sentence (the Overview's tiles) cut
+        it inside its bracket, at the colon: "(frame 299."."""
+        from fastmdxplora.gui.overview_view import _in_a_line
+
+        traj = _stretched()
+        _, record = solute_image_record(traj, np.arange(traj.n_atoms))
+        first = _in_a_line(record["said"])
+        assert first.count("(") == first.count(")")
+        assert "10 of 40 frames" in first and "cutoff" in first
+        assert "heavy atoms" in record["said"]
+
+    def test_end_to_end_s_reason_leads_with_the_frames(self, tmp_path):
+        from fastmdxplora.analysis.end_to_end import EndToEndDistance
+        from fastmdxplora.gui.overview_view import _in_a_line
+
+        analysis = EndToEndDistance(output_dir=tmp_path)
+        assert analysis.run(_hairpin_reaching_its_image()).status == "ok"
+        first = _in_a_line(analysis.findings["mean"]["not_a_measurement"])
+        assert first.startswith("The solute came within") and "frames used" in first
+        assert first.count("(") == first.count(")")
+
+    def test_the_report_s_heading(self, analysed):
+        from fastmdxplora.report.document import _results_section
+
+        folder, _ = analysed
+        text = _results_section(folder.parent)
+        assert "### Image check" in text and "Image\\_Check" not in text
+
+
+class TestTheMapsLastCell:
+    def test_is_drawn_its_own_width(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        from fastmdxplora.analysis.cluster import _plot_distance_matrix
+
+        fig, ax = plt.subplots()
+        # 2,001 frames in blocks of 2: the last block holds one frame.
+        frames = np.arange(2001)
+        _plot_distance_matrix(ax, np.zeros((1001, 1001)), frames, None, block=2)
+        mesh = ax.collections[0]
+        xs = mesh.get_coordinates()[0, :, 0]
+        assert xs[0] == pytest.approx(-0.5) and xs[-1] == pytest.approx(2000.5)
+        assert xs[-1] - xs[-2] == pytest.approx(1.0)
+        plt.close(fig)

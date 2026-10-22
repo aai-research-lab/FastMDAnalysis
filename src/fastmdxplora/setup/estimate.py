@@ -285,7 +285,9 @@ def estimate_system(structure: str | Path, setup: dict[str, Any] | None = None,
         radius += HYDROGEN_REACH_NM
 
     shape = str(setup.get("box_shape") or "dodecahedron").lower()
-    padding = float(setup.get("solvent_padding_nm") or _DEFAULT_PADDING_NM)
+    # A given 0.0 is a padding (the schema's least), not an unset one.
+    given = setup.get("solvent_padding_nm")
+    padding = float(_DEFAULT_PADDING_NM if given is None else given)
     used, narrowest, width, grows, refuses = _box(radius, padding, shape, setup)
     volume = VOLUME_PER_WIDTH_CUBED.get(shape, 1.0) * width ** 3
 

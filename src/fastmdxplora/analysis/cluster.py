@@ -1166,7 +1166,8 @@ def _plot_distance_matrix(ax: plt.Axes, distances: np.ndarray, frames: np.ndarra
     ``block`` frames, so blocks along the diagonal are spells the structure
     held, and an off-diagonal block that is dark is a return to a structure
     visited before. ``frames`` and ``times_ns`` are every clustered frame's;
-    each cell is ``block`` frames wide, the last one too, as the GUI draws it.
+    each cell is ``block`` frames wide, and the last one the frames it holds,
+    drawn its own width.
     """
     cells = distances.shape[0]
     if times_ns is not None and len(times_ns) > 1 and np.all(np.isfinite(times_ns)):
@@ -1177,10 +1178,12 @@ def _plot_distance_matrix(ax: plt.Axes, distances: np.ndarray, frames: np.ndarra
         step = float(np.median(np.diff(frames))) if len(frames) > 1 else 1.0
         low = float(frames[0]) - step / 2
         label = "Frame"
-    high = low + cells * block * step
-    image = ax.imshow(distances, origin="lower", cmap="viridis",
-                      interpolation="nearest", aspect="equal",
-                      extent=(low, high, low, high), vmin=0.0)
+    # Each cell's edges by the frames it holds: the last block holds what is
+    # left, and is drawn that wide, not a whole block past the last frame.
+    edges = low + step * np.minimum(np.arange(cells + 1) * block, len(frames))
+    image = ax.pcolormesh(edges, edges, distances, cmap="viridis", vmin=0.0,
+                          shading="flat", rasterized=True)
+    ax.set_aspect("equal")
     bar = ax.figure.colorbar(image, ax=ax, shrink=0.85)
     bar.set_label("RMSD (nm)")
     match_colorbar_font(bar, ax)

@@ -271,7 +271,9 @@ class EndToEndDistance(Analysis):
         """The chain's reasons, with the image's note where it has one."""
         reasons = list(getattr(self, "_step_reasons", []))
         if note:
-            reasons.append(f"{getattr(self, '_chain_said', '')} {note['said']}".strip())
+            # The note first: what the Overview gives of a reason is its
+            # first sentence, and that is the one with the frames.
+            reasons.append(f"{note['said']} {getattr(self, '_chain_said', '')}".strip())
         if reasons:
             self.findings["not_a_measurement"] = " ".join(reasons)
         else:
@@ -299,7 +301,7 @@ class EndToEndDistance(Analysis):
         note = self._image_note_for(traj, mean if isinstance(mean, dict) else None)
         self._say_the_image(note)
         if note:
-            said = f"{getattr(self, '_chain_said', '')} {note['said']}".strip()
+            said = f"{note['said']} {getattr(self, '_chain_said', '')}".strip()
             if said not in str((mean or {}).get("not_a_measurement") or ""):
                 self._withhold_the_error(traj, said,
                                          because="chain meets its periodic image")

@@ -502,3 +502,14 @@ DECAPEPTIDE = (
     "ATOM     71  O   GLY A  10      15.311  42.745  20.642  1.00 18.88           O\n"
     "END\n"
 )
+
+
+class TestAGivenPaddingIsKept:
+    def test_zero_is_a_padding_not_an_unset_one(self, tmp_path) -> None:
+        """The schema's least padding is 0.0; read with `or`, it became the
+        default (now 2.0 nm)."""
+        text = _residue(1, "LYS", "A", 1, 0.0) + "END\n"
+        given = estimate_system(_file(tmp_path, text), {"solvent_padding_nm": 0.0})
+        unset = estimate_system(_file(tmp_path, text, "other.pdb"), {})
+        assert given.padding_nm == 0.0
+        assert unset.padding_nm == 2.0

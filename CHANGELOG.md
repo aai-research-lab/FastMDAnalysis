@@ -30,11 +30,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `hierarchical_distance_matrix.npy` is gone (the dendrogram is the
   linkage's), and `cluster_rmsd_matrix.npz` holds the map of time against
   time at most 1,000 cells across, its rows and columns averaged in blocks
-  of frames, the block said in the figure's title and the report's caption.
+  of frames, the block said in the figure's title and the report's caption,
+  the last block drawn as wide as the frames it holds.
   The figure, the GUI and the report read that one file; a study clustered
   before is read as it was, its whole matrix averaged as the GUI reads it, a
   few rows at a time, never held whole. The whole matrix is written only with
   `save_full_matrix: true`, its size said in the log first.
+- The estimate of what setup will build keeps a given `solvent_padding_nm`
+  of 0.0 (the schema's least) where it read it as unset, now 2.0 nm.
 - The project bundle holds results and records, not working matrices: the
   clustering's whole matrix, and any matrix the analyses saved past 100 MB,
   stay in the study's folder, listed with their sizes in

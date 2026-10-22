@@ -417,8 +417,8 @@ def _atom_said(topology, index: int) -> str:
 
 
 def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
-                        cutoff_nm: float = CUTOFF_NM,
-                        cutoff_from: str | None = None) -> tuple[np.ndarray, dict[str, Any]]:
+                        cutoff_nm: float = CUTOFF_NM, cutoff_from: str | None = None,
+                        solute_said: str | None = None) -> tuple[np.ndarray, dict[str, Any]]:
     """Per frame, the closest approach of the heavy atoms among ``atoms`` to
     the heavy atoms of their periodic images, in nm, and the finding.
 
@@ -483,24 +483,35 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
         "narrowest_width_nm": [float(np.min(widths)), float(np.max(widths))],
         "reaches_its_image": bool(under),
     }
-    when = (f"frame {frame}, {record['nearest_time_ns']:.4g} ns" if timed
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    # Picoseconds under a nanosecond, as every page says a time.
+    when = (f"frame {frame}, {length_said(record['nearest_time_ns'])}" if timed
             else f"frame {frame}")
-    atoms_said = (f"{record['nearest_atoms'][0]} and the image of "
-                  f"{record['nearest_atoms'][1]}")
+    pair = (f"between {record['nearest_atoms'][0]} and the image of "
+            f"{record['nearest_atoms'][1]} (heavy atoms only)")
+    if solute_said:
+        record["solute"] = solute_said
+    # What matters first, in a sentence with no colon or semicolon in it: a
+    # page giving the first sentence alone gives that.
     if under:
         record["said"] = (
-            f"The solute comes within {nearest:.3f} nm of its own periodic image "
-            f"({when}: {atoms_said}), inside the {cutoff_nm:g} nm cutoff "
-            f"({record['cutoff_from']}) in {under:,} of {n:,} frames ({100.0 * under / n:.2f}%) and under "
-            f"{CLOSE_NM:g} nm in {close:,} ({100.0 * close / n:.2f}%). In those "
-            "frames it is interacting with its own copy, and what is measured of "
-            "it describes the cell as much as the molecule. A larger box, in a "
-            "new study (a box cannot grow mid-run), is what would change this.")
+            f"The solute came within {nearest:.3f} nm of its own periodic image, "
+            f"inside the {cutoff_nm:g} nm cutoff in {under:,} of {n:,} frames "
+            f"({share_said(under, n)}) and under {CLOSE_NM:g} nm in {close:,} "
+            f"({share_said(close, n)}). The closest was at {when}, {pair}. The "
+            f"cutoff is {record['cutoff_from']}. In those frames the solute meets "
+            "its own copy, and a mean over them may be biased by it. A larger "
+            "box, in a new study (a box cannot grow mid-run), is what would "
+            "change this.")
     else:
         record["said"] = (
-            f"The solute comes no closer than {nearest:.3f} nm to its own periodic "
-            f"image ({when}: {atoms_said}), outside the {cutoff_nm:g} nm cutoff "
-            f"({record['cutoff_from']}) in every one of {n:,} frames.")
+            f"The solute came no closer than {nearest:.3f} nm to its own periodic "
+            f"image, outside the {cutoff_nm:g} nm cutoff in every one of {n:,} "
+            f"frames. The closest was at {when}, {pair}. The cutoff is "
+            f"{record['cutoff_from']}.")
+    if solute_said:
+        record["said"] += f" The solute is {solute_said}."
     return distances, record
 
 
@@ -570,8 +581,8 @@ class SoluteImage(Analysis):
                 code="analysis.selection.empty",
                 expression=self.selection, role="solute")
         distances, record = solute_image_record(traj, atoms, cutoff_nm=self.cutoff_nm,
-                                                cutoff_from=self.cutoff_from)
-        record["solute"] = solute
+                                                cutoff_from=self.cutoff_from,
+                                                solute_said=solute)
         self.findings["solute_image"] = record
         # Read by this analysis as by every other.
         self.solute_image = record
