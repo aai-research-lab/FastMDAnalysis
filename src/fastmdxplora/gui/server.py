@@ -1198,6 +1198,18 @@ def make_handler(
                 payload["workspace"] = str(app_runtime.exploration_root)
                 self._send_json(payload)
                 return
+            if path == "/api/defaults-file":
+                # The workspace's fastmdx-defaults.yml as Settings' This folder
+                # shows it (settings_page.py). Not a service's guests': the
+                # workspace and its defaults are the service's.
+                if hosting is not None:
+                    self._send_json({"ok": False, "reason": "Not changed here when the GUI is served."},
+                                    status=403)
+                    return
+                from fastmdxplora.gui.settings_page import defaults_said
+
+                self._send_json(defaults_said(app_runtime.exploration_root))
+                return
             if path == "/api/problems":
                 # A read-only list of the records already shown by status
                 # and analysis. Commands and proposed Configs stay on the
@@ -2113,6 +2125,18 @@ def make_handler(
                     self._send_json({"ok": False, "error": "Not offered here."}, status=404)
                     return
                 self._send_json(app_runtime.save_config_for_elsewhere(payload or {}))
+                return
+            if path == "/api/defaults-file":
+                # A setting of This folder set, taken back or given its
+                # reason, written into the file and checked as any defaults
+                # file is; refused with why, the file left as it was.
+                if hosting is not None:
+                    self._send_json({"ok": False, "reason": "Not changed here when the GUI is served."},
+                                    status=403)
+                    return
+                from fastmdxplora.gui.settings_page import defaults_changed
+
+                self._send_json(defaults_changed(app_runtime.exploration_root, payload or {}))
                 return
             if path == "/api/config":
                 # The file the page would run, handed back instead. A laptop
