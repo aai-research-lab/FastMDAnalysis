@@ -242,8 +242,9 @@ notice the page gave (each saved as it is shown, with no path in it), each
 run seen ending (with **Open its Overview**) and each refusal the Log reads
 while the page is open, the last 200 saved on this computer, one of each
 however many windows saw it, shown as All, Runs, or Refusals and warnings,
-and **Clear the list** with Undo (Tab stays in the list until
-<kbd>Esc</kbd> or a choice); the Agent's mode, opening its
+and **Clear the list** with Undo (Tab stays in the list, and on the Undo
+of a notice shown beside it, until <kbd>Esc</kbd> or a choice); the Agent's
+mode, opening its
 settings; and
 the page's own updates, paused (the run goes on) or refreshed now. The
 Agent's mode is said by its name and its two words: **Seeker: built-in,

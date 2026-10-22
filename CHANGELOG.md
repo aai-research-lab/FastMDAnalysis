@@ -494,6 +494,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   or a choice. The Problems tab says when the server did not answer, and
   Try again on All studies reads the folder that could not be listed, not
   the last one listed.
+- A path is left out of a notice before a long line is cut, and whole: a
+  quoted path left open by the cut, one whose last part has a space
+  ("/Users/Kunle Aina"), one on a share ("//server/share", "smb://") or on
+  another machine ("lab:/home/..."); what is said of it stays ("Remote: is
+  full"), with no ".." or empty brackets left, and the page's own addresses
+  (/static/...) are not taken for paths. A window that missed a switch saves
+  no second "opened elsewhere". With the Notices list open, Tab reaches the
+  Undo of a notice shown beside it. All studies names the folder it could
+  not list whole on hover.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
