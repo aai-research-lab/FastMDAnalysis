@@ -545,16 +545,20 @@ def test_a_cell_says_no_frame_count_before_its_analysis_records_are_read(full):
             page.goto(session.url + "#analysis", wait_until="domcontentloaded")
             page.wait_for_selector(head + " .cell-again")
             before = page.text_content(head)
-            read_before = page.evaluate("() => window.FastMDXAnalysisPage.overviewRead()")
+            # Read through `?.`, so a page without the hook fails on the
+            # count it says, not on the hook.
+            read_before = page.evaluate("() => window.FastMDXAnalysisPage.overviewRead?.()")
             page.evaluate("() => window.__releaseOverview()")
-            page.wait_for_function("() => window.FastMDXAnalysisPage.overviewRead()")
+            page.wait_for_function(
+                "(head) => window.FastMDXAnalysisPage.overviewRead?.()"
+                " ?? /20 frames/.test(document.querySelector(head).textContent)", arg=head)
             after = page.text_content(head)
             browser.close()
     finally:
         session.server.shutdown()
     assert errors == []
-    assert read_before is False
     assert "frames" not in before, before
+    assert read_before is False
     assert "20 frames" in after and "6 frames" not in after, after
 
 
