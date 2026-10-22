@@ -2028,6 +2028,17 @@ body.state-ready .loading-screen {
     font-size: var(--text-xs);
 }
 
+.builder-defaults-refused {
+    margin: 0 0 14px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+}
+.builder-defaults-refused b { color: var(--text-primary); font-weight: 600; }
+
 .builder-grid {
     display: grid;
     gap: 16px;

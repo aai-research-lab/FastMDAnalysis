@@ -226,6 +226,37 @@ def test_a_file_setting_what_is_simulated_is_said_once_and_not_changed(browser, 
     assert where.read_text(encoding="utf-8") == text
 
 
+def test_new_study_says_a_refused_defaults_file(browser, session):
+    """A lab's file refused for one setting filled nothing, and New study
+    showed FastMDXplora's values with nothing said: the study was refused
+    only once it started. The refusal is said above the form, with the
+    way to This folder, and is gone once the file is put right."""
+    started, where = session
+    where.write_text("setup:\n  mutations: [L99A]\n  ph: 6.5\n", encoding="utf-8")
+    note = "#run-defaults-refused"
+    page = _open(browser, started.url, "#run")
+    page.wait_for_selector(f"{note}:not([hidden])")
+    said = page.evaluate(f"""() => {{ const n = document.querySelector('{note}');
+        return [n.textContent, [...n.querySelectorAll('code')].map((c) => c.textContent)]; }}""")
+    page.click(f"{note} a")
+    page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
+    page.wait_for_selector("#settings-folder-body .settings-cannot")
+    scope = page.get_attribute("#settings-scope-folder", "aria-selected")
+    # Put right, New study says nothing more.
+    where.write_text("setup:\n  ph: 6.5\n", encoding="utf-8")
+    page.evaluate("() => window.FastMDXDashboard.navigate('run')")
+    page.wait_for_selector(f"{note}[hidden]", state="attached")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert said[0].startswith("Your defaults are not used. "), said[0]
+    assert "sets setup.mutations, which says what one study simulates" in said[0], said[0]
+    assert "FastMDXplora's own values until the file is put right" in said[0]
+    assert said[0].count(str(where)) == 1 and "`" not in said[0]
+    assert "setup.mutations" in said[1]
+    assert scope == "true"
+
+
 def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):
     """The restraints take a selection or a list of blocks, and the
     dispersion correction is on, off or as the force field is developed

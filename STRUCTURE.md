@@ -215,7 +215,8 @@ FastMDXplora/
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences saved),
 │       │   │                      #   settings.js and settings.css (every setting on one page),
-│       │   │                      #   run-builder.js, file-picker.js, report-page.js, analyze-again.js,
+│       │   │                      #   run-builder.js, new-study.js (a refused defaults file said
+│       │   │                      #   on New study), file-picker.js, report-page.js, analyze-again.js,
 │       │   │                      #   series-chart.js, figure-chart.js, analysis-page.js, files-page.js, files-actions.js, runs-compared.js, stopping.js,
 │       │   │                      #   fixes.js, agent-panel.js, agent-beside.js (the Agent
 │       │   │                      #   beside any page), icons.js (the line icons for the

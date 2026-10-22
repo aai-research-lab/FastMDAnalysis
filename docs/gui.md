@@ -592,7 +592,10 @@ value, the plan names each with its systems ("310 K, 1 bar (plain); 320 K,
 1 bar (warm)"). Every value typed into the form is kept in the file, yours
 too, so the file run where there is no defaults file runs the study shown;
 only FastMDXplora's own value, where yours say nothing else, goes unsaid.
-The file is changed in **Settings**, under **This folder**. A
+The file is changed in **Settings**, under **This folder**. A file that
+is refused (a setting of one study in it, or a value the schema refuses)
+fills nothing: New study says why above the form, with the way to This
+folder, and offers FastMDXplora's own values until it is put right. A
 full config gives your default only to the systems that take it, and each
 run records your reason only where it took your value.
 
