@@ -386,11 +386,11 @@ there. Two scopes:
   setting, and the file is left as it was. **Use FastMDXplora's** takes it out
   again, a reason given is saved with it in the file's `decisions` (a study's
   report says it under **Why these settings**), and **Undo** puts back what
-  was there. A setting no control draws (the RMSF figure's regions), or a
-  value its control cannot say (restraints written as blocks), is shown as the
-  file holds it, and a file with comments is shown and changed by hand, as
-  writing it again would lose them. Not offered when the GUI is served to
-  others.
+  was there. A setting no control draws (the RMSF figure's regions, a stopping
+  rule, a biasing block, the analyses' options), or a value its control cannot
+  say (restraints written as blocks), is shown as the file holds it, and a
+  file with comments is shown and changed by hand, as writing it again would
+  lose them. Not offered when the GUI is served to others.
 
 The **Display size** sizes everything at once, text included: Auto, 90%,
 100%, 110%, 125% or 150%. Auto chooses from the screen as the browser

@@ -77,7 +77,7 @@ def _fields() -> list[dict[str, Any]]:
     blocks = list(payload["phases"].items()) + [("execution", {"fields": payload["execution_options"]})]
     for block, group in blocks:
         for field in group["fields"]:
-            if (field.get("role") == "provenance" or field.get("type") == "dict"
+            if (field.get("role") == "provenance"
                     or f"{block}.{field['name']}" in _ONE_STUDY_S):
                 continue
             control = field["control"] if field["control"] in _DRAWN else ""

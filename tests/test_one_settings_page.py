@@ -159,6 +159,24 @@ def test_a_file_setting_what_is_simulated_is_refused_and_said(tmp_path):
     assert where.read_text(encoding="utf-8") == "setup:\n  ph: 7.0\n"
 
 
+def test_a_setting_of_several_values_the_file_holds_is_shown(tmp_path):
+    """A stopping rule in the file makes every new study run until it is
+    determined, up to its ceiling: shown as the file holds it, and counted."""
+    from fastmdxplora.gui.settings_page import defaults_said
+
+    (tmp_path / "fastmdx-defaults.yml").write_text(
+        "simulation:\n  temperature_K: 310\n  stop_when:\n    measures:\n"
+        "    - analysis: rmsd\n      standard_error: 0.01\n    max_duration_ns: 50\n"
+        "setup:\n  dispersion_correction: null\n", encoding="utf-8")
+    said = defaults_said(tmp_path)
+    fields = {f["name"]: f for f in said["fields"]}
+    assert set(said["values"]) <= set(fields)
+    for several in ("simulation.stop_when", "simulation.umbrella", "simulation.metadynamics",
+                    "setup.residue_states", "analysis.options"):
+        assert fields[several]["control"] == "", several
+    assert said["values"]["simulation.stop_when"]["max_duration_ns"] == 50
+
+
 def test_the_nearest_file_above_is_the_one_shown_and_changed(tmp_path):
     from fastmdxplora.gui.settings_page import defaults_changed, defaults_said
 
