@@ -228,6 +228,22 @@ def test_two_changes_at_once_are_both_written(tmp_path, monkeypatch):
         "setup.ph": 7.0, "simulation.temperature_K": 310}
 
 
+def test_a_file_that_cannot_be_written_is_said_without_its_path_again(tmp_path, monkeypatch):
+    """The lead names the file; the reason beside the setting said its path
+    a second time."""
+    import tempfile
+
+    from fastmdxplora.gui.settings_page import defaults_changed
+
+    def refused(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(tempfile, "mkstemp", refused)
+    said = defaults_changed(tmp_path, {"set": {"setup.ph": 7.0}})
+    assert said["ok"] is False
+    assert said["reason"] == "It could not be written: Permission denied.", said["reason"]
+
+
 def test_the_nearest_file_above_is_the_one_shown_and_changed(tmp_path):
     from fastmdxplora.gui.settings_page import defaults_changed, defaults_said
 

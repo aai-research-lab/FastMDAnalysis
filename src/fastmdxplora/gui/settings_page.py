@@ -167,7 +167,7 @@ def defaults_changed(root: str | Path, body: Any) -> dict[str, Any]:
             return said
         except OSError as exc:
             said = defaults_said(root)
-            said.update({"ok": False,
-                         "reason": f"{path} could not be written: {exc.strerror or exc}."})
+            said.update({"ok": False, "reason": _of_the_file(
+                f"{path} could not be written: {exc.strerror or exc}.", path)})
             return said
         return defaults_said(root)
