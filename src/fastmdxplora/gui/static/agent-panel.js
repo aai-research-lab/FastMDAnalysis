@@ -1384,7 +1384,57 @@
    * browser is asked to leave the page over. */
   function unsentUnkept() {
     var here = boxNow().trim() || pendingFiles.length;
-    return Boolean((here && !unsentKept) || Object.keys(heldInPage).length);
+    return Boolean((here && !unsentKept) || Object.keys(heldInPage).length
+                   || editsLeft().some(function (e) { return !validStudyKey(e.key); }));
+  }
+  /* Edits refused and still being edited, each with the study it was
+   * written for (CI-774 reviews L17 B, L18 4: the thread replaced, by a
+   * study opened elsewhere, a reload or a switch as its files were read
+   * again, the edited words were nowhere). */
+  var refusedEdits = [];
+  function editsLeft() {
+    return refusedEdits.filter(function (e) {
+      var words = e.words();
+      return words && words !== e.before.trim();
+    });
+  }
+  /* The words of an edit that will not be sent from its bubble: saved for
+   * the study it was written for, as unsent words are, and said; for the
+   * study shown, or with no study, put in the box after what is there. */
+  function editKept(edit, words) {
+    var host = el("agent-unsent-note");
+    var said = noteKind === "moved" && host ? host.textContent : "";
+    var about = said ? noteAbout : "";
+    if (validStudyKey(edit.key) && edit.key !== unsentKey) {
+      var kept = storedUnsent(edit.key) || { words: "", files: [] };
+      var all = kept.words.trim() ? kept.words + "\n\n" + words : words;
+      try {
+        sessionStorage.setItem(UNSENT_WORDS + edit.key, JSON.stringify({ words: all, files: kept.files }));
+      } catch (e) {
+        heldInPage[edit.key] = { words: all, files: kept.files, title: edit.title };
+      }
+      var title = edit.title || "the study it was written in";
+      unsentSaid((said ? said + " " : "") + "The edit not sent is saved for " + title
+                 + ", not put here: it is in the box again when " + title + " is open.",
+                 "moved", about || edit.key);
+      return;
+    }
+    var area = el("agent-request");
+    if (!area) return;
+    var now = boxNow();
+    area.value = now.trim() ? now + "\n\n" + words : words;
+    area.dispatchEvent(new Event("input"));
+    keepUnsent();
+    unsentSaid((said ? said + " " : "") + "The edit not sent is in the box, to send from there.",
+               "moved", about);
+  }
+  /* The thread on screen is replaced: each edit left is kept so. */
+  function keepEditsLeft() {
+    var left = editsLeft().map(function (e) { return { edit: e, words: e.words() }; });
+    refusedEdits = [];
+    return function () {
+      left.forEach(function (e) { editKept(e.edit, e.words); });
+    };
   }
   /* Kept files read again: those that cannot be, or that changed since,
    * are said by name. */
@@ -2284,6 +2334,11 @@
            * files dropped). */
           var before = text;
           var clip = body.querySelector(".attached");
+          /* The study of the thread it is in ("" for a chat of no study). */
+          var forKey = conv.study ? conv.page || convFor || "" : "";
+          var edit = { before: before, key: forKey,
+                       title: forKey && forKey === unsentKey ? unsentTitle : "",
+                       words: function () { return body.isContentEditable ? body.textContent.trim() : ""; } };
           function begin(words) {
             if (clip && clip.parentNode === body) msg.insertBefore(clip, body.nextSibling);
             body.textContent = typeof words === "string" ? words : body.textContent;
@@ -2305,6 +2360,7 @@
              * back before they were read, so the old words were sent. */
             body.removeEventListener("keydown", onKey);
             body.removeEventListener("blur", onBlur);
+            refusedEdits = refusedEdits.filter(function (e) { return e !== edit; });
             var edited = body.textContent.trim();
             body.contentEditable = "false";
             body.classList.remove("editing");
@@ -2318,7 +2374,14 @@
              * asks for (a choice in the review) or one to wait elsewhere;
              * Escape alone puts the old words back (CI-774 reviews L15,
              * L16: the click threw the edit away). */
-            function again() { refused = true; begin(edited); }
+            function again() {
+              refused = true;
+              /* Its thread replaced meanwhile (its files read again): kept
+               * as an edit left is. */
+              if (!msg.isConnected) { if (edited !== before.trim()) editKept(edit, edited); return; }
+              begin(edited);
+              refusedEdits.push(edit);
+            }
             if (!sendPressed(edited, function () { cutFrom(msg); }, true, attached, again)) again();
           }
           var refused = false;
@@ -4345,18 +4408,23 @@
    * thread they were for. */
   function clearThread() {
     stopWriting();
+    var edits = keepEditsLeft();
     el("agent-thread").innerHTML = "";
     conv = threadOf(null, conv.study, []);
     history = []; transcript = []; currentConfig = null; currentSteps = null;
     stopPending = null; runPending = null; fixPending = null; lastReply = null;
     versions = [];
     placeholder();
+    /* No review on screen holds the next message now. */
+    reviewNoteDone();
+    edits();
   }
 
   /* The same thread drawn again, as the server keeps it: the arrays stay
    * the ones the thread's saves and launches hold. */
   function redraw(entries) {
     var keep = entries.slice();
+    var edits = keepEditsLeft();
     el("agent-thread").innerHTML = "";
     transcript.length = 0;
     history.length = 0;
@@ -4366,6 +4434,8 @@
     versions = [];
     replay(keep);
     placeholder();
+    reviewNoteDone();
+    edits();
   }
 
   /* Draw a saved thread again. Each entry renders the way it rendered
@@ -5264,6 +5334,20 @@
       if (event.isTrusted) swappedAt = 0;
     });
     window.addEventListener("pagehide", keepUnsent);
+    /* Left with an edit refused (a reload): its words saved with the words
+     * of the study it was written for, in its box when the page is back. */
+    window.addEventListener("pagehide", function (event) {
+      if (event.persisted) return;
+      editsLeft().forEach(function (e) {
+        if (!validStudyKey(e.key)) return;
+        var kept = storedUnsent(e.key) || { words: "", files: [] };
+        var words = e.words();
+        try {
+          sessionStorage.setItem(UNSENT_WORDS + e.key, JSON.stringify({
+            words: kept.words.trim() ? kept.words + "\n\n" + words : words, files: kept.files }));
+        } catch (err) { /* this browser keeps nothing */ }
+      });
+    });
     /* Left as a run started (a reload, a Back): the words kept are marked
      * so, with their study's name, and the page that comes back says
      * where they are (CI-774 review L12). */

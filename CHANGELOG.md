@@ -354,6 +354,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   a study open by then (another window opened one as Enter was pressed); it
   was answered with that study open and filed in the workspace's chats.
 
+- An Edit refused (a review holds the next message, or its files changed
+  meanwhile) is no longer lost as its conversation is replaced (another
+  window opens a study, a reload, a switch as its files are read again): its
+  words are saved for the study it was written for and said, or with no
+  study put in the box; the note asking for a choice in a review goes once
+  no review is on screen.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is

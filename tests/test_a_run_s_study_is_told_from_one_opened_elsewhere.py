@@ -2852,6 +2852,74 @@ def test_an_edit_refused_by_a_review_is_kept_through_the_choice(tmp_path, monkey
     assert errors == []
 
 
+@pytest.mark.parametrize("way", ["no study, one opened", "a study, another opened", "a reload"])
+def test_an_edit_refused_by_a_review_is_kept_as_its_thread_is_replaced(tmp_path, monkeypatch, way):
+    """L17 B and L18 4: an Edit refused because a review holds sending, then
+    the thread replaced: another window opens a study, or the page is
+    reloaded. The edited words were nowhere, and the note still asked for a
+    choice in a review no longer on screen. They are saved for the study
+    they were written for (with no study, put in the box), and said; the
+    note asking for the review's choice goes with the review."""
+    import tempfile
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from fastmdxplora.gui.workspace import study_key
+
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", tempfile.mkdtemp())
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    here = _study(workspace / "here")
+    other = _study(workspace / "other")
+    start = workspace if way.startswith("no study") else here
+    session = start_dashboard_session(output=str(start), host="127.0.0.1", port=0)
+    _seed_a_review(session)
+    live = "#agent-thread .agent-study:not(.is-replaced):not([hidden])"
+    edited = "How long will it take? Roughly?"
+    page, errors, close = _page_on(session, [])
+    try:
+        page.locator(f'{live} [data-review-setting="simulation.temperature_K"]').wait_for()
+        page.wait_for_function("() => !window.FastMDXAgentPanel.waits", timeout=20000)
+        page.locator(f'{live} [data-review-setting="simulation.temperature_K"] '
+                     '[data-choice="reject"]').click()
+        page.wait_for_timeout(500)
+        msg = page.locator("#agent-thread .agent-msg-user").filter(has_text="How long will it take?")
+        msg.hover()
+        msg.get_by_role("button", name="Edit").click()
+        page.keyboard.type(" Roughly?")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        refused = _note(page)
+        if way == "a reload":
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_function("(w) => document.getElementById('agent-request').value.includes(w)",
+                                   arg=edited, timeout=20000)
+        else:
+            _switch_elsewhere(session, other)
+            _shows(page, study_key(other))
+            page.wait_for_function("() => window.FastMDXAgentPanel.current.study", timeout=20000)
+        page.wait_for_timeout(1000)
+        out = {"note": _note(page), "box": page.input_value("#agent-request"), "kept": _unsent(page)}
+        if way == "a study, another opened":
+            _switch_elsewhere(session, here)
+            page.wait_for_function("(w) => document.getElementById('agent-request').value.includes(w)",
+                                   arg=edited, timeout=20000)
+            out["back"] = page.input_value("#agent-request")
+    finally:
+        close()
+        session.server.shutdown()
+    assert refused.startswith("Not sent: choose in the review above first"), refused
+    assert "choose in the review" not in out["note"], out
+    if way == "no study, one opened":
+        assert out["box"] == edited and "The edit not sent is in the box" in out["note"], out
+    elif way == "a study, another opened":
+        assert out["box"] == "" and out["kept"].get(study_key(here)) == edited, out
+        assert "The edit not sent is saved for here" in out["note"], out
+        assert out["back"] == edited, out
+    else:
+        assert out["box"] == edited, out
+    assert errors == []
+
+
 @pytest.mark.parametrize("way", ["edit", "retry"])
 def test_edit_and_retry_send_the_message_s_file_with_it(tmp_path, monkeypatch, way):
     """L16: Edit made the line naming the files editable and sent it as
@@ -2897,6 +2965,69 @@ def test_edit_and_retry_send_the_message_s_file_with_it(tmp_path, monkeypatch, w
             if e.get("role") == "user"]
     assert [e["text"] for e in said] == [words], said
     assert [a["name"] for a in said[0].get("attachments", [])] == ["notes.txt"], said
+    assert errors == []
+
+
+#: Holds the page's reads of an attachment while `__holdAttachment`.
+_HOLD_ATTACHMENT = ("() => { const real = window.fetch; window.__holdAttachment = true;"
+                    " window.fetch = function (url, opts) {"
+                    "   if (window.__holdAttachment && String(url).indexOf('/api/agent/attachment') >= 0) {"
+                    "     window.__heldAttachment = true;"
+                    "     return new Promise((ok) => { const t = setInterval(() => {"
+                    "       if (!window.__holdAttachment) { clearInterval(t); ok(real.call(window, url, opts)); }"
+                    "     }, 50); }); }"
+                    "   return real.call(this, url, opts); }; }")
+
+
+def _a_message_with_a_file(page, session, workspace, here):
+    """"with a file" sent with notes.txt, and answered "First."."""
+    from fastmdxplora.gui.workspace import study_key
+
+    (workspace / "notes.txt").write_text("n\n", encoding="utf-8")
+    _shows(page, study_key(here))
+    _when_known(page)
+    page.evaluate("""(p) => { const i = document.getElementById('agent-attach-path');
+        i.value = p; i.dispatchEvent(new Event('change')); }""", str(workspace / "notes.txt"))
+    page.wait_for_selector("#agent-attachments :text('notes.txt')")
+    _say(page, "with a file")
+    page.wait_for_selector("#agent-thread .agent-answer:has-text('First.')", timeout=15000)
+    return page.locator("#agent-thread .agent-msg-user").first
+
+
+def test_an_edit_refused_as_its_file_is_read_again_is_kept(tmp_path, monkeypatch):
+    """L18 4: Edit of a message with a file, Enter, and another window opens
+    a study while the file is read again: "Not sent: another conversation is
+    shown now.", and the edited words were nowhere. They are saved for the
+    study they were written for, and said."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked = []
+    page, errors, close = _page_on(session, [_answer("First.")])
+    try:
+        _asking(page, asked)
+        msg = _a_message_with_a_file(page, session, workspace, here)
+        page.evaluate(_HOLD_ATTACHMENT)
+        msg.hover()
+        msg.get_by_role("button", name="Edit").click()
+        page.keyboard.type(" edited")
+        page.keyboard.press("Enter")
+        page.wait_for_function("() => window.__heldAttachment", timeout=10000)
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study", timeout=20000)
+        page.wait_for_timeout(1000)
+        page.evaluate("() => { window.__holdAttachment = false; }")
+        page.wait_for_function("() => /The edit not sent/.test((document.getElementById("
+                               "'agent-unsent-note') || {}).textContent || '')", timeout=15000)
+        out = {"note": _note(page), "box": page.input_value("#agent-request"), "kept": _unsent(page)}
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["with a file"], asked
+    assert out["box"] == "" and out["kept"].get(study_key(here)) == "with a file edited", out
+    assert out["note"].startswith("Not sent: another conversation is shown now."), out
+    assert "The edit not sent is saved for here" in out["note"], out
     assert errors == []
 
 
