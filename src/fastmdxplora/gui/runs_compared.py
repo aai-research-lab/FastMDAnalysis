@@ -42,7 +42,8 @@ def run_folder(root: Path | str, run_id: str) -> Path | None:
 def runs_compared(root: Path | str) -> dict[str, Any]:
     """The table the Analysis page draws for a study of several runs."""
     from fastmdxplora.batch.aggregate import read_member_findings
-    from fastmdxplora.gui.exploration import axes_that_differ, runs_of_a_study, setting_said
+    from fastmdxplora.gui.exploration import (axes_that_differ, runs_of_a_study, setting_said,
+                                              value_said)
 
     base = Path(root)
     runs = runs_of_a_study(base)
@@ -79,9 +80,14 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
         "runs": [{"run_id": run["run_id"], "label": labels[run["run_id"]], "state": run["state"],
                   "fraction": run.get("fraction"), "so_far": bool(run.get("so_far")),
                   "values": {axis: (run.get("values") or {}).get(axis) for axis in axes},
+                  # Under its column's head ("temperature (K)", "duration"):
+                  # a length with its own unit, in ps under 1 ns.
+                  "values_said": {axis: _cell_said(axis, (run.get("values") or {}).get(axis),
+                                                   value_said) for axis in axes},
                   "path": run["path"], **_how_far(Path(run["path"]), run["state"])}
                  for run in runs],
-        # Each setting by its name as a run's is said ("seed", "temperature (K)").
+        # Each setting by its name as a run's is said ("seed", "temperature (K)",
+        # "duration").
         "axes": [{"axis": axis, "label": setting_said(axis)} for axis in axes],
         "replicas": replicas,
         # How they differ, as every page says it (`batch.aggregate`).
@@ -295,3 +301,12 @@ def _finite(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value) if math.isfinite(value) else None
+
+
+def _cell_said(axis: str, value: Any, value_said: Any) -> str:
+    """A run's value in its setting's column: a length said with its unit
+    (`exploration.value_said`), since its column names none; any other
+    as recorded, under a head that names its unit."""
+    if value is None:
+        return ""
+    return value_said(axis, value) if str(axis).endswith("_ns") else str(value)

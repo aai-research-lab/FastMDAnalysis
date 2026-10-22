@@ -11,6 +11,7 @@ science.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -383,22 +384,38 @@ def _setting_and_unit(axis: str) -> tuple[str, str]:
 
 def setting_said(axis: str) -> str:
     """A swept setting as a column names it, in the words `run_label` says
-    a run by: "seed", "temperature (K)"."""
+    a run by: "seed", "temperature (K)"; a length by its name alone,
+    "duration", since each of its values carries its own unit
+    (`value_said`: "250 ps", "2 ns")."""
     name, unit = _setting_and_unit(axis)
-    return f"{name} ({unit})" if unit else name
+    return f"{name} ({unit})" if unit and unit != "ns" else name
+
+
+def value_said(axis: str, value: Any) -> str:
+    """A swept setting's value as a run is named by it: with its unit, and a
+    length in nanoseconds as every page says one, in picoseconds under one
+    nanosecond ("250 ps", not "0.25 ns")."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    _, unit = _setting_and_unit(axis)
+    if unit == "ns" and isinstance(value, (int, float)) and not isinstance(value, bool) \
+            and math.isfinite(value):
+        return length_said(value)
+    return f"{value}" + (f" {unit}" if unit else "")
 
 
 def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
     """A run in a few words, by the values that set it apart: "seed 1",
-    "temperature 310 K", several joined by commas; "" with none. The setting
-    by its last part, `random_` left off and its unit after the value
-    ("random_seed = 1" was cut to "random_see…" in the sidebar)."""
+    "temperature 310 K", "duration 250 ps", several joined by commas; ""
+    with none. The setting by its last part, `random_` left off and its
+    value said with its unit (`value_said`) ("random_seed = 1" was cut to
+    "random_see…" in the sidebar)."""
     said = []
     for axis in (axes if axes is not None else list(values or {})):
         if axis not in (values or {}):
             continue
-        name, unit = _setting_and_unit(axis)
-        said.append(f"{name} {values[axis]}" + (f" {unit}" if unit else ""))
+        name, _ = _setting_and_unit(axis)
+        said.append(f"{name} {value_said(axis, values[axis])}")
     return ", ".join(said)
 
 

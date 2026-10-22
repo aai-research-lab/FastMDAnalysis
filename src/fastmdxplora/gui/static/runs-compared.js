@@ -100,8 +100,11 @@
       }
       row.appendChild(name);
       data.axes.forEach(function (axis) {
+        // As the server says it under its head: a length with its unit.
+        var said = (run.values_said || {})[axis.axis];
         var value = run.values[axis.axis];
-        row.appendChild(el("td", "is-varied mono", value === undefined || value === null ? "" : String(value)));
+        row.appendChild(el("td", "is-varied mono", said !== undefined ? said
+          : value === undefined || value === null ? "" : String(value)));
       });
       data.measures.forEach(function (m) {
         var cell = m.cells[i] || {};

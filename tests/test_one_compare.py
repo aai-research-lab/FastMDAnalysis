@@ -1063,6 +1063,43 @@ def test_a_length_under_one_nanosecond_is_said_in_ps(variants):
     assert _browse(variants, look) == ["simulation.duration_ns", "1 ns", "250 ps"]
 
 
+def test_runs_that_differ_by_a_length_under_one_nanosecond_are_named_in_ps(tmp_path):
+    """Runs swept over their length were named "duration 0.25 ns" in
+    Compare's title, its column heads and each side's name, and their
+    column "duration (ns)" on the runs' table, where every page says a
+    length under 1 ns in ps."""
+    import re
+
+    from fastmdxplora.gui.compare_view import compared
+    from fastmdxplora.gui.runs_compared import runs_compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.duration_ns", [0.25, 0.5])
+    first, second = _runs(study)
+    said = compared(first, second)
+    assert (said["first"]["said"], said["second"]["said"]) == (
+        "study, duration 250 ps", "study, duration 500 ps")
+    table = runs_compared(study)
+    assert [run["label"] for run in table["runs"]] == ["duration 250 ps", "duration 500 ps"]
+    assert table["axes"] == [{"axis": "simulation.duration_ns", "label": "duration"}]
+    assert [run["values_said"] for run in table["runs"]] == [
+        {"simulation.duration_ns": "250 ps"}, {"simulation.duration_ns": "500 ps"}]
+
+    def look(page, url):
+        place = (urllib.parse.quote(str(first), safe="") + "|"
+                 + urllib.parse.quote(str(second), safe=""))
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("""() => ({
+            text: document.querySelector('.page[data-page="compare"]').innerText,
+            heads: [...document.querySelectorAll('.compare-head-name')].map((n) => n.textContent),
+        })""")
+
+    shown = _browse(study, look)
+    assert shown["heads"] == ["study, duration 250 ps", "study, duration 500 ps"], shown["heads"]
+    assert re.findall(r"(?<![\d.])0?\.\d+\s*ns\b", shown["text"]) == []
+
+
 def test_two_replicas_from_models_of_an_ensemble_are_said_so(tmp_path):
     """Two runs of a study swept over the models of an ensemble are
     replicas, set against the replicas' spread as `batch/aggregate.py` sets
