@@ -289,6 +289,25 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   those of a stopping rule's record, in ps under 1 ns.
 - The Timeline lists rounds placed at one time newest first, and says a
   run killed in a piece by the piece's number.
+- A run of a study of several shows its methods in the GUI again: its
+  study's batch manifest is read for it, only where its start is shared
+  with its replicas and its campaign's rule was read, and a record refused
+  is said as what it is, a link only where it is one.
+- Each round of a stopping record keeps its own sentence; a study resumed
+  and stopped before its rule was applied again says so as its own end in
+  the Timeline, the Report and the methods, never as its last round's
+  cause.
+- The Viewer's timeline marks each round as the Report and the Timeline
+  say it, and its overlay says a time under 1 ns in ps.
+- A study killed in its first piece is said so on its stopping card, with
+  every run killed named as every page names it.
+- A stopping record still saying running is said "Not finished when this
+  was written" in the Report and on the card, never "Still running"; the
+  card says it running only where its process is known to be.
+- The Report's table of rounds gives production in ps under 1 ns, and a
+  record written before says its lengths so where it is quoted.
+- A round that began no piece is placed in the Timeline after the analyses
+  and report it judged.
 
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
