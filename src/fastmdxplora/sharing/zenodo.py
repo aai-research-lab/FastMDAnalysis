@@ -47,7 +47,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastmdxplora.sharing import ShareRefused
+from fastmdxplora.sharing import ShareRefused, said_size
 
 __all__ = ["SHARED_TO", "SITES", "TRIES", "archive_of", "base_url", "draft", "record_of",
            "wait_before"]
@@ -1345,7 +1345,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     uploaded, removing, described = False, "", False
     try:
         if said:
-            said(f"Uploading {archive.name} ({archive.stat().st_size / 1e6:.1f} MB) to "
+            said(f"Uploading {archive.name} ({said_size(archive.stat().st_size)}) to "
                  f"{site}...")
         # The new archive first: one of the same name is replaced by it, and
         # the draft keeps the one it had until the new one is there.

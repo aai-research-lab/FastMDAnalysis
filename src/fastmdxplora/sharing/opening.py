@@ -18,6 +18,7 @@ import errno
 import functools
 import hashlib
 import http.client
+import io
 import json
 import os
 import re
@@ -34,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from fastmdxplora.sharing import STUDY, ShareRefused
+from fastmdxplora.sharing import STUDY, ShareRefused, said_size
 from fastmdxplora.sharing import crate as packing_list
 from fastmdxplora.sharing.pack import never_shared
 
@@ -246,8 +247,7 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             "Zenodo serves is not the one it recorded.", code="environment.share.unverified",
             url=url)
     if said:
-        said(f"Downloaded {read / 1e6:.1f} MB." if read >= 100_000
-             else f"Downloaded {read / 1e3:.1f} kB.")
+        said(f"Downloaded {said_size(read)}.")
 
 
 def _got(read: int, size: int, how: str = "having") -> str:
@@ -494,21 +494,48 @@ def open_shared(source: str, *, into: str | Path | None = None,
 _WORKING = ".fastmdx-opening-"
 
 
+#: The lock an open holds in its working folder while it runs.
+_HELD = ".open.lock"
+
+
+def _held(work: Path) -> Any:
+    """The working folder ``work`` locked for this open while it runs (the
+    lock a later open tests); None where the disk keeps no locks."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    try:
+        held = (work / _HELD).open("w")
+    except OSError:
+        return None
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        held.close()
+        return None
+    return held
+
+
 def _left_by_the_killed(parent: Path) -> None:
     """What an open on this computer left, killed part way, taken away: one
-    whose process is gone. (Another computer's, on a shared disk, is not
-    this one's to judge.)"""
+    whose lock no process holds (one running, in any process space, holds
+    it). Another computer's, on a shared disk, is not this one's to judge,
+    nor one where locks are not kept."""
     import socket
 
-    mine = f"{_WORKING}{_host(socket.gethostname())}-"
-    for left in parent.glob(f"{mine}*"):
-        pid = left.name[len(mine):].split("-", 1)[0]
-        if not pid.isdigit() or not left.is_dir():
+    try:
+        import fcntl
+    except ImportError:
+        return
+    for left in parent.glob(f"{_WORKING}{_host(socket.gethostname())}-*"):
+        lock = left / _HELD
+        if not left.is_dir() or not lock.is_file():
             continue
         try:
-            os.kill(int(pid), 0)
-        except ProcessLookupError:
-            shutil.rmtree(left, ignore_errors=True)
+            with lock.open("a") as tested:
+                fcntl.flock(tested, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                shutil.rmtree(left, ignore_errors=True)
         except OSError:
             continue
 
@@ -523,9 +550,9 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
 
     record: dict[str, Any] = {}
     _left_by_the_killed(parent)
-    with tempfile.TemporaryDirectory(
-            prefix=f"{_WORKING}{_host(socket.gethostname())}-{os.getpid()}-",
-            dir=parent) as work:
+    with tempfile.TemporaryDirectory(prefix=f"{_WORKING}{_host(socket.gethostname())}-",
+                                     dir=parent) as work, \
+            contextlib.closing(_held(Path(work)) or io.StringIO()):
         work_dir = Path(work)
         if given.is_file():
             archive = given
@@ -555,7 +582,7 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
                     "more with --open-most-gb.", code="environment.share.too_large")
             if said:
                 said(f"Downloading {record['name']} from Zenodo's record {record['id']}"
-                     + (f" ({record['size'] / 1e6:.1f} MB)" if record["size"] else "") + "...")
+                     + (f" ({said_size(record['size'])})" if record["size"] else "") + "...")
             archive = work_dir / "archive.zip"
             _download(record["url"], archive, most=most_bytes, md5=record["md5"], said=said,
                       size=int(record["size"] or 0), room=parent)

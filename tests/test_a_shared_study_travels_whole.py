@@ -4616,23 +4616,87 @@ def test_a_record_s_size_larger_than_its_file_opens_by_its_md5(tmp_path, unstead
 
 def test_what_an_open_killed_part_way_left_is_taken_away_by_the_next(tmp_path, unsteady):
     """Hands-on review of the thirty-fifth commit: an open killed part way
-    left its working folder beside the studies for good."""
+    left its working folder beside the studies for good. Review of the
+    fifty-second commit: one running is told by the lock it holds, in any
+    process space, never by its process's number."""
+    import fcntl
     import socket
-    import subprocess
 
     _shared(tmp_path, unsteady)
     into = tmp_path / "w"
     into.mkdir()
-    gone = subprocess.Popen(["true"])
-    gone.wait()
     host = re.sub(r"[^A-Za-z0-9.]+", "_", socket.gethostname()) or "host"
-    left = into / f".fastmdx-opening-{host}-{gone.pid}-x1"
+    left = into / f".fastmdx-opening-{host}-x1"
     (left / "part").mkdir(parents=True)
     (left / "part" / "archive.zip").write_bytes(b"half")
-    alive = into / f".fastmdx-opening-{host}-{os.getpid()}-x2"
-    alive.mkdir()
-    elsewhere = into / f".fastmdx-opening-another.host-{gone.pid}-x3"
+    (left / ".open.lock").write_text("")
+    running = into / f".fastmdx-opening-{host}-x2"
+    running.mkdir()
+    held = (running / ".open.lock").open("w")
+    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    unlocked = into / f".fastmdx-opening-{host}-x3"
+    unlocked.mkdir()
+    elsewhere = into / ".fastmdx-opening-another.host-x4"
     elsewhere.mkdir()
-    open_shared("10.5072/zenodo.7", into=into)
+    (elsewhere / ".open.lock").write_text("")
+    try:
+        open_shared("10.5072/zenodo.7", into=into)
+    finally:
+        held.close()
     assert not left.exists()
-    assert alive.is_dir() and elsewhere.is_dir()
+    assert running.is_dir() and unlocked.is_dir() and elsewhere.is_dir()
+
+
+def test_an_open_holds_its_working_folder_s_lock_while_it_runs(tmp_path, unsteady,
+                                                                monkeypatch):
+    import fcntl
+
+    from fastmdxplora.sharing import opening
+
+    _shared(tmp_path, unsteady)
+    real, tested = opening._download, []
+
+    def download(url, to, **kwargs):
+        lock = next(folder / ".open.lock" for folder in to.parents
+                    if folder.name.startswith(".fastmdx-opening-"))
+        with lock.open("a") as other:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                tested.append("free")
+            except BlockingIOError:
+                tested.append("held")
+        return real(url, to, **kwargs)
+
+    monkeypatch.setattr(opening, "_download", download)
+    open_shared("10.5072/zenodo.7", workspace=tmp_path / "w")
+    assert tested == ["held"]
+
+
+def test_where_no_locks_are_kept_nothing_left_is_taken_away(tmp_path, unsteady, monkeypatch):
+    """Review of the fifty-second commit: on Windows, where no process's
+    life can be told by a signal and no lock is taken this way, the folder
+    is left for the person."""
+    import socket
+    import sys
+
+    _shared(tmp_path, unsteady)
+    into = tmp_path / "w"
+    into.mkdir()
+    host = re.sub(r"[^A-Za-z0-9.]+", "_", socket.gethostname()) or "host"
+    left = into / f".fastmdx-opening-{host}-x1"
+    left.mkdir()
+    (left / ".open.lock").write_text("")
+    monkeypatch.setitem(sys.modules, "fcntl", None)
+    open_shared("10.5072/zenodo.7", into=into)
+    assert left.is_dir()
+
+def test_a_small_archive_s_size_is_said_in_kb_both_ways(tmp_path, unsteady, capsys):
+    """Review of the fifty-second commit: a small archive's upload and
+    download were still said as "0.0 MB"."""
+    study = _study(tmp_path / "study")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "kB) to zenodo-sandbox" in capsys.readouterr().out
+    told: list[str] = []
+    open_shared("10.5072/zenodo.7", workspace=tmp_path / "w", said=told.append)
+    assert any("kB)..." in line for line in told) and not any("0.0 MB" in line for line in told)

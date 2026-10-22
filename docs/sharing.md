@@ -332,8 +332,10 @@ FastMDXplora:
    A download that has had nothing for 30 seconds counts as stalled, and is
    asked for again from where it stopped. A folder made to open into is not
    left behind when the study is refused, and what an open killed part way
-   leaves (`.fastmdx-opening-<computer>-<process>-...`) is taken away by the
-   next open into that folder on the same computer. An archive of 10 MB or
+   leaves (`.fastmdx-opening-<computer>-...`) is taken away by the next open
+   into that folder on the same computer, told from one still running by
+   the lock each holds while it runs (on a disk that keeps no locks, or on
+   Windows, it is left for you to delete). An archive of 10 MB or
    more says how much of it has come at each tenth.
 3. **Unpacks it into a folder of its own**, named from its title, in
    `--open-into` (else the current folder; in the GUI, where new studies
