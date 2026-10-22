@@ -1973,6 +1973,33 @@ body.state-ready .loading-screen {
 .dashboard-toast[data-kind="warning"] {
     border-color: color-mix(in srgb, var(--accent-orange) 48%, transparent);
 }
+/* The Agent's composer and its Send sit at the foot on the right, where a
+   toast was shown over them. Beside the Agent a toast is shown at its left;
+   where the Agent takes the whole width (a phone), and on the Agent page,
+   at the top under the bar there, above the composer however tall it has
+   grown (at most 40% of the window). */
+body.agent-beside .dashboard-toast {
+    right: calc(min(var(--agent-width), 100vw) + 22px);
+    max-width: min(440px, calc(100vw - min(var(--agent-width), 100vw) - 44px));
+}
+html[data-page="agent"] .dashboard-toast {
+    top: calc(var(--top-bar-height) + 12px);
+    bottom: auto;
+    transform: translateY(-8px);
+}
+@media (max-width: 800px) {
+    body.agent-beside .dashboard-toast {
+        right: 22px;
+        max-width: calc(100vw - 44px);
+        top: calc(var(--top-bar-height) + 12px);
+        bottom: auto;
+        transform: translateY(-8px);
+    }
+}
+html[data-page="agent"] .dashboard-toast.show,
+body.agent-beside .dashboard-toast.show {
+    transform: translateY(0);
+}
 .file-action[disabled],
 .chip-btn[disabled],
 .ctl-btn[disabled] {
