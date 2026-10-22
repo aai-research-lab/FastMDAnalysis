@@ -84,11 +84,14 @@ ligand); water, ions and lipids never. Heavy atoms only, where
 `gmx mindist -pi` counts every atom, so the distance reads about 0.1 nm longer
 than the closest pair of atoms that interact.
 The cutoff is the run's own real-space cutoff: its `nonbonded_cutoff_nm` as
-set or as setup resolved it, read from the study's `setup/setup_parameters.json`;
-else the cutoff of the force field that record names (1.2 nm for CHARMM36,
-1.0 nm for AMBER); else 1.0 nm. The finding says which and from where
-(`cutoff_from`), and `cutoff_nm` under `options: {image_check: ...}` sets
-another.
+set or as setup resolved it, read from the setup record of the system the run
+simulated, found as the report and the GUI find it (the study's own
+`setup/setup_parameters.json`, or the one its `setup_from` names, an umbrella
+window's shared setup among them); else the cutoff of the force field that
+record names (1.2 nm for CHARMM36, 1.0 nm for AMBER); else 1.0 nm, taken, and
+why. The finding says which and from where ("The cutoff is 1.2 nm, read from
+the run's `nonbonded_cutoff_nm` as setup resolved it, in ...", `cutoff_from`),
+and `cutoff_nm` under `options: {image_check: ...}` sets another.
 Where the solute comes within the cutoff of its image, it is interacting with
 its own copy in those frames. That may bias a mean over them; it does not
 make the mean's statistical error unknown. So every mean keeps its error bar,

@@ -484,8 +484,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the solute spans, not a fixed two cells), each frame made whole along its
   bonds, in a cell of any shape, kept as a series with the
   frames under the run's own real-space cutoff (its `nonbonded_cutoff_nm`
-  from the study's setup record, else its force field's, else 1.0 nm, said
-  which) and under 0.5 nm counted. Where the solute
+  from the setup record of the system it simulated, found as every reader
+  finds it, a run given `setup_from` and an umbrella window's shared setup
+  included; else its force field's; else 1.0 nm, said which and why) and
+  under 0.5 nm counted. Where the solute
   met its image in the frames an analysis uses (after its mean's discarded
   equilibration, or from its `start`), the analysis carries a note of it,
   counted over those frames, said once in its findings and with its numbers

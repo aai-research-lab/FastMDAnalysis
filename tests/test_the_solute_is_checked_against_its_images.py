@@ -482,8 +482,34 @@ class TestTheRunsOwnCutoff:
     def test_without_a_record_one_nanometre_said_as_taken(self, tmp_path):
         found = self._checked(tmp_path, None)
         assert found["cutoff_nm"] == 1.0 and found["frames_under_cutoff"] == 0
-        assert "taken" in found["cutoff_from"]
-        assert found["cutoff_from"] in found["said"]
+        assert found["cutoff_from"].startswith("taken because")
+        assert f"The cutoff is 1 nm, {found['cutoff_from']}." in found["said"]
+
+    def test_a_run_given_setup_from_reads_the_record_every_reader_finds(self, tmp_path):
+        """A run given `setup_from` prepared nothing: its system's record is
+        where its manifest says setup was taken from, as
+        `setup_records_of` finds it for the report and the GUI."""
+        from fastmdxplora.analysis import AnalysisOrchestrator
+        from fastmdxplora.simulation.pipeline import setup_records_of
+
+        system = tmp_path / "system" / "setup"
+        system.mkdir(parents=True)
+        (system / "setup_parameters.json").write_text(json.dumps(
+            {"parameters": {"nonbonded_cutoff_nm": None},
+             "resolved": {"nonbonded_cutoff_nm": 1.2}}))
+        run = tmp_path / "run1"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps(
+            {"phases": [{"name": "setup", "taken_from": str(system)}]}))
+        study = _study_with_setup(run, None, _ca_line())
+        assert setup_records_of(study) == system
+        AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                             output_dir=study / "analysis").run(include=["image_check"])
+        found = json.loads((study / "analysis" / "image_check" / "options.json")
+                           .read_text())["findings"]["solute_image"]
+        assert found["cutoff_nm"] == 1.2 and found["frames_under_cutoff"] == 10
+        assert "setup_parameters.json" in found["cutoff_from"]
+        assert "The cutoff is 1.2 nm, read from" in found["said"]
 
     def test_one_set_for_the_check_wins(self, tmp_path):
         from fastmdxplora.analysis import AnalysisOrchestrator

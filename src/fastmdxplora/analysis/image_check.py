@@ -364,34 +364,57 @@ def nearest_image(points: np.ndarray, box: np.ndarray) -> tuple[float, int, int,
 
 
 def run_cutoff(study: Path | None) -> tuple[float, str]:
-    """The real-space cutoff the run used, in nm, and where it was read: the
-    run's ``nonbonded_cutoff_nm`` as set, or as setup resolved it, from the
-    study's own setup record (read through :mod:`fastmdxplora.record_access`);
-    else the cutoff of the force field the record names (its scheme, as setup
-    takes it); else :data:`CUTOFF_NM`, said as taken for want of a record."""
+    """The real-space cutoff the run used, in nm, and where it was read, as a
+    phrase that follows "The cutoff is <x> nm, ": the run's
+    ``nonbonded_cutoff_nm`` as set, or as setup resolved it, from the setup
+    record of the system the run simulated, found as every other reader
+    finds it (:func:`fastmdxplora.simulation.pipeline.setup_records_of`: the
+    study's own ``setup/``, or the one its `setup_from` names, an umbrella
+    window's shared setup among them) and read through
+    :mod:`fastmdxplora.record_access`; else the cutoff of the force field
+    the record names (its scheme, as setup takes it); else
+    :data:`CUTOFF_NM`, said as taken and why."""
     import json
 
     from fastmdxplora import record_access
 
-    fallback = (CUTOFF_NM, f"{CUTOFF_NM:g} nm taken: no cutoff of this run is recorded "
-                           f"where the check could read it ({SETUP_RECORD})")
+    def taken(why: str) -> tuple[float, str]:
+        return CUTOFF_NM, f"taken because {why}"
+
+    nowhere = ("no setup record of this run was found where every reader of its "
+               f"setup looks (its own {SETUP_RECORD}, or the one its `setup_from` names)")
     if study is None:
-        return fallback
-    path = Path(study) / SETUP_RECORD
+        return taken("no study was given to read the run's setup record from")
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    try:
+        records = setup_records_of(study)
+    except Exception:  # noqa: BLE001 - a record naming a system that moved
+        records = None
+    if records is None:
+        return taken(nowhere)
+    path = Path(records) / "setup_parameters.json"
+    try:
+        where = path.relative_to(Path(study)).as_posix()
+    except ValueError:
+        where = str(path)
+    if not record_access.can_read(path):
+        return taken(f"the setup record ({where}) was not read: it leads out of the "
+                     "study this page is held to")
     try:
         if not record_access.is_file(path):
-            return fallback
+            return taken(nowhere)
         record = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
-        return fallback
+        return taken(f"the setup record ({where}) could not be read")
     if not isinstance(record, dict):
-        return fallback
+        return taken(f"the setup record ({where}) holds no settings")
     asked = record.get("parameters") if isinstance(record.get("parameters"), dict) else {}
     resolved = record.get("resolved") if isinstance(record.get("resolved"), dict) else {}
-    for where, said in ((asked, "as set"), (resolved, "as setup resolved it")):
-        value = where.get("nonbonded_cutoff_nm")
+    for found, said in ((asked, "as set"), (resolved, "as setup resolved it")):
+        value = found.get("nonbonded_cutoff_nm")
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
-            return float(value), f"the run's `nonbonded_cutoff_nm`, {said} ({SETUP_RECORD})"
+            return float(value), f"read from the run's `nonbonded_cutoff_nm` {said}, in {where}"
     named = asked.get("force_field") or resolved.get("force_field") or asked.get("forcefield")
     if named:
         try:
@@ -400,10 +423,10 @@ def run_cutoff(study: Path | None) -> tuple[float, str]:
             value = float(nonbonded_scheme(
                 list(named) if isinstance(named, (list, tuple)) else str(named),
                 cutoff_nm=None, use_switching_function=None, switch_distance_nm=None)[0])
-            return value, f"the cutoff of the run's force field, by its scheme ({SETUP_RECORD})"
+            return value, f"read from the scheme of the run's force field, named in {where}"
         except Exception:  # noqa: BLE001 - a name this version no longer knows
             pass
-    return fallback
+    return taken(f"no cutoff of this run is recorded in {where}")
 
 
 def _atom_said(topology, index: int) -> str:
@@ -463,7 +486,7 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
     widths = narrowest_width(traj)
     record: dict[str, Any] = {
         "cutoff_nm": float(cutoff_nm),
-        "cutoff_from": cutoff_from or f"{float(cutoff_nm):g} nm, given to the check",
+        "cutoff_from": cutoff_from or "given to the check",
         "close_nm": CLOSE_NM,
         "frames": n,
         "nearest_nm": nearest,
@@ -500,8 +523,9 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             f"inside the {cutoff_nm:g} nm cutoff in {under:,} of {n:,} frames "
             f"({share_said(under, n)}) and under {CLOSE_NM:g} nm in {close:,} "
             f"({share_said(close, n)}). The closest was at {when}, {pair}. The "
-            f"cutoff is {record['cutoff_from']}. In those frames the solute meets "
-            "its own copy, and a mean over them may be biased by it. A larger "
+            f"cutoff is {cutoff_nm:g} nm, {record['cutoff_from']}. In those frames "
+            "the solute meets its own copy, and a mean over them may be biased by "
+            "it. A larger "
             "box, in a new study (a box cannot grow mid-run), is what would "
             "change this.")
     else:
@@ -509,7 +533,7 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             f"The solute came no closer than {nearest:.3f} nm to its own periodic "
             f"image, outside the {cutoff_nm:g} nm cutoff in every one of {n:,} "
             f"frames. The closest was at {when}, {pair}. The cutoff is "
-            f"{record['cutoff_from']}.")
+            f"{cutoff_nm:g} nm, {record['cutoff_from']}.")
     if solute_said:
         record["said"] += f" The solute is {solute_said}."
     return distances, record
