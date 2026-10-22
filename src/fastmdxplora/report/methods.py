@@ -902,7 +902,7 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
     """Why the production is as long as it is, for a study run until it knew."""
     from fastmdxplora.simulation.sampling_ask import length_said
     from fastmdxplora.simulation.stopping import (AGREE_WITHIN, JUDGED_ALONE, ONE_ERROR,
-                                                  StopTarget, round_decided)
+                                                  StopTarget, round_decided, study_ended)
 
     rounds = [r for r in stopping.get("rounds") or [] if isinstance(r, dict)]
     try:
@@ -944,6 +944,16 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
     decided = round_decided(last, last=True, record=stopping)
     were = "the runs were" if replicas else "the run was"
     more = last.get("more_ns")
+    ended = study_ended(stopping)
+    if ended:
+        # Resumed after its rounds and ended before its rule was applied
+        # again: the study's sentence, and the last round said as its own.
+        said.append(f"It ran {count}{at}; " + _last_round_said(decided, were, more, replicas)
+                    + ". Resumed, it was " + (
+                        "stopped when asked (Ctrl+C or a signal), before its rule was applied "
+                        "again." if ended == "asked" else
+                        "not judged again: " + _not_applied_why(stopping) + "."))
+        return said
     said.append({
         "met": f"It stopped after {count}{at}, with each determined as asked.",
         "ceiling": f"It stopped at the ceiling after {count}{at}, before each was "
@@ -961,6 +971,34 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
         if decided["going"] and isinstance(more, (int, float)) else
         f"Its record does not say it finished, after {count}{at}.")))
     return said
+
+
+def _last_round_said(decided: dict[str, Any], were: str, more: Any, replicas: bool) -> str:
+    """A study's last round as its methods say it, from `round_decided`."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    if decided["stopped_by"] == "no mean":
+        return "the last stopped because " + decided["said"].removeprefix("stopped: ")
+    if decided["stopped_by"] == "asked":
+        return f"the last was stopped when asked (Ctrl+C or a signal) while {were} extended"
+    if decided["stopped_by"] == "error":
+        return f"the last was stopped by an error while {were} extended"
+    if decided["stopped_by"] == "not recorded":
+        return "what stopped the last is not recorded"
+    if decided["said"].startswith("extending") and isinstance(more, (int, float)):
+        return (f"the last asked for {length_said(more)} more" + (" per run" if replicas else "")
+                + ", and the record does not say that finished")
+    if decided["said"].startswith("determined"):
+        return "the last found each determined as asked"
+    if decided["said"].startswith("stopped at the ceiling"):
+        return "the last reached the ceiling before each was determined as asked"
+    return "the last " + decided["said"]
+
+
+def _not_applied_why(stopping: dict[str, Any]) -> str:
+    """Why `batch.explorer` did not apply a study's rule, from its record."""
+    why = str(stopping.get("said") or "").removeprefix("Not applied: ").rstrip(".")
+    return why or "why is not recorded"
 
 
 def _campaign_axes(project_root: Path, means: dict[str, dict[str, Any]],

@@ -101,8 +101,11 @@ def _when(event: dict[str, Any]) -> tuple[Any, ...] | None:
         return (str(event["at"]), 1)
     placed = event.get("placed")
     if placed:
-        # Rounds placed at one time are in the order they were judged.
-        return (str(placed["at"]), 0 if placed.get("before") else 2, event.get("round") or 0)
+        # Rounds placed at one time are in the order they were judged, and
+        # the rule's end said after its rounds (no round of its own) last.
+        number = event.get("round")
+        return (str(placed["at"]), 0 if placed.get("before") else 2,
+                number if number is not None else math.inf)
     return None
 
 
@@ -146,11 +149,14 @@ def _of_its_runs(base: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
         listed.append({"label": run["label"], "path": str(folder), "steps": len(steps)})
     # The study's own rounds, where it ran its runs until what it asks is
     # determined: the study's steps, named by no run.
-    events += _rounds(base)
-    # Those with a time newest first; those without after them, run by run
-    # in the study's order, each run's as its own Timeline orders them.
+    rounds = _rounds(base)
+    events += rounds
+    # Those with a time newest first; those without after them: the study's
+    # rounds, newest first, as they came after its runs' steps; then run by
+    # run in the study's order, each run's as its own Timeline orders them.
     timed = sorted((e for e in events if _when(e) is not None), key=_when, reverse=True)
-    timeless = [e for e in events if _when(e) is None]
+    timeless = ([e for e in reversed(rounds) if _when(e) is None]
+                + [e for e in events if _when(e) is None and e not in rounds])
     return {"ok": True, "events": timed + timeless, "runs": listed}
 
 
@@ -367,7 +373,7 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     piece of the length the round asked for, the next in the run's order),
     or, where it began none, just after the last step before it."""
     from fastmdxplora.simulation.sampling_ask import length_said
-    from fastmdxplora.simulation.stopping import _STOPPED_WHEN_ASKED, RECORD
+    from fastmdxplora.simulation.stopping import RECORD, study_ended
 
     record = _json(base / RECORD)
     if not isinstance(record, dict) or not isinstance(record.get("targets"), list):
@@ -381,7 +387,6 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
                  default=None)
     pieces = {folder: _timed_pieces(folder) for folder in folders}
     taken = {folder: 0 for folder in folders}
-    outcome = str(record.get("outcome") or "")
     said = str(record.get("said") or "")
     events: list[dict[str, Any]] = []
     for number, entry in enumerate(rounds, start=1):
@@ -412,13 +417,19 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
         production = _finite(entry.get("production_ns"))
         event["production_said"] = length_said(production) if production is not None else ""
         events.append(event)
-    if not rounds and outcome in ("stopped", "not_applied") and said:
-        # No round was judged: why, as the record says it.
-        asked = said.startswith(_STOPPED_WHEN_ASKED)
+    ended = study_ended(record) if said else ""
+    if ended:
+        # No round judged since the study was started or resumed: why, as
+        # the record says it, the study's own sentence and none of its
+        # rounds'.
+        asked = ended == "asked"
+        again = f"resumed after round {len(rounds)}, then " if rounds else ""
         events.append({
             **_step("round", "stopping", "stopped" if asked else "not_applied"),
-            "said": ("The stopping rule: stopped when asked (Ctrl+C or a signal), before it "
-                     "was first applied" if asked else "The stopping rule: not applied"),
+            "said": "The stopping rule: " + again + (
+                "stopped when asked (Ctrl+C or a signal), before it was "
+                + ("applied again" if rounds else "first applied") if asked
+                else "not applied" + (" again" if rounds else "")),
             "detail": said, "stopped_by": "asked" if asked else "",
             "placed": {"at": latest, "before": False} if latest else None,
             "production_said": "", "round": None})
@@ -438,7 +449,8 @@ def _round(number: int, entry: dict[str, Any], record: dict[str, Any], *,
     detail = "; ".join(str(v.get("said")) for v in verdicts if v.get("said"))
     decided = round_decided(entry, last=last, record=record)
     if decided["theirs"] and not decided["going"]:
-        detail = str(record.get("said") or "") or detail
+        # The round's own sentence, never the study's.
+        detail = decided["sentence"] or detail
     return {**_step("round", "stopping", str(entry.get("decision") or "")),
             "said": f"Round {number}: {decided['said']}", "detail": detail,
             "stopped_by": decided["stopped_by"], "going": decided["going"], "round": number}

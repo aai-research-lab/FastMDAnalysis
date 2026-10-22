@@ -670,7 +670,7 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
             entry["decision"] = "stopped"
             entry["stopped_by"] = "no mean"
             record["outcome"] = "stopped"
-            record["said"] = (
+            record["said"] = entry["said"] = (
                 "Stopped: " + "; ".join(v.said for v in unrecorded)
                 + ". More production does not give an analysis a mean it does not "
                 "record; its own log says why.")
@@ -680,15 +680,15 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
         if all(v.met for v in verdicts):
             entry["decision"] = "met"
             record["outcome"] = "met"
-            record["said"] = _said_met(verdicts, production, len(runs), independent,
-                                       axes=_swept(record_in))
+            record["said"] = entry["said"] = _said_met(verdicts, production, len(runs),
+                                                       independent, axes=_swept(record_in))
             write()
             say(record["said"])
             return record
         if production >= ceiling - 1e-9:
             entry["decision"] = "ceiling"
             record["outcome"] = "ceiling"
-            record["said"] = (
+            record["said"] = entry["said"] = (
                 f"Stopped at the {length_said(ceiling)} ceiling, with what was asked not "
                 "determined to the precision asked: "
                 + "; ".join(v.said for v in verdicts if not v.met) + ".")
@@ -699,18 +699,19 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
         if more <= 0:
             entry["decision"] = "ceiling"
             record["outcome"] = "ceiling"
-            record["said"] = (f"Stopped: the {length_said(ceiling)} ceiling leaves no whole "
-                              "frame to add, with what was asked not determined to the "
-                              "precision asked: " + "; ".join(v.said for v in verdicts if not v.met)
-                              + ".")
+            record["said"] = entry["said"] = (
+                f"Stopped: the {length_said(ceiling)} ceiling leaves no whole frame to add, "
+                "with what was asked not determined to the precision asked: "
+                + "; ".join(v.said for v in verdicts if not v.met) + ".")
             write()
             say(record["said"])
             return record
         entry["decision"] = "extend"
         entry["more_ns"] = more
-        record["said"] = (f"Extending by {length_said(more)}, to {length_said(production + more)}"
-                          f" of the {length_said(ceiling)} allowed: "
-                          + "; ".join(v.said for v in verdicts if not v.met) + ".")
+        record["said"] = entry["said"] = (
+            f"Extending by {length_said(more)}, to {length_said(production + more)} of the "
+            f"{length_said(ceiling)} allowed: "
+            + "; ".join(v.said for v in verdicts if not v.met) + ".")
         write()
         say(f"Not yet determined: {'; '.join(v.said for v in verdicts if not v.met)}. "
             f"Extending {'every run' if len(runs) > 1 else 'the run'} by {length_said(more)} "
@@ -730,12 +731,16 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
                 record["said"] = (f"Stopped: extending {run.name} failed at "
                                   f"{answer.get('stage') or 'a step'}: "
                                   f"{answer.get('error') or 'no reason recorded'}")
+            # The round's own sentence, kept with it: the record's is
+            # written over when the study is resumed.
+            entry["said"] = record["said"]
             write()
             say(record["said"])
             return record
     record["outcome"] = "rounds"
-    record["said"] = (f"Stopped after {MOST_ROUNDS} rounds with what was asked not "
-                      "determined to the precision asked.")
+    record["said"] = record["rounds"][-1]["said"] = (
+        f"Stopped after {MOST_ROUNDS} rounds with what was asked not determined to the "
+        "precision asked.")
     write()
     say(record["said"])
     return record
@@ -793,10 +798,32 @@ _DECIDED = {"met": "stopped: determined as asked", "extend": "extended by {more:
 #: while it extended the runs: asked to stop (Ctrl+C, or a signal such as
 #: a scheduler's or the GUI's Stop), or an extension that failed. Read for
 #: a record written before a round recorded what stopped it
-#: (``stopped_by``); the sentence is the last round's only, since an
-#: earlier round's, in a study resumed since, was written over.
+#: (``stopped_by``) and its own sentence (``said``); the record's sentence
+#: is the last round's only, since an earlier round's, in a study resumed
+#: since, was written over.
 _STOPPED_WHEN_ASKED = "Stopped when asked"
 _EXTENDING_FAILED = "Stopped: extending "
+
+#: What `batch.explorer` writes for a study stopped when asked before its
+#: rule was applied: the study's sentence, never a round's. A resumed study
+#: keeps its rounds under it.
+STOPPED_BEFORE_THE_RULE = ("Stopped when asked, before the rule was applied. Resuming the "
+                           "study applies it.")
+
+
+def study_ended(record: dict[str, Any]) -> str:
+    """How the study ended where its record's sentence is the study's own,
+    written by `batch.explorer` with no round judged then: "asked" (stopped
+    when asked before the rule was applied) or "not applied" (too few runs
+    finished); "" where the sentence is a round's. A study with rounds that
+    ended so was resumed after them."""
+    outcome = str(record.get("outcome") or "")
+    sentence = str(record.get("said") or "")
+    if outcome == "not_applied":
+        return "not applied"
+    if outcome == "stopped" and sentence.startswith(STOPPED_BEFORE_THE_RULE.split(".")[0]):
+        return "asked"
+    return ""
 
 
 def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) -> dict[str, Any]:
@@ -805,17 +832,25 @@ def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) 
     after "Round N: "; ``stopped_by``, "no mean", "asked" (Ctrl+C or a
     signal), "error", or "not recorded" where the record does not say;
     ``going``, a round whose extension the record does not say finished
-    (the last, with the study still said running: still extending, or
-    killed while it extended, which the record cannot tell apart); and
-    ``theirs``, whether the record's own sentence (``said``) is this
-    round's. From what the record holds: the round's own ``stopped_by``,
+    with the study still said running (still extending, or killed while it
+    extended, which the record cannot tell apart); ``theirs``, whether
+    ``sentence`` is this round's own, the record's words for it.
+
+    From what the record holds: the round's own ``stopped_by`` and ``said``,
     written since, or, in an older record, its verdicts and the record's
-    last sentence."""
+    last sentence, where that is the last round's: never the study's own
+    (`study_ended`), which a study stopped before its rule was applied
+    again writes over it. The last round's extension, with the study since
+    ended so, is not said finished either."""
     from fastmdxplora.simulation.sampling_ask import length_said
 
     decision = str(entry.get("decision") or "")
     outcome = str(record.get("outcome") or "")
-    sentence = str(record.get("said") or "")
+    ended = study_ended(record)
+    own = entry.get("said") if isinstance(entry.get("said"), str) else None
+    # An older record's sentence is its last round's, unless the study's.
+    sentence = (own if own is not None
+                else str(record.get("said") or "") if last and not ended else "")
     names = record.get("runs") if isinstance(record.get("runs"), list) else []
     several = len(names) > 1
     verdicts = [v for v in entry.get("verdicts") or [] if isinstance(v, dict)]
@@ -826,8 +861,8 @@ def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) 
     were = "the runs were" if several else "the run was"
     stopped_by, going, theirs = "", False, False
     if decision == "extend" and more is not None:
-        if last and outcome == "running":
-            going, theirs = True, True
+        if last and (outcome == "running" or ended):
+            going, theirs = outcome == "running", outcome == "running"
             said = (f"extending {whom} by {length_said(more)}; the record does not say "
                     "it finished")
         else:
@@ -841,14 +876,14 @@ def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) 
         said = "stopped at the ceiling, not determined as asked"
     elif decision == "stopped":
         unrecorded = [str(v.get("said")) for v in verdicts if v.get("unrecorded") and v.get("said")]
-        mine = sentence if last and outcome == "stopped" else ""
+        mine = sentence if own is not None or outcome == "stopped" else ""
         stopped_by = str(entry.get("stopped_by") or "")
         if stopped_by not in ("no mean", "asked", "error"):
             stopped_by = ("no mean" if unrecorded
                           else "asked" if mine.startswith(_STOPPED_WHEN_ASKED)
                           else "error" if mine.startswith(_EXTENDING_FAILED)
                           else "not recorded")
-        theirs = bool(mine) and stopped_by in ("asked", "error")
+        theirs = bool(mine) and (own is not None or stopped_by in ("asked", "error"))
         said = {
             "no mean": "stopped: " + ("; ".join(unrecorded) or "an analysis recorded no mean"),
             "asked": f"stopped when asked (Ctrl+C or a signal) while {were} extended",
@@ -856,7 +891,8 @@ def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) 
         }.get(stopped_by, "stopped; what stopped it is not recorded")
     else:
         said = "judged; what was decided is not recorded"
-    return {"said": said, "stopped_by": stopped_by, "going": going, "theirs": theirs}
+    return {"said": said, "stopped_by": stopped_by, "going": going, "theirs": theirs,
+            "sentence": sentence if theirs else ""}
 
 
 def stopping_section(root: str | Path) -> list[str]:

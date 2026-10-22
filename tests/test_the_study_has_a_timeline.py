@@ -813,3 +813,120 @@ def test_a_run_killed_in_a_piece_says_the_piece_by_its_number(tmp_path, monkeypa
         "last_update_timestamp": "2026-10-18T07:40:00+00:00"})
     [ended] = timeline_of(root)["events"]
     assert ended["said"] == "Stopped without finishing, in piece 1's production, at step 650 of 800"
+
+
+# ---------------------------------------------------------------------------
+# A study resumed after its rounds and stopped when asked before its rule
+# was applied again: `batch.explorer` writes the study's sentence over the
+# record's, and it was read as the last round's.
+
+#: What `batch.explorer` writes for a study stopped before its rule was
+#: applied (`stopping.STOPPED_BEFORE_THE_RULE`).
+ENDED = "Stopped when asked, before the rule was applied. Resuming the study applies it."
+
+
+def _resumed_then_stopped_before_the_rule(tmp_path) -> Path:
+    """Two replicas run by the loop itself: round 1 extended them, round 2's
+    extension failed; resumed, the study was stopped when asked before the
+    rule was applied, as `batch.explorer` writes it."""
+    from fastmdxplora.simulation.stopping import run_until_known, targets_of
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    runs = sorted((root / "runs").iterdir())
+    rule = {"measures": [{"analysis": "rmsd", "standard_error": 0.0001}], "max_duration_ns": 5.0}
+    production = {run: 1.0 for run in runs}
+    tries = []
+
+    def extend_all(chosen, more):
+        tries.append(more)
+        if len(tries) == 2:
+            return [{"ok": True}, {"ok": False, "stage": "production",
+                                   "error": "CUDA_ERROR_OUT_OF_MEMORY"}]
+        for run in chosen:
+            production[run] += more
+        return [{"ok": True} for _ in chosen]
+
+    record = run_until_known(runs, targets_of(rule), rule, record_in=root,
+                             extend_all=extend_all, say=lambda _: None,
+                             production_of=lambda run: production[run])
+    assert [r["decision"] for r in record["rounds"]] == ["extend", "stopped"]
+    assert [r["stopped_by"] for r in record["rounds"][1:]] == ["error"]
+    assert record["rounds"][1]["said"].startswith("Stopped: extending ")
+    # Resumed: the explorer keeps the rounds and says why none was judged.
+    record.update({"outcome": "stopped", "said": ENDED})
+    (root / "stopping.json").write_text(json.dumps(record), encoding="utf-8")
+    return root
+
+
+def test_a_round_s_cause_is_its_own_after_the_study_is_resumed_and_stopped(tmp_path):
+    """Round 2 was said "stopped by an error" with the resume's "Stopped when
+    asked, before the rule was applied" as its detail, the methods said the
+    error ended the study, and an older record guessed "stopped when asked"
+    for the round from the study's sentence."""
+    from fastmdxplora.gui.stopping_view import stopping_payload
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from fastmdxplora.report.methods import _stopping_sentences
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = _resumed_then_stopped_before_the_rule(tmp_path)
+    cause = "stopped by an error while the runs were extended"
+    events = timeline_of(root)["events"]
+    mine = [e for e in events if e["kind"] == "round"]
+    assert [e["said"] for e in mine] == [
+        "The stopping rule: resumed after round 2, then stopped when asked (Ctrl+C or a "
+        "signal), before it was applied again",
+        f"Round 2: {cause}", "Round 1: each run extended by 1 ns"], [e["said"] for e in mine]
+    assert mine[0]["detail"] == ENDED
+    assert mine[1]["detail"].startswith("Stopped: extending ") and \
+        "CUDA_ERROR_OUT_OF_MEMORY" in mine[1]["detail"]
+    assert events[0] is mine[0]
+    card = stopping_payload(root)
+    assert [r["decided"] for r in card["rounds"]] == ["each run extended by 1 ns", cause]
+    assert card["said"] == ENDED
+    assert [line for line in stopping_section(root) if line.startswith("| 2 |")][0].endswith(
+        f" | {cause} |")
+    record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))
+    methods = " ".join(_stopping_sentences(record, {}))
+    assert ("It ran 2 rounds, at 2 ns of production per run; the last was stopped by an error "
+            "while the runs were extended. Resumed, it was stopped when asked (Ctrl+C or a "
+            "signal), before its rule was applied again.") in methods, methods
+    assert "when an error stopped the extension" not in methods
+    from fastmdxplora.simulation.stopping import STOPPED_BEFORE_THE_RULE
+
+    assert STOPPED_BEFORE_THE_RULE == ENDED
+
+
+@pytest.mark.parametrize("rounds, said, methods", [
+    # Written before a round kept what stopped it: not guessed from the
+    # study's sentence.
+    ([_round("extend", 1.0, 0.5), _round("stopped", 1.5, 0.5)],
+     "Round 2: stopped; what stopped it is not recorded",
+     "It ran 2 rounds, at 1.5 ns of production; what stopped the last is not recorded."),
+    # Killed while it extended, then resumed and stopped: the extension is
+    # not said done.
+    ([_round("extend", 1.0, 0.5)],
+     "Round 1: extending the run by 500 ps; the record does not say it finished",
+     "It ran 1 round, at 1 ns of production; the last asked for 500 ps more, and the record "
+     "does not say that finished."),
+], ids=["older record", "killed while extending"])
+def test_a_study_stopped_before_its_rule_says_its_rounds_as_their_own(tmp_path, rounds, said,
+                                                                      methods):
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from fastmdxplora.report.methods import _stopping_sentences
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = tmp_path / "study"
+    root.mkdir()
+    _stopping(root, ["study"], rounds, "stopped", ENDED)
+    events = [e for e in timeline_of(root)["events"] if e["kind"] == "round"]
+    assert events[0]["said"].startswith("The stopping rule: resumed after round ")
+    last = next(e for e in events if e["round"] == len(rounds))
+    assert last["said"] == said and last["detail"] != ENDED
+    assert last["going"] is False
+    row = [line for line in stopping_section(root) if line.startswith(f"| {len(rounds)} |")][0]
+    assert row.endswith(f" | {said.split(': ', 1)[1]} |"), row
+    record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))
+    text = " ".join(_stopping_sentences(record, {}))
+    assert methods + " Resumed, it was stopped when asked" in text, text
+    assert "Ctrl+C or a signal) while" not in text
