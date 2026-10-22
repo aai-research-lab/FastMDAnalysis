@@ -234,6 +234,36 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - The Agent's mode and GPU-hour ceiling are saved as they are chosen: a
   reload put the Agent back in Seeker with no ceiling, whatever was set.
 
+- A study run until what it asks is determined lists its rounds in its
+  Timeline: the production each judged and what was decided, a stopped
+  round said by what stopped it (an analysis that recorded no mean, Ctrl+C
+  or a signal, an error while the runs were extended) and "not recorded"
+  where its record does not say, never "an extension failed" whatever
+  stopped it. A round's record gives no time, so it is placed by the
+  recorded times of the steps around it, not below the oldest step.
+- Compare's Settings that differ, and the Timeline's rounds, say a length
+  under 1 ns in ps ("250 ps", not "0.25").
+- Replicas prepared from different models of an ensemble (`setup.model`)
+  are said to be "started from different models of the ensemble", not to
+  "differ only by random seed": in the aggregate's and the written
+  comparison's reason, on the Compare page, the runs' table, the Overview,
+  the plan and a stopping rule's verdict, all from one function
+  (`batch.aggregate.how_replicas_differ`). How they are aggregated is
+  unchanged.
+- Two replicas whose means are the only two read for a quantity are no
+  longer said "resolved" against their own errors: their spread is set
+  against those errors as the study's replicas are aggregated
+  (`spread_against_own`), and "only these two runs' means were read" is
+  said only where the study has more runs.
+- A run killed, or ended by a signal without writing its end, is said
+  "Stopped without finishing" in its Timeline, with the stage and step it
+  reached, never as finished at its last recorded step.
+- A study of several runs' Overview offers no box to choose a run to
+  compare on a GUI bound beyond loopback, where Compare is not answered.
+- A toast is shown clear of the Agent's composer and Send: at the Agent's
+  left beside a page, and at the top on the Agent page and where the Agent
+  takes the whole width.
+
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
   extreme: on four segments the verdict had turned on rounding. A segment
