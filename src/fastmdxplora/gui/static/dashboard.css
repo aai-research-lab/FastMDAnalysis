@@ -3679,7 +3679,9 @@ html[data-page="viewer"] .page-shell { max-width: 1480px; }
     --composer-btn: 32px;
     flex: none; position: sticky; bottom: 0;
     padding: 12px 0 8px;
-    background: linear-gradient(180deg, transparent, var(--background-primary) 30%);
+    /* Opaque from the foot of its top padding: a note above the box, of
+       two lines or more, showed the page scrolled beneath through it. */
+    background: linear-gradient(180deg, transparent, var(--background-primary) 12px);
 }
 /* The send button sits inside the box at its right end, as every
    assistant a person has used places it, rather than beside the box. */

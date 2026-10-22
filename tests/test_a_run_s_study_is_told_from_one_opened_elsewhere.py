@@ -3452,3 +3452,52 @@ def test_a_message_refused_as_a_study_opens_is_put_back_or_saved(tmp_path, monke
     said = [e for e in _entries_everywhere(workspace)[str(workspace / where[0])] if e.get("text") == words]
     assert len(said) == 1, said
     assert errors == []
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_at_390_a_note_of_two_lines_hides_the_page_beneath(tmp_path, monkeypatch, scheme):
+    """L20: at 390, on a study's Agent page with its starters, a note of two
+    lines or more showed the page scrolled beneath it through its first
+    line. The note reads the same with what is beneath it hidden (a phone
+    of 390 by 664, the starters running on under the box)."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    page, errors, close = _page_on(session, [])
+    try:
+        page.set_viewport_size({"width": 390, "height": 664})
+        page.evaluate("(s) => { document.documentElement.dataset.theme = s;"
+                      " document.body.dataset.theme = s; }", scheme)
+        _shows(page, study_key(here))
+        _when_known(page)
+        page.focus("#agent-request")
+        page.keyboard.type("typed on here")
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => /saved for it/.test((document.getElementById("
+                               "'agent-unsent-note') || {}).textContent || '')", timeout=20000)
+        page.wait_for_timeout(1000)
+        page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        note = page.locator("#agent-unsent-note")
+        box = note.bounding_box()
+        lines = page.evaluate("() => { const n = document.getElementById('agent-unsent-note');"
+                              " return Math.round(n.getBoundingClientRect().height"
+                              " / parseFloat(getComputedStyle(n).lineHeight)); }")
+        beneath = page.evaluate("""() => { const r = document.getElementById('agent-unsent-note')
+            .getBoundingClientRect();
+            return document.elementsFromPoint(r.left + 40, r.top + 4)
+                .some((e) => e.matches('.agent-starter')); }""")
+        dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+        clip = {"x": box["x"], "y": box["y"], "width": box["width"], "height": box["height"]}
+        shown = page.screenshot(clip=clip, animations="disabled")
+        page.evaluate("""() => { const c = document.querySelector('.agent-composer');
+            for (const n of c.parentElement.children) if (n !== c) n.style.visibility = 'hidden'; }""")
+        page.wait_for_timeout(300)
+        alone = page.screenshot(clip=clip, animations="disabled")
+    finally:
+        close()
+        session.server.shutdown()
+    assert lines >= 2 and beneath, (lines, beneath)
+    assert (dark == "rgb(0, 0, 0)") == (scheme == "dark"), dark
+    assert shown == alone
+    assert errors == []
