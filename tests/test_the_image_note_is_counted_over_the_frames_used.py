@@ -18,10 +18,11 @@ import pytest
 import fastmdxplora.analysis  # noqa: F401 -- registers the analyses
 
 
-def _beads(n: int = 300, reaching: int = 100, box: float = 3.0) -> md.Trajectory:
+def _beads(n: int = 300, reaching: int = 100, box: float = 3.0,
+           every: int | None = None) -> md.Trajectory:
     """Ten alpha carbons bonded in a chain, 10 ps a frame: stretched along x
     (its ends 0.12 nm from each other's image) in the first ``reaching``
-    frames, a compact coil after."""
+    frames (or in every ``every``-th frame), a compact coil otherwise."""
     rng = np.random.default_rng(3)
     top = md.Topology()
     chain = top.add_chain()
@@ -35,9 +36,10 @@ def _beads(n: int = 300, reaching: int = 100, box: float = 3.0) -> md.Trajectory
     t = np.arange(10) * 1.7
     coil = np.c_[0.25 * np.cos(t), 0.25 * np.sin(t), 0.15 * np.arange(10)]
     straight = np.c_[np.arange(10) * 0.32, np.zeros(10), np.zeros(10)]
-    xyz = np.asarray([(straight if f < reaching else coil)
+    xyz = np.asarray([(straight if (f % every == 0 if every else f < reaching) else coil)
                       + rng.normal(scale=0.01, size=(10, 3)) + 1.0 for f in range(n)])
-    traj = md.Trajectory(xyz.astype(np.float32), top, time=np.arange(n) * 10.0)
+    # As the loader clocks them: frame i at (i + 1) times the interval.
+    traj = md.Trajectory(xyz.astype(np.float32), top, time=(np.arange(n) + 1) * 10.0)
     traj.unitcell_vectors = np.repeat(np.diag([box] * 3)[None], n, axis=0).astype(np.float32)
     return traj
 
@@ -94,3 +96,63 @@ class TestFromItsStart:
         analysis.findings["frames"] = {"first_frame": 60, "n_frames_given": 300}
         note = analysis._image_note_for(traj, None)
         assert note["frames_used"] == 240 and note["frames_under_cutoff"] == 40
+
+
+class TestAnAnalysisWithoutAMainMean:
+    """The moments of inertia and the secondary structure have no main mean:
+    their note is over the frames their means use, never every frame. The
+    moments' said "600 of the 3,000 frames used" where each of its three
+    means recorded 344 of 2,744."""
+
+    def test_the_moments_say_it_over_their_means_frames(self, tmp_path):
+        folder = _orchestrated(tmp_path, _beads(every=5), ["moments_of_inertia"])
+        found = _findings(folder, "moments_of_inertia")
+        means = [value for value in found.values()
+                 if isinstance(value, dict) and "n_frames" in value and "mean" in value]
+        assert len(means) == 3
+        first = min(m["discard"] for m in means)
+        assert first > 0
+        note = found["solute_image"]
+        assert note["frames_used"] == 300 - first
+        assert note["frames_under_cutoff"] == len(range(-(-first // 5) * 5, 300, 5))
+        if len({m["discard"] for m in means}) > 1:
+            assert "frames its means use" in note["said"] and "union" in note["said"]
+        # The record holding only a reason is not a mean, and carries no note.
+        assert "solute_image" not in found["mean"]
+
+    def test_means_that_differ_are_said_as_the_union(self):
+        from fastmdxplora.analysis.image_check import solute_atoms, solute_image_record
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        traj = _beads()
+        series, finding = solute_image_record(traj, solute_atoms(traj.topology, None)[0])
+        analysis = get_analysis_class("ss")()
+        analysis.solute_image, analysis.solute_image_series = finding, series
+        analysis.findings = {
+            "helix_fraction": {"mean": 0.2, "n_frames": 300, "discard": 233},
+            "strand_fraction": {"mean": 0.1, "n_frames": 300, "discard": 80},
+        }
+        analysis._qualify_by_the_solute_image(traj)
+        note = analysis.findings["solute_image"]
+        assert note["frames_used"] == 220 and note["frames_under_cutoff"] == 20
+        assert note["counted_over"] == "means' frames"
+        assert "frames its means use" in note["said"] and "union" in note["said"]
+        assert "solute_image" not in analysis.findings["helix_fraction"]
+        assert analysis.findings["strand_fraction"]["solute_image"]["frames_used"] == 220
+
+    def test_means_that_agree_are_said_over_their_frames(self):
+        from fastmdxplora.analysis.image_check import solute_atoms, solute_image_record
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        traj = _beads()
+        series, finding = solute_image_record(traj, solute_atoms(traj.topology, None)[0])
+        analysis = get_analysis_class("ss")()
+        analysis.solute_image, analysis.solute_image_series = finding, series
+        analysis.findings = {
+            "helix_fraction": {"mean": 0.2, "n_frames": 300, "discard": 90},
+            "strand_fraction": {"mean": 0.1, "n_frames": 300, "discard": 90},
+        }
+        analysis._qualify_by_the_solute_image(traj)
+        note = analysis.findings["solute_image"]
+        assert note["frames_used"] == 210 and note["frames_under_cutoff"] == 10
+        assert "union" not in note["said"]

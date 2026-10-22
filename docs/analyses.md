@@ -96,7 +96,10 @@ Where the solute comes within the cutoff of its image, it is interacting with
 its own copy in those frames. That may bias a mean over them; it does not
 make the mean's statistical error unknown. So every mean keeps its error bar,
 and every analysis of those frames carries a note, counted over the frames it
-uses (after its mean's discarded equilibration, or from its `start`), once in
+uses (after its mean's discarded equilibration, or from its `start` as its
+record of the frames read says it; for an analysis without a main mean, the
+moments' or the secondary structure's, over the frames its means use, said as
+the union where they differ), once in
 its `findings.solute_image` ("The solute came within 1 nm of its own periodic
 image in 105 of 280 frames used (38%); the closest, 0.580 nm at frame 299,
 2.99 ns. ..."), with its numbers on each mean record it holds (SASA's

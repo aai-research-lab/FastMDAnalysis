@@ -600,39 +600,67 @@ class Analysis(ABC):
             return None
         return np.arange(max(first, 0), n, stride)
 
+    def _frames_of(self, traj: md.Trajectory, record: dict[str, Any] | None
+                   ) -> tuple["np.ndarray | None", str, str]:
+        """The frames of the check's series that ``record`` (a mean record,
+        or the analysis where None) uses, what the count is of and how they
+        were found (:func:`fastmdxplora.analysis.image_check.note_on_frames`):
+        those after its discard where it is a mean over the frames analysed,
+        else those the analysis used (:meth:`_frames_used_by_all`)."""
+        n = len(self.solute_image_series)
+        if isinstance(record, dict) and record.get("n_frames") == n:
+            discard = record.get("discard")
+            discard = discard if isinstance(discard, int) and not isinstance(discard, bool) else 0
+            return np.arange(min(max(discard, 0), n), n), "frames", ""
+        return self._frames_used_by_all(n), "frames", ""
+
+    def _union_of_means(self, traj: md.Trajectory, records: list[dict[str, Any]]
+                        ) -> tuple["np.ndarray | None", str, str]:
+        """The frames the means of an analysis without a main mean use: the
+        same frames where they agree, else every frame any of them uses,
+        said as the union."""
+        n = len(self.solute_image_series)
+        found = [self._frames_of(traj, record) for record in records]
+        arrays = [np.arange(n) if used is None else np.asarray(used, dtype=np.int64)
+                  for used, _, _ in found]
+        if all(np.array_equal(array, arrays[0]) for array in arrays[1:]):
+            return arrays[0], found[0][1], found[0][2]
+        return (np.unique(np.concatenate(arrays)), "means' frames",
+                " (the union of their frames, which differ)")
+
     def _image_note_for(self, traj: md.Trajectory,
-                        record: dict[str, Any] | None) -> dict[str, Any] | None:
+                        record: dict[str, Any] | None, *,
+                        union: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
         """The note on ``record`` (a mean record, or the analysis where None)
-        of the frames it uses in which the solute met its own image: those
-        after its discard where it is a mean over the frames analysed, else
-        those the analysis used. None where there is nothing to note."""
+        of the frames it uses in which the solute met its own image
+        (:meth:`_frames_of`), or, given ``union``, of the frames those means
+        use (:meth:`_union_of_means`). None where there is nothing to note."""
         from fastmdxplora.analysis.image_check import note_on_frames
 
         series = self.solute_image_series
         if series is None:
             return None
-        n = len(series)
-        used = None
-        if isinstance(record, dict) and record.get("n_frames") == n:
-            discard = record.get("discard")
-            discard = discard if isinstance(discard, int) and not isinstance(discard, bool) else 0
-            used = np.arange(min(max(discard, 0), n), n)
-        else:
-            used = self._frames_used_by_all(n)
+        used, over, how = (self._union_of_means(traj, union) if union
+                           else self._frames_of(traj, record))
         times = getattr(traj, "time", None)
         return note_on_frames(self.solute_image, series, used, times_ps=times,
-                              analysis=self.name)
+                              analysis=self.name, counted_over=over, how=how)
 
     def _mean_records(self) -> list[dict[str, Any]]:
         """Every mean the findings hold: the analysis's own, each further one
         (SASA's hydrophobic and polar, the moments' shape descriptors), and
-        those of a group read from another record (thermodynamics)."""
+        those of a group read from another record (thermodynamics). A record
+        holding only the reason it has no mean (the moments' own, of a
+        molecule broken across the box) is not one."""
         found: list[dict[str, Any]] = []
         for key, value in self.findings.items():
             if key == "solute_image" or not isinstance(value, dict):
                 continue
             if "n_frames" in value and ("mean" in value or "not_a_measurement" in value):
-                found.append(value)
+                if "mean" in value:
+                    found.append(value)
+                else:
+                    value.pop("solute_image", None)
                 continue
             for inner in value.values():
                 if isinstance(inner, dict) and "mean" in inner and (
@@ -649,8 +677,10 @@ class Analysis(ABC):
         kept: meeting its copy may bias a mean, it does not make its error
         unknown. One function for every mean
         (:func:`fastmdxplora.analysis.image_check.note_on_frames`); said
-        once, however often this is called. The image check notes nothing
-        of itself: its series is the finding."""
+        once, however often this is called. An analysis without a main mean
+        says it over the frames its means use (the union where they
+        differ). The image check notes nothing of itself: its series is the
+        finding."""
         self._qualified_by_the_image = True
         if self.name == "image_check":
             return
@@ -658,14 +688,21 @@ class Analysis(ABC):
         if not isinstance(finding, dict) or not finding.get("reaches_its_image"):
             return
         main = self.findings.get("mean")
-        note = self._image_note_for(traj, main if isinstance(main, dict) else None)
+        records = self._mean_records()
+        if isinstance(main, dict) and "mean" in main:
+            note = self._image_note_for(traj, main)
+        else:
+            # No main mean (the moments' shape descriptors, the secondary
+            # structure's fractions, the thermodynamics): over the frames its
+            # means use, never every frame.
+            note = self._image_note_for(traj, None, union=records or None)
         if note:
             self.findings["solute_image"] = note
         else:
             self.findings.pop("solute_image", None)
         from fastmdxplora.analysis.image_check import note_numbers
 
-        for record in self._mean_records():
+        for record in records:
             own = self._image_note_for(traj, record)
             if own:
                 record["solute_image"] = note_numbers(own)

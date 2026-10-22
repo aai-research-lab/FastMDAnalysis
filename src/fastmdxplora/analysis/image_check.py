@@ -105,8 +105,20 @@ def share_said(part: int, whole: int) -> str:
     return f"{value:.0f}%"
 
 
+#: What a note's count is of, as it says it: the trajectory's frames a mean
+#: uses, the energy rows a thermodynamic mean averages (each read at the
+#: trajectory frame nearest its time), or, for an analysis without a main
+#: mean, the frames its means use.
+COUNTED_OVER = {
+    "frames": "frames used",
+    "energy rows": "energy rows used",
+    "means' frames": "frames its means use",
+}
+
+
 def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = None, *,
-                   times_ps: Any = None, analysis: str = "") -> dict[str, Any] | None:
+                   times_ps: Any = None, analysis: str = "", counted_over: str = "frames",
+                   how: str = "") -> dict[str, Any] | None:
     """The note a mean (or an analysis without one) carries where the solute
     met its own periodic image in the frames it uses: one function for every
     mean record, the reweighted averages' too.
@@ -114,7 +126,10 @@ def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = N
     ``finding`` is the image check's (its cutoff and where that was read),
     ``distances`` its series over the frames analysed, ``used`` the indices
     among them that this mean uses (after its discard or ``start``; every
-    frame where None), ``times_ps`` the frames' times. None where no frame
+    frame where None; a frame given more than once is counted once for each,
+    as the energy rows read at one frame are), ``times_ps`` the frames'
+    times, ``counted_over`` what the count is of (:data:`COUNTED_OVER`) and
+    ``how`` how they were found, said after it. None where no frame
     used is within the cutoff, or the check's series is not there to count.
     The error bar is kept: meeting its copy may bias a mean, it does not
     make its statistical error unknown.
@@ -151,10 +166,12 @@ def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = N
         "cutoff_nm": cutoff,
         "may_bias": "shape" if shape else "mean",
         "read_from": "image_check",
+        "counted_over": counted_over,
     }
+    noun = COUNTED_OVER.get(counted_over, counted_over)
     note["said"] = (
         f"The solute came within {cutoff:g} nm of its own periodic image in "
-        f"{under:,} of {frames.size:,} frames used ({share_said(under, frames.size)}); "
+        f"{under:,} of {frames.size:,} {noun} ({share_said(under, frames.size)}){how}; "
         f"the closest, {note['nearest_nm']:.3f} nm at {when}. "
         + ("The solute's shape over such frames, and a mean of it, may be biased "
            "by the solute meeting its copy." if shape else
@@ -167,8 +184,9 @@ def note_numbers(note: dict[str, Any]) -> dict[str, Any]:
     analysis carries, the sentence said once, in the analysis's
     ``findings.solute_image``."""
     return {key: note[key] for key in ("frames_used", "frames_under_cutoff",
-                                       "fraction_under_cutoff", "nearest_nm",
-                                       "cutoff_nm", "may_bias", "read_from")}
+                                       "fraction_under_cutoff", "frames_under_close",
+                                       "nearest_nm", "cutoff_nm", "may_bias",
+                                       "read_from", "counted_over") if key in note}
 
 
 def _not_solute(residue) -> bool:

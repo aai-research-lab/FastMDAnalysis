@@ -501,7 +501,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   equilibration, or from its `start` as its record of the frames read says
   it: RMSF, `ligand_rmsf`, `bfactor_comparison`, clustering and the
   projections), the analysis carries a note of it,
-  counted over those frames, said once in its findings and with its numbers
+  counted over those frames (for an analysis without a main mean, the
+  moments' shape descriptors or the secondary structure's fractions, over
+  the frames its means use, said as the union where they differ), said once
+  in its findings and with its numbers
   on each mean record (sub-means and reweighted averages included): every
   mean keeps its error, since meeting its copy may bias a mean but does not
   make its error unknown; the shape analyses' note says the shape may be

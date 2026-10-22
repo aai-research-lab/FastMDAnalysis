@@ -1112,15 +1112,16 @@ def image_note_said(image: Any) -> str | None:
     used, under = image.get("frames_used"), image.get("frames_under_cutoff")
     if not (isinstance(used, int) and isinstance(under, int) and used > 0 and under > 0):
         return None
-    from fastmdxplora.analysis.image_check import share_said
+    from fastmdxplora.analysis.image_check import COUNTED_OVER, share_said
 
+    noun = COUNTED_OVER.get(str(image.get("counted_over") or "frames"), "frames used")
     cutoff = image.get("cutoff_nm")
     within = (f"within the {float(cutoff):g} nm cutoff of"
               if isinstance(cutoff, (int, float)) else "within the cutoff of")
     what = ("its shape over them, and a mean of it, may be biased"
             if image.get("may_bias") == "shape" else "a mean over them may be biased")
     return (f"The solute came {within} its own periodic image in {under:,} of the "
-            f"{used:,} frames used ({share_said(under, used)}), so {what} (see Image "
+            f"{used:,} {noun} ({share_said(under, used)}), so {what} (see Image "
             "check).")
 
 
