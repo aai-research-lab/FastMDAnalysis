@@ -562,6 +562,10 @@ ROUND_STOPPED = pytest.mark.parametrize("rounds, outcome, said, last, by", [
     ([_round("stopped", 1.0, 0.5)], "stopped",
      "Stopped: extending study failed at simulation: CUDA_ERROR_OUT_OF_MEMORY",
      "Round 1: stopped by an error while the run was extended", "error"),
+    ([_round("stopped", 1.0, 0.5)], "stopped",
+     "Stopped when asked, while extending study. Resuming the study judges the runs again and "
+     "carries on from there.",
+     "Round 1: stopped when asked (Ctrl+C or a signal) while the run was extended", "asked"),
     # Stopped, then resumed: the record's sentence is the last round's, so
     # what stopped the first is not in it.
     ([_round("stopped", 1.0, 0.5), _round("met", 1.0)], "met",
@@ -571,7 +575,7 @@ ROUND_STOPPED = pytest.mark.parametrize("rounds, outcome, said, last, by", [
      "Round 1: determined as asked, so stopped", ""),
     ([_round("ceiling", 5.0)], "ceiling", "Stopped at the 5 ns ceiling.",
      "Round 1: stopped at the ceiling, not determined as asked", ""),
-], ids=["no mean", "error", "not recorded", "met", "ceiling"])
+], ids=["no mean", "error", "asked", "not recorded", "met", "ceiling"])
 
 
 @ROUND_STOPPED
@@ -714,7 +718,6 @@ def test_a_one_run_study_s_rounds_are_placed_under_another_folder_name(tmp_path)
                       2: {"at": "2026-10-18T08:10:00+00:00", "before": False}}
 
 
-
 @ROUND_STOPPED
 def test_the_report_says_what_stopped_a_round_as_the_timeline_does(tmp_path, rounds, outcome,
                                                                   said, last, by):
@@ -734,6 +737,8 @@ def test_the_report_says_what_stopped_a_round_as_the_timeline_does(tmp_path, rou
     assert "extension failed" not in methods and "did not complete" not in methods
     if outcome == "stopped":
         assert {"no mean": "because rmsd recorded no mean.",
+                "asked": "when it was asked to stop (Ctrl+C or a signal) while the run was "
+                         "extended.",
                 "error": "when an error stopped the extension of the run."}[by] in methods
 
 
@@ -820,7 +825,6 @@ def test_the_report_says_a_record_still_running_as_not_finished_when_written(tmp
     assert ("**Not finished when this was written.** The record does not say the last round "
             "finished; it last says: Extending by 250 ps, to 1.25 ns of the 5 ns allowed") in text
     assert "still running" not in text.lower()
-
 
 
 def test_rounds_placed_at_one_time_are_newest_first(tmp_path):
