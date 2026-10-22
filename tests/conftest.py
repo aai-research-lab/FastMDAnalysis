@@ -150,12 +150,16 @@ def _a_test_file_reads_the_insertion_codes_of_its_own_structures():
     by atom serial, residue name and number, and trypsin's 184A read by one
     file made another file's slice of the same deposition read as having
     insertions, and its RMSF came back as a table by chain, depending on the
-    order the files ran in. That defect is fixed in `residues`: each topology
-    read starts from no codes
-    (`test_a_second_structure_read_in_one_process_has_only_its_own_codes`).
-    This stays as a backstop for tests that set the table themselves. They
-    are cleared once a file, before its own fixtures, which may read them for
-    all its tests."""
+    order the files ran in. A topology read through `load_trajectory` starts
+    from no codes
+    (`test_a_second_structure_read_in_one_process_has_only_its_own_codes`),
+    but a trajectory built with `md.load` reads the codes read last in the
+    process. Without this, `test_a_fluctuation_is_weighted_and_needs_frames`
+    run after `test_a_residue_is_named_by_its_chain` fails
+    `test_the_relaxation_is_left_out` and `test_the_start_can_be_given`: their
+    3PTB, built with `md.load`, read the codes the first file left. They are
+    cleared once a file, before its own fixtures, which may read them for all
+    its tests."""
     from fastmdxplora.analysis import residues
 
     residues._INSERTION_CODES.clear()
