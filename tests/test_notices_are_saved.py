@@ -588,3 +588,32 @@ def test_a_study_opened_elsewhere_is_saved_once_however_late_a_window_hears(tmp_
         browser.close()
     assert errors == []
     assert counts == [1, 2, 3, 4]
+
+
+def test_tab_stays_in_the_open_list_until_escape_or_a_choice(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    inside = "() => !document.getElementById('notices').hidden && document.getElementById('notices').contains(document.activeElement)"
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        page = _page(browser, url, "#overview")
+        page.evaluate("() => window.FastMDXDashboard.toast('A notice.', 'ok')")
+        page.click("#sb-notices")
+        stops = page.evaluate("document.querySelectorAll('#notices button:not([disabled])').length")
+        went = []
+        for _ in range(stops + 2):
+            page.keyboard.press("Tab")
+            went.append(page.evaluate(inside))
+        for _ in range(stops + 2):
+            page.keyboard.press("Shift+Tab")
+            went.append(page.evaluate(inside))
+        # A choice: All, Runs, Refusals and warnings keep it open, with the keyboard.
+        page.keyboard.press("Enter")
+        chose = page.evaluate(inside)
+        page.keyboard.press("Escape")
+        closed = page.evaluate("() => [document.getElementById('notices').hidden, document.activeElement.id]")
+        browser.close()
+    assert stops >= 4 and all(went), went
+    assert chose and closed == [True, "sb-notices"]

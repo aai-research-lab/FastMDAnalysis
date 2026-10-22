@@ -310,11 +310,24 @@
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Notices");
     // Keys pressed in the list stay in it: Escape closes the list alone,
-    // and a page's own keys (All studies' c, j, k, t, x) do nothing under it.
+    // and a page's own keys (All studies' c, j, k, t, x) do nothing under
+    // it. Tab goes round its buttons: the keyboard stays in the open list
+    // until Escape or a choice closes it.
     box.addEventListener("keydown", function (event) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       event.stopPropagation();
-      if (event.key === "Escape") { event.preventDefault(); close(true); }
+      if (event.key === "Escape") { event.preventDefault(); close(true); return; }
+      if (event.key !== "Tab") return;
+      var stops = Array.prototype.filter.call(box.querySelectorAll("button"), function (b) {
+        return !b.disabled && b.offsetParent !== null;
+      });
+      if (!stops.length) { event.preventDefault(); return; }
+      var at = stops.indexOf(document.activeElement);
+      var last = stops.length - 1;
+      if (event.shiftKey ? at <= 0 : at === last || at < 0) {
+        event.preventDefault();
+        stops[event.shiftKey ? last : 0].focus();
+      }
     });
     document.body.appendChild(box);
     return box;
