@@ -96,7 +96,30 @@ others) as `cluster_<method>_populations.csv`, and each medoid as a
 structure without its water (`cluster_<method>_medoid_<k>.pdb`); and the
 frame-to-frame RMSD it clustered on, with the frames' times, as
 `cluster_rmsd_matrix.npz` and as a map of time against time
-(`cluster_rmsd_matrix.png`).
+(`cluster_rmsd_matrix.png`). The map is at most 1,000 cells across: past
+1,000 frames its rows and columns are means over blocks of consecutive
+frames, the block recorded in the file (`block`) and in `options.json`
+(`findings.matrix`) and said in the figure's title and the report's
+caption. The GUI and the report read that one file. The whole matrix is
+written only when asked, as `cluster_rmsd_matrix_full.npy` (float32, its
+size said in the log first):
+
+```yaml
+analysis:
+  options:
+    cluster: {save_full_matrix: true}
+```
+
+The matrix grows with the square of the frames clustered: 31,000 frames make
+7.7 GB of it in float64 and 128,000 frames 131 GB, before the copies a
+method makes. So before it is made, its peak (the matrix and the largest copy
+the methods asked for make, `findings.memory`) is checked against the memory
+this machine has available, of which clustering plans on three quarters.
+Past it, clustering is refused (`analysis.memory.matrix_too_large`), naming
+the frames, the bytes needed and available, and the stride that fits;
+`stride: k` under `options: {cluster: ...}` clusters every k-th frame, and
+the other analyses still read every frame. On `features: coordinates`,
+k-means, Ward and DBSCAN make no matrix at all.
 
 `dimred`, with PCA, writes the free-energy landscape on the first two
 components: G = -kT ln P, with P the histogram over `landscape_bins` bins

@@ -385,6 +385,15 @@ def _merge_groups(z: Any, cut: float, labels: list[int]) -> list[int | None]:
 
 
 def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
+    """The clustering's map of time against time, from the file the analysis
+    wrote and plotted its own figure from.
+
+    It holds the matrix averaged in blocks of ``block`` clustered frames (the
+    last block takes what is left), with every clustered frame's index and
+    time; a study clustered before kept the whole matrix there, with no
+    ``block``, and is read as blocks of one. Past :data:`MOST_CELLS` cells it
+    is averaged again, each cell weighted by the frames it holds.
+    """
     import numpy as np
 
     path = root / "analysis" / "cluster" / "cluster_rmsd_matrix.npz"
@@ -396,16 +405,24 @@ def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
         values = np.asarray(found["rmsd_nm"], dtype=np.float32)
         times = np.asarray(found["time_ns"], dtype=float) if "time_ns" in found.files else None
         loaded = np.asarray(found["frames"], dtype=int) if "frames" in found.files else None
-    n = values.shape[0]
-    if values.ndim == 2 and n >= 2 and values.shape[1] == n:
-        block = max(1, math.ceil(n / MOST_CELLS))
-        if block > 1:
-            # Averaged in blocks of frames, in float32: a 10,000-frame
-            # matrix is not copied in float64 to be shown 200 cells across.
-            starts = np.arange(0, n, block)
-            sizes = np.diff(np.append(starts, n)).astype(np.float32)
-            rows = np.add.reduceat(values, starts, axis=0)
-            values = np.add.reduceat(rows, starts, axis=1) / np.outer(sizes, sizes)
+        saved_block = int(found["block"]) if "block" in found.files else 1
+    cells = values.shape[0]
+    n = loaded.size if loaded is not None and saved_block > 1 else cells
+    if values.ndim == 2 and cells >= 2 and values.shape[1] == cells \
+            and saved_block >= 1 and -(-n // saved_block) == cells:
+        further = max(1, math.ceil(cells / MOST_CELLS))
+        if further > 1:
+            # Averaged in blocks of cells, in float32, each cell weighted by
+            # its frames: a 10,000-frame matrix is not copied in float64 to
+            # be shown 200 cells across.
+            weights = np.full(cells, float(saved_block), dtype=np.float32)
+            weights[-1] = float(n - saved_block * (cells - 1))
+            starts = np.arange(0, cells, further)
+            weighted = values * weights[:, None] * weights[None, :]
+            rows = np.add.reduceat(weighted, starts, axis=0)
+            summed = np.add.reduceat(weights, starts)
+            values = np.add.reduceat(rows, starts, axis=1) / np.outer(summed, summed)
+        block = saved_block * further
         timed = times is not None and len(times) == n and bool(np.all(np.isfinite(times)))
         if timed:
             axis = times
@@ -413,12 +430,12 @@ def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
             indices = loaded.tolist() if loaded is not None and len(loaded) == n else list(range(n))
             axis = np.asarray(_clock(root, indices)[0], dtype=float)
         step = float(np.median(np.diff(axis))) if n > 1 else 1.0
-        cells = math.ceil(n / block)
+        shown = math.ceil(n / block)
         payload = {
             "kind": "matrix", "title": "RMSD between frames",
             "values": _grid(values),
             # Each cell is `block` frames wide, the last one too.
-            "extent": [float(axis[0]) - step / 2, float(axis[0]) + (cells * block - 0.5) * step],
+            "extent": [float(axis[0]) - step / 2, float(axis[0]) + (shown * block - 0.5) * step],
             "axis_label": "Time (ns)" if timed else "Frame", "label": "RMSD", "unit": "nm",
             "block": block if block > 1 else None, "low": 0.0,
         }

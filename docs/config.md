@@ -309,6 +309,12 @@ What each analysis accepts is in [The FastMDXplora analyses](analyses.md), and
 the GUI shows it beside each analysis. A misspelled option is refused rather
 than ignored.
 
+Clustering checks its frame-by-frame matrix against this machine's memory
+before it makes it, and where it is refused, `cluster: {stride: 4}` clusters
+every fourth frame (the refusal names the stride that fits). The whole
+matrix is written only with `cluster: {save_full_matrix: true}`. See
+[Conformations](analyses.md#conformations).
+
 ---
 
 ## A residue's protonation, set by hand

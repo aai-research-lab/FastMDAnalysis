@@ -9,6 +9,29 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Clustering checks its frame-by-frame RMSD matrix against the memory this
+  machine has available before it makes it, and past it is refused
+  (`analysis.memory.matrix_too_large`) with the frames, the bytes needed and
+  available, and the stride that fits (`options: {cluster: {stride: k}}`,
+  new); the other analyses still run. A chignolin study extended to 128,000
+  frames was killed by the kernel while clustering, a matrix of 131 GB and a
+  copy of 66 GB. The matrix is made with no copies beside it where it was
+  made with two, and k-means, Ward and DBSCAN on `features: coordinates`
+  make none.
+- Clustering no longer writes the frame-by-frame matrix twice:
+  `hierarchical_distance_matrix.npy` is gone (the dendrogram is the
+  linkage's), and `cluster_rmsd_matrix.npz` holds the map of time against
+  time at most 1,000 cells across, its rows and columns averaged in blocks
+  of frames, the block said in the figure's title and the report's caption.
+  The figure, the GUI and the report read that one file; a study clustered
+  before is read as it was. The whole matrix is written only with
+  `save_full_matrix: true`, its size said in the log first.
+- The project bundle holds results and records, not working matrices: the
+  clustering's whole matrix, and any matrix the analyses saved past 100 MB,
+  stay in the study's folder, listed with their sizes in
+  `left_out_of_bundle.txt` inside the bundle and in the report. A
+  chignolin study's bundle was 7.3 GB.
+
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
   extreme: on four segments the verdict had turned on rounding. A segment

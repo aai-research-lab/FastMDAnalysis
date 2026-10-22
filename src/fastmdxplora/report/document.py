@@ -83,6 +83,19 @@ def _caption_of(analysis: str, stem: str) -> str:
     return f"{analysis}: {rest}" if rest else analysis
 
 
+def _caption_of_figure(folder: Path, analysis: str, stem: str) -> str:
+    """The caption, with what the figure's numbers are where the analysis
+    recorded it beside the figure: the clustering's map of time against time
+    is of means over blocks of frames on a long run."""
+    caption = _caption_of(analysis, stem)
+    if analysis == "cluster" and stem == "cluster_rmsd_matrix":
+        found = (_load_json_safely(folder / "options.json") or {}).get("findings") or {}
+        block = (found.get("matrix") or {}).get("block") if isinstance(found, dict) else None
+        if isinstance(block, int) and not isinstance(block, bool) and block > 1:
+            caption += f", rows and columns averaged in blocks of {block} frames"
+    return caption
+
+
 def _load_json_safely(path: Path) -> dict | None:
     from fastmdxplora import record_access
 
@@ -752,7 +765,7 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
         figures = sorted(figs_dir.glob("*.png")) if figs_dir.exists() else []
         if figures:
             for fig in figures:
-                lines.append(f"![{_md_text(_caption_of(analysis, fig.stem))}]"
+                lines.append(f"![{_md_text(_caption_of_figure(figs_dir, analysis, fig.stem))}]"
                              f"({_link_from(report_dir, fig)})")
                 lines.append("")
         else:
@@ -761,6 +774,26 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
 
     return "\n".join(lines)
 
+
+
+def _bundle_section(project_root: Path) -> str:
+    """What the project bundle leaves out and where each file is, from the
+    list the bundle itself is built by; nothing where it leaves nothing out."""
+    from fastmdxplora.report.bundle import LEFT_OUT_LIST, left_out_of_bundle, size_said
+
+    left = left_out_of_bundle(project_root)
+    if not left:
+        return ""
+    total = sum(size for _, size, _ in left)
+    lines = ["## The project bundle", "",
+             "The project bundle (`project_bundle.zip`, beside this report where one "
+             "is written) holds the study's results and records. It leaves out "
+             f"{len(left)} working {'file' if len(left) == 1 else 'files'}, "
+             f"{size_said(total)} in all, which stay in the study's folder at the "
+             f"paths below; `{LEFT_OUT_LIST}` inside the bundle lists them too.", ""]
+    lines += [f"- `{_code_text(rel)}` ({size_said(size)}): {_md_text(why)}"
+              for rel, size, why in left]
+    return "\n".join(lines)
 
 
 def _scene_said(view: dict[str, Any], frame: Any) -> str:
@@ -1345,6 +1378,9 @@ def build_document(
     stopping = _stopping_section(project_root)
     if stopping:
         sections.append(stopping)
+    bundle = _bundle_section(project_root)
+    if bundle:
+        sections.append(bundle)
 
     sections.append(
         "## Discussion\n\n"
