@@ -2697,6 +2697,63 @@ def test_a_reload_with_no_study_open_leaves_send_working(tmp_path, monkeypatch, 
     assert errors == []
 
 
+def test_a_question_asked_with_no_study_shown_is_refused_once_one_is_open(tmp_path, monkeypatch):
+    """L18 1: with no study open, Enter pressed as another window opened a
+    study went to the Agent with that study open, as the page's view named
+    no study, and was filed in the workspace's chats. A view naming no study
+    is refused while the GUI has one open, as another study's is."""
+    import fastmdxplora.agent as agent
+    from fastmdxplora.gui.agent_panel import _active_view_error, propose_endpoint
+    from fastmdxplora.gui.exploration import DashboardRuntime
+
+    workspace = tmp_path / "workspace"
+    other = _study(workspace / "other")
+    begun = _begun(workspace)
+    runtime = DashboardRuntime(workspace_root=workspace, exploration_root=workspace)
+    called = []
+    monkeypatch.setattr(agent, "completion_for", lambda **_: called.append(True))
+    none = {"page": "agent", "study": ""}
+    runtime.active_root = other
+    answer = propose_endpoint({"request": "Why with none?", "current_view": none}, runtime)
+    assert not answer["ok"] and answer["code"] == "agent.view.changed", answer
+    assert called == []
+    # Where the GUI has no study open, or a folder that is not one, it is not.
+    for open_now in (None, begun):
+        runtime.active_root = open_now
+        assert _active_view_error(none, runtime, None) is None, open_now
+    runtime.active_root, runtime.data_stale = other, True
+    assert _active_view_error(none, runtime, None) is None
+    # A view that says nothing of a study is judged as before.
+    runtime.data_stale = False
+    assert _active_view_error({"page": "agent"}, runtime, None) is None
+
+
+def test_the_page_names_no_study_open_in_its_view(tmp_path, monkeypatch):
+    """L18 1: the view sent with a message named no study when none was
+    open, so the server could not tell it from a view that says nothing of
+    one. It names no study open, on every page and in the Viewer's view."""
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    session.runtime.data_stale = True
+    session.runtime.active_root = None
+    asked = []
+    page, errors, close = _page_on(session, [_answer("With none.")])
+    try:
+        _asking(page, asked)
+        page.wait_for_function("() => window.FastMDXDashboard.studyKnown()"
+                               " && !window.FastMDXAgentPanel.waits", timeout=30000)
+        _say(page, "asked with no study")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('With none.')", timeout=15000)
+        viewer = page.evaluate("() => window.FastMDXMoleculeViewer"
+                               " && window.FastMDXMoleculeViewer.currentViewHints()")
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["asked with no study"], asked
+    assert asked[0].get("current_view", {}).get("study") == "", asked[0].get("current_view")
+    assert viewer and viewer.get("study") == "", viewer
+    assert errors == []
+
+
 @pytest.mark.parametrize("left", ["no study", "a folder not a study"])
 def test_a_study_opened_after_no_study_shows_its_own_thread(tmp_path, monkeypatch, left):
     """L15 2: no study open (or a folder that is not one), a question asked

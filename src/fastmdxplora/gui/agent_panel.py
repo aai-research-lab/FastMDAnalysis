@@ -484,7 +484,19 @@ def _written_as_it_goes(complete: Any, emit: Any) -> Any:
 
 def _active_view_error(view_hints: Any, runtime: Any, path_for: Any) -> str | None:
     """Reject a stale or changed study before an Agent call begins."""
-    if not isinstance(view_hints, dict) or not view_hints.get("study"):
+    if not isinstance(view_hints, dict):
+        return None
+    if "study" in view_hints and not view_hints["study"]:
+        # The page shows no study (none open, or a folder that is not one):
+        # refused when the GUI has a study open now, as another study would
+        # be (CI-774 review L18: asked with that study open, it was filed in
+        # the workspace's chats).
+        active = getattr(runtime, "active_root", None)
+        if (active is not None and not getattr(runtime, "data_stale", False)
+                and _scope(runtime)[1] is not None):
+            return "The current view changed. Select it again before asking the Agent."
+        return None
+    if not view_hints.get("study"):
         return None
     if getattr(runtime, "data_stale", False):
         return "Reload the current study before asking the Agent about its view."

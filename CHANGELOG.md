@@ -349,6 +349,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   goes, says when it comes back where the words typed then are kept, in
   every order the cut request fails in.
 
+- A message sent with no study shown names no study in its view, and the
+  Agent refuses it, as it refuses a view of another study, where the GUI has
+  a study open by then (another window opened one as Enter was pressed); it
+  was answered with that study open and filed in the workspace's chats.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is

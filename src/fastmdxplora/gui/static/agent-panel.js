@@ -1701,8 +1701,13 @@
     if (page === "viewer" && viewer && viewer.currentViewHints) return viewer.currentViewHints();
     var hints = {};
     if (page) hints.page = page;
-    var study = (dash.appState || {}).active_run || null;
+    var app = dash.appState || {};
+    var study = app.active_run || null;
     if (study) hints.study = clipped(String(study));
+    /* No study open, once read so: named as such, and refused by the
+     * server where the GUI has one open (CI-774 review L18: asked with a
+     * study another window opened, it was filed in the workspace's chats). */
+    else if (Object.keys(app).length) hints.study = "";
     var frame = window.FastMDXFrame;
     var file = frame && frame.previewing ? frame.previewing() : null;
     if (file) hints.file = clipped(String(file));

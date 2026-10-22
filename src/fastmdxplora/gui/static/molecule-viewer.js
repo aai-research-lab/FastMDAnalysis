@@ -1301,7 +1301,9 @@
     const appState = dashboard.appState || {};
     const hints = {
       page: dashboard.activePage || null,
-      study: appState.active_run || null,
+      // No study open, once the page has read so, is named as such ("");
+      // the server refuses it when the GUI has one open (CI-774 review L18).
+      study: appState.active_run || (Object.keys(appState).length ? "" : null),
       frame: Number.isInteger(view.frame) ? view.frame : null,
       representation: view.representation || null,
       colour: view.colour || null,
