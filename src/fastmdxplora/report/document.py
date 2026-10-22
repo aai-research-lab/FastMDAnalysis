@@ -679,7 +679,8 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
         if analysis == "reweighted" and reweighted_record:
             continue
         # Pretty heading: uppercase short names, title-case longer ones
-        heading = analysis.upper() if len(analysis) <= 4 else analysis.title()
+        heading = _HEADINGS.get(analysis) or (
+            analysis.upper() if len(analysis) <= 4 else analysis.title())
         heading = _md_text(heading)
         lines.append(f"### {heading}")
         # What this analysis measures, in a sentence, before its parameters.
@@ -1094,6 +1095,35 @@ def _what_more_sampling_needs(project_root: Path) -> str:
             f"```yaml\n{config}\n```")
 
 
+#: Headings said otherwise than the analysis's name.
+_HEADINGS = {"image_check": "Image check"}
+
+
+def image_note_said(image: Any) -> str | None:
+    """What the report says of how close the solute came to its own
+    periodic images: the image check's finding in full, in its own section,
+    and on another analysis whose frames it met its image in, one line
+    pointing there, from that analysis's note (its frames, not the run's)."""
+    if not isinstance(image, dict):
+        return None
+    if "frames_used" not in image:
+        # The image check's own finding.
+        return str(image["said"]) if image.get("said") else None
+    used, under = image.get("frames_used"), image.get("frames_under_cutoff")
+    if not (isinstance(used, int) and isinstance(under, int) and used > 0 and under > 0):
+        return None
+    from fastmdxplora.analysis.image_check import share_said
+
+    cutoff = image.get("cutoff_nm")
+    within = (f"within the {float(cutoff):g} nm cutoff of"
+              if isinstance(cutoff, (int, float)) else "within the cutoff of")
+    what = ("its shape over them, and a mean of it, may be biased"
+            if image.get("may_bias") == "shape" else "a mean over them may be biased")
+    return (f"The solute came {within} its own periodic image in {under:,} of the "
+            f"{used:,} frames used ({share_said(under, used)}), so {what} (see Image "
+            "check).")
+
+
 def _findings_notes(findings: dict[str, Any]) -> list[str]:
     """What an analysis worked out, in sentences.
 
@@ -1131,12 +1161,11 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     if findings.get("made_whole"):
         notes.append(str(findings["made_whole"]))
     # How close the solute came to its own images: the image check's own
-    # result, and on every other analysis of the frames where it reached one.
-    image = findings.get("solute_image")
-    if isinstance(image, dict) and image.get("said"):
-        said = str(image["said"])
-        if not any(said in note for note in notes):
-            notes.append(said)
+    # paragraph, said once, in its section; on each other analysis whose
+    # frames it met its image in, a line pointing there.
+    pointer = image_note_said(findings.get("solute_image"))
+    if pointer and not any(pointer in note for note in notes):
+        notes.append(pointer)
     shell = findings.get("shell")
     if isinstance(shell, dict) and shell.get("said"):
         notes.append(str(shell["said"]))

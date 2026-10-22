@@ -196,9 +196,9 @@ class TestAChainAcrossASmallBox:
         assert result.figure_path.is_file()
         found = json.loads((tmp_path / "image_check" / "options.json").read_text())["findings"]
         assert found["solute_image"]["frames_under_cutoff"] == 10
-        # The check's own mean carries what it found, where the Overview,
-        # the Agent and the report read a mean's reason.
-        assert "its own copy" in found["mean"]["not_a_measurement"]
+        # No mean of the closest approach: its findings are the minimum and
+        # the counts, and its figure is not given a mean line.
+        assert "mean" not in found
 
     def test_the_close_threshold_is_half_a_nanometre(self):
         assert CLOSE_NM == 0.5 and CUTOFF_NM == 1.0
@@ -238,18 +238,23 @@ class TestTheEndToEndDistanceReadsIt:
         found = analysis.findings
         assert found["periodic"]["nearest_self_image_nm"] > 2.0     # the ends
         assert found["periodic"]["nearest_self_image_whole_chain_nm"] < 1.0
-        assert "its own copy" in found["not_a_measurement"]
+        assert "periodic image" in found["not_a_measurement"]
         assert not np.isfinite(found["mean"]["standard_error"])
+        assert found["mean"]["error_withheld_because"] == "chain meets its periodic image"
 
     def test_handed_the_finding_it_reads_it_rather_than_its_own(self):
         from fastmdxplora.analysis.end_to_end import EndToEndDistance
 
         analysis = EndToEndDistance()
-        analysis.solute_image = {"reaches_its_image": True, "said": "Handed: its own copy.",
-                                 "nearest_nm": 0.3}
         traj = _stretched(reaching=0, touching=0)
-        analysis.compute(traj)
-        assert "Handed: its own copy." in analysis.findings["not_a_measurement"]
+        analysis.solute_image = {"reaches_its_image": True, "cutoff_nm": 1.0,
+                                 "nearest_nm": 0.3}
+        # Handed a series meeting the image in two frames, where the chain
+        # measured here does not.
+        analysis.solute_image_series = np.r_[np.full(traj.n_frames - 2, 3.0), [0.3, 0.6]]
+        analysis.result = analysis.compute(traj)
+        analysis._record_what_the_mean_is_worth(traj)
+        assert "periodic image in 2 of" in analysis.findings["mean"]["not_a_measurement"]
 
 
 @pytest.fixture(scope="module")
@@ -276,28 +281,45 @@ class TestEveryAnalysisOfTheFramesReadsIt:
         assert all(r.status == "ok" for r in results.values()), {
             n: r.message for n, r in results.items()}
 
-    def test_each_mean_carries_the_one_reason_once(self, analysed):
+    def test_each_mean_keeps_its_error_and_carries_the_note(self, analysed):
         folder, _ = analysed
-        said = self._found(folder, "image_check")["solute_image"]["said"]
-        for name in ("rg", "end_to_end", "image_check"):
-            mean = self._found(folder, name)["mean"]
-            assert mean["not_a_measurement"].count(said) == 1, name
-            assert not np.isfinite(mean["standard_error"]), name
-            assert mean["error_withheld_because"], name
+        found = self._found(folder, "rg")
+        assert np.isfinite(found["mean"]["standard_error"])
+        assert "error_withheld_because" not in found["mean"]
+        assert "periodic image" not in str(found["mean"].get("not_a_measurement") or "")
+        note = found["solute_image"]
+        assert note["frames_used"] == 200 - found["mean"]["discard"]
+        assert note["frames_under_cutoff"] == note["frames_used"]
+        assert "shape" in note["said"] and note["may_bias"] == "shape"
+        assert found["mean"]["solute_image"]["frames_under_cutoff"] == note["frames_under_cutoff"]
+        assert "said" not in found["mean"]["solute_image"]
+
+    def test_end_to_end_alone_withholds_its_error(self, analysed):
+        folder, _ = analysed
+        mean = self._found(folder, "end_to_end")["mean"]
+        assert not np.isfinite(mean["standard_error"])
+        assert mean["error_withheld_because"] == "chain meets its periodic image"
+        assert self._found(folder, "end_to_end")["solute_image"]["said"] in mean["not_a_measurement"]
 
     def test_an_analysis_with_no_mean_says_it_too(self, analysed):
         folder, _ = analysed
         found = self._found(folder, "cluster")
-        assert found["solute_image"]["reaches_its_image"] is True
-        assert "its own copy" in found["solute_image"]["said"]
+        assert found["solute_image"]["frames_used"] == 200
+        assert "meeting its copy" in found["solute_image"]["said"]
 
     def test_the_report_says_it(self, analysed):
         from fastmdxplora.report.document import _findings_notes
 
         folder, _ = analysed
-        for name in ("rg", "cluster", "image_check"):
+        paragraph = self._found(folder, "image_check")["solute_image"]["said"]
+        notes = _findings_notes(self._found(folder, "image_check"))
+        assert notes.count(paragraph) == 1
+        for name in ("rg", "cluster"):
             notes = _findings_notes(self._found(folder, name))
-            assert sum("its own copy" in note for note in notes) == 1, (name, notes)
+            assert not any(paragraph in note for note in notes), name
+            pointers = [note for note in notes if "(see Image check)" in note]
+            assert len(pointers) == 1, (name, notes)
+            assert "may be biased" in pointers[0]
 
     def test_a_study_without_a_box_does_not_plan_it(self, tmp_path):
         from fastmdxplora.analysis import AnalysisOrchestrator
@@ -572,7 +594,7 @@ class TestItIsInEveryPlan:
         results = orchestrator.run(include=["rg"])
         assert list(results) == ["image_check", "rg"]
         found = json.loads((study / "analysis" / "rg" / "options.json").read_text())["findings"]
-        assert found["solute_image"]["reaches_its_image"] is True
+        assert found["solute_image"]["frames_under_cutoff"] > 0
 
     def test_without_a_box_a_listed_plan_is_as_listed(self, tmp_path):
         from fastmdxplora.analysis import AnalysisOrchestrator
@@ -607,3 +629,152 @@ class TestItIsInEveryPlan:
 
         help_of = next(f for f in ANALYSIS.fields if f.name == "exclude").help
         assert "image_check" in help_of and "listed one too" in help_of
+
+
+class TestANoteNotAWithheldError:
+    """Meeting its own copy may bias a mean; it does not make the mean's
+    error unknown. Every mean keeps its error, and carries a note counted
+    over the frames it uses."""
+
+    def _rg(self, n: int = 100):
+        from fastmdxplora.analysis.rg import Rg
+
+        traj = _ca_line(n_frames=n, reaching=0)
+        analysis = Rg()
+        analysis.solute_image = {"reaches_its_image": True, "cutoff_nm": 1.2}
+        analysis.findings["mean"] = {"n_frames": n, "discard": 40, "mean": 1.0,
+                                     "standard_error": 0.01, "unit": "nm"}
+        return analysis, traj
+
+    def test_counted_over_the_frames_the_mean_uses(self):
+        analysis, traj = self._rg()
+        # Within the cutoff in 10 frames of the equilibration and 5 after it.
+        series = np.full(100, 2.0)
+        series[[1, 5, 9, 12, 20, 22, 25, 30, 33, 39]] = 0.9
+        series[[50, 60, 70, 80, 90]] = 1.1
+        series[60] = 0.4
+        analysis.solute_image_series = series
+        analysis._qualify_by_the_solute_image(traj)
+        note = analysis.findings["solute_image"]
+        assert note["frames_used"] == 60 and note["frames_under_cutoff"] == 5
+        assert note["nearest_nm"] == pytest.approx(0.4) and note["nearest_frame"] == 60
+        assert "in 5 of 60 frames used (8%)" in note["said"]
+        mean = analysis.findings["mean"]
+        assert mean["standard_error"] == 0.01 and "not_a_measurement" not in mean
+        assert mean["solute_image"]["frames_under_cutoff"] == 5
+
+    def test_none_where_only_the_discarded_frames_met_it(self):
+        analysis, traj = self._rg()
+        series = np.full(100, 2.0)
+        series[:40] = 0.3
+        analysis.solute_image_series = series
+        analysis._qualify_by_the_solute_image(traj)
+        assert "solute_image" not in analysis.findings
+        assert "solute_image" not in analysis.findings["mean"]
+
+    def test_the_time_is_in_ps_under_a_nanosecond(self):
+        analysis, traj = self._rg()
+        series = np.full(100, 2.0)
+        series[50] = 0.5
+        analysis.solute_image_series = series
+        analysis._qualify_by_the_solute_image(traj)
+        assert "frame 50, 500 ps" in analysis.findings["solute_image"]["said"]
+
+    def test_the_run_s_ensemble_gets_the_plain_note(self):
+        from fastmdxplora.analysis.image_check import note_on_frames
+
+        finding = {"reaches_its_image": True, "cutoff_nm": 1.0}
+        plain = note_on_frames(finding, [0.5, 2.0], analysis="thermodynamics")
+        shape = note_on_frames(finding, [0.5, 2.0], analysis="rmsf")
+        assert plain["said"].endswith(
+            "A mean over such frames may be biased by the solute meeting its copy.")
+        assert "shape" not in plain["said"] and plain["may_bias"] == "mean"
+        assert "shape" in shape["said"] and shape["may_bias"] == "shape"
+
+    def test_every_mean_record_of_an_analysis_carries_it(self, tmp_path):
+        """SASA's hydrophobic and polar means and the moments' shape
+        descriptors kept their errors and said nothing, beside the main mean
+        given without one: the same number shown twice, two verdicts."""
+        from fastmdxplora.analysis import AnalysisOrchestrator
+
+        traj = _hairpin_reaching_its_image()
+        traj[0].save_pdb(str(tmp_path / "top.pdb"))
+        traj.save_dcd(str(tmp_path / "traj.dcd"))
+        AnalysisOrchestrator(str(tmp_path / "traj.dcd"), str(tmp_path / "top.pdb"),
+                             output_dir=tmp_path / "analysis").run(
+            include=["sasa", "moments_of_inertia"])
+        for name in ("sasa", "moments_of_inertia"):
+            found = json.loads((tmp_path / "analysis" / name / "options.json")
+                               .read_text())["findings"]
+            means = {key: value for key, value in found.items()
+                     if isinstance(value, dict) and "n_frames" in value and "mean" in value}
+            assert len(means) > 1, (name, list(found))
+            for key, record in means.items():
+                assert record["solute_image"]["frames_under_cutoff"] > 0, (name, key)
+                # Withheld for nothing of the image (a molecule with no bonds
+                # past half the cell is another matter, said as that).
+                assert "image" not in str(record.get("error_withheld_because")), (name, key)
+
+    def test_the_reweighted_averages_carry_it(self, tmp_path, monkeypatch):
+        from fastmdxplora.analysis import reweighted_averages as rw
+        from fastmdxplora.analysis.orchestrator import _REGISTRY
+        from fastmdxplora.analysis.reweight import Weights
+
+        n = 200
+        rng = np.random.default_rng(0)
+        series = 1.0 + 0.05 * rng.normal(size=n)
+        monkeypatch.setattr(rw, "biasing_method", lambda _: "metadynamics")
+        monkeypatch.setattr(rw, "weights_for_run", lambda *_: (
+            Weights(values=np.ones(n), effective_sample_size=float(n), converged=True),
+            {"cv_statistical_inefficiency": 1.0}))
+
+        class Result:
+            status = "ok"
+            data = {"total": series}
+
+        import pandas as pd
+
+        Result.data = pd.DataFrame({"total": series})
+        distances = np.full(n, 2.0)
+        distances[150:160] = 0.8
+        record = rw.reweight_results(
+            {"rg": Result()}, _REGISTRY, n_frames=n,
+            frame_times_ps=np.arange(n) * 10.0, output_dir=tmp_path,
+            solute_image={"reaches_its_image": True, "cutoff_nm": 1.0},
+            solute_image_series=distances)
+        item = record["quantities"][0]
+        assert item["solute_image"]["frames_under_cutoff"] == 10
+        assert item["solute_image"]["frames_used"] == n
+        assert "meeting its copy" in item["solute_image"]["said"]
+
+
+class TestTheReportPageSaysWhy:
+    """The GUI's Report page called every qualified mean "too short to be
+    determined", the reason the record gives being the image."""
+
+    def _found(self, tmp_path, name, findings):
+        from fastmdxplora.gui.report_dashboard import _what_the_analysis_found
+
+        folder = tmp_path / "analysis" / name
+        folder.mkdir(parents=True)
+        (folder / "options.json").write_text(json.dumps({"findings": findings}))
+        (folder / f"{name}.dat").write_text("1.0\n")
+        return _what_the_analysis_found(folder / f"{name}.dat")
+
+    def test_a_withheld_mean_says_the_record_s_reason(self, tmp_path):
+        said = self._found(tmp_path, "end_to_end", {"mean": {
+            "n_frames": 100, "mean": 2.5, "standard_error": float("nan"),
+            "not_a_measurement": "The chain ... meeting its copy.",
+            "error_withheld_because": "chain meets its periodic image"}})
+        assert "too short" not in said
+        assert said.startswith("mean 2.5") and "not determined: chain meets its periodic image" in said
+
+    def test_a_noted_mean_keeps_its_error_and_says_it_may_be_biased(self, tmp_path):
+        said = self._found(tmp_path, "rg", {
+            "mean": {"n_frames": 100, "mean": 1.0, "standard_error": 0.01,
+                     "effective_samples": 40.0},
+            "solute_image": {"frames_used": 60, "frames_under_cutoff": 5,
+                             "cutoff_nm": 1.0, "may_bias": "shape", "said": "..."}})
+        assert "±" in said
+        assert said.endswith("may be biased: the solute met its own periodic image in 5 of "
+                             "60 frames used (8%)")

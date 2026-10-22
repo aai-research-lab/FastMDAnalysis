@@ -305,6 +305,7 @@ class AnalysisOrchestrator:
 
         self.results = {}
         solute_image: dict[str, Any] | None = None
+        image_series: Any = None
         for name in plan:
             cls = get_analysis_class(name)
             raw_opts = dict(merged_options[name])
@@ -357,6 +358,7 @@ class AnalysisOrchestrator:
             # The one finding of how close the solute came to its own images,
             # read by every analysis of these frames.
             analysis.solute_image = solute_image
+            analysis.solute_image_series = image_series
             # Its own trajectory, not the shared one. Superposition in
             # mdtraj rotates coordinates in place, so an analysis that
             # aligns leaves every later analysis reading rotated
@@ -369,10 +371,11 @@ class AnalysisOrchestrator:
             self.results[name] = analysis.run(carry_wholeness(self.traj, self.traj[:]))
             if name == _IMAGE_CHECK and self.results[name].status == "ok":
                 solute_image = analysis.findings.get("solute_image")
+                image_series = analysis.result
             elif solute_image and self.results[name].status == "ok" \
-                    and "solute_image" not in analysis.findings:
+                    and not getattr(analysis, "_qualified_by_the_image", False):
                 # An analysis whose `run` is its own (clustering, the
-                # projections) is qualified after it, and its record written
+                # projections) is noted after it, and its record written
                 # again with it.
                 analysis._qualify_by_the_solute_image(self.traj)
                 try:
@@ -380,11 +383,12 @@ class AnalysisOrchestrator:
                 except OSError:
                     logger.debug("Could not rewrite %s's options", name, exc_info=True)
 
-        self._reweight()
+        self._reweight(solute_image, image_series)
         self._write_manifest()
         return dict(self.results)
 
-    def _reweight(self) -> None:
+    def _reweight(self, solute_image: dict[str, Any] | None = None,
+                  image_series: Any = None) -> None:
         """Correct the averages of a biased run, where a correction exists.
 
         Runs after the analyses rather than as one of them because it reads
@@ -404,6 +408,8 @@ class AnalysisOrchestrator:
                 n_frames=int(self.traj.n_frames),
                 frame_times_ps=getattr(self.traj, "time", []),
                 output_dir=self.output_dir,
+                solute_image=solute_image,
+                solute_image_series=image_series,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Reweighting failed")

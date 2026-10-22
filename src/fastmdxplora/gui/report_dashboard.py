@@ -909,7 +909,13 @@ def _what_the_analysis_found(data_path: Path) -> str | None:
     if not _finite(mean):
         return "no mean: too short to determine" if found.get("not_a_measurement") else None
     if found.get("not_a_measurement"):
-        return f"mean {_format_metric_value(mean)}{unit}, too short to be determined"
+        # Why, as the record says it: a reason the analysis found (the chain
+        # meeting its own image) is not a series too short.
+        because = found.get("error_withheld_because")
+        return (f"mean {_format_metric_value(mean)}{unit}, not determined: {because}"
+                if because else
+                f"mean {_format_metric_value(mean)}{unit}, too short to be determined"
+                ) + _image_noted(record)
     error = found.get("standard_error")
     text = (f"mean {_with_its_error(mean, error)}{unit}" if _finite(error) and error > 0
             else f"mean {_format_metric_value(mean)}{unit}")
@@ -924,7 +930,23 @@ def _what_the_analysis_found(data_path: Path) -> str | None:
         text += f", {count} independent sample{'s' if count != 1 else ''}"
         if samples < MINIMUM_EFFECTIVE_SAMPLES:
             text += ", too few to determine the mean"
-    return text
+    return text + _image_noted(record)
+
+
+def _image_noted(record: Any) -> str:
+    """The note of an analysis whose frames the solute met its own image
+    in, as the report says it, in a few words for a caption."""
+    found = (record.get("findings") or {}) if isinstance(record, dict) else {}
+    image = found.get("solute_image") if isinstance(found, dict) else None
+    if not isinstance(image, dict) or "frames_used" not in image:
+        return ""
+    used, under = image.get("frames_used"), image.get("frames_under_cutoff")
+    if not (isinstance(used, int) and isinstance(under, int) and used > 0 and under > 0):
+        return ""
+    from fastmdxplora.analysis.image_check import share_said
+
+    return (f"; may be biased: the solute met its own periodic image in {under:,} of "
+            f"{used:,} frames used ({share_said(under, used)})")
 
 
 def _biased_caption(data_path: Path, corrected: dict[Any, Any]) -> str:
@@ -936,7 +958,8 @@ def _biased_caption(data_path: Path, corrected: dict[Any, Any]) -> str:
     unit = _UNITS.get(name, "")
     unit = f" {unit}" if unit else ""
     if item is not None and _finite(item.get("reweighted_mean")):
-        return f"reweighted mean {_format_metric_value(item['reweighted_mean'])}{unit}"
+        return (f"reweighted mean {_format_metric_value(item['reweighted_mean'])}{unit}"
+                + _image_noted({"findings": {"solute_image": item.get("solute_image")}}))
     if name in _UNITS:
         return "biased ensemble: no unbiased mean"
     return ""

@@ -199,10 +199,13 @@ class Analysis(ABC):
 
     #: How close the solute came to its own periodic images in these frames,
     #: as the image check found it (``findings.solute_image`` of
-    #: :mod:`fastmdxplora.analysis.image_check`). The orchestrator hands it
-    #: to every analysis of the same frames; where the solute reached its
-    #: image, each is qualified by it (:meth:`_qualify_by_the_solute_image`).
+    #: :mod:`fastmdxplora.analysis.image_check`), and its series of closest
+    #: approaches, one a frame. The orchestrator hands both to every analysis
+    #: of the same frames; where the solute met its image in the frames a
+    #: mean uses, the mean carries a note of it, its error kept
+    #: (:meth:`_qualify_by_the_solute_image`).
     solute_image: dict[str, Any] | None = None
+    solute_image_series: Any = None
 
 
     #: True for analyses that only apply to protein-ligand complexes (e.g.
@@ -574,27 +577,91 @@ class Analysis(ABC):
         if "standard_error" in record:
             record["standard_error"] = float("nan")
 
+    def _frames_used_by_all(self, n: int) -> "np.ndarray | None":
+        """The frames, of the ``n`` analysed, that an analysis uses where it
+        has no mean of its own: from its ``start``, at its ``stride``, where
+        it took them so (clustering, the projections); every frame where
+        None."""
+        first = getattr(self, "_first_frame", None)
+        first = first if isinstance(first, int) and not isinstance(first, bool) else 0
+        stride = getattr(self, "stride", 1)
+        stride = stride if isinstance(stride, int) and not isinstance(stride, bool) \
+            and stride > 0 else 1
+        if first == 0 and stride == 1:
+            return None
+        return np.arange(first, n, stride)
+
+    def _image_note_for(self, traj: md.Trajectory,
+                        record: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The note on ``record`` (a mean record, or the analysis where None)
+        of the frames it uses in which the solute met its own image: those
+        after its discard where it is a mean over the frames analysed, else
+        those the analysis used. None where there is nothing to note."""
+        from fastmdxplora.analysis.image_check import note_on_frames
+
+        series = self.solute_image_series
+        if series is None:
+            return None
+        n = len(series)
+        used = None
+        if isinstance(record, dict) and record.get("n_frames") == n:
+            discard = record.get("discard")
+            discard = discard if isinstance(discard, int) and not isinstance(discard, bool) else 0
+            used = np.arange(min(max(discard, 0), n), n)
+        else:
+            used = self._frames_used_by_all(n)
+        times = getattr(traj, "time", None)
+        return note_on_frames(self.solute_image, series, used, times_ps=times,
+                              analysis=self.name)
+
+    def _mean_records(self) -> list[dict[str, Any]]:
+        """Every mean the findings hold: the analysis's own, each further one
+        (SASA's hydrophobic and polar, the moments' shape descriptors), and
+        those of a group read from another record (thermodynamics)."""
+        found: list[dict[str, Any]] = []
+        for key, value in self.findings.items():
+            if key == "solute_image" or not isinstance(value, dict):
+                continue
+            if "n_frames" in value and ("mean" in value or "not_a_measurement" in value):
+                found.append(value)
+                continue
+            for inner in value.values():
+                if isinstance(inner, dict) and "mean" in inner and (
+                        "units" in inner or "discard" in inner):
+                    found.append(inner)
+        return found
+
     def _qualify_by_the_solute_image(self, traj: md.Trajectory) -> None:
-        """Where the solute reached its own periodic image in these frames,
-        say so in the findings, and give the mean without its error bar and
-        with that reason, where there is a mean: one finding, read the same
-        way by every analysis of the frames (the image check's own included).
-        Said once, however often this is called."""
-        record = self.solute_image
-        if not isinstance(record, dict) or not record.get("reaches_its_image"):
+        """Where the solute met its own periodic image in the frames this
+        analysis uses, say so: once for the analysis, in
+        ``findings.solute_image`` (counted over the frames its mean uses, or
+        every frame it used where it has no mean), and on each mean record,
+        its numbers counted over that mean's own frames. Every error bar is
+        kept: meeting its copy may bias a mean, it does not make its error
+        unknown. One function for every mean
+        (:func:`fastmdxplora.analysis.image_check.note_on_frames`); said
+        once, however often this is called. The image check notes nothing
+        of itself: its series is the finding."""
+        self._qualified_by_the_image = True
+        if self.name == "image_check":
             return
-        said = str(record.get("said") or "")
-        self.findings["solute_image"] = (
-            record if self.findings.get("solute_image") is record
-            else {"reaches_its_image": True, "said": said,
-                  "nearest_nm": record.get("nearest_nm"),
-                  "frames_under_cutoff": record.get("frames_under_cutoff"),
-                  "read_from": "image_check"})
-        mean = self.findings.get("mean")
-        if isinstance(mean, dict) and said and said not in str(
-                mean.get("not_a_measurement") or ""):
-            self._withhold_the_error(traj, said,
-                                     because="solute reaches its periodic image")
+        finding = self.solute_image
+        if not isinstance(finding, dict) or not finding.get("reaches_its_image"):
+            return
+        main = self.findings.get("mean")
+        note = self._image_note_for(traj, main if isinstance(main, dict) else None)
+        if note:
+            self.findings["solute_image"] = note
+        else:
+            self.findings.pop("solute_image", None)
+        from fastmdxplora.analysis.image_check import note_numbers
+
+        for record in self._mean_records():
+            own = self._image_note_for(traj, record)
+            if own:
+                record["solute_image"] = note_numbers(own)
+            else:
+                record.pop("solute_image", None)
 
     def _mark_what_the_mean_rests_on(self, ax: plt.Axes) -> None:
         """Draw the equilibrated region, its mean, and the error bar or its absence.

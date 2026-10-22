@@ -90,12 +90,28 @@ else the cutoff of the force field that record names (1.2 nm for CHARMM36,
 (`cutoff_from`), and `cutoff_nm` under `options: {image_check: ...}` sets
 another.
 Where the solute comes within the cutoff of its image, it is interacting with
-its own copy in those frames, and that is one finding every other analysis
-of the frames reads: each mean is given without its error bar and with the
-reason, where the report, the Overview and the Agent read it, and an
-analysis with no mean says it in its findings. `end_to_end` reads it rather
-than checking the chain's two ends alone, which passed a chignolin chain
-that came to 0.261 nm of its own copy. A larger box, in a new study, is what
+its own copy in those frames. That may bias a mean over them; it does not
+make the mean's statistical error unknown. So every mean keeps its error bar,
+and every analysis of those frames carries a note, counted over the frames it
+uses (after its mean's discarded equilibration, or from its `start`), once in
+its `findings.solute_image` ("The solute came within 1 nm of its own periodic
+image in 105 of 280 frames used (38%); the closest, 0.580 nm at frame 299,
+2.99 ns. ..."), with its numbers on each mean record it holds (SASA's
+hydrophobic and polar, the moments' shape descriptors), and on each reweighted
+average of a biased run. For an analysis of the solute's shape or
+conformation the note says its shape may be biased; for the thermodynamics
+and the solvent's analyses, that a mean may be. The report says the check's
+finding once, in its own section, and under each analysis one line pointing
+there; the Report page gives the mean with its error and "may be biased".
+Frames where no mean is used (the discarded equilibration) do not count, and
+an analysis whose frames never met the image carries no note. `end_to_end`
+alone withholds its error for it, as it did before the whole chain was
+checked (where an end came within 1.0 nm of the other end's image): it reads
+the same note rather than checking the chain's two ends alone, which passed
+a chignolin chain that came to 0.261 nm of its own copy. Grading the note by
+how often and how close (a note only under a small share of frames never in
+contact; past it, the mean over the frames clear of the image given beside
+it) waits for thresholds fixed in a registered check. A larger box, in a new study, is what
 changes it; setup's default padding is 2.0 nm for this reason (see
 [Config reference](config_reference.md)).
 
@@ -388,9 +404,10 @@ against another tool.
   from one residue to the next along the chain, so it is the same whether the
   chain was stored whole or wrapped into the cell, and it is not limited to
   half the box. Taken between the two ends directly, a straight chain 3.42 nm
-  long in a 4.62 nm cube read 1.20 nm. Where an end comes within 1.0 nm of a
-  periodic image of the other end, the chain is interacting with its own copy;
-  the run is marked and the mean carries no error bar.
+  long in a 4.62 nm cube read 1.20 nm. Where the chain comes within the run's
+  cutoff of its own periodic image in the frames its mean uses (the image
+  check's note), it is interacting with its own copy; the run is marked and
+  the mean carries no error bar.
 
 - **Moments of inertia** are marked as describing a broken molecule only where a
   bond of the selection is longer than half the cell's narrowest width, which a

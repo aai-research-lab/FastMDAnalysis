@@ -36,12 +36,21 @@ settled with a shorter vector unsearched. ``L`` and ``-L`` give the same
 distance, so half are searched, shortest first, stopping where
 ``|L| - 2r`` passes the closest approach found.
 
-The check's finding (``findings.solute_image``) is the one finding every
-other analysis of the same frames reads (the orchestrator hands it to each):
-where the solute reaches its image, each mean is given without its error
-bar and with this as the reason, through the same path the end-to-end
-distance used for its two ends (:meth:`Analysis._withhold_the_error`), and
-the end-to-end distance reads it rather than checking the ends alone.
+The check's finding (``findings.solute_image``) and its series are what
+every other analysis of the same frames reads (the orchestrator hands both
+to each). Meeting its own copy may bias a mean; it does not make the mean's
+statistical error unknown. So every error bar is kept, and where the solute
+came within the cutoff of its image in the frames a mean uses (after its
+discard, or from its ``start``), the analysis carries a note of it, counted
+over those frames (:func:`note_on_frames`, one function for every mean, the
+reweighted averages' too). For an analysis of the solute's shape or
+conformation the note says the shape may be biased; for the run's ensemble
+and the solvent (:data:`PLAIN_NOTE`), that a mean may be. The end-to-end
+distance alone withholds its error for it, as it did for its two ends before
+the whole chain was checked. Whether to grade the note by how often and how
+close (a note only, under a share and never in contact; more, the mean over
+the frames clear of the image beside it) waits for thresholds fixed in a
+registered check.
 """
 
 from __future__ import annotations
@@ -72,6 +81,94 @@ CLOSE_NM = 0.5
 
 #: Frames made whole and searched at a time, so memory stays bounded.
 FRAMES_AT_A_TIME = 1000
+
+#: The analyses of the run's ensemble or of the solvent around the solute,
+#: whose note is the plain one: a mean over frames where the solute met its
+#: copy may be biased by it. Every other analysis is of the solute's shape or
+#: conformation (end-to-end distance, Rg, RMSD, RMSF, contacts, secondary
+#: structure, the moments, the clusters and projections), and its note says
+#: the shape may be biased.
+PLAIN_NOTE = frozenset({
+    "thermodynamics", "rdf", "coordination_number", "water_sites",
+    "area_per_lipid", "bilayer_thickness", "lipid_order",
+    "pmf", "metad_surface", "steered_work",
+})
+
+
+def share_said(part: int, whole: int) -> str:
+    """A share of frames as a percentage, never rounded to 0% or 100%."""
+    value = 100.0 * part / whole if whole else 0.0
+    if 0 < value < 1:
+        return f"{value:.2g}%"
+    if 99 < value < 100:
+        return f"{value:.1f}%"
+    return f"{value:.0f}%"
+
+
+def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = None, *,
+                   times_ps: Any = None, analysis: str = "") -> dict[str, Any] | None:
+    """The note a mean (or an analysis without one) carries where the solute
+    met its own periodic image in the frames it uses: one function for every
+    mean record, the reweighted averages' too.
+
+    ``finding`` is the image check's (its cutoff and where that was read),
+    ``distances`` its series over the frames analysed, ``used`` the indices
+    among them that this mean uses (after its discard or ``start``; every
+    frame where None), ``times_ps`` the frames' times. None where no frame
+    used is within the cutoff, or the check's series is not there to count.
+    The error bar is kept: meeting its copy may bias a mean, it does not
+    make its statistical error unknown.
+    """
+    if not isinstance(finding, dict) or distances is None:
+        return None
+    series = np.asarray(distances, dtype=float)
+    frames = np.arange(series.size) if used is None else np.asarray(used, dtype=np.int64)
+    frames = frames[(frames >= 0) & (frames < series.size)]
+    if frames.size == 0:
+        return None
+    cutoff = float(finding.get("cutoff_nm") or CUTOFF_NM)
+    over = series[frames]
+    under = int(np.count_nonzero(over < cutoff))
+    if not under:
+        return None
+    closest = int(frames[int(np.argmin(over))])
+    times = None if times_ps is None else np.asarray(times_ps, dtype=float)
+    timed = times is not None and times.size == series.size and bool(
+        np.isfinite(times[closest]))
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    when = (f"frame {closest}, {length_said(float(times[closest]) / 1000.0)}" if timed
+            else f"frame {closest}")
+    shape = analysis not in PLAIN_NOTE
+    note: dict[str, Any] = {
+        "frames_used": int(frames.size),
+        "frames_under_cutoff": under,
+        "fraction_under_cutoff": under / frames.size,
+        "frames_under_close": int(np.count_nonzero(over < CLOSE_NM)),
+        "nearest_nm": float(series[closest]),
+        "nearest_frame": closest,
+        "nearest_time_ps": float(times[closest]) if timed else None,
+        "cutoff_nm": cutoff,
+        "may_bias": "shape" if shape else "mean",
+        "read_from": "image_check",
+    }
+    note["said"] = (
+        f"The solute came within {cutoff:g} nm of its own periodic image in "
+        f"{under:,} of {frames.size:,} frames used ({share_said(under, frames.size)}); "
+        f"the closest, {note['nearest_nm']:.3f} nm at {when}. "
+        + ("The solute's shape over such frames, and a mean of it, may be biased "
+           "by the solute meeting its copy." if shape else
+           "A mean over such frames may be biased by the solute meeting its copy."))
+    return note
+
+
+def note_numbers(note: dict[str, Any]) -> dict[str, Any]:
+    """The note's numbers, without its sentence: what each mean record of an
+    analysis carries, the sentence said once, in the analysis's
+    ``findings.solute_image``."""
+    return {key: note[key] for key in ("frames_used", "frames_under_cutoff",
+                                       "fraction_under_cutoff", "nearest_nm",
+                                       "cutoff_nm", "may_bias", "read_from")}
 
 
 def _not_solute(residue) -> bool:
@@ -483,6 +580,13 @@ class SoluteImage(Analysis):
     def run(self, traj: md.Trajectory):
         self._traj_for_plot = traj
         return super().run(traj)
+
+    def _record_what_the_mean_is_worth(self, traj: md.Trajectory) -> None:
+        """No mean: a mean of the closest approach over the equilibrated
+        frames says nothing the check is for. Its findings are the closest
+        approach and the frames under the cutoff and under 0.5 nm, and its
+        figure the series with those two lines."""
+        self.findings.pop("mean", None)
 
     def plot(self, result: np.ndarray, ax: plt.Axes) -> None:
         x = (self.frame_axis(self._traj_for_plot)[0]

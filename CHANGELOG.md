@@ -476,12 +476,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   frames under the run's own real-space cutoff (its `nonbonded_cutoff_nm`
   from the study's setup record, else its force field's, else 1.0 nm, said
   which) and under 0.5 nm counted. Where the solute
-  reaches its image, every analysis of those frames reads that one finding:
-  each mean is given without its error bar and with the reason, where the
-  report, the Overview and the Agent read it, and an analysis with no mean
-  says it in its findings. `end_to_end` reads it rather than checking the
-  chain's two ends, a check that passed a chignolin chain which came to
-  0.261 nm of its own copy. It runs with every plan where there is a box
+  met its image in the frames an analysis uses (after its mean's discarded
+  equilibration, or from its `start`), the analysis carries a note of it,
+  counted over those frames, said once in its findings and with its numbers
+  on each mean record (sub-means and reweighted averages included): every
+  mean keeps its error, since meeting its copy may bias a mean but does not
+  make its error unknown; the shape analyses' note says the shape may be
+  biased. The report says the check's finding once, in its "Image check"
+  section, and one line under each analysis; the Report page says the
+  mean "may be biased". `end_to_end` alone withholds its error, as it did
+  for its two ends, now from the same note rather than its ends, a check
+  that passed a chignolin chain which came to 0.261 nm of its own copy. It runs with every plan where there is a box
   and a solute, a study's listed analyses (`include`, as the GUI writes
   them) too; excluded by name, the log, the analysis manifest and the
   report say the solute was not checked. It is not yet said while the run

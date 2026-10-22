@@ -238,14 +238,21 @@ class EndToEndDistance(Analysis):
             "longest_step_nm": longest_step,
         }
         image = self.solute_image
-        if not isinstance(image, dict) or "reaches_its_image" not in image:
+        if not isinstance(image, dict) or "reaches_its_image" not in image \
+                or self.solute_image_series is None:
             try:
-                image = solute_image_record(
-                    traj, solute_atoms(traj.topology, self.selection)[0])[1]
+                self.solute_image_series, image = solute_image_record(
+                    traj, solute_atoms(traj.topology, self.selection)[0])
                 self.solute_image = image
             except StudyError as exc:  # a chain of beads with no elements
                 image = {"said": str(exc)}
         self.findings["periodic"]["nearest_self_image_whole_chain_nm"] = image.get("nearest_nm")
+        self._chain_said = (
+            f"The chain reaches {longest:.3f} nm from end to end (the cell's "
+            f"narrowest width is {narrowest:.3f} nm, and an end comes within "
+            f"{nearest:.3f} nm of a periodic image of the other end). In the "
+            "frames it meets its own image it is interacting with its own copy, "
+            "and its extension describes the cell as much as the chain.")
         reasons = []
         if longest_step > 0.5 * narrowest:
             reasons.append(
@@ -255,24 +262,47 @@ class EndToEndDistance(Analysis):
                 "cannot say which way round that step went and the summed "
                 "distance may be wrong. A chain with a break in it does this."
             )
-        if image.get("reaches_its_image"):
-            reasons.append(
-                f"The chain reaches {longest:.3f} nm from end to end (the cell's "
-                f"narrowest width is {narrowest:.3f} nm, and an end comes within "
-                f"{nearest:.3f} nm of a periodic image of the other end). "
-                + str(image.get("said") or ""))
+        self._step_reasons = list(reasons)
+        # Over every frame here; over the frames the mean uses once it is
+        # recorded (`_record_what_the_mean_is_worth`).
+        self._say_the_image(self._image_note_for(traj, None))
+
+    def _say_the_image(self, note: dict[str, Any] | None) -> None:
+        """The chain's reasons, with the image's note where it has one."""
+        reasons = list(getattr(self, "_step_reasons", []))
+        if note:
+            reasons.append(f"{getattr(self, '_chain_said', '')} {note['said']}".strip())
         if reasons:
             self.findings["not_a_measurement"] = " ".join(reasons)
+        else:
+            self.findings.pop("not_a_measurement", None)
 
     def _record_what_the_mean_is_worth(self, traj: md.Trajectory) -> None:
-        """The base class's record, qualified where the chain reaches its own
-        image: the reason goes where every reader of the mean looks, and the
-        mean carries no error bar."""
+        """The base class's record, qualified where the chain cannot be
+        measured across the box or met its own image in the frames the mean
+        uses: the reason goes where every reader of the mean looks, and the
+        mean carries no error bar.
+
+        End-to-end alone withholds its error for the image, as it did before
+        the whole chain was checked (then where an end came within 1.0 nm of
+        the other end's image), now from the one finding every analysis
+        reads (:meth:`_image_note_for`), over the frames its mean uses and
+        against the run's cutoff. The ends are part of the chain, so a run
+        whose end met the other end's image in those frames is withheld as
+        it was. Every other analysis keeps its error and carries the note."""
         super()._record_what_the_mean_is_worth(traj)
-        reason = self.findings.get("not_a_measurement")
-        if reason:
-            self._withhold_the_error(traj, reason,
-                                     because="chain reaches its periodic image")
+        steps = " ".join(getattr(self, "_step_reasons", []))
+        if steps:
+            self._withhold_the_error(traj, steps,
+                                     because="a step along the chain spans half the cell")
+        mean = self.findings.get("mean")
+        note = self._image_note_for(traj, mean if isinstance(mean, dict) else None)
+        self._say_the_image(note)
+        if note:
+            said = f"{getattr(self, '_chain_said', '')} {note['said']}".strip()
+            if said not in str((mean or {}).get("not_a_measurement") or ""):
+                self._withhold_the_error(traj, said,
+                                         because="chain meets its periodic image")
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
         atom_idx = self.select_atoms(traj)
