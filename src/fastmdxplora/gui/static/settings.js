@@ -190,7 +190,16 @@
     go();
     chooseScope("you", false);
     var group = part && document.querySelector('#settings-you [data-settings-part="' + part + '"]');
-    if (!group) return;
+    if (!group) {
+      // The page as a whole: the keyboard and a screen reader on its name.
+      setTimeout(function () {
+        var heading = document.querySelector('.page[data-page="settings"] .page-title');
+        if (!heading || heading.offsetParent === null) return;
+        if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+        heading.focus({ preventScroll: true });
+      }, 0);
+      return;
+    }
     setTimeout(function () {
       group.scrollIntoView({ block: "start" });
       var first = group.querySelector("select, input, button");

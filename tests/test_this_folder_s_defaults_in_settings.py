@@ -337,3 +337,33 @@ def test_k_finds_a_setting_and_opens_settings_at_it(browser, session):
     page.context.close()
     assert errors == []
     assert lines[0] == "Setting" and lines[1].startswith("Display size")
+
+
+def test_k_finds_settings_by_its_old_name_and_lands_on_something(browser, session):
+    """"preferences" found nothing; Engine and Mode, which have no control
+    of their own, opened the page with nothing focused, as Settings did."""
+    started, _ = session
+    page = _open(browser, started.url, "#overview")
+    landed = {}
+    for typed in ("preferences", "mode", "engine"):
+        page.evaluate("() => window.FastMDXDashboard.navigate('overview')")
+        page.keyboard.press("Control+k")
+        page.wait_for_selector("#palette:not([hidden])")
+        page.fill("#palette-input", typed)
+        page.wait_for_timeout(200)
+        # The first line after its kind's.
+        first = page.evaluate("""() => [...document.querySelectorAll('#palette-list li')]
+            .map((li) => li.textContent.replace(/\\s+/g, ' ').trim())[1] || ''""")
+        page.keyboard.press("Enter")
+        page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
+        page.wait_for_function("() => document.activeElement && document.activeElement !== document.body")
+        page.wait_for_timeout(150)
+        landed[typed] = (first, page.evaluate("() => document.activeElement.id || "
+                                               "document.activeElement.textContent.trim()"))
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert landed["preferences"][0].startswith("Settings"), landed
+    assert landed["preferences"][1] == "Settings", landed
+    assert landed["mode"][0].startswith("Mode") and landed["mode"][1] == "settings-page-agent", landed
+    assert landed["engine"][0].startswith("Engine") and landed["engine"][1] == "settings-page-agent"

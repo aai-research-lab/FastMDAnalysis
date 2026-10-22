@@ -105,7 +105,9 @@
                    hint: "Another study, or another run of this one, on the Compare page",
                    run: function () { open("compare"); } });
     }
+    // Found by the word a returning person has for them too.
     found.push({ group: "Action", label: "Settings", hint: "Every setting, in one place",
+                 also: "preferences",
                  run: function () { if (window.FastMDXSettings) window.FastMDXSettings.show(); } });
     found.push({ group: "Action", label: "Cite FastMDXplora", run: dialog("cite-dialog") });
     found.push({ group: "Action", label: "Every key", run: dialog("viewer-help"), keys: keysOf("keys") });
@@ -219,11 +221,16 @@
       var group = row.closest(".pref-group");
       var title = group ? ((group.querySelector(".pref-group-title") || {}).textContent || "").trim() : "";
       if (!label) return;
+      // A row with no control of its own (the Agent's engine and mode) is
+      // changed by its part's: the page opens at that part.
+      var own = row.querySelector("input, select, textarea, button");
+      var part = !own && group ? group.getAttribute("data-settings-part") : "";
       found.push({ group: "Setting", label: label, hint: title, run: function () {
-        if (window.FastMDXSettings) window.FastMDXSettings.show();
+        if (!window.FastMDXSettings) return;
+        window.FastMDXSettings.show(part || undefined);
+        if (part) return;
         setTimeout(function () {
-          var field = row.querySelector("input, select, textarea, button");
-          if (field) { field.focus(); row.scrollIntoView({ block: "nearest" }); }
+          if (own) { own.focus(); row.scrollIntoView({ block: "nearest" }); }
         }, 50);
       } });
     });
@@ -345,7 +352,8 @@
     var scored = [];
     items.forEach(function (item, index) {
       var name = item.label.toLowerCase();
-      var all = name + " " + item.group.toLowerCase() + " " + String(item.hint || "").toLowerCase();
+      var all = name + " " + item.group.toLowerCase() + " " + String(item.hint || "").toLowerCase() +
+        " " + String(item.also || "");
       if (!words.every(function (w) { return all.indexOf(w) >= 0; })) return;
       var score = name.indexOf(words[0]) === 0 ? 0 : (" " + name).indexOf(" " + words[0]) >= 0 ? 1 : 2;
       scored.push({ item: item, score: score, index: index });
