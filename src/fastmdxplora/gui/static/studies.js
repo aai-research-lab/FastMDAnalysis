@@ -1584,6 +1584,8 @@
       return;
     }
     if (document.querySelector(".agent-dialog:not([hidden])")) return;
+    // Keys pressed in a list over the page (the Notices) are its own.
+    if (target && target.closest && target.closest('[role="dialog"]')) return;
     var rows = rowsShown();
     var here = rowOf(document.activeElement);
     var at = here ? rows.indexOf(here) : -1;
@@ -2189,6 +2191,19 @@
   var edited = 0;
   // Why the list could not be read, said in the page's empty block.
   var listRefused = null;
+  // Whether the list was ever answered: until it is, the block says it is
+  // being read.
+  var answered = false;
+
+  /* Where the list was not read, the subtitle says where it looked, or
+   * nothing: the block under it says what went wrong. */
+  function notListed(where, why) {
+    answered = true;
+    studies = [];
+    listRefused = why;
+    el("studies-where").textContent = where ? "Looked in " + where + "." : "";
+    draw();
+  }
 
   function load(where) {
     if (loading) return loading;
@@ -2202,12 +2217,10 @@
         // the tags as they were over those just saved.
         if (began !== edited) return load(where);
         if (!data || !data.ok) {
-          studies = [];
-          listRefused = (data && (data.reason || data.error)) || "The server could not list them.";
-          el("studies-where").textContent = "The studies could not be listed.";
-          draw();
+          notListed(where, (data && (data.reason || data.error)) || "The server could not list them.");
           return;
         }
+        answered = true;
         listRefused = null;
         lookedIn = data.root;
         studies = data.studies || [];
@@ -2222,21 +2235,23 @@
         });
         // The count kept whole, the folder shortened where the head is
         // narrow (the Agent beside): the count was what was cut.
-        var where = el("studies-where");
+        // Not "where": that names the folder asked for, in this function.
+        var head = el("studies-where");
         var count = make("span", "studies-where-n", studies.length + " stud" +
           (studies.length === 1 ? "y" : "ies"));
         var folder = make("span", "studies-where-in", "\u00a0in " + data.root +
           (data.more ? ", the newest first; there are more than this shows." : "."));
-        where.title = count.textContent + folder.textContent;
-        where.replaceChildren(count, folder);
+        head.title = count.textContent + folder.textContent;
+        head.replaceChildren(count, folder);
         draw();
       })
       .catch(function () {
         loading = null;
-        listRefused = "The server did not answer.";
-        el("studies-where").textContent = "The studies could not be listed.";
-        draw();
+        notListed(where, "The server did not answer.");
       });
+    if (!answered && !studies.length && window.FastMDXPageState) {
+      window.FastMDXPageState.show(el("studies-empty"), { kind: "loading", title: "Listing the studies\u2026" });
+    }
     return loading;
   }
 

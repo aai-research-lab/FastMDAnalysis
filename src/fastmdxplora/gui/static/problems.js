@@ -32,21 +32,28 @@
     window.dispatchEvent(new CustomEvent("dashboard:problems-counted",
       { detail: { count: count, partial: Boolean(partial) } }));
   }
-  /* Where the tab stands, in its summary, and below it the page's one
-   * block (page-states.js): reading, nothing open, or not read with Try
-   * again. */
+  /* Where the tab stands: in its summary, or where there is the page's
+   * one block (page-states.js: reading, nothing open, or not read with Try
+   * again and the server's reason) in that alone, said once. */
   function message(words, kind) {
     counted(null);
-    byId("problems-summary").textContent = words;
+    var block = kind && window.FastMDXPageState;
+    byId("problems-summary").textContent = block ? "" : words;
     var body = byId("problems-body");
     body.replaceChildren();
-    if (kind && window.FastMDXPageState) {
+    if (block) {
       body.appendChild(window.FastMDXPageState.block(kind === "error" ? {
         kind: "error", title: "The problems could not be read", detail: words,
         action: { label: "Try again", run: function () { load(true); } },
       } : kind === "loading" ? { kind: "loading", title: words } : { kind: "empty", title: words }));
     }
     rendered = "";
+  }
+  /* A refusal with the server's reason, said as it gave it. */
+  function refused(reason) {
+    var error = new Error(reason || "");
+    error.said = true;
+    return error;
   }
   function clear() {
     generation += 1;
@@ -131,7 +138,11 @@
     fetch("/api/problems?study=" + encodeURIComponent(wanted), {
       cache: "no-store", signal: controller.signal
     }).then(function (response) {
-      if (!response.ok) throw new Error("Could not read the study's problems.");
+      if (!response.ok) {
+        return response.json().catch(function () { return {}; }).then(function (d) {
+          throw refused(d && (d.reason || d.error));
+        });
+      }
       return response.json();
     }).then(function (data) {
       if (at !== generation || root !== active) return;
@@ -145,7 +156,7 @@
         message("The open study changed. Waiting for its records...", "loading");
         return;
       }
-      if (!data.ok) throw new Error(data.reason || "Could not read the study's problems.");
+      if (!data.ok) throw refused(data.reason || data.error);
       if (data.state === "gone" || data.state === "unreadable" || data.state === "empty") {
         /* Refresh cannot bring a folder back: said once, without it. A
          * folder with no records yet is said as that, not as missing ones. */
@@ -155,7 +166,7 @@
       render(data);
     }).catch(function (error) {
       if (at !== generation || error.name === "AbortError") return;
-      message("Could not read problems.", "error");
+      message(error.said ? error.message : "", "error");
     }).finally(function () {
       if (pending !== controller) return;
       pending = null;
