@@ -400,6 +400,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - A run's study is named by its folder alone in the note of words saved for
   it, as in every other note.
 
+- A message or an Edit refused as the study open changed, put back in the
+  box, keeps its attached files when the switch is seen while they are read
+  again: they come back with the words, on the study they were written in,
+  and are sent with them. The words were saved without them, and the files
+  were dropped, unsaid.
+
+- The note of a message refused as the study open changed names by its
+  folder the study the message is saved for, and, from no study, the study
+  opened.
+
+- Once a refused message is taken out, the Agent's welcome is shown from its
+  top; its heading was under the Agent bar.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is
