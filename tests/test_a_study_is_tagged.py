@@ -283,3 +283,44 @@ def test_a_list_read_before_tags_were_kept_does_not_undo_them(workspace):
     assert errors == []
     assert held == "function"
     assert shown == ["kept"]
+
+
+def test_what_is_added_is_kept_when_the_cards_are_drawn_again(workspace):
+    """Opening All studies lists them again once the page has its route,
+    which can be after a card's Tags was opened: its editor was drawn again
+    from the tags kept, and a tag added and not yet saved was gone."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "wild_type"), host="127.0.0.1",
+                                      port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            card = '.study-card[data-path$="wild_type"]'
+            page.click(f"{card} .study-tag-edit")
+            page.fill(f"{card} .study-tag-input", "ubiquitin")
+            page.press(f"{card} .study-tag-input", "Enter")
+            page.fill(f"{card} .study-tag-input", "refer")
+            page.fill(f"{card} .study-note-input", "the wild type")
+            # Listed again, and the cards drawn again, as the page's own
+            # listing did once it had its route.
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            kept = page.evaluate(f"""() => [
+                [...document.querySelectorAll('{card} .study-tag')].map((t) => t.firstChild.textContent),
+                document.querySelector('{card} .study-tag-input').value,
+                document.querySelector('{card} .study-note-input').value]""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert kept == [["ubiquitin"], "refer", "the wild type"]

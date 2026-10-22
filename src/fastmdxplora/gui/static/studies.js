@@ -20,6 +20,11 @@
   // the tags the studies here carry (offered as one is typed).
   var tagged = null;
   var editing = null;
+  // The tags, note and tag half typed of the card being tagged, not yet
+  // kept: the cards drawn again (the page's list read again as it opens, a
+  // study's ID given) drew its editor again from the tags kept, and what
+  // had been added was gone.
+  var draft = null;
   var tagsUsed = [];
   var TAG_LENGTH = 40;
   var NOTE_LENGTH = 200;
@@ -89,6 +94,7 @@
     tag.title = (some ? "Tags" : "Tag") + ": words and a note of your own, saved in the study's folder";
     tag.addEventListener("click", function () {
       editing = study.path;
+      draft = null;
       draw();
       var input = document.querySelector(".study-tag-editor .study-tag-input");
       if (input) input.focus();
@@ -145,7 +151,11 @@
   function tagEditor(study) {
     var form = make("form", "study-tag-editor");
     form.setAttribute("aria-label", "Tags of " + study.name);
-    var tags = (study.tags || []).slice();
+    if (!draft || draft.path !== study.path) {
+      draft = { path: study.path, tags: (study.tags || []).slice(), note: study.note || "",
+                adding: "" };
+    }
+    var tags = draft.tags;
     var list = make("div", "study-tags");
     function drawTags() {
       list.replaceChildren.apply(list, tags.map(function (tag, i) {
@@ -168,6 +178,8 @@
     adding.setAttribute("list", "studies-tags-used");
     adding.placeholder = "Add a tag";
     adding.setAttribute("aria-label", "A tag to add");
+    adding.value = draft.adding;
+    adding.addEventListener("input", function () { draft.adding = adding.value; });
     function add() {
       var tag = adding.value.replace(/\s+/g, " ").trim();
       if (tag && !tags.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); })) {
@@ -175,6 +187,7 @@
         drawTags();
       }
       adding.value = "";
+      draft.adding = "";
     }
     adding.addEventListener("keydown", function (event) {
       if (event.key === "Enter") {
@@ -188,7 +201,8 @@
     var note = make("input", "study-note-input");
     note.type = "text";
     note.maxLength = NOTE_LENGTH;
-    note.value = study.note || "";
+    note.value = draft.note;
+    note.addEventListener("input", function () { draft.note = note.value; });
     note.placeholder = "A note: one line";
     note.setAttribute("aria-label", "A note on the study");
     var said = make("p", "muted small study-tag-said");
@@ -199,6 +213,7 @@
     cancel.type = "button";
     cancel.addEventListener("click", function () {
       editing = null;
+      draft = null;
       draw();
     });
     form.addEventListener("submit", function (event) {
@@ -226,6 +241,7 @@
         study.note = d.note;
         edited += 1;
         editing = null;
+        draft = null;
         tagsUsed = countTags();
         offerTags();
         draw();
