@@ -118,7 +118,7 @@ carried the same way.
 - **Conversations with the Agent** (`agent/conversations/`, a run's too). They
   are the person's working notes, not the study's record.
 - **The record of the process that ran it** (`.fastmdxplora_run.json`): the
-  computer's name, its boot and the process number.
+  computer's name, its boot, the process number and when it began.
 - **Tags and notes** (`study_tags.json`), which are the person's own.
 - **Where a study fetched back from another machine was sent from**
   (`fetched.json`): folders of this computer; each run finds its system

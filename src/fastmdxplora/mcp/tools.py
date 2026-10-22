@@ -1115,9 +1115,11 @@ def _stop_study(ctx: Context, args: dict[str, Any]) -> str:
         record = json.loads((folder / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         record = {}
-    pid = record.get("pid") if isinstance(record, dict) else None
+    if not isinstance(record, dict):
+        record = {}
+    pid = record.get("pid")
     if (not isinstance(pid, int) or pid <= 0 or record_is_from_elsewhere(record)
-            or _identify_run(pid, folder, record.get("argv")) is not True):
+            or _identify_run(pid, folder, record) is not True):
         raise ToolError(f"No run of {shown} is going on this machine.")
     agreed = _went_ahead(ctx, "stop", (
         f"Stop the study {shown}? A run in production stops at its next frame with a "
@@ -1128,14 +1130,14 @@ def _stop_study(ctx: Context, args: dict[str, Any]) -> str:
     # minutes to answer, and a process number is reused once its run ends.
     if ctx.call is not None and ctx.call.cancelled:
         return "Not stopped: the call was cancelled."
-    if _identify_run(pid, folder, record.get("argv")) is not True:
+    if _identify_run(pid, folder, record) is not True:
         return f"{shown} has stopped already."
-    _AdoptedProcess(pid, folder).terminate()
+    _AdoptedProcess(pid, folder, record).terminate()
     # As the GUI's Stop: time to reach the next frame and checkpoint, then
     # an end that cannot be ignored. Watched from a process of its own, so
     # an AI app closed in the meantime does not take the watching with it.
     try:
-        see_it_stops(pid, folder, record.get("argv"), stop_grace_seconds() + 10)
+        see_it_stops(pid, folder, record, stop_grace_seconds() + 10)
     except OSError as exc:
         return (f"Asked {shown} to stop. Ending it if it does not could not be arranged "
                 f"({exc}): if read_study still finds it running in a minute, stop it "

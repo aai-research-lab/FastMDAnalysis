@@ -365,9 +365,17 @@ process. Close the browser tab and it runs on; Ctrl-C the server and it runs
 on, and the server says where it is and how to stop it. A server opened
 later on that folder, or brought to it from the study card, adopts
 the run: it shows as running, and Stop reaches it. The run records its own
-process in the folder; a stale record left by a crash is checked against
-the live process before anything is believed, and a process that is not
-FastMDXplora running that study is never adopted.
+process in the folder (its number, the machine's boot and when the process
+began, counted in the system's ticks since that boot); a stale record left
+by a crash is checked against the live process before anything is believed,
+and a process that is not FastMDXplora running that study is never adopted.
+A process is the run only where its number and its start are the record's,
+which a step of the clock does not change; a record written before the start
+was recorded is judged by the arguments it recorded, and, where it has none,
+a process begun since it was written is another one. Every page, the
+workspace's list of runs going, adoption and Stop ask the one test, and Stop
+asks it again before it signals: where the number has been given to another
+process since, nothing is signalled and Stop says why.
 
 **The settings**, from the gear at the sidebar's foot: the scheme
 (System, which follows the computer, Light or Dark), the accent (Cyan, Blue,

@@ -195,13 +195,28 @@ class _AdoptedProcess:
     reports 0 if the study's manifest says it completed, else 1.
     """
 
-    def __init__(self, pid: int, root: Path) -> None:
+    def __init__(self, pid: int, root: Path, record: Mapping[str, Any] | None = None) -> None:
         self.pid = int(pid)
         self.root = Path(root)
+        #: The run's process record, by which it is told from a process
+        #: given its number since (`_what_the_process_is`).
+        self.record: Mapping[str, Any] = record if record is not None else {"pid": self.pid}
         self._returncode: int | None = None
 
     def _alive(self) -> bool:
-        return _process_alive(self.pid)
+        if not _process_alive(self.pid):
+            return False
+        # Its start where the record has it: a number given to another
+        # process once the run ended is not the run going on.
+        from fastmdxplora.orchestrator import process_start_ticks
+
+        ticks = self.record.get("start_ticks")
+        now = process_start_ticks(self.pid) if isinstance(ticks, int) else None
+        return now is None or now == ticks
+
+    def what_it_is(self) -> str:
+        """What the process is now to the run held (`_what_the_process_is`)."""
+        return _what_the_process_is(self.pid, self.root, self.record)
 
     def poll(self) -> int | None:
         if self._returncode is not None:
@@ -214,10 +229,13 @@ class _AdoptedProcess:
         return self._returncode
 
     def terminate(self) -> None:
-        _terminate_process(self.pid)
+        # Never a process that is not the run: asked again before each signal.
+        if self.what_it_is() == "the run":
+            _terminate_process(self.pid)
 
     def kill(self) -> None:
-        _terminate_process(self.pid, force=True)
+        if self.what_it_is() == "the run":
+            _terminate_process(self.pid, force=True)
 
     def wait(self, timeout: float | None = None) -> int:
         import time
@@ -455,31 +473,93 @@ def study_a_run_belongs_to(root: Path) -> dict[str, Any] | None:
             "runs": runs}
 
 
-def _identify_run(pid: int, root: Path, argv: Any = None) -> bool | None:
-    """Whether the PID is this study's run: True, False, or None for cannot
-    tell yet.
+def _as_a_record(record: Any) -> Mapping[str, Any]:
+    """A run's process record; a bare command line (``argv``), as earlier
+    callers gave one, as a record of it alone."""
+    if isinstance(record, Mapping):
+        return record
+    return {"argv": record} if isinstance(record, list) else {}
 
-    False is definite -- the process is gone, or its command line was read
-    and names something else, which is what guards against a stale record
-    whose PID the OS has reused. None is not: the process is alive and its
-    command line could not be read, which on Windows means PowerShell did
-    not answer in time. Adopting on None would let Stop kill a process the
-    OS gave the number to, so it is never adopted on None -- but it is
-    asked again, rather than taken as a final answer.
+
+def _what_the_process_is(pid: int, root: Path, record: Any = None, *,
+                         asking: bool = False) -> str:
+    """What the process numbered ``pid`` is to the run that wrote
+    ``record`` in the study ``root``: the one test of identity every reader
+    asks (the page's word on the run, adopting it, the workspace's runs,
+    Stop, resume), so that none of them takes a process for the run that
+    another does not.
+
+    - "the run": it is the run;
+    - "gone": no process has the number;
+    - "another": another process given the number since;
+    - "not a run": alive, its command line not this run's, and nothing
+      says it began since (a run started from a script, a notebook or a
+      pool's worker has such a command line);
+    - "unread": alive, its command line not read yet (PowerShell did not
+      answer in time).
+
+    Where the record has the run's start in ticks since boot
+    (``start_ticks``, with ``boot``), the process is the run only where its
+    start is the same, whatever its command line: exact against a reused
+    number, and unmoved by a step of the clock. A record written before
+    them is judged by its command line: one carrying the arguments the run
+    recorded is the run; where the record has no arguments (the Python
+    API's), or the command line is not a run's, a process begun more than
+    a few seconds after the record was written is another one
+    (`telemetry._began_since`, on Linux). ``asking``: the process is the
+    one asking or what started it, whose command line is not read.
     """
+    from fastmdxplora.gui.telemetry import _began_since
+    from fastmdxplora.orchestrator import process_start_ticks, this_machine
+
+    record = _as_a_record(record)
     if not _process_alive(pid):
-        return False
-    line = _command_line_of(pid)
-    if line is None:
-        return None
-    return _command_line_is_a_run(line, root, argv)
+        return "gone"
+    ticks = record.get("start_ticks")
+    if isinstance(ticks, int) and not isinstance(ticks, bool):
+        there, here = record.get("boot") or "", this_machine().get("boot") or ""
+        if there and here and there != here:
+            return "gone"
+        now = process_start_ticks(pid) if there and here else None
+        if now is not None:
+            return "the run" if now == ticks else "another"
+    argv = record.get("argv")
+    arguments = isinstance(argv, list) and bool(" ".join(str(a) for a in argv[1:]).split())
+    if asking:
+        a_run = True
+    else:
+        line = _command_line_of(pid)
+        if line is None:
+            return "unread"
+        a_run = _command_line_is_a_run(line, root, argv)
+    if a_run and arguments:
+        return "the run"
+    if _began_since(pid, dict(record)):
+        return "another"
+    return "the run" if a_run else "not a run"
 
 
-def _process_is_this_run(pid: int, root: Path, argv: Any = None) -> bool:
-    """The PID is alive and its command line is the one the run recorded,
-    or, for a record without one, names this study or the program.
-    "Cannot tell" is not "yes": undetermined is not adopted."""
-    return _identify_run(pid, root, argv) is True
+def _identify_run(pid: int, root: Path, record: Any = None) -> bool | None:
+    """Whether the PID is this study's run (`_what_the_process_is`): True,
+    False, or None for cannot tell yet. ``record`` is the run's process
+    record (or, as earlier callers gave it, its ``argv`` alone).
+
+    False is definite -- the process is gone, or another process was given
+    its number, or its command line was read and names something else.
+    None is not: the process is alive and its command line could not be
+    read, which on Windows means PowerShell did not answer in time.
+    Adopting on None would let Stop kill a process the OS gave the number
+    to, so it is never adopted on None -- but it is asked again, rather
+    than taken as a final answer.
+    """
+    said = _what_the_process_is(pid, root, record)
+    return True if said == "the run" else None if said == "unread" else False
+
+
+def _process_is_this_run(pid: int, root: Path, record: Any = None) -> bool:
+    """The PID is this run (`_what_the_process_is`). "Cannot tell" is not
+    "yes": undetermined is not adopted."""
+    return _identify_run(pid, root, record) is True
 
 
 def _carries_the_recorded_arguments(tokens: list[str], argv: list[str]) -> bool:
@@ -1640,7 +1720,7 @@ class DashboardRuntime:
             # Written on another machine, or before a reboot: its process
             # number names nothing of this study here.
             return False
-        identity = _identify_run(pid, Path(root), record.get("argv"))
+        identity = _identify_run(pid, Path(root), record)
         if identity is None:
             # Alive, and not yet identifiable. Not adopted -- the sidebar
             # says idle, which is the honest word for "cannot tell" -- but
@@ -1656,7 +1736,7 @@ class DashboardRuntime:
 
     def _hold(self, root: Path, record: Mapping[str, Any], pid: int) -> None:
         """Take a run this server did not start as the one it is watching."""
-        self.process = _AdoptedProcess(pid, Path(root))
+        self.process = _AdoptedProcess(pid, Path(root), dict(record))
         self.running_root = Path(root)
         self.process_started_at = str(record.get("started_at") or _utc_now())
         self.process_finished_at = None
@@ -1698,7 +1778,7 @@ class DashboardRuntime:
                 return  # the run finished and took its record with it
             # Outside the lock: on Windows this can take ten seconds, and
             # the page's own requests must not wait behind it.
-            identity = _identify_run(pid, root, record.get("argv"))
+            identity = _identify_run(pid, root, record)
             if identity is False:
                 return
             if identity is True:
@@ -1937,6 +2017,9 @@ class DashboardRuntime:
 
     def stop(self) -> dict[str, Any]:
         with self.lock:
+            refused = self._not_the_run_held()
+            if refused is not None:
+                return {"stopped": False, "detail": refused, "state": self.snapshot()}
             self._refresh_process()
             if self.process is None or self.process.poll() is not None:
                 return {"stopped": False, "detail": "No workflow is currently running.", "state": self.snapshot()}
@@ -1973,6 +2056,29 @@ class DashboardRuntime:
                            "carries it on."),
                 "state": self.snapshot(),
             }
+
+
+    def _not_the_run_held(self) -> str | None:
+        """Why the run adopted here is not signalled, where its process is
+        no longer certainly the run (`_what_the_process_is`): its number
+        given to another process since, or what it is not told just now.
+        None where it is the run, or nothing adopted is held. Called with
+        the lock held."""
+        held = self.process
+        if not isinstance(held, _AdoptedProcess):
+            return None
+        found = held.what_it_is()
+        if found in ("the run", "gone"):
+            return None
+        if found == "unread":
+            return (f"Nothing was stopped: whether process {held.pid} is still the study's run "
+                    "could not be told just now. Press Stop again in a moment.")
+        # Not the run: no longer held, so the page says the study as its
+        # records have it.
+        self.process = None
+        self.running_root = None
+        return (f"Nothing was stopped: process {held.pid}, which the study's record names, is "
+                "no longer its run; the system has given its number to another process.")
 
 
 def _record_the_stop(root: Path) -> None:

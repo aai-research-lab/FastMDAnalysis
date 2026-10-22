@@ -75,9 +75,10 @@ def a_script():
     running.wait()
 
 
-def _its_process(root: Path, pid: int, *, started: str | None = None, **where) -> None:
+def _its_process(root: Path, pid: int, *, started: str | None = None, argv=None,
+                 **where) -> None:
     (root / RUN_PROCESS_FILE).write_text(json.dumps({
-        "pid": pid, "argv": ["my_study.py"],
+        "pid": pid, "argv": argv or ["my_study.py"],
         "started_at": started or datetime.now(timezone.utc).isoformat(),
         **this_machine(), **where}), encoding="utf-8")
 
@@ -107,7 +108,8 @@ class TestWhetherItEnded:
 
         root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(30 * 86400))
         _its_process(root, a_script)
-        monkeypatch.setattr(exploration, "_identify_run", lambda pid, where, argv: True)
+        monkeypatch.setattr(exploration, "_what_the_process_is",
+                            lambda pid, where, record, asking=False: "the run")
         assert not run_ended_unsaid(root)
 
     @linux
@@ -184,6 +186,136 @@ class TestWhetherItEnded:
         shown = status_as_it_stands(root)
         assert (shown["status"], shown["recorded_status"]) == ("completed", "running")
         assert analyze_health(shown, [])["state"] == "ok"
+
+
+#: Where the package is, for a process of its own to import it.
+SRC = str(Path(__file__).resolve().parents[1] / "src")
+
+
+@pytest.fixture
+def a_live_run(tmp_path):
+    """A live process that wrote its study's process record itself, as
+    `fastmdx run <study>` does: its command line carries the arguments it
+    recorded, and the record has its start."""
+    root = _a_run_said_it_was_going(tmp_path / "w" / "live", last=_ago(5))
+    code = (f"import sys, time; sys.path.insert(0, {SRC!r}); from pathlib import Path; "
+            "from fastmdxplora.orchestrator import _record_run_process; "
+            "_record_run_process(Path(sys.argv[3])); print('written', flush=True); "
+            "time.sleep(120)")
+    run = subprocess.Popen([sys.executable, "-c", code, "fastmdx", "run", str(root)],
+                           stdout=subprocess.PIPE, text=True)
+    try:
+        assert run.stdout.readline().strip() == "written"
+        yield root, run
+    finally:
+        run.kill()
+        run.wait()
+
+
+def _ticks(pid: int) -> int:
+    """When the process began, in clock ticks since boot (`/proc`)."""
+    return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
+
+
+def _its_record(root: Path) -> dict:
+    return json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+
+
+def _rewritten(root: Path, change) -> dict:
+    record = _its_record(root)
+    change(record)
+    (root / RUN_PROCESS_FILE).write_text(json.dumps(record), encoding="utf-8")
+    return record
+
+
+@linux
+class TestWhichProcessIsTheRun:
+    """A process is the run where its number, boot and start in ticks since
+    boot match its record; a record written before starts were is judged
+    by its arguments first, and by when the process began only where it
+    has none. Every reader asks the same test."""
+
+    @pytest.mark.parametrize("written", ["with its start", "before starts were written"])
+    def test_a_live_run_is_running_when_the_clock_steps(self, a_live_run, monkeypatch,
+                                                        written):
+        """The wall clock stepped 60 s forward (a laptop's VM resumed, NTP)
+        moves every process's start read from `btime`: a live run that
+        named its own study read "its process is gone"."""
+        root, run = a_live_run
+        if written == "with its start":
+            assert _its_record(root).get("start_ticks") == _ticks(run.pid)
+        else:
+            _rewritten(root, lambda record: record.pop("start_ticks", None))
+        assert how_the_run_ended(root) is None
+        real = telemetry._process_started_at
+        monkeypatch.setattr(telemetry, "_process_started_at",
+                            lambda pid: None if real(pid) is None else real(pid) + 60)
+        telemetry._ASKED.clear()
+        assert how_the_run_ended(root) is None
+        assert status_as_it_stands(root)["status"] == "running"
+
+    def test_a_number_with_another_start_is_another_process(self, a_live_run, tmp_path):
+        """Alive, carrying the recorded arguments, begun when the record was
+        written: still not the run where its start is not the record's."""
+        import os
+
+        from fastmdxplora.gui.exploration import _identify_run
+
+        root, run = a_live_run
+        record = _rewritten(root, lambda record: record.update(start_ticks=_ticks(run.pid) - 1))
+        assert _identify_run(run.pid, root, record) is False
+        assert how_the_run_ended(root) == "process"
+        # The process asking too.
+        own = _a_run_said_it_was_going(tmp_path / "own", last=_ago(5))
+        _its_process(own, os.getpid(), argv=[sys.argv[0], "run", str(own)],
+                     start_ticks=_ticks(os.getpid()) - 1)
+        assert how_the_run_ended(own) == "process"
+
+    @pytest.mark.parametrize("record", ["no arguments, begun since", "another start"])
+    def test_a_stand_in_is_neither_adopted_nor_going_nor_stopped(self, tmp_path, a_stand_in,
+                                                                record):
+        """A killed study's number given to a `fastmdx` process since was
+        adopted as its run: All studies said running, and Stop killed the
+        stand-in and wrote "stopped as asked" into the study's record."""
+        from fastmdxplora.gui.exploration import DashboardRuntime, _process_alive
+        from fastmdxplora.runs_here import going_in
+
+        workspace = tmp_path / "w"
+        root = _a_run_said_it_was_going(workspace / "s", last=_ago(5))
+        if record == "another start":
+            _its_process(root, a_stand_in, argv=["-c", "fastmdx"],
+                         start_ticks=_ticks(a_stand_in) + 1)
+        else:
+            _its_process(root, a_stand_in, started=_ago(3600))
+        runtime = DashboardRuntime(workspace_root=root, exploration_root=workspace,
+                                   active_root=root)
+        assert runtime.process is None
+        assert going_in(workspace) == []
+        assert runtime.stop()["stopped"] is False
+        assert _process_alive(a_stand_in)
+        assert telemetry.read_status(root)["status"] == "running"
+
+    def test_stop_signals_nothing_once_the_number_is_another_s(self, a_live_run, monkeypatch):
+        """Adopted while it was the run, its number given to another
+        process before Stop was pressed: nothing is signalled, and why is
+        said."""
+        from fastmdxplora import orchestrator
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        root, run = a_live_run
+        runtime = DashboardRuntime(workspace_root=root, exploration_root=root.parent,
+                                   active_root=root)
+        assert runtime.process is not None and runtime.process.pid == run.pid
+        monkeypatch.setattr(orchestrator, "process_start_ticks",
+                            lambda pid: _ticks(pid) + (1 if pid == run.pid else 0),
+                            raising=False)
+        answer = runtime.stop()
+        assert answer["stopped"] is False
+        assert f"process {run.pid}, which the study's record names, is no longer its run" \
+            in answer["detail"]
+        assert run.poll() is None
+        assert telemetry.read_status(root)["status"] == "running"
+        assert answer["state"]["process_running"] is False
 
 
 def test_as_the_gui_shows_it_and_its_health(tmp_path):

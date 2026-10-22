@@ -813,7 +813,11 @@ def _this_pid_space() -> str:
 def _began_since(pid: int, record: dict[str, Any]) -> bool:
     """Whether the process ``pid`` began more than a few seconds after the
     process record was written: another process given the number, never the
-    run that wrote it. False where either time is not known."""
+    run that wrote it. False where either time is not known. Asked only of
+    a record without the run's start in ticks since boot, and not of a
+    process whose command line carries the arguments the record has
+    (`exploration._what_the_process_is`): a time of day read this way moves
+    when the clock is stepped, and a live run would read as begun since."""
     began = _process_started_at(pid)
     written = _parse_iso_datetime(record.get("started_at"))
     return began is not None and written is not None and began > written.timestamp() + 5
@@ -827,13 +831,13 @@ def _what_its_process_says(root: Path, record: dict[str, Any]) -> str | None:
     Asked only where its number means the same process here: the same host,
     the same boot and, where both say, the same process namespace (a
     container sharing the host's name and boot numbers its processes on its
-    own). The same host restarted since is certainly gone. A process alive
-    whose command line is not a run's is not taken for gone: a run started
-    from a script, a notebook or a pool's worker has such a command line.
-    Only one that began after the record was written is another process
-    given the number, and the run gone, whatever its command line says and
-    even where it is the process asking: a run writes its record once it
-    has begun.
+    own). The same host restarted since is certainly gone. Whether the
+    process is the run is the one test every reader asks
+    (`exploration._what_the_process_is`): its start in ticks since boot
+    where the record has it, else its command line, and for a record with
+    no arguments when it began. A process alive whose command line is not
+    a run's is not taken for gone: a run started from a script, a notebook
+    or a pool's worker has such a command line.
     """
     from fastmdxplora.orchestrator import this_machine
     from fastmdxplora.simulation.resume import _this_process_and_its_parents
@@ -852,27 +856,25 @@ def _what_its_process_says(root: Path, record: dict[str, Any]) -> str | None:
         return None
     if record.get("pidns") and _this_pid_space() and record["pidns"] != _this_pid_space():
         return None
-    if pid in _this_process_and_its_parents():
-        return "gone" if _began_since(pid, record) else "running"
+    from fastmdxplora.gui.exploration import _what_the_process_is
+
+    # The process asking, or what started it: its command line is not read.
+    asking = pid in _this_process_and_its_parents()
     key = (str(root), pid, str(record.get("started_at") or ""))
     now = datetime.now(timezone.utc).timestamp()
-    kept = _ASKED.get(key)
+    kept = None if asking else _ASKED.get(key)
     if kept and now - kept[0] < _ASKED_FOR_SECONDS:
         return kept[1]
-    from fastmdxplora.gui.exploration import _identify_run, _process_alive
-
     try:
-        if not _process_alive(pid) or _began_since(pid, record):
-            said: str | None = "gone"
-        elif _identify_run(pid, root, record.get("argv")) is True:
-            said = "running"
-        else:
-            said = None
+        found = _what_the_process_is(pid, root, record, asking=asking)
     except Exception:  # noqa: BLE001 - a record, not a verdict
-        said = None
-    if len(_ASKED) > 256:
-        _ASKED.clear()
-    _ASKED[key] = (now, said)
+        found = None
+    said = ("running" if found == "the run"
+            else "gone" if found in ("gone", "another") else None)
+    if not asking:
+        if len(_ASKED) > 256:
+            _ASKED.clear()
+        _ASKED[key] = (now, said)
     return said
 
 
