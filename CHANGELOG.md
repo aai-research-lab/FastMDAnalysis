@@ -84,6 +84,25 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - Tests: the Overview's line of a study opened after one with a live
   record, All studies listed once, the study strip moved by the wheel
   through a redraw; a job's processes are waited for in /proc.
+- An analysis orchestrator built before another and run after it runs on
+  its own insertion codes: the second one's read cleared the first one's,
+  and its RMSF had two residues numbered 184.
+- Of two sugars near one asparagine's ND2 with no LINK, only the one whose
+  C1 is nearer is read as its glycan; the other is asked about as a free
+  sugar. Both were read as glycans on that asparagine.
+- The Agent's answer for a stopped run that was never analysed sends a
+  person to "To carry it on" on the Overview, as the card is titled.
+- The Problems list says once that a run stopped in NVT wrote no
+  checkpoint: its fix said it again.
+- All studies' table says why a study did not open on a line of its own
+  under the row's buttons, wrapped, and fits the table again: said on one
+  line beside them, it widened the table past its column (1440 px with the
+  side panel open). It stays shown with the pointer away from the row. A
+  hold of the page's own is still said beside Open until the list is drawn
+  again after it has passed, as on main.
+- Tests: the Analysis page's count is unsaid until the study's results are
+  read; CI installs poppler-utils on the leg that runs the printed Report's
+  test.
 
 - A study just started no longer shows the last study's length, wall time
   and last update under its name on the Overview until its own first
