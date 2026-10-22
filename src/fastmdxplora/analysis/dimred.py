@@ -564,7 +564,12 @@ def _refuse_mds_past_memory(self: "DimRed", n: int) -> None:
     """Refuse MDS of ``n`` frames where its matrix would not fit in the
     memory this process can take (:func:`fastmdxplora.analysis.cluster.memory_available`),
     with the stride that fits; record the check either way."""
-    from fastmdxplora.analysis.cluster import MEMORY_SHARE, _gigabytes, memory_available
+    from fastmdxplora.analysis.cluster import (
+        MEMORY_SHARE,
+        _gigabytes,
+        memory_available,
+        room_said,
+    )
 
     needed = mds_memory_needed(n)
     available, read_from = memory_available()
@@ -580,8 +585,8 @@ def _refuse_mds_past_memory(self: "DimRed", n: int) -> None:
     check["stride_that_fits"] = stride
     raise StudyError(
         f"MDS of {n:,} frames needs about {_gigabytes(needed)} for their "
-        f"frame-by-frame RMSD matrix and its centred square, and this process "
-        f"can take {_gigabytes(available)} ({read_from}), of which an analysis "
+        f"frame-by-frame RMSD matrix and its centred square, and "
+        f"{room_said(available, read_from)} ({read_from}), of which an analysis "
         f"plans on {MEMORY_SHARE:.0%}. PCA, t-SNE and UMAP make no such matrix "
         f"(`methods: [pca]`); or load every {stride}th frame for the analyses "
         f"(`analysis: {{stride: {stride}}}`, which every analysis then reads), "

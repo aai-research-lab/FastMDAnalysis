@@ -14,7 +14,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   memory (psutil where installed, else `/proc/meminfo` or `os.sysconf`; on a
   Mac without psutil, the machine's total memory, said as such), its
   control group's limit less its usage (cgroup v2 or v1, a SLURM job's or a
-  container's) and its `ulimit -v` or data limit less what it holds, the
+  container's; its reclaimable page cache, `inactive_file` in `memory.stat`,
+  not counted as used) and its `ulimit -v` or data limit less what it holds,
+  the refusal naming the least ("the container allows", "this machine has",
+  "the process may use"), the
   peak counted as resident memory measures it (17 n^2 bytes beside the
   matrix for an average or complete linkage, SciPy's own copy included).
   Past it, clustering is refused

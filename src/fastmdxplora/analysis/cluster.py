@@ -224,14 +224,37 @@ def _read_number(path: Path) -> int | None:
     return int(text) if text.isdigit() else None
 
 
+def _reclaimable(folder: Path, version: str) -> int | None:
+    """The group's page cache the kernel takes back before it kills anything
+    in the group: ``inactive_file`` in its ``memory.stat`` (v2), and
+    ``total_inactive_file`` under v1 (the group and those under it), else
+    v1's ``inactive_file``. None where none is readable."""
+    try:
+        lines = (folder / "memory.stat").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    found: dict[str, int] = {}
+    for line in lines:
+        words = line.split()
+        if len(words) == 2 and words[1].isdigit():
+            found[words[0]] = int(words[1])
+    keys = ("inactive_file",) if version == "cgroup v2" else (
+        "total_inactive_file", "inactive_file")
+    return next((found[key] for key in keys if key in found), None)
+
+
 def _cgroup_room(proc: Path = Path("/proc/self/cgroup"),
                  root: Path = Path("/sys/fs/cgroup")) -> tuple[int | None, str]:
     """What this process's control group (a SLURM job's, a container's) still
     lets it take: its limit less its usage, the least over the group and the
     groups above it (a limit holds for every group under it):
     ``memory.max`` and ``memory.current`` under cgroup v2,
-    ``memory.limit_in_bytes`` and ``memory.usage_in_bytes`` under v1. None
-    where no limit is set or none can be read."""
+    ``memory.limit_in_bytes`` and ``memory.usage_in_bytes`` under v1. The
+    usage counts the group's page cache, which the kernel reclaims before it
+    kills anything in the group (a job that has just read a large
+    trajectory holds it there), so its reclaimable part (:func:`_reclaimable`,
+    ``inactive_file``) is not counted as used, as the kernel's working set
+    and kubelet count it. None where no limit is set or none can be read."""
     try:
         lines = proc.read_text(encoding="ascii").splitlines()
     except (OSError, UnicodeDecodeError):
@@ -255,9 +278,14 @@ def _cgroup_room(proc: Path = Path("/proc/self/cgroup"),
             usage = _read_number(folder / names[1])
             # v1 writes an unlimited group as a number near 2^63.
             if limit is not None and usage is not None and limit < 2**60:
-                room = max(limit - usage, 0)
+                cache = _reclaimable(folder, version)
+                room = max(limit - (usage - min(cache or 0, usage)), 0)
                 if best[0] is None or room < best[0]:
-                    best = (room, f"the {version} limit less its usage "
+                    cached = (f"its reclaimable page cache ({_gigabytes(cache)} of "
+                              "inactive_file in memory.stat) not counted as used"
+                              if cache is not None else
+                              "its page cache counted as used (no memory.stat read)")
+                    best = (room, f"the {version} limit less its usage, {cached} "
                                   f"({folder / names[0]})")
             if folder == base or base not in folder.parents:
                 break
@@ -355,6 +383,18 @@ def _sysconf_bytes(name: str) -> int | None:
 
 def _gigabytes(n_bytes: float) -> str:
     return f"{n_bytes / 1e9:,.1f} GB" if n_bytes >= 1e8 else f"{n_bytes / 1e6:,.1f} MB"
+
+
+def room_said(available: int, read_from: str) -> str:
+    """The memory planned on, said by the reading that was least: "the
+    container allows" (a control group's limit, a container's or a SLURM
+    job's), "the process may use" (``ulimit -v`` or a data limit), else
+    "this machine has ... available"."""
+    if read_from.startswith("the cgroup"):
+        return f"the container allows {_gigabytes(available)}"
+    if read_from.startswith("RLIMIT"):
+        return f"the process may use {_gigabytes(available)}"
+    return f"this machine has {_gigabytes(available)} available"
 
 
 def _ordinal(k: int) -> str:
@@ -630,8 +670,8 @@ class Cluster(Analysis):
         raise StudyError(
             f"Clustering {n:,} frames{starting} needs about {_gigabytes(needed)} for "
             f"their frame-by-frame RMSD matrix and the copies "
-            f"{', '.join(self.methods)} make of it, and this machine has "
-            f"{_gigabytes(available)} available ({read_from}), of which "
+            f"{', '.join(self.methods)} make of it, and "
+            f"{room_said(available, read_from)} ({read_from}), of which "
             f"clustering plans on {MEMORY_SHARE:.0%}. Set `stride: {stride}` "
             f"under the analysis's `options: {{cluster: ...}}` to cluster every "
             f"{_ordinal(stride)} frame, {fits:,} frames, which fits; the other "

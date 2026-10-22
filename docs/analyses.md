@@ -172,8 +172,12 @@ this process can take, of which clustering plans on three quarters: the least
 of the machine's available memory, its control group's limit less its usage
 (`memory.max` less `memory.current` under cgroup v2, `memory.limit_in_bytes`
 less `memory.usage_in_bytes` under v1, the tightest of the group and those
-above it: a SLURM job's, a container's), and its address-space or data limit
-(`ulimit -v`) less what it holds, the record saying which was least. The
+above it: a SLURM job's, a container's; its reclaimable page cache,
+`inactive_file` in `memory.stat` (`total_inactive_file` under v1), not
+counted as used, as the kernel takes it back before it kills anything in the
+group), and its address-space or data limit (`ulimit -v`) less what it
+holds, the record saying which was least and the refusal saying it in words
+("the container allows", "this machine has", "the process may use"). The
 peak is counted as resident memory measured it, compiled code's copies
 included (17 n^2 bytes beside the matrix for an average or complete
 linkage). Several workers clustering at once each read the same memory, and

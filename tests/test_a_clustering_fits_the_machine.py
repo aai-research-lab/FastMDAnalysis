@@ -287,7 +287,7 @@ class TestTheBudgetIsTheProcesss:
     with a stride, and under a cgroup the kernel kills the worker."""
 
     def _cgroup(self, tmp_path, *, v2: bool, limit: str, usage: int,
-                parent_limit: str | None = None):
+                parent_limit: str | None = None, stat: str | None = None):
         root = tmp_path / "sys"
         if v2:
             (tmp_path / "cgroup").write_text("0::/job/step\n")
@@ -301,6 +301,8 @@ class TestTheBudgetIsTheProcesss:
         group.mkdir(parents=True)
         (group / names[0]).write_text(limit + "\n")
         (group / names[1]).write_text(f"{usage}\n")
+        if stat is not None:
+            (group / "memory.stat").write_text(stat)
         if parent_limit is not None:
             (parent / names[0]).write_text(parent_limit + "\n")
             (parent / names[1]).write_text(f"{usage}\n")
@@ -313,6 +315,41 @@ class TestTheBudgetIsTheProcesss:
     def test_a_v1_limit_less_its_usage(self, tmp_path):
         room, said = self._cgroup(tmp_path, v2=False, limit=str(2 * 10**9), usage=5 * 10**8)
         assert room == 15 * 10**8 and "cgroup v1" in said
+
+    def test_a_v2_group_s_reclaimable_cache_is_not_counted_as_used(self, tmp_path):
+        """A job that has just read a large trajectory holds it in its
+        group's page cache, which the kernel takes back before it kills."""
+        room, said = self._cgroup(
+            tmp_path, v2=True, limit=str(4 * 10**9), usage=3 * 10**9,
+            stat=f"anon 900000000\nfile 2100000000\nactive_file 600000000\n"
+                 f"inactive_file {15 * 10**8}\n")
+        assert room == 25 * 10**8
+        assert "inactive_file" in said and "not counted as used" in said
+
+    def test_a_v1_group_s_reclaimable_cache_is_not_counted_as_used(self, tmp_path):
+        room, said = self._cgroup(
+            tmp_path, v2=False, limit=str(6 * 10**9), usage=44 * 10**8,
+            stat=f"cache 3120000000\nrss 960000000\ninactive_file 5\n"
+                 f"total_cache 3120000000\ntotal_inactive_file {10**9}\n")
+        assert room == 26 * 10**8 and "cgroup v1" in said
+
+    def test_without_memory_stat_the_cache_is_said_counted(self, tmp_path):
+        room, said = self._cgroup(tmp_path, v2=True, limit=str(4 * 10**9), usage=10**9)
+        assert room == 3 * 10**9 and "no memory.stat read" in said
+
+    @pytest.mark.parametrize("read_from, said", [
+        ("the cgroup v2 limit less its usage", "the container allows"),
+        ("RLIMIT_AS less what this process holds (VmSize)", "the process may use"),
+        ("MemAvailable in /proc/meminfo", "this machine has"),
+    ])
+    def test_the_refusal_names_the_reading_that_was_least(self, monkeypatch, read_from, said):
+        from fastmdxplora.refusals import StudyError
+
+        monkeypatch.setattr(clustering, "memory_available", lambda: (10**6, read_from))
+        with pytest.raises(StudyError) as raised:
+            Cluster().compute(_chain(200))
+        assert f"and {said} " in str(raised.value)
+        assert read_from in str(raised.value)
 
     def test_a_tighter_limit_above_the_group_holds(self, tmp_path):
         room, _ = self._cgroup(tmp_path, v2=True, limit="max", usage=10**9,
