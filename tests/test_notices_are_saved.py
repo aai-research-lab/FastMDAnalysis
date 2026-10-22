@@ -724,3 +724,64 @@ def test_a_window_that_hears_two_switches_as_one_saves_no_second_notice(tmp_path
     a, b, c = keys
     assert heard == {"first": [f"{a}>{b}", f"{b}>{c}"], "late": [f"{a}>{c}"]}
     assert sorted(saved) == sorted([f"switch:{a}>{b}", f"switch:{b}>{c}"])
+
+
+PATHS_AND_WORDS = [
+    ("The folder /Users/Kunle Aina could not be read", "The folder could not be read"),
+    ("Could not open C:\\Users\\Jane Doe", "Could not open"),
+    ("The path is read from where fastmdx was run (/home/kunle/Jane Doe), not from the config.",
+     "The path is read from where fastmdx was run, not from the config."),
+    ("Opened //server/share/kunle", "Opened"),
+    ("Saved to smb://server/share/kunle.", "Saved."),
+    ("Copied to kunle@lab.edu:/home/kunle/ws", "Copied"),
+    ("Copy failed on lab:/home/kunle/ws", "Copy failed on lab"),
+    ("Confirm /static/molstar/molstar.js is being served", "Confirm /static/molstar/molstar.js is being served"),
+    ("Remote: /scratch/kunle/run1 is full", "Remote: is full"),
+    ("Could not read: /Users/kunle/a.pdb is not a PDB", "Could not read: is not a PDB"),
+    ("Could not open the folder automatically. Its path: /Users/kunle/ws. Copy it.",
+     "Could not open the folder automatically. Copy it."),
+    ("Files ['/Users/kunle/x.pdb', '/Users/kunle/y.pdb'] are missing", "Files are missing"),
+    ("Setup failed (see /Users/kunle/log.txt)", "Setup failed"),
+    ("Run `fastmdx resume /Users/kunle/ws/run` to carry it on.", "Run `fastmdx resume` to carry it on."),
+    ("[Errno 13] Permission denied: '/Users/kunle/Bob's study/run'", "[Errno 13] Permission denied"),
+    ("Written to /Users/aaina/Google Drive.", "Written."),
+    ("Inputs [/Users/kunle/x.pdb] are missing", "Inputs are missing"),
+    # Not paths: kept as said.
+    ("Speed 12.3 ns/day, 1/2 of it done, and/or more", "Speed 12.3 ns/day, 1/2 of it done, and/or more"),
+    ("See https://example.org/a/b and http://127.0.0.1:8000/api/status",
+     "See https://example.org/a/b and http://127.0.0.1:8000/api/status"),
+]
+
+
+def test_a_path_is_left_out_whole_and_the_words_about_it_stay(tmp_path):
+    """A path with a space in its last part, on a share or another machine,
+    is left out whole as far as the words tell; what is said of it stays,
+    and the page's own addresses are not paths."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    # A refusal saved before, its words with spaces collapsed and its id
+    # with the Log line as it was.
+    said = "The folder /Users/Kunle Aina could not be read"
+    seeded = json.dumps([{"at": 0, "kind": "refused", "said": said, "name": "old", "act": "",
+                          "id": "event::2026-10-21T10:00:00Z:" + said.replace("Kunle ", "Kunle\t")}])
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        context.add_init_script(f"""if (!sessionStorage.getItem('seeded')) {{
+            sessionStorage.setItem('seeded', '1');
+            localStorage.setItem('fmx.notices', JSON.stringify({seeded}.map((n) => ({{...n, at: Date.now() - 60000}}))));
+        }}""")
+        page = _page(browser, url, "#overview", context=context)
+        before = page.evaluate(SAVED)
+        for words, _ in PATHS_AND_WORDS:
+            page.evaluate("(w) => window.FastMDXDashboard.toast(w, 'warning')", words)
+        page.wait_for_function(f"() => window.FastMDXNotices.all.length === {len(PATHS_AND_WORDS) + 1}")
+        saved = [n["said"] for n in reversed(page.evaluate(SAVED))][1:]
+        errors = page.errors
+        browser.close()
+    assert errors == []
+    assert [(n["said"], n["id"]) for n in before] == [
+        ("The folder could not be read", "event::2026-10-21T10:00:00Z:The folder could not be read")]
+    assert saved == [said for _, said in PATHS_AND_WORDS]

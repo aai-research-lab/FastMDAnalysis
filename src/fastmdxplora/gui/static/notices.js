@@ -112,51 +112,122 @@
   /* ---- No path in what is saved ---- */
   /* A notice is saved without any path it named: a folder from the root
    * ("/Users/name/..."), from the home ("~/..."), on a drive ("C:\..."),
-   * on a share ("\\server\...") or a file's address, whatever showed it
-   * (the study menu's Open the folder, a server's refusal, a Log line). A
-   * path after a colon runs to its sentence's end and goes with the colon
-   * ("Opened output folder: /Users/..." is saved "Opened output folder"), a
-   * sentence that only named it goes whole ("Its path: ..."); one in quotes
-   * goes with its quotes; one in the words goes with the word that led to
-   * it ("Saved to /Users/....": "Saved."). Words with a slash in them
-   * (ns/day, and/or) and a web address are not paths. */
-  var START = /(?:file:\/\/|\/(?=[^\s\/])|~[\w.-]*[\\\/]|[A-Za-z]:[\\\/]|\\\\(?=[^\s\\]))/.source;
+   * on a share ("\\server\...", "//server/...", "smb://..."), on another
+   * machine ("lab:/home/...", "me@lab.edu:/home/...") or a file's
+   * address, whatever showed it (the study menu's Open the folder, a
+   * server's refusal, a Log line). A path
+   * in quotes goes with its quotes, to the closing one or, where a line cut
+   * short left it open, to the end. One not in quotes runs over a space
+   * as far as the words let it be told: to the closing bracket of one in
+   * brackets, over a part with a slash in it, and over a name after it
+   * ("/Users/Kunle Aina", "C:\Users\Jane Doe", "/Users/jane doe" ending the
+   * words), not over a word that says something of it ("is full",
+   * "could not be read") nor past a file's name. A path after a colon goes
+   * with the colon where nothing follows it ("Opened output folder:
+   * /Users/..." is saved "Opened output folder"), and a sentence that only
+   * named it goes whole ("Its path: ..."); one in the words goes with the
+   * word that led to it ("Saved to /Users/....": "Saved."). Words with a
+   * slash in them (ns/day, and/or), a web address and the page's own
+   * addresses (/static/..., /api/...) are not paths. */
+  var START = /(?:file:\/\/|(?:smb|afp|nfs|cifs|sftp|ssh):\/\/|(?<!:)\/\/(?=[^\s\/])|(?:[\w.-]+@[\w.-]+|[A-Za-z][\w-]*\.[\w.-]+):\/(?=[^\s\/])|\/(?!(?:static|api)\/)(?=[^\s\/])|~[\w.-]*[\\\/]|[A-Za-z]:[\\\/]|\\\\(?=[^\s\\]))/.source;
   var MARK = "\u0000";
-  // To its closing quote, or to the end of the words where a line cut
-  // short left it open.
-  var QUOTED = new RegExp("[\"'`\u2018\u201c]" + START + "[^\"'`\u2019\u201d\\n]*(?:[\"'`\u2019\u201d]|$)", "g");
-  var AFTER_COLON = new RegExp(":[ \\t]+(?:" + MARK + "|" + START + "(?:(?![.;!?]\\s)[^\\n])*)", "g");
-  var IN_WORDS = new RegExp("(^|[\\s(\\[{=,])" + START +
-    "[^\\s'\"`<>|]*(?: [^\\s'\"`<>|]*[\\\\/][^\\s'\"`<>|]*)*", "g");
+  var OPENS = "\"'`\u2018\u201c";
+  var CLOSES = "\"'`\u2019\u201d";
+  // To its closing quote (not an apostrophe in a name: "Bob's"), or to the
+  // end of the words where a line cut short left it open.
+  var QUOTED = new RegExp("[" + OPENS + "]" + START + "(?:[^" + CLOSES + "\\n]|['\u2019](?=\\w))*" +
+    "(?:[" + CLOSES + "]|(?=\\n)|$)", "g");
+  var BEGINS = new RegExp("(^|[\\s(\\[{=,:<" + OPENS + "])" + START, "g");
   var NAMES_A_PATH = /\b(?:path|folder|file|directory|location)$/i;
+  // A file's name ends the path: what follows says something of it.
+  var A_FILE = /\.[A-Za-z][A-Za-z0-9]{0,5}$/;
+  var ENDS = /[.,;:!?)\]}]+$/;
+  // Words that say something of a path, not part of its name.
+  var SAYS = new RegExp("^(?:is|are|was|were|be|been|being|has|have|had|do|does|did|not|no|could|" +
+    "can|cannot|will|would|should|may|might|must|and|or|but|nor|which|that|who|where|when|while|" +
+    "because|so|for|with|without|from|to|into|in|on|at|by|of|as|than|then|if|the|a|an|it|its|" +
+    "exists|missing|empty|found|full|denied|failed|gone|unreadable|locked|busy|refused|opened|" +
+    "closed|written|read|removed|deleted|moved|changed|already|still|now|again|here|there|" +
+    "instead|too|either|neither|isn't|doesn't|wasn't|can't|won't)$", "i");
+
+  /* Where a path that begins at `from` ends. */
+  function pathEnd(text, from, bracketed) {
+    var part = /[^\s"'`<>|]*/y;
+    part.lastIndex = from;
+    var end = from + part.exec(text)[0].length;
+    var named = 0;
+    var next = / ([^\s"'`<>|]+)/y;
+    for (;;) {
+      var sofar = text.slice(from, end);
+      if (ENDS.test(sofar)) break;
+      // In brackets: to the closing one, where its clause has no other end
+      // and nothing in it says something of the path.
+      if (bracketed) {
+        var shut = /^[^.;:!?()\[\]\n]*?[)\]]/.exec(text.slice(end));
+        if (shut && !shut[0].slice(0, -1).trim().split(/\s+/).some(function (w) { return SAYS.test(w); })) {
+          end += shut[0].length - 1;
+          break;
+        }
+      }
+      next.lastIndex = end;
+      var word = next.exec(text);
+      if (!word) break;
+      var bare = word[1].replace(ENDS, "");
+      if (/[\\\/]/.test(bare)) { end += word[0].length; continue; }
+      if (A_FILE.test(sofar) || named >= 3 || !bare || SAYS.test(bare)) break;
+      var last = end + word[0].length >= text.length || ENDS.test(word[1]);
+      if (!/^[A-Z]/.test(bare) && !last) break;
+      end += word[0].length;
+      named += 1;
+    }
+    // Its clause's end stays.
+    var tail = ENDS.exec(text.slice(from, end));
+    return tail ? end - tail[0].length : end;
+  }
 
   function withoutPaths(said) {
     var words = String(said || "");
     var text = words.replace(QUOTED, MARK);
-    // After a colon: the sentence's own words before it stay, unless all
-    // they did was name the path.
-    text = text.replace(AFTER_COLON, function (match, at, whole) {
-      var before = whole.slice(0, at);
-      var begins = Math.max(before.lastIndexOf(". "), before.lastIndexOf("! "), before.lastIndexOf("? "));
-      return begins >= 0 && NAMES_A_PATH.test(before.slice(begins + 2).trim()) ? MARK + MARK : MARK;
-    });
-    text = text.replace(/[.!?] [^.!?\u0000]*\u0000\u0000/g, function (match) { return match.charAt(0); });
-    text = text.replace(IN_WORDS, function (match, lead) {
-      // Its sentence's end stays.
-      var end = /[.,;:!?)\]]+$/.exec(match.slice(lead.length));
-      return lead + MARK + (end ? end[0] : "");
-    });
+    var out = "";
+    var at = 0;
+    BEGINS.lastIndex = 0;
+    for (var found = BEGINS.exec(text); found; found = BEGINS.exec(text)) {
+      var from = found.index + found[1].length;
+      if (from < at) continue;
+      var end = pathEnd(text, from, found[1] === "(" || found[1] === "[");
+      out += text.slice(at, from) + MARK;
+      at = end;
+      BEGINS.lastIndex = Math.max(end, BEGINS.lastIndex);
+    }
+    text = out + text.slice(at);
     // No path: the words as they were.
     if (text === words) return words;
+    // Paths in a list, one.
+    for (var listed = ""; listed !== text;) {
+      listed = text;
+      text = text.replace(/\u0000(?:,? and |, | or )\u0000/g, MARK);
+    }
     return text
-      .replace(/\u0000(?:,? and |, | or )\u0000/g, MARK)
+      // A quote left with nothing in it.
+      .replace(new RegExp("[" + OPENS + "]\u0000[" + CLOSES + "]?", "g"), MARK)
+      // A sentence that did no more than name it.
+      .replace(/([.!?]) +([^.!?\u0000]*?) *: *\u0000(?= *(?:[.!?]|$))/g, function (match, stop, label) {
+        return NAMES_A_PATH.test(label.trim()) ? stop : match;
+      })
+      .replace(/ *: *\u0000(?= *(?:[.;!?,()\]]|$))/g, "")
+      // A machine's name before its path ("lab:/home/..."): the colon goes.
+      .replace(/(\w):\u0000/g, "$1")
       .replace(/\s+(?:in|at|to|from|into|under|on|of|as)\s+\u0000/gi, "")
-      .replace(/\(\s*\u0000\s*\)/g, "")
       .replace(/\u0000/g, "")
       .replace(/\s+/g, " ")
+      .replace(/\(\s*(?:see|in|at|from)?\s*\)|\[\s*\]|\{\s*\}|<\s*>|``/gi, "")
+      .replace(/(`[^`]*?) +`/g, "$1`")
       .replace(/ +([.,;:!?)\]])/g, "$1")
-      .replace(/\( +/g, "(")
-      .replace(/,\./g, ".")
+      .replace(/([(\[]) +/g, "$1")
+      .replace(/:(?=[.,;!?])/g, "")
+      .replace(/,(?=[.;!?])/g, "")
+      .replace(/(^|[^.])\.\.(?!\.)/g, "$1.")
+      .replace(/ {2,}/g, " ")
       .trim()
       .replace(/[,;:]+$/, "");
   }
