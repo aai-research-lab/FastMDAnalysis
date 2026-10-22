@@ -3,11 +3,18 @@
    rows. A row is its words on the left and its control on the right; a
    setting of This folder has its reason and what was said of it below. */
 
+/* Narrow as its own column is narrow, not as the window is: beside the
+   Agent, with the sidebar open, or at a large Display size, a wide window
+   gives the page the room of a narrow one (the rules at the end). */
+.settings-page { container: settings / inline-size; }
+
 .settings-page .settings-scopes,
 .settings-page .settings-panel { max-width: 860px; }
 
+/* The scopes on one line, or wrapped each whole. */
 .settings-scopes {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     margin: 0 0 16px;
     border-bottom: 1px solid var(--border-subtle);
@@ -23,6 +30,7 @@
     background: transparent;
     color: var(--text-secondary);
     font: 500 var(--text-sm) var(--font-stack);
+    white-space: nowrap;
     cursor: pointer;
 }
 .settings-scope:hover { color: var(--text-primary); }
@@ -71,10 +79,16 @@
     cursor: pointer;
 }
 
-/* The rows of You: the popup's theme and accent, as a row each. */
-.settings-page .pref-row .seg,
-.settings-page .pref-row .accent-swatches { flex: none; }
-.settings-page .pref-row .accent-swatches { width: min(340px, 100%); }
+/* The rows of You: the popup's theme and accent, as a row each. The
+   accents give way before their name does, onto a second line, never over
+   it. */
+.settings-page .pref-row .seg { flex: none; }
+#settings-page-accent { flex: none; }
+.settings-page .pref-row .accent-swatches {
+    flex: 0 1 340px;
+    min-width: 0;
+    grid-template-columns: repeat(auto-fit, minmax(62px, 1fr));
+}
 .settings-page .pref-row .settings-value { font-size: var(--text-sm); text-align: right; }
 .settings-row-end { justify-content: flex-end; cursor: default; }
 .settings-foot { display: flex; margin-top: 18px; }
@@ -114,7 +128,7 @@
 .settings-label { color: var(--text-primary); font-weight: 500; cursor: pointer; }
 .settings-unit { color: var(--text-muted); font-weight: 400; }
 .settings-theirs { color: var(--text-secondary) !important; }
-.settings-name { color: var(--text-muted); font-size: var(--text-2xs); }
+.settings-name { color: var(--text-muted); font-size: var(--text-2xs); overflow-wrap: anywhere; }
 .settings-side {
     grid-column: 2;
     display: flex;
@@ -176,7 +190,11 @@
 /* From the Agent's dialog, its part of the page. */
 .settings-part-link { display: inline-block; margin-top: 4px; color: var(--accent); }
 
-@media (max-width: 640px) {
+@container settings (width < 560px) {
+    /* The search under the name, so what the page is stays whole. */
+    .page-header { flex-wrap: wrap; row-gap: 6px; padding-bottom: 8px; }
+    .page-header > .page-header-actions { flex: 1 1 100%; }
+    .page-header .page-header-actions > .search-field { flex: 1 1 auto; max-width: none; }
     .settings-field { grid-template-columns: minmax(0, 1fr); }
     .settings-side { grid-column: 1; align-items: stretch; margin-top: 8px; }
     .settings-page .settings-side .settings-control:not(details),

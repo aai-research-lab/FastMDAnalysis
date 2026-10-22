@@ -412,7 +412,7 @@ def test_a_display_size_chosen_sizes_everything_and_is_saved(browser, session):
     assert restored == ["auto", "auto"]
 
 
-def _at(browser, url, size, viewport, where="#overview"):
+def _at(browser, url, size, viewport, where="#overview", folder=False):
     context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]})
     context.add_init_script(f"try {{ localStorage.setItem('fmx.displaySize', '{size}'); }} "
                             "catch (e) {}")
@@ -420,7 +420,8 @@ def _at(browser, url, size, viewport, where="#overview"):
     page.set_default_timeout(60000)
     page.errors = []
     page.on("pageerror", lambda error: page.errors.append(str(error)))
-    page.route("**/api/defaults-file", lambda route: route.fulfill(status=404, body="{}"))
+    if not folder:
+        page.route("**/api/defaults-file", lambda route: route.fulfill(status=404, body="{}"))
     page.goto(url + where, wait_until="domcontentloaded")
     page.wait_for_function("() => window.FastMDXDashboard && window.FastMDXSettings")
     page.wait_for_selector("body:not(.state-loading)")
@@ -495,6 +496,53 @@ def test_a_rule_within_container_holds_where_it_holds_at_100(browser, session):
     # One column, as an 850 by 900 window has at 100%: the summary under the form.
     assert summary == ["static", "none", "visible"], summary
     assert outline[0] == "sticky" and outline[1] <= outline[2] - 96 + 0.5, outline
+
+
+@pytest.mark.parametrize("width", [900, 1250])
+def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width):
+    """At 150% a 900 pixel window is a page 600 wide, and beside the Agent
+    at 1250 the page had about 380: the accents were drawn over their name,
+    the scopes broke inside their words, the subtitle was cut to "E." and
+    This folder's words stood in a column 100 pixels wide."""
+    page = _at(browser, session.url, "150", (width, 900), "#settings", folder=True)
+    if width == 1250:
+        page.keyboard.press("Control+j")
+        page.wait_for_selector("#agent-drawer:not([hidden])")
+    said = {}
+    for scope in ("you", "folder"):
+        page.click(f"#settings-scope-{scope}")
+        if scope == "folder":
+            page.wait_for_selector("#settings-folder-body .settings-field")
+        page.wait_for_timeout(300)
+        said[scope] = page.evaluate("""() => {
+            const box = (e) => e.getBoundingClientRect();
+            const name = box(document.getElementById('settings-page-accent'));
+            const accents = [...document.querySelectorAll('#settings-page-accents .accent-swatch')]
+                .map(box).filter((r) => r.width);
+            const lines = (node) => { const r = document.createRange(); r.selectNodeContents(node);
+                return r.getClientRects().length; };
+            const words = [...document.querySelectorAll('.settings-scope')].flatMap((tab) =>
+                [...tab.childNodes].filter((n) => (n.nodeType === 3 && n.textContent.trim())
+                    || (n.nodeType === 1 && n.offsetParent && n.textContent.trim()))
+                .map((n) => [n.textContent.trim(), lines(n)]));
+            const sub = document.querySelector('.settings-page .page-subtitle');
+            const sc = document.scrollingElement;
+            return {
+                over: accents.some((r) => r.left < name.right - 0.5 && r.top < name.bottom
+                                          && r.bottom > name.top),
+                broken: words.filter((w) => w[1] > 1).map((w) => w[0]),
+                cut: Boolean(sub.offsetParent) && sub.scrollWidth > sub.clientWidth + 1,
+                narrowest: Math.min(...[...document.querySelectorAll('#settings-folder-body .settings-words')]
+                    .filter((e) => e.offsetParent).map((e) => box(e).width)),
+                sideways: sc.scrollWidth > sc.clientWidth + 1,
+            }; }""")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    for scope, layout in said.items():
+        assert not layout["over"] and layout["broken"] == [] and not layout["cut"], (scope, layout)
+        assert not layout["sideways"], (scope, layout)
+    assert said["folder"]["narrowest"] >= 240, said["folder"]
 
 
 def test_the_docs_say_the_settings_page(tmp_path):
