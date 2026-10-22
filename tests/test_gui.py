@@ -2293,11 +2293,15 @@ class TestASettingShowsWhatItWillDo:
             # for the same reason (`requires_naming`), so the absent default
             # is never silently filled in -- a study that wants it says
             # which two things.
+            # `image_check.cutoff_nm` is the run's own real-space cutoff,
+            # read from its setup record, as `r_max` is the box's: no
+            # literal can state it.
             and o.name not in {"ligand_resname", "ligand_net_charge",
                                "ligand_chemistry", "structure", "state_csv",
                                "r_max", "reference", "reference_exclude"}
             and f"{name}.{o.name}" not in {"pair_distance.selection_a",
-                                           "pair_distance.selection_b"}
+                                           "pair_distance.selection_b",
+                                           "image_check.cutoff_nm"}
         }
         assert not silent, f"these cannot say what they would do: {sorted(silent)}"
 
