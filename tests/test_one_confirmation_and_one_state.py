@@ -324,8 +324,8 @@ def test_one_frame_for_a_question_a_whole_count_and_a_notice_beside_the_list(tmp
 
 def test_try_again_reads_the_folder_asked_and_no_answer_is_said(tmp_path):
     """Try again on All studies reads the folder that could not be listed,
-    not the last one listed; the Problems tab says the server did not
-    answer, as All studies does."""
+    not the last one listed, and the head names it whole on hover; the
+    Problems tab says the server did not answer, as All studies does."""
     pytest.importorskip("playwright.sync_api")
     from urllib.parse import parse_qs, urlparse
 
@@ -361,6 +361,9 @@ def test_try_again_reads_the_folder_asked_and_no_answer_is_said(tmp_path):
             page.wait_for_selector("#studies-table tbody tr.studies-row")
             page.evaluate(f"() => window.FastMDXStudies.load({str(locked)!r})")
             page.wait_for_selector('#studies-empty .fmx-state[data-kind="error"]')
+            # The folder looked in, whole on hover where the head cuts it.
+            looked = page.evaluate("() => { const head = document.getElementById('studies-where');"
+                                   " return [head.textContent, head.title]; }")
             before = len(asked)
             with page.expect_response(lambda r: "/api/studies" in r.url):
                 page.click("#studies-empty .fmx-state-act")
@@ -384,5 +387,6 @@ def test_try_again_reads_the_folder_asked_and_no_answer_is_said(tmp_path):
     finally:
         session.server.shutdown()
     assert again == [str(locked)]
+    assert looked == [f"Looked in {locked}.", f"Looked in {locked}."]
     assert unanswered.startswith("The problems could not be read")
     assert "The server did not answer." in unanswered

@@ -2205,7 +2205,10 @@
     listRefused = why;
     // Try again reads the folder asked, not the last one listed.
     refusedIn = where || undefined;
-    el("studies-where").textContent = where ? "Looked in " + where + "." : "";
+    // The folder whole on hover, where the head is too narrow to show it.
+    var head = el("studies-where");
+    head.textContent = where ? "Looked in " + where + "." : "";
+    head.title = head.textContent;
     draw();
   }
 
