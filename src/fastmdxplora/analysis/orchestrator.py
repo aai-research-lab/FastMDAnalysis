@@ -109,8 +109,17 @@ _WATER_RESIDUES = frozenset({"HOH", "WAT", "TIP", "TIP3", "SOL", "H2O"})
 _REGISTRY: dict[str, type[Analysis]] = {}
 
 #: The check of the solute against its own periodic images, registered
-#: first (at the foot of this module) and run first.
+#: first (at the foot of this module) and run first, in every plan with a box
+#: and a solute, a listed one (``include``) too, unless excluded by name.
 _IMAGE_CHECK = "image_check"
+
+#: What is said, in the log, the analysis manifest and the report, where a
+#: study excludes the check by name.
+IMAGE_CHECK_EXCLUDED = (
+    "The image check was excluded by name (`exclude: [image_check]`), so the "
+    "solute was not checked against its own periodic images: no mean of these "
+    "frames is noted where the solute met its copy, and none of them says "
+    "whether it did.")
 
 
 def register_analysis(name: str, cls: type[Analysis]) -> None:
@@ -252,6 +261,8 @@ class AnalysisOrchestrator:
 
         # Results from the most recent run() call.
         self.results: dict[str, AnalysisResult] = {}
+        #: Said where the plan leaves the image check out by name.
+        self.image_check_left_out: str | None = None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -755,7 +766,15 @@ class AnalysisOrchestrator:
                 , code="analysis.unknown")
             # Explicit include is honored as-is (even ligand analyses — they
             # will raise a clear error if no ligand is actually present).
-            return [n for n in all_names if n in include]
+            planned = [n for n in all_names if n in include]
+            # With the check of the solute against its own images, wherever
+            # there is a box and a solute: every analysis of these frames is
+            # read against what it found, and a study listing its analyses
+            # (as the GUI writes them) was otherwise never checked.
+            if (_IMAGE_CHECK not in planned and _IMAGE_CHECK in _REGISTRY
+                    and _box_ok(_IMAGE_CHECK) and _solute_ok(_IMAGE_CHECK)):
+                planned.insert(0, _IMAGE_CHECK)
+            return planned
 
         if exclude is not None:
             unknown = [n for n in exclude if n not in _REGISTRY]
@@ -764,6 +783,10 @@ class AnalysisOrchestrator:
                     f"Unknown analyses in exclude: {unknown}. "
                     f"Available: {all_names}"
                 , code="analysis.unknown")
+            if (_IMAGE_CHECK in exclude and _IMAGE_CHECK in _REGISTRY
+                    and _box_ok(_IMAGE_CHECK) and _solute_ok(_IMAGE_CHECK)):
+                self.image_check_left_out = IMAGE_CHECK_EXCLUDED
+                logger.info("%s", IMAGE_CHECK_EXCLUDED)
             return [
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
@@ -935,6 +958,8 @@ class AnalysisOrchestrator:
             "n_protein_residues": int(sum(
                 1 for r in self.traj.topology.residues if r.is_protein)),
             "plan": list(self.results.keys()),
+            **({"image_check_left_out": self.image_check_left_out}
+               if getattr(self, "image_check_left_out", None) else {}),
             # The same facts under the names a config uses, so the run's
             # resolved config can carry them. `include` is the one that
             # matters: left unset it means "the default set of measures",

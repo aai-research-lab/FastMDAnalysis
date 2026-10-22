@@ -550,3 +550,60 @@ class TestTheSoluteIsTheMacromolecules:
         assert len(solute_atoms(top, "protein")[0]) == 10
         atoms, said = solute_atoms(top, "protein or resname LIG")
         assert len(atoms) == 11 and "LIG" in said
+
+
+class TestItIsInEveryPlan:
+    """A study that lists its analyses (as the GUI writes them) was never
+    checked: the check runs with any plan where there is a box and a solute,
+    and excluded by name, that is said."""
+
+    def _study(self, folder):
+        traj = _hairpin_reaching_its_image()
+        traj[0].save_pdb(str(folder / "top.pdb"))
+        traj.save_dcd(str(folder / "traj.dcd"))
+        return folder
+
+    def test_a_listed_plan_runs_it_first(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+
+        study = self._study(tmp_path)
+        orchestrator = AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                                            output_dir=study / "analysis")
+        results = orchestrator.run(include=["rg"])
+        assert list(results) == ["image_check", "rg"]
+        found = json.loads((study / "analysis" / "rg" / "options.json").read_text())["findings"]
+        assert found["solute_image"]["reaches_its_image"] is True
+
+    def test_without_a_box_a_listed_plan_is_as_listed(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+
+        traj = _hairpin_reaching_its_image()
+        traj.unitcell_vectors = None
+        traj[0].save_pdb(str(tmp_path / "top.pdb"))
+        traj.save_dcd(str(tmp_path / "traj.dcd"))
+        orchestrator = AnalysisOrchestrator(str(tmp_path / "traj.dcd"), str(tmp_path / "top.pdb"),
+                                            output_dir=tmp_path / "analysis")
+        assert orchestrator._build_plan(["rg"], None) == ["rg"]
+
+    def test_excluded_by_name_it_is_said(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+        from fastmdxplora.analysis.orchestrator import IMAGE_CHECK_EXCLUDED
+        from fastmdxplora.report.document import _results_section
+
+        study = self._study(tmp_path)
+        orchestrator = AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                                            output_dir=study / "analysis")
+        everything_else = [n for n in fastmdxplora.analysis.available_analyses()
+                           if n not in ("rg",)]
+        results = orchestrator.run(exclude=everything_else)
+        assert "image_check" not in results
+        manifest = json.loads((study / "analysis" / "analysis_manifest.json").read_text())
+        assert manifest["image_check_left_out"] == IMAGE_CHECK_EXCLUDED
+        assert "not checked against its own periodic images" in IMAGE_CHECK_EXCLUDED
+        assert "not checked against its own periodic images" in _results_section(study)
+
+    def test_the_setting_s_help_says_it(self):
+        from fastmdxplora.config.schema import ANALYSIS
+
+        help_of = next(f for f in ANALYSIS.fields if f.name == "exclude").help
+        assert "image_check" in help_of and "listed one too" in help_of

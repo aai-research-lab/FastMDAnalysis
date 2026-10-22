@@ -481,7 +481,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   report, the Overview and the Agent read it, and an analysis with no mean
   says it in its findings. `end_to_end` reads it rather than checking the
   chain's two ends, a check that passed a chignolin chain which came to
-  0.261 nm of its own copy. It is not yet said while the run goes.
+  0.261 nm of its own copy. It runs with every plan where there is a box
+  and a solute, a study's listed analyses (`include`, as the GUI writes
+  them) too; excluded by name, the log, the analysis manifest and the
+  report say the solute was not checked. It is not yet said while the run
+  goes.
 
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each

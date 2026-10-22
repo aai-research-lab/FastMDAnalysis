@@ -996,7 +996,11 @@ ANALYSIS = PhaseSchema(
               choices=ANALYSIS_NAMES,
               example=["rmsd", "rmsf", "rg", "cluster"]),
         Field("exclude", list, None,
-              "Analyses to skip. Mutually exclusive with `include`.",
+              "Analyses to skip. Mutually exclusive with `include`. "
+              "`image_check` runs with any plan, a listed one too, where "
+              "there is a box and a solute; excluded by name, the solute is "
+              "not checked against its own periodic images and no mean says "
+              "whether it met its copy.",
               choices=ANALYSIS_NAMES,
               example=["dimred"]),
         Field("select_atoms", str, None,

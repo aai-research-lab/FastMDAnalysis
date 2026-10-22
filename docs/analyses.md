@@ -60,7 +60,11 @@ minimum in g(r) — never assumed, because the radius decides the number.
 | `moments_of_inertia` | The three principal moments, which separate a rod from a disc where the radius of gyration cannot, and the asphericity, acylindricity and relative shape anisotropy of the gyration tensor |
 | `image_check` | The solute's closest approach to its own periodic images in every frame, with the frames within the cutoff counted |
 
-`image_check` runs first on every study with a solute in a periodic box, as
+`image_check` runs first on every study with a solute in a periodic box,
+a study that lists its analyses (`include`) too, unless excluded by name
+(`exclude: [image_check]`, said in the log, the analysis manifest and the
+report: the solute is then not checked, and no mean says whether it met its
+copy). It does the check as
 `gmx mindist -pi` does the check: in each frame, made whole along its bonds,
 the closest approach of any heavy atom of the solute to any heavy atom of its
 images, every image the

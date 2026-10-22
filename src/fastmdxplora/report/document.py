@@ -617,6 +617,10 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
         )
     lines.append(f"Analyses performed: {', '.join(_md_text(a) for a in plan)}.")
     lines.append("")
+    if analysis_manifest.get("image_check_left_out"):
+        # What is then not known of every mean below.
+        lines.append(_md_text(analysis_manifest["image_check_left_out"]))
+        lines.append("")
 
     # The corrected averages come before the analyses they correct. A reader
     # who meets the RMSD heading first has already read the raw number by the
