@@ -213,7 +213,7 @@ study is otherwise shown by its system's ID: its PDB ID, or the first four
 letters or digits of its structure file's name, in capitals) and **Ligand residue** (the
 ligand the Viewer centres on and finds the pocket around, for a structure
 with more than one; the analyses are not changed). Both are kept on this
-computer by the study's folder, as Preferences are. All studies says how
+computer by the study's folder, as the settings of You are. All studies says how
 many studies the workspace holds.
 
 **Where you are, at the head of every page.** A study's pages lead with
@@ -270,7 +270,7 @@ answer), the Problems tab and the Log.
 
 **Go to anything, and the keys.** ⌘K (Ctrl+K) finds a page (with its key),
 a study of the workspace, a file of the open study, an analysis, a tool of
-the Viewer, a setting of Preferences, the scheme and the actions (a study
+the Viewer, Settings, the scheme and the actions (a study
 opens on the page shown, its Overview from a page of no study); ⌘P
 (Ctrl+P) the open study's files alone. `@TRP23` (or `@A:23`) selects that
 residue in the Viewer, `@` and part of a name or number lists the
@@ -350,22 +350,54 @@ FastMDXplora running that study is never adopted.
 
 **The settings**, from the gear at the sidebar's foot: the scheme
 (System, which follows the computer, Light or Dark), the accent (Cyan, Blue,
-Violet, Magenta or Graphite, kept on this computer; Graphite has no hue and
+Violet, Magenta or Graphite, saved on this computer; Graphite has no hue and
 underlines its links), whose AI the Agent asks (its provider) and its mode
-with **Agent settings**, where alone its AI model is said, **Preferences**,
-**Cite FastMDXplora**, the documentation and the repository. Each of the three opens as a dialog over the page shown;
-Escape, Close, Back or a click outside closes it, and `#settings` or
-`#cite` in the address opens it. **Preferences** are how the Viewer opens
-(representation, a dark or white ground, water, ions, spin, the camera kept
-as frames change, the pocket cutoff), the time in 24 or 12 hours, and how
-many samples a live chart keeps; they apply as they change and are kept on
-this computer, in the browser tab's storage for the GUI's address
-(**Restore defaults** puts the release's back). Nothing in them
-changes a study or its files. **Cite FastMDXplora** gives the reference and
-its BibTeX, each copied with one click.
+with **Agent settings**, where alone its AI model is said, **Settings**,
+**Cite FastMDXplora**, the documentation and the repository. Agent settings
+and Cite open as dialogs over the page shown; Escape, Close, Back or a click
+outside closes them, and `#cite` in the address opens the citation. **Cite
+FastMDXplora** gives the reference and its BibTeX, each copied with one
+click.
+
+**Settings** is one page for every setting (`#settings`, and `#preferences`,
+its old address), each applied as it is changed, with no Save. One search
+finds a setting by its words, and says beside each scope how many it found
+there. Two scopes:
+
+- **You** is this computer, saved in the browser for the GUI's address: the
+  scheme and the accent, as in the gear's menu; the **Display size**; how the
+  Viewer opens (representation, a dark or white ground, water, ions, spin,
+  the camera kept as frames change, the pocket cutoff), the time in 24 or 12
+  hours, how many samples a live chart keeps and a notice when a run ends;
+  and the Agent's engine and mode, changed in its own settings (**Change the
+  Agent's settings**; that dialog's **All settings** leads back here).
+  **Restore defaults** puts the release's back for the Display size, the
+  Viewer, time, charts and notices. Nothing in You changes a study or its
+  files.
+- **This folder** is the workspace's `fastmdx-defaults.yml` (the nearest in
+  or above where new studies go, or a new one there), which every new study
+  made here starts from, from the GUI, the command line and the Agent alike.
+  Every setting it may hold is listed by its phase, FastMDXplora's own value
+  beside it. A value set is written into the file at once and checked as any
+  defaults file is: one it refuses is said beside the setting, and the file
+  is left as it was. **Use FastMDXplora's** takes it out again, a reason
+  given is saved with it in the file's `decisions` (a study's report says it
+  under **Why these settings**), and **Undo** puts back what was there. A
+  setting no control draws (the RMSF figure's regions) is shown as the file
+  holds it, and a file with comments is shown and changed by hand, as writing
+  it again would lose them. Not offered when the GUI is served to others.
+
+The **Display size** sizes everything at once, text included: Auto, 90%,
+100%, 110%, 125% or 150%. Auto chooses from the screen as the browser
+reports it, in its own pixels, so a system's own scaling is counted once:
+100% up to about 1920 by 1080, 125% at 2560 by 1440 (or an ultrawide 3440 by
+1440), 150% at 3840 by 2160. It chooses again when the window is moved to
+another screen, never as it is resized. Where the browser cannot size the
+page itself, Settings says to use the browser's own zoom. The layout's
+changes for a narrow window follow the window's width, not the size chosen.
 
 **Back and Forward** move between the GUI's pages, the analysis shown and
-the Preferences, Cite and Viewer help dialogs. The address names the open
+the Cite and Viewer help dialogs. The address names the open
 study by a key, never its path (`?study=<key>`), so Back returns to the
 study open before and a bookmark opens that study again; a folder not yet a
 study is not named. An address naming a study not among those here says so,
@@ -549,7 +581,8 @@ the run will take with it, marked as yours; where systems give their own
 value, the plan names each with its systems ("310 K, 1 bar (plain); 320 K,
 1 bar (warm)"). Every value typed into the form is kept in the file, yours
 too, so the file run where there is no defaults file runs the study shown;
-only FastMDXplora's own value, where yours say nothing else, goes unsaid. A
+only FastMDXplora's own value, where yours say nothing else, goes unsaid.
+The file is changed in **Settings**, under **This folder**. A
 full config gives your default only to the systems that take it, and each
 run records your reason only where it took your value.
 

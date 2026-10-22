@@ -319,7 +319,7 @@ def test_the_docs_say_the_menu_names_the_provider_and_mode_not_the_model():
     from pathlib import Path
 
     text = (Path(__file__).resolve().parent.parent / "docs" / "gui.md").read_text(encoding="utf-8")
-    said = text[text.index("**The settings**"):text.index("**Preferences** are how")]
+    said = text[text.index("**The settings**"):text.index("**Settings** is one page")]
     assert "the Agent's AI model and its mode" not in said
     assert "whose AI the Agent asks (its provider) and its mode" in said
     assert "where alone its AI model is said" in said

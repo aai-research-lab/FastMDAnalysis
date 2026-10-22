@@ -693,6 +693,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   "..., may be biased: ... of its own image, not determined"; the chip is
   drawn by `agent-panel.js`).
 
+- One Settings page for every setting, found by its words, each applied as
+  it is changed. **You** is this computer: the scheme, the accent, the new
+  Display size, the Viewer, time, charts and notices (the Preferences
+  dialog's, which is gone) and the Agent's engine and mode. **This folder**
+  is the workspace's `fastmdx-defaults.yml`, which the GUI could only read:
+  each setting it may hold beside FastMDXplora's own, set, given a reason
+  or taken out there, the file checked as any defaults file is and left as
+  it was when refused. The gear's Settings… and the Agent's dialog lead to
+  it, and `#preferences` is its address too.
+- A Display size, in Settings: the whole page at once, text included, from
+  90% to 150%. Auto, the default, chooses from the screen (125% at 2560 by
+  1440, 150% at 3840 by 2160), so the GUI is not small on a large screen;
+  the Viewer's picking, tooltips and menus stay where they belong at every
+  size.
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's
