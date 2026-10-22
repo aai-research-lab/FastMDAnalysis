@@ -39,6 +39,7 @@ __all__ = [
     "member_directory",
     "read_member_findings",
     "replica_error",
+    "spread_against_own",
 ]
 
 #: Sweep axes that make members repeats rather than different studies.
@@ -150,6 +151,27 @@ def replica_error(means: Any, own: float | None) -> float | None:
     spread = float(np.std(values, ddof=1))
     mine = _finite_or_none(own)
     return max(spread, mine) if mine is not None and mine > 0 else spread
+
+
+def spread_against_own(means: Any, errors: Any) -> dict[str, Any] | None:
+    """Replicas' spread set against the errors the runs estimated for
+    themselves, the one check a single run's error gets: ``observed``, the
+    spread of their means (sample standard deviation); ``predicted``, the
+    mean of the errors given (each above zero); their ``ratio``; and
+    ``too_tight``, the spread past ``CALIBRATION_FACTOR`` times the
+    prediction, so the errors the runs printed are too tight. Of two
+    replicas whose own errors are all there is to set them against (the
+    Compare page) as of all of a study's (`aggregate_members`). None where
+    there are fewer than two means or no error of their own."""
+    values = np.asarray([m for m in means], dtype=float)
+    given = [float(e) for e in errors if e is not None and np.isfinite(e) and e > 0]
+    if values.size < 2 or not given:
+        return None
+    observed = float(np.std(values, ddof=1))
+    predicted = float(np.mean(given))
+    return {"observed": observed, "predicted": predicted, "ratio": float(observed / predicted),
+            "too_tight": observed > CALIBRATION_FACTOR * predicted,
+            "factor": CALIBRATION_FACTOR}
 
 
 def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
@@ -337,17 +359,18 @@ def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str,
                 "check the spread against. " + entry["spread_not_an_error"]
             )
         elif replicas and errors:
-            predicted = float(np.mean(errors))
-            observed = float(np.std(means, ddof=1))
+            # Two means or more (`rows`), and an error of their own (`errors`).
+            check = spread_against_own(means, errors)
+            predicted, observed = check["predicted"], check["observed"]
             entry["predicted_standard_error"] = predicted
             entry["observed_standard_error"] = observed
-            entry["ratio_observed_to_predicted"] = float(observed / predicted)
+            entry["ratio_observed_to_predicted"] = check["ratio"]
             qualified = entry.get("qualified_by_their_own_runs") or []
             # A prediction from some of the runs is said as such.
             some = ("" if len(errors) == len(rows) else
                     f" (from the {len(errors)} of {len(rows)} runs that "
                     "gave an error of their own)")
-            if observed > CALIBRATION_FACTOR * predicted:
+            if check["too_tight"]:
                 entry["calibration"] = (
                     f"The replicas spread {observed:.3g} where a single run "
                     f"predicted {predicted:.3g}{some}, more than the factor of "

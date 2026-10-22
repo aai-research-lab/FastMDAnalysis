@@ -319,8 +319,11 @@ the page says how many of the runs' means each spread was taken over ("from
 2 of the 3 runs") where fewer than all were read. Where only the two
 compared were read for a quantity, the spread of their two means is their
 difference over the square root of 2, so the difference would equal its
-error whatever they are: each is set against the runs' own errors, and the
-page says why. Where the two also differ in a setting besides their seed,
+error whatever they are: two repeats of one measurement are not said to
+differ, and their spread is set against the errors the two estimated for
+themselves as `batch/aggregate.py` sets replicas' (`spread_against_own`:
+past twice those, the errors are too tight); the page says why, and says
+"only these two runs' means were read" only where the study has more runs. Where the two also differ in a setting besides their seed,
 the page names it from the Settings diff rather than saying they differ
 only by seed. A finished run its
 study's manifest places outside the study is named and left out, not looked

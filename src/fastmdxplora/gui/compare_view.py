@@ -117,11 +117,15 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
         return {}
 
     def read(inside: Path) -> dict[str, Any]:
-        from fastmdxplora.batch.aggregate import finished_members, replica_error
+        from fastmdxplora.batch.aggregate import (
+            _finished, finished_members, replica_error, spread_against_own)
         from fastmdxplora.gui.workspace import means_of
 
         try:
             members, replicas, why = finished_members(inside)
+            # How many runs the study has, finished or not: "only these two
+            # runs' means were read" said only where it has more.
+            planned = len(_finished(inside)[0].get("runs") or [])
         except (OSError, ValueError):
             # Whether they are repeats of one measurement is not known.
             return {"unknown": True}
@@ -147,18 +151,21 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
         errors: dict[str, tuple[float, float]] = {}
         kinds: dict[str, tuple[str, str]] = {}
         counts: dict[str, int] = {}
-        alone: list[str] = []
+        alone: dict[str, dict[str, Any] | None] = {}
         for name in wanted:
             values = [(m.get(name) or {}).get("mean") for m in means]
             values = [v for v in values if v is not None]
+            own = [sides[i]["compared"]["means"][name]["error"] for i in (0, 1)]
             if len(values) == 2:
                 # Only the two compared were read: the spread of two means
                 # is their difference over the square root of 2, so the
                 # difference set against it equals its error whatever the
-                # two are. Each keeps the error it estimated itself.
-                alone.append(name)
+                # two are. Their spread is set against the errors the two
+                # estimated for themselves instead, the check `aggregate`
+                # gives replicas (`spread_against_own`): two repeats of one
+                # measurement are never said to differ.
+                alone[name] = spread_against_own(values, own)
                 continue
-            own = [sides[i]["compared"]["means"][name]["error"] for i in (0, 1)]
             pair = [replica_error(values, own[i]) for i in (0, 1)]
             spread = replica_error(values, None)
             if None not in pair and spread is not None:
@@ -167,7 +174,7 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
                                     for i in (0, 1))
                 counts[name] = len(values)
         return {"errors": errors, "kinds": kinds, "counts": counts, "alone": alone,
-                "runs": len(members), "why": why, "outside": outside}
+                "runs": len(members), "of": planned, "why": why, "outside": outside}
 
     from fastmdxplora.gui.server import _confined
 
@@ -180,13 +187,18 @@ def _the_replicas_said(said: dict[str, Any], replicas: dict[str, Any]) -> None:
     run's own where that was the larger, and how many of the runs' means
     the spread was taken over."""
     kinds, counts = replicas.get("kinds") or {}, replicas.get("counts") or {}
-    alone = set(replicas.get("alone") or ())
+    alone = replicas.get("alone") or {}
     for row in said.get("measures") or ():
         versus, name = row.get("versus"), row.get("analysis")
         if versus and name in alone:
             versus["error_kinds"] = ["own", "own"]
             versus["error_of"] = "alone"
             versus["from_runs"] = 2
+            # Not resolved or within the errors: the difference test is for
+            # two measurements, and these are repeats of one. Their spread
+            # against their own errors says whether those are too tight.
+            versus["resolved"] = None
+            versus["spread_against_own"] = alone[name]
             continue
         if not versus or name not in kinds:
             continue
@@ -195,8 +207,8 @@ def _the_replicas_said(said: dict[str, Any], replicas: dict[str, Any]) -> None:
         versus["error_of"] = ("replicas" if mine == ["spread", "spread"]
                               else "own" if mine == ["own", "own"] else "mixed")
         versus["from_runs"] = counts.get(name)
-    said["replicas"] = {"runs": replicas["runs"], "why": replicas["why"],
-                        "also_differ": _also_differ(said)}
+    said["replicas"] = {"runs": replicas["runs"], "of": replicas.get("of"),
+                        "why": replicas["why"], "also_differ": _also_differ(said)}
 
 
 def _also_differ(said: dict[str, Any]) -> list[str]:

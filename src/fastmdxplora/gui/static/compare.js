@@ -66,9 +66,19 @@
   var ERROR_OF = {
     replicas: " (replicas' spread)",
     own: " (each run's own error, larger than the replicas' spread)",
-    alone: " (each run's own error: the spread is of these two alone)",
     mixed: " (the replicas' spread, or a run's own error where larger)",
   };
+
+  /* Two replicas, the only two read: their spread against the errors they
+   * estimated for themselves (`spread_against_own`), past its factor the
+   * errors too tight. */
+  function spreadSaid(check) {
+    if (!check) return ", not set against their own errors: neither gave one above zero";
+    var times = Number(check.ratio.toPrecision(2));
+    return ", their spread " + times + " times their own errors" +
+      (check.too_tight ? ": those errors are too tight"
+        : ", within the factor of " + check.factor);
+  }
 
   /* A cell of a table, with the column it is in for a phone, where the
    * table is laid out one quantity under another. */
@@ -332,7 +342,14 @@
         }
       });
       var difference = cell("mono", "", "Difference");
-      if (m.versus) {
+      if (m.versus && m.versus.error_of === "alone") {
+        // Two repeats of one measurement, the only two read: never said
+        // to differ; their spread against their own errors, as the
+        // study's replicas are aggregated (batch/aggregate.py).
+        difference.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
+          spreadSaid(m.versus.spread_against_own);
+        difference.dataset.errorOf = "alone";
+      } else if (m.versus) {
         difference.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
           (m.versus.resolved ? ", resolved" : ", within the errors") +
           (ERROR_OF[m.versus.error_of] || "");
@@ -412,12 +429,25 @@
         "which it was set against.";
     }
     if (alone.length) {
-      said += " " + alone.join(", ") + ": only these two runs' means were read, and the " +
-        "spread of two means is their difference over the square root of 2, so a difference " +
-        "set against it would equal its error whatever the two are. Each is set against the " +
-        "error the run estimated for itself, which replicas can show too tight.";
+      // "Only these two read" where the study has more runs than the two.
+      var of = data.replicas.of || n;
+      said += " " + alone.join(", ") + (of > 2 ? ": only these two runs' means were read"
+        : ": the study has these two runs alone") + ", and the spread of two means is their " +
+        "difference over the square root of 2, so a difference set against it would equal " +
+        "its error whatever the two are. As the study's replicas are aggregated, their spread " +
+        "is set against the errors the two estimated for themselves instead" +
+        (factorOf(data) ? ": past " + factorOf(data) + " times those, the errors are too tight"
+          : "") + ". Two repeats of one measurement are not said to differ.";
     }
     return said;
+  }
+
+  /* The factor the replicas' spread is held to (batch/aggregate.py). */
+  function factorOf(data) {
+    var found = (data.measures || []).map(function (m) {
+      return m.versus && m.versus.spread_against_own;
+    }).filter(Boolean)[0];
+    return found ? found.factor : null;
   }
 
   function colourOf(i) {
