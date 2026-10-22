@@ -246,3 +246,11 @@ def test_an_opened_folder_s_name_writes_letters_of_no_decomposition_plainly():
 
     assert _slug("Straße Æsir Øre ǅemal Łódź") == \
         "strasse-aesir-ore-dzemal-lodz"
+
+
+def test_an_opened_folder_s_name_writes_more_letters_plainly():
+    """Review of the forty-ninth commit: barred h and t, eng and kra were
+    dropped."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("Ħal Far ŋga Ŧree ĸ") == "hal-far-ngga-tree-k"

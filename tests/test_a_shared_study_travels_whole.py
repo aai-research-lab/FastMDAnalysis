@@ -4528,3 +4528,38 @@ def test_a_zip_of_the_archive_s_name_in_a_version_published_by_hand_is_the_perso
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert "which this study did not put there" in capsys.readouterr().err
     assert not any(c[0] == "PUT" and c[1].startswith("/files/") for c in unsteady.calls)
+
+
+def test_an_earlier_release_s_first_draft_whose_concept_is_not_read_is_not_a_new_version(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Review of the forty-ninth commit: a draft 2.6.0 made (no new version),
+    whose concept's address could not be read, was said to be of a new
+    version."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    real = zenodo._call
+
+    def unread(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/c7"):
+            down = ShareRefused(f"Zenodo answered GET {url} with HTTP 503, still after 5 "
+                                "tries.", code="environment.service.unreachable")
+            down.later = True
+            raise down
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", unread)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "The draft 7, shared by an earlier release, is as it was" in said
+    assert "of a new version" not in said
+
+
+def test_a_terminal_s_escape_goes_once_the_rest_is_fixed():
+    """Review of the forty-ninth commit: ftfy takes a terminal's escape out
+    after its other fixes, so a full-width bracket or a ligature in it is
+    taken out with it."""
+    assert zenodo._plain("\x1b［31m") == ""
+    assert zenodo._plain("\x1b[ﬁ") == "i"

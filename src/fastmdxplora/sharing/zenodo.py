@@ -231,13 +231,13 @@ def _plain(value: Any) -> Any:
             was = fixed
             if reading:
                 fixed = _ENTITY.sub(_entity, fixed)
-            fixed = _TERMINAL.sub("", fixed)
             fixed = re.sub("[\x80-\x9f]", _c1, fixed).translate(_LIGATURES)
             fixed = re.sub("[\uff01-\uffee]",
                            lambda c: unicodedata.normalize("NFKC", c.group()), fixed)
             fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
             fixed = fixed.replace("\u2028", "\n").replace("\u2029", "\n")
-            fixed = unicodedata.normalize("NFC", _CONTROLS.sub("", fixed))
+            # (A terminal's escapes go once the rest is fixed, as ftfy takes them.)
+            fixed = unicodedata.normalize("NFC", _CONTROLS.sub("", _TERMINAL.sub("", fixed)))
             if fixed == was:
                 break
         lines.append(fixed)
@@ -1115,8 +1115,10 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             except ShareRefused as exc:
                 # Not known: neither its record nor the version it is.
                 unknown = ShareRefused(
-                    f"{exc} The draft {identifier}, of a new version an earlier release "
-                    "began, is as it was; share again once Zenodo answers.",
+                    f"{exc} The draft {identifier}, "
+                    + ("of a new version an earlier release began"
+                       if links.get("latest") else "shared by an earlier release")
+                    + ", is as it was; share again once Zenodo answers.",
                     code=exc.refusal.code)
                 unknown.later = True
                 raise unknown from exc
