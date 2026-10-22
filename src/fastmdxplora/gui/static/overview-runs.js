@@ -109,14 +109,18 @@
       link.appendChild(el("span", "", run.label || run.run_id));
       link.title = "Open " + (run.label || run.run_id) + "\n" + run.run_id;
       link.addEventListener("click", function () { open(run); });
-      var pick = el("input", "overview-runs-pick");
-      pick.type = "checkbox";
-      pick.checked = picked.indexOf(run.path) >= 0;
-      pick.dataset.path = run.path;
-      pick.setAttribute("aria-label", "Choose " + (run.label || run.run_id) + " to compare");
-      pick.title = "Choose two runs to compare";
-      pick.addEventListener("change", function () { choose(run.path, pick.checked); });
-      name.appendChild(pick);
+      // Beyond loopback Compare is not answered (/api/compared): nothing
+      // that leads to it is offered.
+      if (!beyondLoopback()) {
+        var pick = el("input", "overview-runs-pick");
+        pick.type = "checkbox";
+        pick.checked = picked.indexOf(run.path) >= 0;
+        pick.dataset.path = run.path;
+        pick.setAttribute("aria-label", "Choose " + (run.label || run.run_id) + " to compare");
+        pick.title = "Choose two runs to compare";
+        pick.addEventListener("change", function () { choose(run.path, pick.checked); });
+        name.appendChild(pick);
+      }
       name.appendChild(link);
       row.appendChild(name);
       var state = el("td", "overview-runs-state");
@@ -236,12 +240,16 @@
     if (!button) return;
     var runs = (data && data.runs) || [];
     picked = picked.filter(function (p) { return runs.some(function (r) { return r.path === p; }); });
-    button.hidden = picked.length !== 2;
+    button.hidden = beyondLoopback() || picked.length !== 2;
   }
 
   function compare() {
+    if (beyondLoopback()) return;
     if (picked.length === 2 && window.FastMDXCompare) window.FastMDXCompare.open(picked[0], picked[1]);
   }
+
+  /* A page bound beyond loopback (the server says so on the body). */
+  function beyondLoopback() { return document.body.dataset.beyondLoopback === "true"; }
 
   function renderSaid() {
     var runs = data.runs || [];

@@ -181,3 +181,42 @@ def test_a_run_going_is_said_as_it_goes(variants):
     assert "compared, not averaged" in said["first"]["said"]
     assert said["first"]["together"] == []
     assert said["bar"]
+
+
+@pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
+def test_beyond_loopback_no_run_is_offered_to_compare(variants, public):
+    """Bound beyond loopback, Compare is not answered (/api/compared), yet
+    each run's row offered a box to choose it to compare."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _serving
+
+    runtime = DashboardRuntime(workspace_root=variants, exploration_root=variants.parent,
+                               active_root=variants)
+    with _serving(runtime, allow_control=not public) as url, sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(60000)
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("#overview-runs:not([hidden]) #overview-runs-table tbody tr")
+        shown = page.evaluate("""() => ({
+            bound: document.body.dataset.beyondLoopback,
+            boxes: document.querySelectorAll('.overview-runs-pick').length,
+            open: document.querySelectorAll('.overview-runs-open').length,
+        })""")
+        if not public:
+            page.click('.overview-runs-pick >> nth=0')
+            page.click('.overview-runs-pick >> nth=1')
+            shown["compare"] = page.is_visible("#overview-runs-compare")
+        browser.close()
+    assert errors == []
+    assert shown["bound"] == ("true" if public else "false")
+    assert shown["open"] == 2
+    if public:
+        assert shown["boxes"] == 0
+    else:
+        assert shown["boxes"] == 2 and shown["compare"] is True
