@@ -469,3 +469,164 @@ def test_a_run_asked_to_stop_is_said_stopped_as_its_overview_says_it(tmp_path):
     assert said["simulation"]["said"] == "Simulation stopped"
     assert said["simulation"]["status"] == {p["name"]: p for p in _phases(root)}[
         "simulation"]["status"] == "stopped"
+
+
+# ---------------------------------------------------------------------------
+# The rounds of a study run until what it asks is determined: each said by
+# what was decided on it and, stopped, by what stopped it; placed by the
+# recorded times of the steps around it, never below the oldest step.
+
+def _round(decision: str, production: float, more: float | None = None,
+           verdicts: list | None = None) -> dict:
+    entry = {"production_ns": production, "decision": decision,
+             "verdicts": verdicts or [{"analysis": "rmsd", "met": False,
+                                       "said": "rmsd 0.150 ± 0.004 nm, outside the ±0.002 asked"}]}
+    if more is not None:
+        entry["more_ns"] = more
+    return entry
+
+
+def _stopping(where: Path, runs: list[str], rounds: list[dict], outcome: str, said: str) -> None:
+    (where / "stopping.json").write_text(json.dumps({
+        "targets": [{"analysis": "rmsd", "standard_error": 0.002}], "max_duration_ns": 5.0,
+        "independent_starts": "required", "runs": runs, "rounds": rounds,
+        "outcome": outcome, "said": said}), encoding="utf-8")
+
+
+def _a_piece(run: Path, number: int, length_ns: float, start: str | None,
+             end: str | None) -> None:
+    piece = run / f"segment-{number:03d}"
+    (piece / "simulation").mkdir(parents=True)
+    config = (run / "resolved_config.yml").read_text(encoding="utf-8")
+    (piece / "resolved_config.yml").write_text(
+        config.replace("duration_ns: 1.0", f"duration_ns: {length_ns}"), encoding="utf-8")
+    if start is not None:
+        (piece / "manifest.json").write_text(json.dumps({"phases": [
+            _phase("simulation", start, end)]}), encoding="utf-8")
+
+
+@pytest.fixture()
+def in_rounds(tmp_path) -> Path:
+    """Two replicas run until RMSD is determined: round 1 extended each by
+    500 ps, round 2 asked for 250 ps more and was stopped by Ctrl+C while
+    the second run's piece ran."""
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    first, second = sorted((root / "runs").iterdir())
+    for run, ready, end in ((first, "06:59:40", "07:30:00"), (second, "06:59:50", "07:40:00")):
+        (run / "manifest.json").write_text(json.dumps({"phases": [
+            _phase("setup", "06:59:00", ready),
+            _phase("simulation", "07:00:00", end)]}), encoding="utf-8")
+    _a_piece(first, 1, 0.5, "08:00:00", "08:20:00")
+    _a_piece(second, 1, 0.5, "08:20:00", "08:40:00")
+    _a_piece(first, 2, 0.25, "09:00:00", "09:10:00")
+    _a_piece(second, 2, 0.25, None, None)
+    _stopping(root, [first.name, second.name],
+              [_round("extend", 1.0, 0.5), _round("stopped", 1.5, 0.25)], "stopped",
+              f"Stopped when asked, while extending {second.name}. Resuming the study "
+              "judges the runs again and carries on from there.")
+    return root
+
+
+def test_the_rounds_are_placed_by_when_they_happened_and_said_by_what_stopped_them(in_rounds):
+    """The rounds came below the oldest step, and a round stopped by Ctrl+C
+    was said "an extension failed"."""
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    said = timeline_of(in_rounds)
+    steps = [(e.get("run", ""), e["said"]) for e in said["events"]]
+    assert steps == [
+        ("seed 1", "Carried on, piece 2"),
+        ("", "Round 2: stopped when asked (Ctrl+C or a signal) while the runs were extended"),
+        ("seed 2", "Carried on, piece 1"), ("seed 1", "Carried on, piece 1"),
+        ("", "Round 1: each run extended by 500 ps"),
+        ("seed 2", "Simulated"), ("seed 1", "Simulated"),
+        ("seed 2", "Set up"), ("seed 1", "Set up")], steps
+    rounds = [e for e in said["events"] if e["kind"] == "round"]
+    assert [r["placed"] for r in rounds] == [
+        {"at": "2026-10-18T09:00:00+00:00", "before": True},
+        {"at": "2026-10-18T08:00:00+00:00", "before": True}]
+    assert [r["production_said"] for r in rounds] == ["1.5 ns", "1 ns"]
+    assert rounds[0]["stopped_by"] == "asked" and rounds[0]["at"] is None
+    assert rounds[0]["detail"].startswith("Stopped when asked, while extending")
+    assert not any("extension failed" in e["said"] for e in said["events"])
+
+
+ROUND_STOPPED = pytest.mark.parametrize("rounds, outcome, said, last, by", [
+    ([_round("stopped", 1.0, verdicts=[{"analysis": "rmsd", "met": False, "unrecorded": True,
+                                        "said": "rmsd recorded no mean"}])],
+     "stopped", "Stopped: rmsd recorded no mean. More production does not give an analysis "
+     "a mean it does not record; its own log says why.",
+     "Round 1: stopped: rmsd recorded no mean", "no mean"),
+    ([_round("stopped", 1.0, 0.5)], "stopped",
+     "Stopped: extending study failed at simulation: CUDA_ERROR_OUT_OF_MEMORY",
+     "Round 1: stopped by an error while the runs were extended", "error"),
+    # Stopped, then resumed: the record's sentence is the last round's, so
+    # what stopped the first is not in it.
+    ([_round("stopped", 1.0, 0.5), _round("met", 1.0)], "met",
+     "After 1 ns of production: rmsd 0.150 ± 0.001 nm, within the ±0.002 asked.",
+     "Round 1: stopped; what stopped it is not recorded", "not recorded"),
+    ([_round("met", 1.0)], "met", "After 1 ns of production: rmsd 0.150 ± 0.001 nm.",
+     "Round 1: determined as asked, so stopped", ""),
+    ([_round("ceiling", 5.0)], "ceiling", "Stopped at the 5 ns ceiling.",
+     "Round 1: stopped at the ceiling, not determined as asked", ""),
+], ids=["no mean", "error", "not recorded", "met", "ceiling"])
+
+
+@ROUND_STOPPED
+def test_a_round_is_said_by_what_the_record_says_stopped_it(tmp_path, rounds, outcome, said,
+                                                            last, by):
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    root = tmp_path / "study"
+    root.mkdir()
+    (root / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04"), _phase("simulation", "07:00:04", "07:30:04")]}),
+        encoding="utf-8")
+    _stopping(root, ["study"], rounds, outcome, said)
+    events = timeline_of(root)["events"]
+    first = next(e for e in events if e["kind"] == "round" and e["round"] == 1)
+    assert (first["said"], first["stopped_by"]) == (last, by)
+    # Placed after the production it judged, its own time not recorded.
+    assert first["placed"] == {"at": "2026-10-18T07:30:04+00:00", "before": False}
+    assert events[-2:] == [e for e in events if e["phase"] in ("simulation", "setup")]
+
+
+def test_the_side_panel_says_a_round_s_length_in_ps_and_its_time_not_recorded(in_rounds):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(in_rounds), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1600, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate("() => window.FastMDXFrame.setCollapsed(false)")
+            page.click("#timeline-tab")
+            page.wait_for_selector('#study-timeline-list .tl-event[data-kind="round"]')
+            shown = page.evaluate("""() => [...document.querySelectorAll(
+                '.tl-event[data-kind="round"]')].map((n) => ({
+                said: n.querySelector('.tl-said').textContent,
+                when: !!n.querySelector('.tl-when'),
+                facts: n.querySelector('.tl-facts').textContent,
+                by: n.dataset.stoppedBy || ''}))""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert [s["said"] for s in shown] == [
+        "Round 2: stopped when asked (Ctrl+C or a signal) while the runs were extended",
+        "Round 1: each run extended by 500 ps"]
+    assert [s["by"] for s in shown] == ["asked", ""]
+    assert not any(s["when"] for s in shown)
+    assert shown[1]["facts"].startswith(
+        "judged after 1 ns of production · its time not recorded: placed just before the "
+        "pieces it began"), shown[1]["facts"]

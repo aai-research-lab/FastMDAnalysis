@@ -68,6 +68,7 @@ def timeline_of(root: str | Path) -> dict[str, Any]:
                     again["changes"] = _means_moved(previous / "analysis", base / "analysis")
                     again["again"] = True
     events += _pieces(base)
+    events += _rounds(base, {base.name: ""})
     # In the order the records give them: those without a time are said
     # newest first by it, the Manifest's last phase first.
     for order, event in enumerate(events):
@@ -82,10 +83,23 @@ def _newest_first(event: dict[str, Any]) -> tuple:
     """Newest first by what is known: those with a time by it, then those
     without (a Manifest may record a phase's name and status only), by the
     order their records give them. Never a time the records do not hold."""
-    at = event.get("at")
-    if at:
-        return (1, str(at), 0)
+    when = _when(event)
+    if when is not None:
+        return (1, *when)
     return (0, "", event.get("_order", 0))
+
+
+def _when(event: dict[str, Any]) -> tuple[str, int] | None:
+    """Where a step falls in time: by the time its record gives it; a round,
+    whose record gives none, by the recorded times of the steps it came
+    between, just before the pieces it began or just after the last step
+    before it (`_rounds`). None where neither is recorded."""
+    if event.get("at"):
+        return (str(event["at"]), 1)
+    placed = event.get("placed")
+    if placed:
+        return (str(placed["at"]), 0 if placed.get("before") else 2)
+    return None
 
 
 def _runs_of(base: Path) -> list[dict[str, Any]] | None:
@@ -126,10 +140,13 @@ def _of_its_runs(base: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
             event["run_path"] = str(folder)
         events += steps
         listed.append({"label": run["label"], "path": str(folder), "steps": len(steps)})
+    # The study's own rounds, where it ran its runs until what it asks is
+    # determined: the study's steps, named by no run.
+    events += _rounds(base, {run["run_id"]: run["label"] for run in runs})
     # Those with a time newest first; those without after them, run by run
     # in the study's order, each run's as its own Timeline orders them.
-    timed = sorted((e for e in events if e.get("at")), key=lambda e: str(e["at"]), reverse=True)
-    timeless = [e for e in events if not e.get("at")]
+    timed = sorted((e for e in events if _when(e) is not None), key=_when, reverse=True)
+    timeless = [e for e in events if _when(e) is None]
     return {"ok": True, "events": timed + timeless, "runs": listed}
 
 
@@ -290,6 +307,187 @@ _CARRYING = frozenset({
     "simulation.nvt_steps", "simulation.npt_steps", "simulation.nvt_duration_ns",
     "simulation.npt_duration_ns",
 })
+
+
+#: How `stopping.run_until_known` begins the record's sentence for a round
+#: stopped while it extended the runs: asked to stop (Ctrl+C, or a signal
+#: such as a scheduler's or the GUI's Stop), or an extension that failed.
+#: The sentence is the last round's only: an earlier round's, in a study
+#: resumed since, was written over.
+_STOPPED_WHEN_ASKED = "Stopped when asked"
+_EXTENDING_FAILED = "Stopped: extending "
+
+
+def _rounds(base: Path, names: dict[str, str]) -> list[dict[str, Any]]:
+    """Each round of a study run until what it asks is determined
+    (`simulation.stop_when`), as its record (`stopping.json`) gives it:
+    the production judged, what was decided, and what stopped it, from
+    what the record holds; "not recorded" where it holds no reason.
+
+    A round's record gives no time. It is placed by the recorded times of
+    the steps it came between: just before the pieces it began (each run's
+    piece of the length the round asked for, the next in the run's order),
+    or, where it began none, just after the last step before it."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+    from fastmdxplora.simulation.stopping import RECORD
+
+    record = _json(base / RECORD)
+    if not isinstance(record, dict) or not isinstance(record.get("targets"), list):
+        return []
+    rounds = record.get("rounds") if isinstance(record.get("rounds"), list) else []
+    runs = [str(name) for name in record.get("runs") or [] if isinstance(name, (str, int))]
+    folders = [folder for folder in (_run_folder(base, name) for name in runs) if folder]
+    several = len(runs) > 1
+    # Each run's production before the rounds, and its pieces in order.
+    latest = max((t for t in (_simulated_until(folder) for folder in folders) if t),
+                 default=None)
+    pieces = {folder: _timed_pieces(folder) for folder in folders}
+    taken = {folder: 0 for folder in folders}
+    outcome = str(record.get("outcome") or "")
+    said = str(record.get("said") or "")
+    events: list[dict[str, Any]] = []
+    for number, entry in enumerate(rounds, start=1):
+        entry = entry if isinstance(entry, dict) else {}
+        last = number == len(rounds)
+        more = _finite(entry.get("more_ns"))
+        began: list[dict[str, Any]] = []
+        if more is not None and more > 0:
+            for folder in folders:
+                found = next((i for i in range(taken[folder], len(pieces[folder]))
+                              if _same_length(pieces[folder][i]["duration_ns"], more)), None)
+                if found is not None:
+                    began.append(pieces[folder][found])
+                    taken[folder] = found + 1
+        starts = [p["started"] for p in began if p["started"]]
+        if starts:
+            placed = {"at": min(starts), "before": True}
+        elif latest:
+            placed = {"at": latest, "before": False}
+        else:
+            placed = None
+        for piece in began:
+            for time in (piece["started"], piece["finished"]):
+                if time and (latest is None or str(time) > str(latest)):
+                    latest = time
+        event = _round(number, entry, more, several, last=last, outcome=outcome, said=said)
+        event["placed"] = placed
+        production = _finite(entry.get("production_ns"))
+        event["production_said"] = length_said(production) if production is not None else ""
+        events.append(event)
+    if not rounds and outcome in ("stopped", "not_applied") and said:
+        # No round was judged: why, as the record says it.
+        asked = said.startswith(_STOPPED_WHEN_ASKED)
+        events.append({
+            **_step("round", "stopping", "stopped" if asked else "not_applied"),
+            "said": ("The stopping rule: stopped when asked (Ctrl+C or a signal), before it "
+                     "was first applied" if asked else "The stopping rule: not applied"),
+            "detail": said, "stopped_by": "asked" if asked else "",
+            "placed": {"at": latest, "before": False} if latest else None,
+            "production_said": "", "round": None})
+    return events
+
+
+def _round(number: int, entry: dict[str, Any], more: float | None, several: bool, *,
+           last: bool, outcome: str, said: str) -> dict[str, Any]:
+    """A round said by what was decided on it, and a stopped one by what
+    stopped it: an analysis that recorded no mean, a request to stop, or
+    an extension that failed; where the record holds none of these, said
+    not recorded, never guessed."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    decision = str(entry.get("decision") or "")
+    verdicts = [v for v in entry.get("verdicts") or [] if isinstance(v, dict)]
+    detail = "; ".join(str(v.get("said")) for v in verdicts if v.get("said"))
+    stopped_by = ""
+    if decision == "extend" and more is not None:
+        what = f"{'each run' if several else 'the run'} extended by {length_said(more)}"
+        if last and outcome == "rounds":
+            what += ", the last of the rounds allowed"
+            detail = said or detail
+    elif decision == "met":
+        what = "determined as asked, so stopped"
+    elif decision == "ceiling":
+        what = "stopped at the ceiling, not determined as asked"
+    elif decision == "stopped":
+        unrecorded = [str(v.get("said")) for v in verdicts if v.get("unrecorded") and v.get("said")]
+        if unrecorded:
+            stopped_by = "no mean"
+            what = "stopped: " + "; ".join(unrecorded)
+        elif last and outcome == "stopped" and said.startswith(_STOPPED_WHEN_ASKED):
+            stopped_by = "asked"
+            what = "stopped when asked (Ctrl+C or a signal) while the runs were extended"
+            detail = said
+        elif last and outcome == "stopped" and said.startswith(_EXTENDING_FAILED):
+            stopped_by = "error"
+            what = "stopped by an error while the runs were extended"
+            detail = said
+        else:
+            stopped_by = "not recorded"
+            what = "stopped; what stopped it is not recorded"
+    else:
+        what = "judged; what was decided is not recorded"
+    return {**_step("round", "stopping", decision), "said": f"Round {number}: {what}",
+            "detail": detail, "stopped_by": stopped_by, "round": number}
+
+
+def _step(kind: str, phase: str, status: str) -> dict[str, Any]:
+    """What every step of the list carries, none of it recorded for this
+    one: no time, length, version or computer of its own."""
+    return {"kind": kind, "phase": phase, "status": status, "at": None, "started": None,
+            "seconds": None, "version": "", "host": "", "replaced": False, "again": False,
+            "changes": None, "where": "stopping.json"}
+
+
+def _run_folder(base: Path, name: str) -> Path | None:
+    """One of the record's runs: a child of the study's `runs/`, or the
+    study itself for a study of one run. A name is data, never a path."""
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        return None
+    folder = base / "runs" / name
+    if record_access.is_dir(folder):
+        return folder
+    return base if base.name == name else None
+
+
+def _simulated_until(folder: Path) -> str | None:
+    """When a run's own production (before any piece) ended, as its
+    Manifest records it."""
+    manifest = _json(folder / "manifest.json")
+    phases = manifest.get("phases") if isinstance(manifest, dict) else None
+    simulated = next((p for p in phases or [] if isinstance(p, dict)
+                      and p.get("name") == "simulation"), None)
+    if simulated is None:
+        return None
+    return simulated.get("finished_at") or simulated.get("started_at") or None
+
+
+def _timed_pieces(folder: Path) -> list[dict[str, Any]]:
+    """A run's pieces in the order they were made, each with when its
+    simulation began and ended and the length it was asked to run."""
+    import re
+
+    found = []
+    for piece in record_access.glob(folder, "segment-*"):
+        number = re.fullmatch(r"segment-(\d+)", piece.name)
+        if not number or not record_access.is_dir(piece):
+            continue
+        manifest = _json(piece / "manifest.json")
+        phases = manifest.get("phases") if isinstance(manifest, dict) else None
+        simulated = next((p for p in phases or [] if isinstance(p, dict)
+                          and p.get("name") == "simulation"), None) or {}
+        config = _config(piece) or {}
+        simulation = config.get("simulation") if isinstance(config.get("simulation"), dict) else {}
+        found.append({"index": int(number.group(1)),
+                      "started": simulated.get("started_at") or None,
+                      "finished": simulated.get("finished_at") or None,
+                      "duration_ns": _finite(simulation.get("duration_ns"))})
+    return sorted(found, key=lambda p: p["index"])
+
+
+def _same_length(duration: float | None, asked: float) -> bool:
+    """A piece's length is the round's ask, as the piece was written with
+    it (rounded to a millionth of a nanosecond, `resume.continuation_of`)."""
+    return duration is not None and abs(duration - round(asked, 6)) <= 1e-6 * max(1.0, asked)
 
 
 def _said_in_its_unit(record: dict[str, Any]) -> dict[str, Any]:

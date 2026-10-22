@@ -85,7 +85,14 @@ it) is said not read at the top, and a mean whose record was not read is
 said so, never as one added or not run again. A study of several runs
 takes no steps of its own: its runs' steps are listed, each named by what
 sets its run apart ("seed 1: Simulated"), with the runs that recorded none
-said. And two **seams** between
+said. A study run until what it asks is determined lists its rounds
+(`stopping.json`): the production each judged and what was decided on it
+("Round 1: each run extended by 500 ps", lengths in ps under 1 ns), a round
+stopped said by what stopped it (an analysis that recorded no mean, Ctrl+C
+or a signal, an error while the runs were extended), and "not recorded"
+where its record does not say. A round's record gives no time: it is
+placed by the recorded times of the steps around it, just before the
+pieces it began or after the last step before it, and says so. And two **seams** between
 the columns that drag, with a
 double-click to reset; the sidebar folds to a strip of its icons under
 FastMDXplora's mark, the side panel to a tab at its edge, and the centre stays
