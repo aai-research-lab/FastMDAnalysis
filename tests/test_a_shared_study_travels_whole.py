@@ -280,7 +280,23 @@ class _Unsteady(_Zenodo):
                 fault = None
             if isinstance(fault, int):
                 return self._status(fault)
+            if fault == "page":
+                # A gateway's page in place of the file.
+                page = b"<html><body>Bad gateway</body></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.end_headers()
+                self.wfile.write(page)
+                return
             start = int(asked.split("=")[1].split("-")[0]) if asked and fault != "whole" else 0
+            if start >= len(archive) > 0:
+                # A range past the end, as servers answer it.
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{len(archive)}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if fault == "elsewhere":
                 start = 100
             body = archive[start:]
@@ -608,9 +624,11 @@ def test_giving_up_says_how_far_the_download_got(tmp_path, unsteady):
     with pytest.raises(ShareRefused) as refused:
         open_shared("10.5072/zenodo.7", workspace=tmp_path / "w")
     size = len(unsteady.stored["archive"])
+    # (A small archive's amounts in kB, not "0.0 of 0.0 MB".)
+    assert size < 100_000
     assert str(refused.value).endswith(
         f"HTTP 503, still after {zenodo.TRIES} tries, with "
-        f"{(size - size * 2 // 3) / 1e6:.1f} of {size / 1e6:.1f} MB downloaded. Nothing was "
+        f"{(size - size * 2 // 3) / 1e3:.1f} of {size / 1e3:.1f} kB downloaded. Nothing was "
         "kept; open it again later.")
 
 
@@ -4563,3 +4581,58 @@ def test_a_terminal_s_escape_goes_once_the_rest_is_fixed():
     taken out with it."""
     assert zenodo._plain("\x1b［31m") == ""
     assert zenodo._plain("\x1b[ﬁ") == "i"
+
+
+def test_a_gateway_s_page_in_place_of_the_archive_is_asked_again(tmp_path, unsteady):
+    """Hands-on review of the thirty-sixth commit: a gateway's web page in
+    place of the archive was read as the archive, and refused as another
+    file by its MD5."""
+    _shared(tmp_path, unsteady)
+    unsteady.faults = {"GET file": ["page"]}
+    told: list[str] = []
+    opened = open_shared("10.5072/zenodo.7", workspace=tmp_path / "w", said=told.append)
+    assert (opened / "shared_from.json").is_file()
+    assert any("a web page, not the archive" in line for line in told)
+
+
+def test_a_record_s_size_larger_than_its_file_opens_by_its_md5(tmp_path, unsteady,
+                                                                monkeypatch):
+    """Hands-on review of the forty-third commit: a record whose recorded
+    size is larger than its file ended in a 416 after every try."""
+    _shared(tmp_path, unsteady)
+    real = zenodo._call
+
+    def larger(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "GET" and url.endswith("/api/records/7") and isinstance(answer, dict):
+            return {**answer, "files": [{**f, "size": int(f["size"]) + 100}
+                                        for f in answer["files"]]}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", larger)
+    opened = open_shared("10.5072/zenodo.7", workspace=tmp_path / "w")
+    assert (opened / "shared_from.json").is_file()
+
+
+def test_what_an_open_killed_part_way_left_is_taken_away_by_the_next(tmp_path, unsteady):
+    """Hands-on review of the thirty-fifth commit: an open killed part way
+    left its working folder beside the studies for good."""
+    import socket
+    import subprocess
+
+    _shared(tmp_path, unsteady)
+    into = tmp_path / "w"
+    into.mkdir()
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    host = re.sub(r"[^A-Za-z0-9.]+", "_", socket.gethostname()) or "host"
+    left = into / f".fastmdx-opening-{host}-{gone.pid}-x1"
+    (left / "part").mkdir(parents=True)
+    (left / "part" / "archive.zip").write_bytes(b"half")
+    alive = into / f".fastmdx-opening-{host}-{os.getpid()}-x2"
+    alive.mkdir()
+    elsewhere = into / f".fastmdx-opening-another.host-{gone.pid}-x3"
+    elsewhere.mkdir()
+    open_shared("10.5072/zenodo.7", into=into)
+    assert not left.exists()
+    assert alive.is_dir() and elsewhere.is_dir()

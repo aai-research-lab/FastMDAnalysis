@@ -325,11 +325,16 @@ FastMDXplora:
    piece is counted only once it is written here: a disk that fills, as it
    downloads or unpacks, says so (`environment.share.too_large`), and is
    never taken for a connection lost or a damaged archive. A server that
-   will not send the rest of the file (416) is asked for the whole of it.
+   will not send the rest of the file (416) is asked for the whole of it,
+   unless it says the file ends where the download has got to (a size
+   recorded larger than the file): then its MD5 decides. A web page in
+   place of the file (a gateway's) is a try that failed, asked again.
    A download that has had nothing for 30 seconds counts as stalled, and is
    asked for again from where it stopped. A folder made to open into is not
-   left behind when the study is refused. An archive of 10 MB or more says
-   how much of it has come at each tenth.
+   left behind when the study is refused, and what an open killed part way
+   leaves (`.fastmdx-opening-<computer>-<process>-...`) is taken away by the
+   next open into that folder on the same computer. An archive of 10 MB or
+   more says how much of it has come at each tenth.
 3. **Unpacks it into a folder of its own**, named from its title, in
    `--open-into` (else the current folder; in the GUI, where new studies
    go), and only into it: a member with an absolute path, a `..`, a link, a

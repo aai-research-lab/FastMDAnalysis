@@ -122,8 +122,10 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             try:
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
                                             timeout=STALLED_S) as answer:
+                    # A gateway's page in place of the file: a try that failed.
+                    page = "text/html" in str(answer.headers.get("Content-Type") or "").lower()
                     start = _range_start(answer) if answer.status == 206 else 0
-                    if not size:
+                    if not size and not page:
                         size = _whole_size(answer, start or 0)
                         if size > most:
                             raise ShareRefused(
@@ -134,7 +136,9 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                         # A part, not saying of what: taken as following
                         # what is here only where that was asked for.
                         start = read
-                    if start != read and start:
+                    if page:
+                        why = "it answered with a web page, not the archive"
+                    elif start != read and start:
                         # The file from somewhere else: no part of it is
                         # known to follow what is here.
                         why = f"it sent the file from byte {start}, not {read}"
@@ -175,6 +179,12 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                         why = "the answer ended early"
             except urllib.error.HTTPError as exc:
                 if exc.code == 416 and size and read == size:
+                    break
+                whole = re.fullmatch(r"bytes \*/(\d+)",
+                                     str((exc.headers or {}).get("Content-Range") or "").strip())
+                if exc.code == 416 and read and whole and int(whole.group(1)) == read:
+                    # The file is whole at what is here (the size recorded is
+                    # not the file's): its MD5 says whether it is the one.
                     break
                 if exc.code == 416 and read:
                     # A range it would not send: the whole file again.
@@ -236,16 +246,19 @@ def _download(url: str, to: Path, *, most: int, md5: str,
             "Zenodo serves is not the one it recorded.", code="environment.share.unverified",
             url=url)
     if said:
-        said(f"Downloaded {read / 1e6:.1f} MB.")
+        said(f"Downloaded {read / 1e6:.1f} MB." if read >= 100_000
+             else f"Downloaded {read / 1e3:.1f} kB.")
 
 
 def _got(read: int, size: int, how: str = "having") -> str:
-    """How far a download got, in MB: ", with 30.0 of 111.5 MB downloaded"."""
+    """How far a download got: ", with 30.0 of 111.5 MB downloaded" (in kB
+    where the file is under 0.1 MB)."""
     if not read and how == "having":
         return ""
-    whole = f" of {size / 1e6:.1f}" if size else ""
-    return f" {how} {read / 1e6:.1f}{whole} MB" if how == "at" else \
-        f", with {read / 1e6:.1f}{whole} MB downloaded"
+    unit, scale = ("kB", 1e3) if max(read, size) < 100_000 else ("MB", 1e6)
+    whole = f" of {size / scale:.1f}" if size else ""
+    return f" {how} {read / scale:.1f}{whole} {unit}" if how == "at" else \
+        f", with {read / scale:.1f}{whole} {unit} downloaded"
 
 
 def _again(what: str, failures: int, headers: Any,
@@ -476,10 +489,43 @@ def open_shared(source: str, *, into: str | Path | None = None,
         raise
 
 
+#: What an open works in, beside the folder it opens into, named for this
+#: computer and the process opening.
+_WORKING = ".fastmdx-opening-"
+
+
+def _left_by_the_killed(parent: Path) -> None:
+    """What an open on this computer left, killed part way, taken away: one
+    whose process is gone. (Another computer's, on a shared disk, is not
+    this one's to judge.)"""
+    import socket
+
+    mine = f"{_WORKING}{_host(socket.gethostname())}-"
+    for left in parent.glob(f"{mine}*"):
+        pid = left.name[len(mine):].split("-", 1)[0]
+        if not pid.isdigit() or not left.is_dir():
+            continue
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            shutil.rmtree(left, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def _host(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9.]+", "_", name) or "host"
+
+
 def _opened(source: str, given: Path, parent: Path, most_bytes: int,
             said: Callable[[str], None] | None) -> Path:
+    import socket
+
     record: dict[str, Any] = {}
-    with tempfile.TemporaryDirectory(prefix=".fastmdx-opening-", dir=parent) as work:
+    _left_by_the_killed(parent)
+    with tempfile.TemporaryDirectory(
+            prefix=f"{_WORKING}{_host(socket.gethostname())}-{os.getpid()}-",
+            dir=parent) as work:
         work_dir = Path(work)
         if given.is_file():
             archive = given
