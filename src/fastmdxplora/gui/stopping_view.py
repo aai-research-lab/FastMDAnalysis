@@ -252,7 +252,7 @@ def _listed(names: list[str]) -> str:
 
 def stopping_payload(root: Path | str) -> dict[str, Any]:
     """What the Overview's "Running until it is determined" card draws."""
-    from fastmdxplora.simulation.stopping import _OUTCOME, record_said, round_decided
+    from fastmdxplora.simulation.stopping import _OUTCOME, round_decided, study_said
 
     refused: list[Path] = []
     found = _record_of(Path(root), refused)
@@ -264,7 +264,7 @@ def stopping_payload(root: Path | str) -> dict[str, Any]:
     record, where = found["record"], found["where"]
     rounds = [r for r in record.get("rounds") or [] if isinstance(r, dict)]
     outcome = str(record.get("outcome") or "running")
-    said = record_said(str(record.get("said") or ""))
+    said = study_said(record)
     ended = _ended_without_finishing(record, where)
     shown = outcome
     if ended is not None:

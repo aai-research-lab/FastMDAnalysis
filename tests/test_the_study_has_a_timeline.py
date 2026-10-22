@@ -931,6 +931,8 @@ def test_a_run_killed_in_a_piece_says_the_piece_by_its_number(tmp_path, monkeypa
 #: What `batch.explorer` writes for a study stopped before its rule was
 #: applied (`stopping.STOPPED_BEFORE_THE_RULE`).
 ENDED = "Stopped when asked, before the rule was applied. Resuming the study applies it."
+#: And where its record keeps the rounds judged before it was resumed.
+AGAIN = "Stopped when asked, before the rule was applied again. Resuming the study applies it."
 
 
 def _resumed_then_stopped_before_the_rule(tmp_path) -> Path:
@@ -991,7 +993,7 @@ def test_a_round_s_cause_is_its_own_after_the_study_is_resumed_and_stopped(tmp_p
     assert events[0] is mine[0]
     card = stopping_payload(root)
     assert [r["decided"] for r in card["rounds"]] == ["each run extended by 1 ns", cause]
-    assert card["said"] == ENDED
+    assert card["said"] == AGAIN
     assert "| 2 | 2 ns | " in "\n".join(stopping_section(root))
     assert [line for line in stopping_section(root) if line.startswith("| 2 |")][0].endswith(
         f" | {cause} |")
@@ -1004,6 +1006,46 @@ def test_a_round_s_cause_is_its_own_after_the_study_is_resumed_and_stopped(tmp_p
     from fastmdxplora.simulation.stopping import STOPPED_BEFORE_THE_RULE
 
     assert STOPPED_BEFORE_THE_RULE == ENDED
+
+
+def test_a_resumed_study_stopped_before_its_rule_is_said_so_on_the_card_and_in_the_report(
+        tmp_path):
+    """The Timeline and the methods said it stopped before its rule was
+    applied again; the card and the Report's line, under the rounds the
+    rule judged, said "before the rule was applied"."""
+    from fastmdxplora.gui.stopping_view import stopping_payload
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = _resumed_then_stopped_before_the_rule(tmp_path)
+    assert stopping_payload(root)["said"] == AGAIN
+    assert f"**Stopped early.** {AGAIN}" in stopping_section(root)
+    # Stopped before any round was judged: not "again".
+    record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))
+    record["rounds"] = []
+    (root / "stopping.json").write_text(json.dumps(record), encoding="utf-8")
+    assert stopping_payload(root)["said"] == ENDED
+
+
+@pytest.mark.parametrize("rounds", [0, 2])
+def test_the_explorer_says_a_resumed_study_stopped_before_its_rule_was_applied_again(
+        tmp_path, rounds):
+    from types import SimpleNamespace
+
+    from fastmdxplora.batch.explorer import BatchExplorer
+    from fastmdxplora.simulation.runner import STOPPED_CODE
+    from fastmdxplora.simulation.stopping import study_ended
+    from tests.test_a_stopped_campaign_stops_as_one import _result
+
+    (tmp_path / "stopping.json").write_text(json.dumps({
+        "outcome": "running", "targets": [{"analysis": "rmsd", "standard_error": 0.01}],
+        "rounds": [_round("extend", 1.0 + n, 1.0) for n in range(rounds)]}), encoding="utf-8")
+    study = SimpleNamespace(_raw={"simulation": {"stop_when": {}}}, output_dir=tmp_path,
+                            results=[_result(code=STOPPED_CODE)])
+    BatchExplorer._run_until_known(study, [])
+    record = json.loads((tmp_path / "stopping.json").read_text(encoding="utf-8"))
+    assert record["outcome"] == "stopped" and len(record["rounds"]) == rounds
+    assert record["said"] == (AGAIN if rounds else ENDED)
+    assert study_ended(record) == "asked"
 
 
 @pytest.mark.parametrize("rounds, said, methods", [

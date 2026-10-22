@@ -806,6 +806,9 @@ _EXTENDING_FAILED = "Stopped: extending "
 #: keeps its rounds under it.
 STOPPED_BEFORE_THE_RULE = ("Stopped when asked, before the rule was applied. Resuming the "
                            "study applies it.")
+#: The same, where the record keeps the rounds judged before it was resumed.
+STOPPED_BEFORE_THE_RULE_AGAIN = ("Stopped when asked, before the rule was applied again. "
+                                 "Resuming the study applies it.")
 
 
 def study_ended(record: dict[str, Any]) -> str:
@@ -821,6 +824,19 @@ def study_ended(record: dict[str, Any]) -> str:
     if outcome == "stopped" and sentence.startswith(STOPPED_BEFORE_THE_RULE.split(".")[0]):
         return "asked"
     return ""
+
+
+def study_said(record: dict[str, Any]) -> str:
+    """The record's sentence for the study, as the card and the Report say
+    it (`record_said`): a study stopped when asked before its rule was
+    applied, whose record keeps rounds judged before it was resumed, is
+    said stopped before the rule was applied again, as the Timeline and the
+    methods say it, though a record written before says it without
+    "again"."""
+    rounds = record.get("rounds")
+    if study_ended(record) == "asked" and isinstance(rounds, list) and rounds:
+        return STOPPED_BEFORE_THE_RULE_AGAIN
+    return record_said(str(record.get("said") or ""))
 
 
 def record_said(text: str) -> str:
@@ -959,7 +975,7 @@ def stopping_section(root: str | Path) -> list[str]:
                       else "not recorded")
         lines.append(f"| {number} | {production} | " + " | ".join(cells) + f" | {decided} |")
     lines.append("")
-    said = record_said(record.get("said") or "")
+    said = study_said(record)
     if said and record.get("outcome") == "running":
         # A record cannot tell a study still running from one killed: what
         # it last said it was doing, never that it is running.

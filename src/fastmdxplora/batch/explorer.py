@@ -1571,6 +1571,7 @@ class BatchExplorer:
         """Extend the runs until what the study asked for is determined, then
         write the study's report again with the record of how long it ran."""
         from fastmdxplora.simulation.stopping import (RECORD, STOPPED_BEFORE_THE_RULE,
+                                                      STOPPED_BEFORE_THE_RULE_AGAIN,
                                                       run_until_known)
 
         stop_when = (self._raw.get("simulation") or {}).get("stop_when") or {}
@@ -1578,7 +1579,8 @@ class BatchExplorer:
         def ended(outcome: str, said: str) -> None:
             """The planned record, told why no round was judged: the study's
             sentence, never a round's (`stopping.study_ended`). A resumed
-            study keeps its rounds, each with its own sentence."""
+            study keeps its rounds, each with its own sentence, and is said
+            stopped before its rule was applied again."""
             where = self.output_dir / RECORD
             try:
                 record = json.loads(where.read_text(encoding="utf-8"))
@@ -1586,6 +1588,8 @@ class BatchExplorer:
                 record = {}
             if not isinstance(record, dict):
                 record = {}
+            if said == STOPPED_BEFORE_THE_RULE and record.get("rounds"):
+                said = STOPPED_BEFORE_THE_RULE_AGAIN
             record.update({"outcome": outcome, "said": said})
             record.setdefault("rounds", [])
             where.write_text(json.dumps(record, indent=2), encoding="utf-8")
