@@ -512,6 +512,23 @@ def test_only_two_runs_means_read_is_said_where_the_study_has_more(tmp_path):
                                    "factor of 2"), shown["rg"]
 
 
+def test_a_study_s_runs_are_counted_by_its_plan_not_those_written_so_far(tmp_path):
+    """A run not yet begun is not yet in the batch manifest's `runs`: of
+    three replicas planned, two written, Compare said "the study has these
+    two runs alone" while the Overview listed three."""
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    manifest = json.loads((study / "batch_manifest.json").read_text(encoding="utf-8"))
+    assert len(manifest["planned"]) == 3
+    manifest["runs"] = manifest["runs"][:2]
+    (study / "batch_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    first, second = _runs(study)[:2]
+    said = compared(first, second)
+    assert said["replicas"]["runs"] == 2 and said["replicas"]["of"] == 3, said["replicas"]
+
+
 def test_two_replicas_whose_settings_differ_otherwise_say_what_differs(tmp_path):
     """Compare said two replicas "differ only by random seed" right under
     its Settings table listing other settings in which they differ."""

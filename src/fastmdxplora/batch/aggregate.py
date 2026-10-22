@@ -36,6 +36,7 @@ import numpy as np
 __all__ = [
     "SEED_AXES",
     "aggregate_members",
+    "batch_manifest",
     "finished_members",
     "how_replicas_differ",
     "member_directory",
@@ -114,14 +115,22 @@ def read_member_findings(run_dir: str | Path) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _finished(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """The campaign's manifest and its members that finished. Read through
-    `record_access`: held to the study where the read is (the Compare
-    page), as pathlib elsewhere."""
+def batch_manifest(batch_dir: str | Path) -> dict[str, Any]:
+    """A campaign's manifest, read through `record_access`: held to the
+    study where the read is (the Compare page), as pathlib elsewhere.
+    Raises OSError or ValueError where it cannot be read."""
     from fastmdxplora import record_access
 
-    manifest = json.loads(record_access.read_text(root / "batch_manifest.json",
+    manifest = json.loads(record_access.read_text(Path(batch_dir) / "batch_manifest.json",
                                                   encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("a batch manifest is an object")
+    return manifest
+
+
+def _finished(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The campaign's manifest and its members that finished."""
+    manifest = batch_manifest(root)
     return manifest, [r for r in manifest.get("runs", []) if r.get("status") == "ok"]
 
 

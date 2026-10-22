@@ -119,16 +119,18 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
 
     def read(inside: Path) -> dict[str, Any]:
         from fastmdxplora.batch.aggregate import (
-            _finished, finished_members, how_replicas_differ, replica_error,
+            batch_manifest, finished_members, how_replicas_differ, replica_error,
             spread_against_own)
         from fastmdxplora.gui.workspace import means_of
 
         try:
             members, replicas, why = finished_members(inside)
             # How many runs the study has, finished or not: "only these two
-            # runs' means were read" said only where it has more.
-            manifest = _finished(inside)[0]
-            planned = len(manifest.get("runs") or [])
+            # runs' means were read" said only where it has more. Those it
+            # plans, where it says (a run not yet begun is not yet in its
+            # `runs`), as the Timeline counts them (`study_timeline._runs_of`).
+            manifest = batch_manifest(inside)
+            planned = len(manifest.get("planned") or manifest.get("runs") or [])
         except (OSError, ValueError):
             # Whether they are repeats of one measurement is not known.
             return {"unknown": True}
