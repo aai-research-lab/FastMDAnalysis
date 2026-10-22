@@ -59,3 +59,28 @@ def test_a_record_written_with_both_is_read_with_the_plan_that_ran(tmp_path):
     assert main(["report", "--output", str(root), "--rerun"]) == 0
     assert main(["analyze", "--output", str(root), "--rerun"]) == 0
     assert _made(root) == ["rmsd", "rg"]
+
+
+def test_a_record_written_with_both_is_said_in_the_log(caplog):
+    """Read as its plan, a record written with both dropped the person's
+    exclusion of the image check on the next run, and nothing said so."""
+    import logging
+
+    from fastmdxplora.config.loader import validate_config
+
+    record = {"analysis": {"include": ["rmsd", "rg"], "exclude": ["image_check", "cluster"]}}
+    # On the package's logger itself, which may not pass records to the
+    # root once the command line owns the console.
+    logger = logging.getLogger("fastmdx")
+    logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="fastmdx"):
+            validate_config(record, as_record=True)
+    finally:
+        logger.removeHandler(caplog.handler)
+    assert record["analysis"] == {"include": ["rmsd", "rg"]}
+    # Once, or twice where the root passes it to the same handler too.
+    said = {r.getMessage() for r in caplog.records if r.name == "fastmdx.config"}
+    assert said == {"The study's record lists the analyses that ran and those left out "
+                    "(image_check, cluster); it is read as the analyses that ran, which the "
+                    "image check joins, its exclusion not kept."}
