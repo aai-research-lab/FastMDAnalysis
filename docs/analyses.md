@@ -230,8 +230,9 @@ included (17 n^2 bytes beside the matrix for an average or complete
 linkage). Several workers clustering at once each read the same memory, and
 one's matrix is not seen by another until it is written: that is not planned
 for yet.
-Past it, clustering is refused (`analysis.memory.matrix_too_large`), naming
-the frames, the bytes needed and available, and the stride that fits;
+Past it, clustering is refused (`analysis.memory.matrix_too_large`), leading
+with the stride that fits, then the frames, the bytes needed and available,
+and last where the memory was read, and said in the log;
 `stride: k` under `options: {cluster: ...}` clusters every k-th frame, and
 the other analyses still read every frame. On `features: coordinates`,
 k-means, Ward and DBSCAN make no matrix at all. `dimred`'s MDS makes the same
@@ -239,8 +240,8 @@ matrix and is checked the same way (16 n^2 bytes, the matrix and its centred
 square), checked before any of its methods runs and refused past it with the
 stride that fits under `analysis: {stride: k}` ("every 2nd frame"); PCA,
 t-SNE and UMAP make none, and asked for beside a refused MDS they still run
-and are kept, the refusal recorded (`findings.mds_refused`) and said in the
-report.
+and their projections are saved, the refusal recorded (`findings.mds_refused`)
+and said in the report.
 
 `dimred`, with PCA, writes the free-energy landscape on the first two
 components: G = -kT ln P, with P the histogram over `landscape_bins` bins

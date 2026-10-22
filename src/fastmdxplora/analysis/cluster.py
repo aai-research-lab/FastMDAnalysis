@@ -281,12 +281,12 @@ def _cgroup_room(proc: Path = Path("/proc/self/cgroup"),
                 cache = _reclaimable(folder, version)
                 room = max(limit - (usage - min(cache or 0, usage)), 0)
                 if best[0] is None or room < best[0]:
-                    cached = (f"its reclaimable page cache ({_gigabytes(cache)} of "
-                              "inactive_file in memory.stat) not counted as used"
+                    cached = (f"its reclaimable page cache, {_gigabytes(cache)} of "
+                              "inactive_file in memory.stat, not counted as used"
                               if cache is not None else
-                              "its page cache counted as used (no memory.stat read)")
-                    best = (room, f"the {version} limit less its usage, {cached} "
-                                  f"({folder / names[0]})")
+                              "its page cache counted as used, no memory.stat read")
+                    best = (room, f"the {version} limit in {folder / names[0]} less "
+                                  f"its usage, {cached}")
             if folder == base or base not in folder.parents:
                 break
             folder = folder.parent
@@ -667,15 +667,17 @@ class Cluster(Analysis):
         fits = -(-given // stride)
         check["stride_that_fits"] = stride
         starting = (f" from frame {first}" if first else "")
+        # What to do first, in a sentence a row gives alone; where the memory
+        # was read last, as the record keeps it (`available_read_from`).
         raise StudyError(
-            f"Clustering {n:,} frames{starting} needs about {_gigabytes(needed)} for "
-            f"their frame-by-frame RMSD matrix and the copies "
-            f"{', '.join(self.methods)} make of it, and "
-            f"{room_said(available, read_from)} ({read_from}), of which "
-            f"clustering plans on {MEMORY_SHARE:.0%}. Set `stride: {stride}` "
-            f"under the analysis's `options: {{cluster: ...}}` to cluster every "
-            f"{_ordinal(stride)} frame, {fits:,} frames, which fits; the other "
-            "analyses keep every frame.",
+            f"Clustering every {_ordinal(stride)} frame, {fits:,} frames, fits in the "
+            f"memory, where clustering {n:,} frames{starting} does not. "
+            f"Set `stride: {stride}` under the analysis's `options: {{cluster: ...}}` "
+            "for it; the other analyses keep every frame. "
+            f"The {n:,} frames need about {_gigabytes(needed)} for their "
+            f"frame-by-frame RMSD matrix and the copies {', '.join(self.methods)} "
+            f"make of it, and {room_said(available, read_from)}, of which "
+            f"clustering plans on {MEMORY_SHARE:.0%}. Read as {read_from}.",
             code="analysis.memory.matrix_too_large", frames=n,
             bytes_needed=needed, bytes_available=available, stride=stride)
 
@@ -807,6 +809,9 @@ class Cluster(Analysis):
         except Exception as exc:  # noqa: BLE001
             close_figures_opened_since(opened)
             finished = datetime.now(timezone.utc).isoformat()
+            # In the log, as every other analysis's failure is (`base.run`).
+            logger.error("Analysis '%s' failed", self.name, exc_info=True,
+                         extra={"to_console": False})
             if self.findings:
                 # What it found before it stopped: the memory it checked, and
                 # the refusal's numbers with it.

@@ -1234,12 +1234,17 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     shell = findings.get("shell")
     if isinstance(shell, dict) and shell.get("said"):
         notes.append(str(shell["said"]))
-    # MDS refused for memory, the projections asked for beside it kept.
+    # MDS refused for memory, the projections asked for beside it run.
     mds = findings.get("mds_refused")
     if isinstance(mds, dict) and mds.get("said"):
-        kept = ", ".join(str(m).upper() for m in mds.get("kept") or [])
-        notes.append(f"MDS was not run: {mds['said']}" + (f" {kept} was run and kept."
-                                                          if kept else ""))
+        named = {"pca": "PCA", "tsne": "t-SNE", "umap": "UMAP"}
+        run = [named.get(str(m).lower(), str(m)) for m in mds.get("kept") or []]
+        ran = (" and ".join([", ".join(run[:-1]), run[-1]]) if len(run) > 1
+               else run[0] if run else "")
+        notes.append(f"MDS was not run: {mds['said']}" + (
+            f" {ran} {'were' if len(run) > 1 else 'was'} run and "
+            f"{'their projections' if len(run) > 1 else 'its projection'} saved."
+            if ran else ""))
 
     chemistry = findings.get("ligand_chemistry")
     if isinstance(chemistry, dict):

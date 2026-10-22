@@ -366,7 +366,7 @@ class DimRed(Analysis):
                 options_path=options_path,
                 artifacts=artifacts,
                 message=f"{self.name}: ok ({', '.join(self.result)})" + (
-                    "; MDS refused for memory, the rest kept"
+                    "; MDS refused for memory, the rest run and saved"
                     if "mds_refused" in self.findings else ""),
                 started_at=started,
                 finished_at=finished,
@@ -608,11 +608,11 @@ def _refuse_mds_past_memory(self: "DimRed", n: int) -> None:
     raise StudyError(
         f"MDS of {n:,} frames needs about {_gigabytes(needed)} for their "
         f"frame-by-frame RMSD matrix and its centred square, and "
-        f"{room_said(available, read_from)} ({read_from}), of which an analysis "
+        f"{room_said(available, read_from)}, of which an analysis "
         f"plans on {MEMORY_SHARE:.0%}. PCA, t-SNE and UMAP make no such matrix "
         f"(`methods: [pca]`); or load every {_ordinal(stride)} frame for the analyses "
         f"(`analysis: {{stride: {stride}}}`, which every analysis then reads), "
-        f"{-(-n // stride):,} frames, which fits.",
+        f"{-(-n // stride):,} frames, which fits. Read as {read_from}.",
         code="analysis.memory.matrix_too_large", frames=n,
         bytes_needed=needed, bytes_available=available, stride=stride)
 

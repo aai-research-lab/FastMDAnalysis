@@ -188,6 +188,21 @@ class TestTheMemoryCheck:
         assert labels.shape[0] == fits
         assert list(labels[:3, 0]) == [0, stride, 2 * stride]
 
+    def test_the_refusal_leads_with_the_stride_and_is_logged(self, tmp_path, monkeypatch,
+                                                              caplog):
+        """The row gives a refusal's first sentence: it gave the bytes and a
+        reading three brackets deep, the stride behind the chip; and the
+        refusal was not in the log."""
+        available = memory_needed(self.N, ["kmeans", "hierarchical"], "rmsd", "average") // 5
+        with caplog.at_level(logging.ERROR, logger="fastmdx.analysis.cluster"):
+            result = self._refused(tmp_path, monkeypatch, available)
+        said = result.message.split(": ", 1)[1]
+        first = said.split(". ")[0]
+        assert first.startswith("Clustering every ") and first.endswith(
+            f"fits in the memory, where clustering {self.N:,} frames does not")
+        assert ": " not in first and said.endswith("Read as mocked.")
+        assert any("Analysis 'cluster' failed" in r.getMessage() for r in caplog.records)
+
     def test_the_refusal_carries_its_numbers(self, monkeypatch):
         from fastmdxplora.refusals import StudyError, refusal_of
 
@@ -325,6 +340,8 @@ class TestTheBudgetIsTheProcesss:
                  f"inactive_file {15 * 10**8}\n")
         assert room == 25 * 10**8
         assert "inactive_file" in said and "not counted as used" in said
+        # No bracket inside the bracket a refusal puts it in.
+        assert "(" not in said
 
     def test_a_v1_group_s_reclaimable_cache_is_not_counted_as_used(self, tmp_path):
         room, said = self._cgroup(
@@ -529,7 +546,8 @@ class TestMDSIsCheckedAsClusteringIs:
 
     def test_refused_before_pca_runs_and_pca_is_kept(self, tmp_path, monkeypatch):
         """MDS refused inside the methods' loop lost the PCA computed before
-        it: checked first, PCA is run and kept, and the refusal recorded."""
+        it: checked first, PCA is run and its projection saved, and the refusal
+        recorded."""
         import json
 
         from fastmdxplora.analysis import dimred as module
@@ -557,7 +575,16 @@ class TestMDSIsCheckedAsClusteringIs:
         from fastmdxplora.report.document import _findings_notes
 
         said = [note for note in _findings_notes(found) if note.startswith("MDS was not run")]
-        assert len(said) == 1 and said[0].endswith("PCA was run and kept.")
+        assert len(said) == 1 and said[0].endswith("PCA was run and its projection saved.")
+
+    def test_the_methods_run_beside_it_are_named_as_the_docs_name_them(self):
+        """"TSNE was run and kept": t-SNE, and its projection saved."""
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({"mds_refused": {"said": "Too large.",
+                                                 "kept": ["pca", "tsne"]}})
+        assert notes == ["MDS was not run: Too large. PCA and t-SNE were run and their "
+                         "projections saved."]
 
     def test_the_stride_is_said_as_an_ordinal(self, monkeypatch):
         from fastmdxplora.analysis.dimred import DimRed, mds_memory_needed
