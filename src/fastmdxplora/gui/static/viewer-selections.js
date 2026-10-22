@@ -279,7 +279,7 @@
     selection.representation = existing ? existing.representation : "sticks";
     selection.labelled = existing ? existing.labelled : false;
     post({ name: name, selection: selection }).then(function (answer) {
-      if (!answer || !answer.ok) { said(notMade(answer, "The selection was not kept")); return; }
+      if (!answer || !answer.ok) { said(notMade(answer, "The selection was not saved")); return; }
       state.named = answer.selections;
       if (input) input.value = "";
       said("Named " + name + ".");
@@ -300,7 +300,7 @@
     var body = Object.assign({}, one);
     delete body.name;
     post({ name: name, selection: body }).then(function (answer) {
-      if (!answer || !answer.ok) said(notMade(answer, "The change was not kept"));
+      if (!answer || !answer.ok) said(notMade(answer, "The change was not saved"));
     });
   }
 

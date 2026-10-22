@@ -53,7 +53,7 @@
   function unkeptSaid(failed) {
     if (!unkept) return;
     unkept.hidden = !failed;
-    unkept.textContent = failed ? "Open studies are not kept in this window: this browser does not allow it to store them." : "";
+    unkept.textContent = failed ? "Open studies are not saved in this window: this browser does not allow it to store them." : "";
   }
   function save() {
     if (!storageKey) return;

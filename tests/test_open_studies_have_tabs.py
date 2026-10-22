@@ -1151,7 +1151,7 @@ def test_without_session_storage_the_strip_says_open_studies_are_not_kept(browse
         get() { throw new DOMException('denied', 'SecurityError'); }});""")
     page = _open(browser, site, context=context)
     try:
-        expect(page.locator("#study-tabs-unkept")).to_contain_text("Open studies are not kept in this window")
+        expect(page.locator("#study-tabs-unkept")).to_contain_text("Open studies are not saved in this window")
         assert page.errors == []
     finally:
         page.context.close()
