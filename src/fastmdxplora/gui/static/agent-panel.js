@@ -2099,8 +2099,8 @@
       area.dispatchEvent(new Event("input"));
       savedWithFiles(files);
       if (files.length) readFilesAgain(files, key);
-      unsentSaid("Not saved, as the GUI had opened another study: the message is back in the box, "
-                 + "its answer not kept.", "moved", "");
+      unsentSaid("Not added to the conversation, as the GUI had opened another study: the message is "
+                 + "back in the box, its answer not saved.", "moved", "");
       return;
     }
     var kept = storedUnsent(key);
@@ -2113,9 +2113,10 @@
     } catch (e) {
       heldInPage[key] = { words: all, files: allFiles, title: "" };
     }
-    unsentSaid("Not saved, as the GUI had opened another study: the message is kept unsent for the "
-               + "study it was written in, in the box again when that study is open; its answer is "
-               + "not kept.", "moved", key);
+    unsentSaid("Not added to the conversation, as the GUI had opened another study: the message is "
+               + "saved, unsent, for "
+               + "the study it was written in, in the box again when that study is open; its answer "
+               + "is not saved.", "moved", key);
   }
   /* A message refused as the study open changed as it was sent (another
    * window or an AI app opened a study, `agent.view.changed`): not answered,
