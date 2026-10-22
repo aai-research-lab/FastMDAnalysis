@@ -2336,10 +2336,15 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
     if phase == "report" and getattr(args, "share", None):
         return _cmd_share(args)
     explored = _build_parser().parse_args(["explore"])
-    for name, value in vars(args).items():
-        if hasattr(explored, name) and name not in ("command", "agent"):
-            setattr(explored, name, value)
     opts, _ = _PHASE_SPEC[phase]
+    # The phase's own flags are read as explore's prefixed ones below, never
+    # as explore's of the same name: analyze's `--exclude-analyses` (its
+    # setting `exclude`) was copied onto explore's `--exclude-phase` and
+    # refused as given with the phases to run.
+    own = {kwarg for _suffix, kwarg, _ in opts}
+    for name, value in vars(args).items():
+        if hasattr(explored, name) and name not in ("command", "agent") and name not in own:
+            setattr(explored, name, value)
     for _suffix, kwarg, _ in opts:
         setattr(explored, f"{phase}__{kwarg}", getattr(args, kwarg, None))
     explored.command = phase

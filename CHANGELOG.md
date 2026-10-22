@@ -39,6 +39,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   before is read as it was, its whole matrix averaged as the GUI reads it, a
   few rows at a time, never held whole. The whole matrix is written only with
   `save_full_matrix: true`, its size said in the log first.
+- `fastmdx analyze --exclude-analyses ...` runs: the flag's setting is
+  `exclude`, and it was copied onto explore's `--exclude-phase`, so the
+  command stopped with "--include-phase and --exclude-phase are mutually
+  exclusive". The help of `--analyses` and `--exclude-analyses` (the
+  schema's) says the image check joins a listed plan, and what excluding it
+  leaves unchecked.
 - The estimate of what setup will build keeps a given `solvent_padding_nm`
   of 0.0 (the schema's least) where it read it as unset, now 2.0 nm.
 - The project bundle holds results and records, not working matrices: the

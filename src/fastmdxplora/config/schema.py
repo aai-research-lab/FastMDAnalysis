@@ -991,16 +991,20 @@ ANALYSIS = PhaseSchema(
               "trajectory has water, five more where there is a ligand, and "
               "the potential of mean force where an umbrella study produced "
               "one, the free energy surface where a metadynamics run "
-              "did, and the work done where a pull was steered. "
-              "Mutually exclusive with `exclude`.",
+              "did, and the work done where a pull was steered. A listed "
+              "plan is run as listed, except that where there is a box and a "
+              "solute the image check (`image_check`) joins it and runs first, "
+              "so every mean is read against how close the solute came to its "
+              "own images. Mutually exclusive with `exclude`.",
               choices=ANALYSIS_NAMES,
               example=["rmsd", "rmsf", "rg", "cluster"]),
         Field("exclude", list, None,
               "Analyses to skip. Mutually exclusive with `include`. "
               "`image_check` runs with any plan, a listed one too, where "
-              "there is a box and a solute; excluded by name, the solute is "
-              "not checked against its own periodic images and no mean says "
-              "whether it met its copy.",
+              "there is a box and a solute. Excluding it leaves the solute "
+              "unchecked against its own periodic images: no mean is noted "
+              "where it met its copy, and none says whether it did, which the "
+              "log, the analysis manifest and the report then say.",
               choices=ANALYSIS_NAMES,
               example=["dimred"]),
         Field("select_atoms", str, None,
