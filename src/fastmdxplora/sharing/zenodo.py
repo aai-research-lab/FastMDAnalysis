@@ -743,11 +743,11 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
 
 
 def _counted_past(draft: dict[str, Any], depositions: str, token: str,
-                  said: Callable[[str], None] | None, version: str) -> str:
+                  said: Callable[[str], None] | None, version: str, record: str) -> str:
     """The label of a draft of a new version, not yet published: ``version``,
-    unless a version published since holds that same label (one the person
-    published by hand as the share began this draft), then the one after it.
-    Where the latest is not read, as it was."""
+    counted from ``record``, unless a version was published since (by hand,
+    as the share began this draft), then counted on from that one, as a new
+    version is. Where the latest is not read, as it was."""
     base = depositions.rsplit("/api/", 1)[0]
     asked = {**draft, "links": {**(draft.get("links") or {}),
                                 "latest": f"{base}/api/records/{draft['conceptrecid']}"}}
@@ -755,10 +755,10 @@ def _counted_past(draft: dict[str, Any], depositions: str, token: str,
         newest = _latest_published(asked, depositions, token, said)
     except ShareRefused:
         return version
-    if not newest.get("submitted") or str(newest.get("id")) == str(draft.get("id")):
+    if not newest.get("submitted") or str(newest.get("id")) in (str(draft.get("id")),
+                                                                 str(record)):
         return version
-    label = str((newest.get("metadata") or {}).get("version") or "")
-    return (_bumped(label) or version) if _plain(label) == _plain(version) else version
+    return _bumped(str((newest.get("metadata") or {}).get("version") or "")) or version
 
 
 def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
@@ -1820,7 +1820,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             out["deposition"] = found
             if earlier.get("record") and found.get("conceptrecid"):
                 out["version"] = _counted_past(found, depositions, token, said,
-                                               str(earlier.get("version") or "1"))
+                                               str(earlier.get("version") or "1"),
+                                               str(earlier["record"]))
             return out
     except ShareRefused as exc:
         if getattr(exc, "whole", False):

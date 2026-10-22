@@ -5146,3 +5146,56 @@ def test_a_tiny_or_nearly_whole_download_s_amount_is_said_as_it_is():
     assert _got(999, 1000, "at") == " at 999 of 1000 bytes"
     assert _got(500, 1000, "at") == " at 0.5 of 1.0 kB"
     assert _got(0, 0, "at") == " at 0 bytes"
+
+
+@pytest.mark.parametrize("by_hand, expected", [("2.0", "2.1"), ("1.2", "1.3"),
+                                               ("v2 (final)", "v3 (final)")])
+def test_a_waiting_new_version_is_counted_on_from_any_version_published_since(
+        tmp_path, unsteady, monkeypatch, by_hand, expected):
+    """Hands-on review of the sixty-third commit: a waiting draft of a new
+    version was counted past a version published by hand only where that
+    version held the draft's own label; 2.0, or 1.1 then 1.2, left it 1.1."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["version"] = "1.0"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": {"version": "1.0"}, "files": [{"key": "shared.zip"}]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.1"
+    # The person published a version by hand meanwhile.
+    unsteady.latest = {"id": 9, "metadata": {"version": by_hand}, "files": []}
+    real = zenodo._call
+
+    def by_concept(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/c7"):
+            return real(method, url.replace("/c7", "/latest"), **kwargs)
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", by_concept)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == expected
+    # Counted once: shared again, as it is.
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == expected
+
+
+def test_a_waiting_new_version_keeps_its_label_while_none_was_published_since(
+        tmp_path, unsteady, monkeypatch):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["version"] = "1.0"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": {"version": "1.0"}, "files": [{"key": "shared.zip"}]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    real = zenodo._call
+
+    def by_concept(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/c7"):
+            return real(method, url.replace("/c7", "/latest"), **kwargs)
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", by_concept)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.1"
