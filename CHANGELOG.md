@@ -97,7 +97,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - All studies' table says why a study did not open on a line of its own
   under the row's buttons, wrapped, and fits the table again: said on one
   line beside them, it widened the table past its column (1440 px with the
-  side panel open). It stays shown with the pointer away from the row. A
+  side panel open), and stays shown with the pointer away from the row. Where
+  the table is narrower (1100 to 1280 px with the side panel open) the row's
+  buttons show only on hover, and the reason with them, as on main. A
   hold of the page's own is still said beside Open until the list is drawn
   again after it has passed, as on main.
 - Tests: the Analysis page's count is unsaid until the study's results are
