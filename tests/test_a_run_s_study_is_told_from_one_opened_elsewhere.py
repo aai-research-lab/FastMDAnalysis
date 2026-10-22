@@ -1947,6 +1947,14 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
     run = workspace / "run1"
 
     processes = []
+    # Once the test has read what Send says while the run starts: a fixed
+    # time was spent under load before it read it (L19 L6).
+    read = threading.Event()
+
+    def written():
+        read.wait(120)
+        (run / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+        (run / "setup").mkdir()
 
     def launch(self, state, *, dashboard_url=None, config=None):
         run.mkdir()
@@ -1955,8 +1963,7 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
         # it has written its first record.
         processes.append(_going(session, run))
         clock.sleep(1.0)
-        threading.Timer(4.0, lambda: ((run / "exploration.yml").write_text(
-            "systems: []\n", encoding="utf-8"), (run / "setup").mkdir())).start()
+        threading.Thread(target=written, daemon=True).start()
         return {"ok": True, "output": str(run)}
 
     monkeypatch.setattr(DashboardRuntime, "launch_from_config", launch)
@@ -1983,6 +1990,7 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
         page.keyboard.press("Enter")
         page.wait_for_timeout(300)
         waiting = {"note": _note(page), "asked": _requests(asked)}
+        read.set()
         page.wait_for_function("() => window.FastMDXDashboard.state.studyIsOne"
                                " && window.FastMDXAgentPanel.current.study", timeout=30000)
         _when_known(page)
@@ -1995,6 +2003,7 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
         page.wait_for_timeout(1000)
         current = page.evaluate("() => window.FastMDXAgentPanel.current")
     finally:
+        read.set()
         close()
         session.server.shutdown()
         for process in processes:
