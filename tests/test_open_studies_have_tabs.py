@@ -698,6 +698,12 @@ def test_a_delayed_success_does_not_show_new_records_under_the_old_tab(browser, 
         page.route("**/api/explore/switch", switch)
         _link(page, site["keys"][0]).click()
         expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
+        # The strip is busy before the switch is asked: the Builder's draft
+        # is saved first, so the request comes after a reply of its own.
+        for _ in range(100):
+            if held:
+                break
+            page.wait_for_timeout(50)
         assert held
         assert page.evaluate("getComputedStyle(document.querySelector('.page-shell')).visibility") == "hidden"
         assert page.evaluate("window.FastMDXDashboard.state.studyShown") == site["keys"][1]

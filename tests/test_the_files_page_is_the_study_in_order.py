@@ -299,7 +299,7 @@ def test_the_page_is_found_filtered_sorted_and_folded_in_a_browser(study):
             # Folded: the record, what was set aside, the scratch.
             assert page.eval_on_selector('[data-phase="scratch"] .files-fold',
                                          "e => e.getAttribute('aria-expanded')") == "false"
-            page.fill("[data-find]", "rmsd")
+            page.fill(".files-toolbar [data-find]", "rmsd")
             page.wait_for_timeout(100)
             paths = page.eval_on_selector_all(
                 ".files-row", "els => els.filter(e => e.offsetParent !== null)"
@@ -307,7 +307,7 @@ def test_the_page_is_found_filtered_sorted_and_folded_in_a_browser(study):
             assert paths and all("rmsd" in p for p in paths)
             assert "previous/analysis/rmsd/rmsd.dat" in paths  # found where it is folded
             assert page.eval_on_selector(".files-keys", "e => e.hidden")
-            page.fill("[data-find]", "")
+            page.fill(".files-toolbar [data-find]", "")
             page.click('.files-filter[data-filter="figure"]')
             page.wait_for_timeout(100)
             kinds = page.eval_on_selector_all(
