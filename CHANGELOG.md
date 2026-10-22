@@ -520,8 +520,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   that passed a chignolin chain which came to 0.261 nm of its own copy. It runs with every plan where there is a box
   and a solute, a study's listed analyses (`include`, as the GUI writes
   them) too; excluded by name, the log, the analysis manifest and the
-  report say the solute was not checked. It is not yet said while the run
-  goes.
+  report say the solute was not checked, and `end_to_end` checks its own
+  chain against the run's cutoff, said as its own check, the report then
+  pointing to no Image check section; the report says end-to-end's image
+  sentence once. It is not yet said while the run goes.
 
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each

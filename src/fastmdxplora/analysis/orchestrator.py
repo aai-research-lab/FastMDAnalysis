@@ -119,7 +119,8 @@ IMAGE_CHECK_EXCLUDED = (
     "The image check was excluded by name (`exclude: [image_check]`), so the "
     "solute was not checked against its own periodic images: no mean of these "
     "frames is noted where the solute met its copy, and none of them says "
-    "whether it did.")
+    "whether it did, except the end-to-end distance, which checks its own "
+    "chain against the run's cutoff.")
 
 
 def register_analysis(name: str, cls: type[Analysis]) -> None:
@@ -359,6 +360,9 @@ class AnalysisOrchestrator:
             # read by every analysis of these frames.
             analysis.solute_image = solute_image
             analysis.solute_image_series = image_series
+            # The study this analysis folder is in, whose setup record an
+            # analysis may read (the run's cutoff, through `record_access`).
+            analysis.study_dir = self.output_dir.parent
             # Its own trajectory, not the shared one. Superposition in
             # mdtraj rotates coordinates in place, so an analysis that
             # aligns leaves every later analysis reading rotated

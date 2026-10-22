@@ -171,7 +171,9 @@ def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = N
         "nearest_time_ps": float(times[closest]) if timed else None,
         "cutoff_nm": cutoff,
         "may_bias": "shape" if shape else "mean",
-        "read_from": "image_check",
+        # The image check's finding, or the end-to-end distance's own check
+        # of its chain where the image check did not run.
+        "read_from": str(finding.get("checked_by") or "image_check"),
         "counted_over": counted_over,
     }
     noun = COUNTED_OVER.get(counted_over, counted_over)

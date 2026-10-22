@@ -1120,9 +1120,13 @@ def image_note_said(image: Any) -> str | None:
               if isinstance(cutoff, (int, float)) else "within the cutoff of")
     what = ("its shape over them, and a mean of it, may be biased"
             if image.get("may_bias") == "shape" else "a mean over them may be biased")
+    # Where the image check ran, its section has the paragraph; the
+    # end-to-end distance's own check of its chain has no section to point to.
+    where = (" (see Image check)" if str(image.get("read_from") or "image_check")
+             == "image_check" else ", as the end-to-end distance's own check of its "
+             "chain found, the image check not having run")
     return (f"The solute came {within} its own periodic image in {under:,} of the "
-            f"{used:,} {noun} ({share_said(under, used)}), so {what} (see Image "
-            "check).")
+            f"{used:,} {noun} ({share_said(under, used)}), so {what}{where}.")
 
 
 def _findings_notes(findings: dict[str, Any]) -> list[str]:
@@ -1164,8 +1168,11 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     # How close the solute came to its own images: the image check's own
     # paragraph, said once, in its section; on each other analysis whose
     # frames it met its image in, a line pointing there.
-    pointer = image_note_said(findings.get("solute_image"))
-    if pointer and not any(pointer in note for note in notes):
+    image = findings.get("solute_image")
+    pointer = image_note_said(image)
+    # Once: the end-to-end distance's reason holds the note's own sentence.
+    said = image.get("said") if isinstance(image, dict) and "frames_used" in image else None
+    if pointer and not any(pointer in note or (said and said in note) for note in notes):
         notes.append(pointer)
     shell = findings.get("shell")
     if isinstance(shell, dict) and shell.get("said"):

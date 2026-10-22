@@ -64,7 +64,9 @@ minimum in g(r) — never assumed, because the radius decides the number.
 a study that lists its analyses (`include`) too, unless excluded by name
 (`exclude: [image_check]`, said in the log, the analysis manifest and the
 report: the solute is then not checked, and no mean says whether it met its
-copy). It does the check as
+copy, except the end-to-end distance, which checks its own chain against the
+run's cutoff and says it as its own check, there being no Image check section
+to point to). It does the check as
 `gmx mindist -pi` does the check: in each frame, made whole along its bonds,
 the closest approach of any heavy atom of the solute to any heavy atom of its
 images, every image the

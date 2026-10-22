@@ -206,6 +206,9 @@ class Analysis(ABC):
     #: (:meth:`_qualify_by_the_solute_image`).
     solute_image: dict[str, Any] | None = None
     solute_image_series: Any = None
+    #: The study whose analysis folder this is, where the orchestrator runs
+    #: it (its setup record gives the run's cutoff); None run alone.
+    study_dir: Path | None = None
 
 
     #: True for analyses that only apply to protein-ligand complexes (e.g.

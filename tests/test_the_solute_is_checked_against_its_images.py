@@ -934,3 +934,41 @@ class TestSeparateCopiesAreNotOneComplex:
         assert abs(expected - 0.6) < 1e-5
         assert np.allclose(series, expected, atol=1e-5)
         assert found["frames_under_cutoff"] == 4
+
+
+class TestEndToEndWithTheCheckExcluded:
+    """With the image check excluded by name, the end-to-end distance checks
+    its own chain: against the run's cutoff (0.9 nm in a study it said 1 nm
+    of), and pointing to no Image check section, which is not there."""
+
+    def test_it_reads_the_run_s_cutoff_and_points_nowhere(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+        from fastmdxplora.analysis.orchestrator import _REGISTRY
+        from fastmdxplora.report.document import _findings_notes
+
+        study = _study_with_setup(tmp_path, {"parameters": {"nonbonded_cutoff_nm": 1.2}},
+                                  _ca_line())
+        results = AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                                       output_dir=study / "analysis").run(
+            exclude=[name for name in _REGISTRY if name != "end_to_end"])
+        assert list(results) == ["end_to_end"], list(results)
+        found = json.loads((study / "analysis" / "end_to_end" / "options.json")
+                           .read_text())["findings"]
+        note = found["solute_image"]
+        assert note["cutoff_nm"] == 1.2 and note["read_from"] == "end_to_end"
+        # At 1.0 nm none of the frames would count: the ends are 1.1 nm apart.
+        discard = found["mean"]["discard"]
+        assert note["frames_under_cutoff"] == 10 - discard > 0
+        assert "The cutoff is 1.2 nm, read from" in found["mean"]["not_a_measurement"] or \
+            note["said"] in found["mean"]["not_a_measurement"]
+        notes = _findings_notes(found)
+        assert not any("see Image check" in line for line in notes), notes
+        assert sum("of its own periodic image in" in line for line in notes) == 1, notes
+
+    def test_with_the_check_its_line_is_said_once(self, analysed):
+        from fastmdxplora.report.document import _findings_notes
+
+        folder, _ = analysed
+        found = json.loads((folder / "end_to_end" / "options.json").read_text())["findings"]
+        notes = _findings_notes(found)
+        assert sum("of its own periodic image in" in line for line in notes) == 1, notes
