@@ -644,6 +644,7 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
     unless given, which the rule's calibration does with series it makes
     itself (`validation/stopping_calibration.py`)."""
     from fastmdxplora.simulation.resume import production_done_ns
+    from fastmdxplora.simulation.sampling_ask import length_said
 
     extend_all = extend_all or extend_one_after_another
     production_of = production_of or production_done_ns
@@ -688,7 +689,7 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
             entry["decision"] = "ceiling"
             record["outcome"] = "ceiling"
             record["said"] = (
-                f"Stopped at the {ceiling:g} ns ceiling, with what was asked not "
+                f"Stopped at the {length_said(ceiling)} ceiling, with what was asked not "
                 "determined to the precision asked: "
                 + "; ".join(v.said for v in verdicts if not v.met) + ".")
             write()
@@ -698,8 +699,8 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
         if more <= 0:
             entry["decision"] = "ceiling"
             record["outcome"] = "ceiling"
-            record["said"] = (f"Stopped: the {ceiling:g} ns ceiling leaves no whole frame "
-                              "to add, with what was asked not determined to the "
+            record["said"] = (f"Stopped: the {length_said(ceiling)} ceiling leaves no whole "
+                              "frame to add, with what was asked not determined to the "
                               "precision asked: " + "; ".join(v.said for v in verdicts if not v.met)
                               + ".")
             write()
@@ -707,13 +708,13 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
             return record
         entry["decision"] = "extend"
         entry["more_ns"] = more
-        record["said"] = (f"Extending by {more:g} ns, to {production + more:g} ns of the "
-                          f"{ceiling:g} allowed: " + "; ".join(v.said for v in verdicts
-                                                             if not v.met) + ".")
+        record["said"] = (f"Extending by {length_said(more)}, to {length_said(production + more)}"
+                          f" of the {length_said(ceiling)} allowed: "
+                          + "; ".join(v.said for v in verdicts if not v.met) + ".")
         write()
         say(f"Not yet determined: {'; '.join(v.said for v in verdicts if not v.met)}. "
-            f"Extending {'every run' if len(runs) > 1 else 'the run'} by {more:g} ns "
-            f"(to {production + more:g} ns of the {ceiling:g} allowed).")
+            f"Extending {'every run' if len(runs) > 1 else 'the run'} by {length_said(more)} "
+            f"(to {length_said(production + more)} of the {length_said(ceiling)} allowed).")
         answers = list(extend_all(runs, more))
         failed = [(run, answer) for run, answer in zip(runs, answers) if not answer.get("ok")]
         if failed or len(answers) < len(runs):
@@ -757,10 +758,11 @@ def _said_met(verdicts: list[Verdict], production: float, runs: int, independent
     seed, or from different models of an ensemble; neither where the axes
     were not read."""
     from fastmdxplora.batch.aggregate import how_replicas_differ
+    from fastmdxplora.simulation.sampling_ask import length_said
 
     known = "; ".join(v.said for v in verdicts)
     each = " in each run" if runs > 1 else ""
-    text = f"After {production:g} ns of production{each}: {known}."
+    text = f"After {length_said(production)} of production{each}: {known}."
     if runs == 1:
         text += (" One run: precise within itself, and not checked against independent "
                  "starts, so a run trapped in one state, or still relaxing more slowly "
@@ -867,6 +869,8 @@ def stopping_section(root: str | Path) -> list[str]:
         return []
     if not isinstance(record, dict) or not record.get("rounds"):
         return []
+    from fastmdxplora.simulation.sampling_ask import length_said
+
     targets = [StopTarget(**t) for t in record.get("targets") or []]
     runs = record.get("runs") or []
     ceiling = record.get("max_duration_ns")
@@ -875,7 +879,7 @@ def stopping_section(root: str | Path) -> list[str]:
     lines = ["## How long it ran, and why", "",
              "This study did not run for a length fixed in advance. It stated what it "
              "was for, " + "; ".join(t.said(units.get(t.analysis, "")) for t in targets)
-             + (f", with at most {ceiling:g} ns of production" if ceiling else "")
+             + (f", with at most {length_said(ceiling)} of production" if ceiling else "")
              + (f" in each of {len(runs)} runs" if len(runs) > 1 else "")
              + ", and ran in pieces: after each, the analyses were read and the study "
              "was extended by what the numbers said was still needed.", ""]

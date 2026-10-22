@@ -504,6 +504,22 @@ class TestTheReport:
         # Nor a relaxation slower than the runs: only other structures show it.
         assert "Runs from different structures are what show it." in text
 
+    def test_a_length_under_1_ns_is_said_in_ps_where_the_record_is_written(self, tmp_path):
+        """The record's sentences, shown by the Timeline and the Overview,
+        said "After 0.8 ns of production" and "the 0.0012 ns ceiling"."""
+        from fastmdxplora.simulation.stopping import Verdict, _said_met
+
+        said = _said_met([Verdict("rmsd", True, "rmsd 0.150 ± 0.001 nm")], 0.8, 1,
+                         "not_required")
+        assert said.startswith("After 800 ps of production: rmsd"), said
+        (tmp_path / "stopping.json").write_text(json.dumps({
+            "targets": [{"analysis": "rmsd", "standard_error": 0.01}],
+            "max_duration_ns": 0.0012, "runs": ["study"], "outcome": "ceiling",
+            "rounds": [{"production_ns": 0.0012, "decision": "ceiling", "verdicts": []}],
+            "said": "Stopped at the 1.2 ps ceiling."}), encoding="utf-8")
+        text = "\n".join(stopping_section(tmp_path))
+        assert "with at most 1.2 ps of production" in text and "0.0012 ns" not in text
+
     def test_nothing_where_the_length_was_fixed(self, tmp_path):
         assert stopping_section(tmp_path) == []
         (tmp_path / "stopping.json").write_text("[]", encoding="utf-8")
