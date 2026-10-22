@@ -704,7 +704,15 @@
     var start = el("agent-start");
     var thread = el("agent-thread");
     if (!start || !thread) return;
+    var shownAgain = start.hidden && !thread.childElementCount;
     start.hidden = thread.childElementCount > 0;
+    /* Shown again once the thread is emptied (a refused message taken out):
+     * from its top, not where the thread was scrolled to (CI-774 review
+     * L22 L5: its heading was under the Agent bar). */
+    if (shownAgain && thread.offsetParent !== null) {
+      var column = thread.closest(".main, .agent-drawer-body") || document.scrollingElement;
+      if (column) column.scrollTop = 0;
+    }
     var engine = el("agent-start-engine");
     if (engine) engine.hidden = engineChosen;
     var study = el("agent-start-study");
@@ -2634,6 +2642,9 @@
        * answer just restored was scrolled to, and then the Analysis page
        * was taken to its foot, the figure above the view (CI, 10-02). */
       if (thread.offsetParent === null) return;
+      /* Emptied since (a refused message taken out): what can be asked is
+       * shown from its top (`syncStart`). */
+      if (!thread.childElementCount) return;
       /* Both: the thread when it is the scroller, the column when the
        * thread has grown to fit and the column is. Whichever overflows,
        * setting scrollTop past its end is harmless on the other. */

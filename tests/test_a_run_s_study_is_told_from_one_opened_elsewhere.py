@@ -3672,6 +3672,59 @@ def test_a_message_refused_as_a_study_opens_names_the_study(tmp_path, monkeypatc
     assert errors == []
 
 
+def test_the_welcome_is_shown_from_its_top_once_a_refused_message_is_taken_out(tmp_path,
+                                                                               monkeypatch):
+    """L22 L5: at 1440, a message refused as another window opened a study
+    was taken out of the thread, and what can be asked was shown again
+    scrolled where the thread was, its heading under the Agent bar."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    words = "pressed as other opened"
+    held, polls = [], []
+
+    def propose(route):
+        if not held:
+            held.append(route)
+        else:
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(_answer("A")))
+
+    page, errors, close = _page_on(session, [])
+    try:
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.unroute("**/api/agent/propose*")
+        page.route("**/api/agent/propose*", propose)
+        _shows(page, study_key(here))
+        _when_known(page)
+        _hold(page, polls)
+        _say(page, words)
+        while not held:
+            page.wait_for_timeout(50)
+        _switch_elsewhere(session, other)
+        held[0].continue_()
+        page.wait_for_function("() => /Not sent, as the study open changed/.test((document"
+                               ".getElementById('agent-unsent-note') || {}).textContent || '')",
+                               timeout=15000)
+        page.wait_for_timeout(1000)
+        shown = page.evaluate("""() => {
+            const main = document.querySelector('.main');
+            const head = document.querySelector('section[data-page=agent] .page-header');
+            const title = document.querySelector('#agent-start .agent-start-title');
+            return {top: main.scrollTop, over: main.scrollHeight > main.clientHeight,
+                    start: !document.getElementById('agent-start').hidden,
+                    title: title.getBoundingClientRect().top,
+                    head: head.getBoundingClientRect().bottom};
+        }""")
+        _release(page, polls)
+    finally:
+        close()
+        session.server.shutdown()
+    assert shown["start"] and shown["over"], shown
+    assert shown["top"] == 0 and shown["title"] >= shown["head"], shown
+    assert errors == []
+
+
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_at_390_a_note_of_two_lines_hides_the_page_beneath(tmp_path, monkeypatch, scheme):
     """L20: at 390, on a study's Agent page with its starters, a note of two
