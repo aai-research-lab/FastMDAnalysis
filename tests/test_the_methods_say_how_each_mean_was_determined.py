@@ -160,3 +160,47 @@ def test_one_of_a_campaign_s_runs_reads_the_campaign_s_rule(tmp_path):
     other = _study(tmp_path / "runs" / "elsewhere")
     assert "in 2 replicas that agree" in _methods(named)
     assert "replicas that agree" not in _methods(other)
+
+
+def _a_run_of_a_campaign(where: Path, sweep: dict) -> Path:
+    run = where / "campaign" / "runs" / "run0"
+    run.mkdir(parents=True)
+    (where / "campaign" / "batch_manifest.json").write_text(
+        json.dumps({"sweep": sweep, "runs": []}), encoding="utf-8")
+    return run
+
+
+def _shared(run: Path) -> str:
+    text = methods_paragraphs(run, {}, {}, means={
+        "rmsd": _record(_relaxing(6), start_shared_with_replicas=600)})
+    [paragraph] = [p for p in text.split("\n\n") if p.startswith("**Analysis.**")]
+    return paragraph
+
+
+def test_replicas_from_the_models_of_an_ensemble_share_no_one_structure(tmp_path):
+    """Every replica set run until it knew shares a start, models of an
+    ensemble too: their methods said "started from one structure", "where
+    the relaxation they share shows through", a protocol that did not
+    happen, written to go into a manuscript."""
+    said = _shared(_a_run_of_a_campaign(tmp_path, {"setup.model": [1, 2, 3]}))
+    assert "As one of a set of replicas started from different models of the ensemble, it was " \
+           "averaged from no earlier than frame 600" in said, said
+    assert "one structure" not in said and "relaxation they share" not in said
+    assert "each run kept the later of that start and the one detected on its own" in said
+
+
+def test_replicas_by_seed_are_said_from_one_structure(tmp_path):
+    said = _shared(_a_run_of_a_campaign(tmp_path, {"simulation.random_seed": [1, 2]}))
+    assert ("As one of a set of replicas started from one structure, differing only by random "
+            "seed, it was averaged from no earlier than frame 600") in said, said
+    assert "relaxation they share shows through less noise" in said
+
+
+def test_a_campaign_not_read_is_not_said_from_one_structure(tmp_path):
+    from fastmdxplora import record_access
+
+    run = _a_run_of_a_campaign(tmp_path, {"simulation.random_seed": [1, 2]})
+    with record_access.confined_records(run, lambda path: True):
+        said = _shared(run)
+    assert "As one of a set of replicas, it was averaged from no earlier than frame 600" in said
+    assert "one structure" not in said

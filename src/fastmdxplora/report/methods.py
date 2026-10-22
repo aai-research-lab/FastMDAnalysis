@@ -778,7 +778,8 @@ def methods_paragraphs(
         parts.append("**Simulation protocol.** " + " ".join(protocol))
 
     # ---- analysis -----------------------------------------------------
-    analysis = _analysis_paragraph(means or {}, stopping)
+    analysis = _analysis_paragraph(means or {}, stopping,
+                                   axes=_campaign_axes(project_root) if means else None)
     if analysis:
         parts.append("**Analysis.** " + analysis)
 
@@ -962,11 +963,59 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
     return said
 
 
+def _campaign_axes(project_root: Path) -> set[str] | None:
+    """The axes the campaign a run belongs to (`runs/<id>` under it) swept
+    its runs over, from its batch manifest, read through `record_access` so
+    a read held to the run (`server._confined`) refuses it; None where it
+    was not read or the study is no campaign's run."""
+    import json
+
+    from fastmdxplora import record_access
+
+    root = Path(project_root).absolute()
+    if root.parent.name != "runs":
+        return None
+    try:
+        manifest = json.loads(record_access.read_text(root.parent.parent / "batch_manifest.json",
+                                                      encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    sweep = manifest.get("sweep") if isinstance(manifest, dict) else None
+    return {str(axis) for axis in sweep} if isinstance(sweep, dict) else None
+
+
+def _shared_start_said(shared: list[int], several: bool, axes: set[str] | None) -> str:
+    """How a replica's averaging began from the start its replicas share
+    (`stopping.share_the_start`), its replicas said as they differ
+    (`batch.aggregate.how_replicas_differ`): from one structure by seed,
+    where the relaxation they share shows through less noise on their
+    average; or from different models of an ensemble, which share no one
+    relaxation; neither where the campaign's sweep was not read."""
+    from fastmdxplora.batch.aggregate import SEED_AXES, how_replicas_differ
+
+    frames = " or ".join(f"{frame:,}" for frame in shared)
+    what = "each quantity was" if several else "it was"
+    by_seed = axes is not None and bool(axes) and axes <= SEED_AXES and "setup.model" not in axes
+    if by_seed:
+        return ("As one of a set of replicas started from one structure, "
+                f"{how_replicas_differ(axes, as_participle=True)}, {what} averaged from no "
+                f"earlier than frame {frames}, the start detected on the replicas' "
+                "frame-by-frame average, where the relaxation they share shows through less "
+                "noise than in one run.")
+    differ = f" {how_replicas_differ(axes)}" if axes and "setup.model" in axes else ""
+    return (f"As one of a set of replicas{differ}, {what} averaged from no earlier than frame "
+            f"{frames}, the start detected on the replicas' frame-by-frame average: each run "
+            "kept the later of that start and the one detected on its own.")
+
+
 def _analysis_paragraph(means: dict[str, dict[str, Any]],
-                        stopping: dict[str, Any] | None) -> str:
+                        stopping: dict[str, Any] | None, *,
+                        axes: set[str] | None = None) -> str:
     """How each mean and its error were determined, and, for a study run
     until it knew, why it ran as long as it did. Empty where nothing
-    recorded a mean and the study ran to a fixed length."""
+    recorded a mean and the study ran to a fixed length. ``axes`` are
+    those the run's campaign swept (`_campaign_axes`), which say how its
+    replicas differ."""
     means = {name: record for name, record in means.items()
              if isinstance(record, dict) and record.get("mean") is not None}
     said: list[str] = []
@@ -978,13 +1027,7 @@ def _analysis_paragraph(means: dict[str, dict[str, Any]],
         shared = sorted({record["start_shared_with_replicas"] for record in means.values()
                          if isinstance(record.get("start_shared_with_replicas"), int)})
         if shared:
-            said.append(
-                "As one of a set of replicas started from one structure, "
-                + ("each quantity was" if len(means) > 1 else "it was")
-                + " averaged from no earlier than frame "
-                + " or ".join(f"{frame:,}" for frame in shared)
-                + ", the start detected on the replicas' frame-by-frame average, where the "
-                "relaxation they share shows through less noise than in one run.")
+            said.append(_shared_start_said(shared, len(means) > 1, axes))
         withheld = sorted(name for name, record in means.items()
                           if record.get("not_a_measurement"))
         if withheld:
