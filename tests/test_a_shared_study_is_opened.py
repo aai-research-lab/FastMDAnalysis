@@ -225,3 +225,15 @@ def test_a_service_s_gui_does_not_open_one():
     said = DashboardRuntime.open_shared_study(
         SimpleNamespace(hosting=object(), snapshot=dict), "10.5281/zenodo.1")
     assert said["ok"] is False and "your own computer" in said["error"]
+
+
+def test_an_opened_folder_s_name_keeps_its_letters_plain():
+    """Hands-on review of the forty-third commit: a ligature, a full-width or
+    an accented letter in a shared study's name was dropped from the folder
+    it opened in."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("Ｔｈｅ “ﬁrst” café study (A)") == \
+        "the-first-cafe-study-a"
+    assert _slug("naïve") == "naive"
+    assert _slug("“”") == "shared-study"

@@ -24,6 +24,7 @@ import re
 import shutil
 import stat
 import tempfile
+import unicodedata
 import urllib.error
 import urllib.request
 import zipfile
@@ -307,7 +308,11 @@ def _sha256(path: Path) -> str:
 
 
 def _slug(text: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-").lower()
+    # Letters kept in their plain forms: a ligature, a full-width letter or
+    # an accented one is not dropped.
+    plain = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text))
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", plain.encode("ascii", "ignore").decode()) \
+        .strip("-").lower()
     return slug[:60].strip("-") or "shared-study"
 
 

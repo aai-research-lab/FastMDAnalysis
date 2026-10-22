@@ -252,7 +252,10 @@ def _as_kept(value: Any) -> Any:
     a licence by its id now, and no field it fills with nothing (a
     creator's affiliation given none)."""
     if isinstance(value, dict):
-        return {k: _licence(v) if k == "license" else _as_kept(v)
+        # (A description's entities read on both sides: Zenodo writes one
+        # for what its fixing turns into markup, a full-width "<" say.)
+        return {k: _licence(v) if k == "license" else _plain(html.unescape(v))
+                if k == "description" and isinstance(v, str) else _as_kept(v)
                 for k, v in value.items() if v is not None}
     if isinstance(value, list):
         return [_as_kept(v) for v in value]
@@ -1179,8 +1182,12 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     _keep(study, kept)
     bucket = str((deposition.get("links") or {}).get("bucket") or "")
     if not bucket:
-        raise ShareRefused("Zenodo's draft has no bucket to upload into.",
-                           code="environment.service.unreachable")
+        unbucketed = ShareRefused(
+            f"Zenodo's answer for the draft {deposition.get('id')} named no bucket to upload "
+            "into. The draft is kept as it is: share again once Zenodo answers, and that "
+            "draft is finished, not another made.", code="environment.service.unreachable")
+        unbucketed.later = True
+        raise unbucketed
     # Only the archive this study put there is taken away; another one
     # keeps the share back, as a record of two archives opens as neither.
     ours = str(kept[site].get("archive") or "")

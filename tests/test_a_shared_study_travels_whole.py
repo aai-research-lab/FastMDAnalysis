@@ -4272,3 +4272,74 @@ def test_a_new_version_begun_again_from_a_record_under_edit_is_not_said_begun(
     said = capsys.readouterr()
     assert "beginning a new version again" not in said.out
     assert "holds an edit saved there and not published" in said.err
+
+
+def _as_zenodo_cleans(value):
+    """A description as Zenodo keeps it: full-width letters made plain (as
+    ftfy makes them), then what that makes markup written as entities (as
+    bleach writes it)."""
+    if isinstance(value, dict):
+        return {k: (_as_zenodo_cleans_text(v) if k == "description" and isinstance(v, str)
+                    else _as_zenodo_cleans(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_as_zenodo_cleans(v) for v in value]
+    return value
+
+
+def _as_zenodo_cleans_text(text):
+    import re
+    import unicodedata
+
+    plain = re.sub("[！-￮]", lambda c: unicodedata.normalize("NFKC", c.group()), text)
+    # (Its own <p> and <code> stay markup; the rest is written as entities.)
+    marked = re.split(r"(</?(?:p|code)>)", plain)
+    return "".join(part if re.fullmatch(r"</?(?:p|code)>", part) else
+                   part.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+                   .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                   for part in marked)
+
+
+def test_a_description_zenodo_writes_entities_into_follows_the_study(tmp_path, unsteady,
+                                                                     monkeypatch, capsys):
+    """Hands-on review of the forty-third commit: a summary holding a
+    full-width "<", ">" or "&" (made plain, then written as an entity
+    there), its description's answer lost once, was taken for the person's
+    at every later share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    _analysed_again(study, "Kｄ ＜ 5 nM for A＆B.")
+    real = zenodo._call
+    lose = {"description": False}
+
+    def as_zenodo(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        for number, held in unsteady.meta.items():
+            unsteady.meta[number] = _as_zenodo_cleans(held)
+        if lose["description"] and method == "PUT" and (kwargs.get("body") or {}).get(
+                "metadata", {}).get("description"):
+            lose["description"] = False
+            return None
+        return _as_zenodo_cleans(answer)
+
+    monkeypatch.setattr(zenodo, "_call", as_zenodo)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "&lt;" in unsteady.meta[7]["description"]
+    _analysed_again_from(study, "Kｄ ＜ 5 nM for A＆B.", "Kｄ ＞ 9 nM.")
+    lose["description"] = True
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    _analysed_again_from(study, "Kｄ ＞ 9 nM.", "Words of the third share.")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "changed there" not in capsys.readouterr().out
+    assert "Words of the third share." in unsteady.meta[7]["description"]
+
+
+def test_a_draft_answered_with_no_bucket_says_to_share_again(tmp_path, unsteady,
+                                                            monkeypatch, capsys):
+    study = _study(tmp_path / "study")
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        **answer, "links": {k: v for k, v in answer["links"].items() if k != "bucket"}})
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "named no bucket to upload into. The draft is kept as it is: share again" in \
+        capsys.readouterr().err
