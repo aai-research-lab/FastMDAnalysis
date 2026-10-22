@@ -99,15 +99,25 @@ def test_the_numbers_of_an_inserted_residue_stay_numbers(tmp_path):
     assert all(isinstance(n, (int, np.integer)) for n, _ in _rmsf_labels(traj))
 
 
-def _glycines(path, numbers):
-    """Four glycines of N, CA, C and O, numbered as given: "184A" has a code."""
-    lines, serial = [], 1
-    for i, given in enumerate(numbers):
-        resseq, code = int(given[:3]), given[3:]
-        for k, name in enumerate(("N", "CA", "C", "O")):
-            lines.append(f"ATOM  {serial:5d}  {name:<3s} GLY A{resseq:4d}{code:1s}   "
-                         f"{3.6 * i + 0.4 * k:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00           {name[0]}\n")
-            serial += 1
+def _glycines(path, numbers, frames=1):
+    """Four glycines of N, CA, C and O, numbered as given: "184A" has a code.
+    More than one frame is written as models, each moved a little."""
+    rng = np.random.default_rng(1)
+    lines = []
+    for frame in range(frames):
+        if frames > 1:
+            lines.append(f"MODEL     {frame + 1:4d}\n")
+        serial = 1
+        for i, given in enumerate(numbers):
+            resseq, code = int(given[:3]), given[3:]
+            for k, name in enumerate(("N", "CA", "C", "O")):
+                x, y, z = (3.6 * i + 0.4 * k, 0.0, 0.0) if frames == 1 else (
+                    3.6 * i + 0.4 * k + rng.normal(0, 0.3), rng.normal(0, 0.3), rng.normal(0, 0.3))
+                lines.append(f"ATOM  {serial:5d}  {name:<3s} GLY A{resseq:4d}{code:1s}   "
+                             f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           {name[0]}\n")
+                serial += 1
+        if frames > 1:
+            lines.append("ENDMDL\n")
     path.write_text("".join(lines) + "END\n")
     return path
 
@@ -132,3 +142,26 @@ def test_a_second_structure_read_in_one_process_has_only_its_own_codes(tmp_path)
 
     again = load_trajectory(str(first))
     assert [label(r, qualified=False) for r in again.topology.residues] == [183, "184A", 184, 185]
+
+
+def test_an_orchestrator_built_before_another_runs_on_its_own_codes(tmp_path):
+    """Two orchestrators built before either ran: the second one's read
+    cleared the first one's codes, and the first one's RMSF had two residues
+    numbered 184 and no insertion column."""
+    from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+    first = _glycines(tmp_path / "a.pdb", ["183", "184A", "184", "185", "186"], frames=5)
+    second = _glycines(tmp_path / "b.pdb", ["183", "184", "185", "186", "187"], frames=5)
+
+    oa = AnalysisOrchestrator(str(first), output_dir=tmp_path / "oa")
+    ob = AnalysisOrchestrator(str(second), output_dir=tmp_path / "ob")
+    assert oa.run(include=["rmsf"])["rmsf"].status == "ok"
+    rows = (tmp_path / "oa" / "rmsf" / "rmsf.dat").read_text().splitlines()
+    assert rows[0] == "residue,insertion,rmsf_nm"
+    assert [r.split(",")[:2] for r in rows[1:]] == [
+        ["183", ""], ["184", "A"], ["184", ""], ["185", ""], ["186", ""]]
+
+    assert ob.run(include=["rmsf"])["rmsf"].status == "ok"
+    rows = (tmp_path / "ob" / "rmsf" / "rmsf.dat").read_text().splitlines()
+    assert "insertion" not in rows[0] and "," not in rows[1]
+    assert [int(float(r.split()[0])) for r in rows[1:]] == [183, 184, 185, 186, 187]

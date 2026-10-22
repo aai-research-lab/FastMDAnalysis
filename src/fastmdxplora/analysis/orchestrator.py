@@ -259,6 +259,12 @@ class AnalysisOrchestrator:
             trajectory, topology, stride=stride, first=first, last=last,
             saving_interval_ps=saving_interval_ps,
         )
+        # The insertion codes read with this topology, put back when it is
+        # run: the table holds the codes of the topology read last, so an
+        # orchestrator built after this one and before its run() left this
+        # one's 184A and 184 as two residues numbered 184.
+        from fastmdxplora.analysis import residues
+        self._insertion_codes = dict(residues._INSERTION_CODES)
 
         # Results from the most recent run() call.
         self.results: dict[str, AnalysisResult] = {}
@@ -296,6 +302,10 @@ class AnalysisOrchestrator:
             Mapping from analysis name to result, in execution order.
             Also stored on ``self.results``.
         """
+        from fastmdxplora.analysis import residues
+        residues._INSERTION_CODES.clear()
+        residues._INSERTION_CODES.update(self._insertion_codes)
+
         plan = self._build_plan(include, exclude, options)
         # The image check first, so its finding is there for every analysis
         # of the same frames after it.
