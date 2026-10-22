@@ -127,8 +127,11 @@ convergence, the Report page's table) and the Agent say the note beside the
 mean's verdict, which it does not change ("may be biased: 54 of 270 frames
 used (20%) came within 1 nm of the solute's own image"), the analysis's
 paragraph a click away, all read from the record by one reader
-(`fastmdxplora.image_note`); the image check's own row and card give its
-finding in a sentence.
+(`fastmdxplora.image_note`); an analysis with no mean over its frames (RMSF,
+the order parameters, the dihedrals, clustering, the projections) says its
+note on its row of the Analysis page's table and over its card, and RMSF's
+caption beside its mean over residues; the image check's own row and card
+give its finding in a sentence.
 Frames where no mean is used (the discarded equilibration) do not count, and
 an analysis whose frames never met the image carries no note. `end_to_end`
 alone withholds its error for it, as it did before the whole chain was

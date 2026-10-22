@@ -213,6 +213,57 @@ class TestTheAgent:
         assert mean_said(side).endswith("; " + _expected(study, "rmsd"))
 
 
+@pytest.fixture
+def profiled(study: Path) -> Path:
+    """The study with an RMSF, a profile with no mean over frames, noted
+    over the frames it read (`note_on_frames`, from its first frame)."""
+    from fastmdxplora.analysis.image_check import note_on_frames
+
+    finding, series = _finding()
+    manifest = json.loads((study / "analysis" / "analysis_manifest.json").read_text())
+    _manifest(study, {**manifest["results"], "rmsf": {"status": "ok"}})
+    folder = study / "analysis" / "rmsf"
+    folder.mkdir()
+    (folder / "rmsf.dat").write_text("".join(f"{k} {0.04 + 0.001 * k:.4f}\n"
+                                             for k in range(1, 11)))
+    note = note_on_frames(finding, series, np.arange(0, N), analysis="rmsf")
+    (folder / "options.json").write_text(json.dumps(
+        {"analysis": "rmsf", "selection": "protein",
+         "findings": {"frames": {"first_frame": 0}, "solute_image": note}}))
+    return study
+
+
+def _profile_noted(root: Path) -> str:
+    record = json.loads((root / "analysis" / "rmsf" / "options.json").read_text())
+    return said_short(record["findings"]["solute_image"])
+
+
+class TestAProfileWithNoMean:
+    """RMSF, the order parameters, the dihedrals, clustering and the
+    projections carry a note and showed it nowhere on the Analysis page:
+    their rows read "A profile, map or table" and RMSF's caption "mean over
+    residues 0.0420 nm", while the report noted each."""
+
+    def test_its_row_says_it(self, profiled):
+        from fastmdxplora.gui.analysis_overview import overview_of
+
+        rows = {r["analysis"]: r for r in overview_of(profiled)["rows"]}
+        row = rows["rmsf"]
+        assert row["quantities"] == [] and row["noted"] == _profile_noted(profiled)
+        assert row["noted_why"].startswith("The solute came within 1 nm")
+        # The image check's own finding is not a note.
+        assert "noted" not in rows["image_check"]
+
+    def test_rmsf_s_caption_and_report_row_say_it(self, profiled):
+        from fastmdxplora.gui.report_dashboard import _dashboard_summaries, _metric_rows
+
+        caption = _dashboard_summaries(profiled)["RMSF"].summary
+        assert caption.startswith("mean over residues ")
+        assert caption.endswith("; " + _profile_noted(profiled))
+        row = next(r for r in _metric_rows(profiled, {}) if r.metric == "RMSF")
+        assert row.noted == _profile_noted(profiled)
+
+
 #: A run's mean noted as the analysis code notes it (`note_numbers`).
 _NOTE = {"frames_used": 1864, "frames_under_cutoff": 372, "fraction_under_cutoff": 0.2,
          "frames_under_close": 0, "nearest_nm": 0.62, "cutoff_nm": 1.0,
@@ -335,13 +386,26 @@ def test_one_note_on_the_overview_the_table_and_the_card(tmp_path) -> None:
          "findings": {"solute_image": finding}}))
     _analysis(root, "rmsd", 0.30 + 0.002 * _ar1(N, 0.5, 1))
     _noted(root, "rmsd", finding, series)
+    # And a profile with no mean, noted over the frames it read.
+    _manifest(root, {"image_check": {"status": "ok"}, "rmsd": {"status": "ok"},
+                     "rmsf": {"status": "ok"}})
+    from fastmdxplora.analysis.image_check import note_on_frames
+
+    (root / "analysis" / "rmsf").mkdir()
+    (root / "analysis" / "rmsf" / "rmsf.dat").write_text(
+        "".join(f"{k} {0.04 + 0.001 * k:.4f}\n" for k in range(1, 11)))
+    (root / "analysis" / "rmsf" / "options.json").write_text(json.dumps(
+        {"analysis": "rmsf", "selection": "protein", "findings": {
+            "frames": {"first_frame": 0},
+            "solute_image": note_on_frames(finding, series, np.arange(0, N),
+                                           analysis="rmsf")}}))
     # Each analysis's figure, which its card on the Analysis page shows.
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    for name in ("rmsd", "image_check"):
+    for name in ("rmsd", "image_check", "rmsf"):
         figure = plt.figure(figsize=(2, 1.5))
         plt.plot([0, 1], [0, 1])
         figure.savefig(root / "analysis" / name / f"{name}.png")
@@ -376,16 +440,25 @@ def test_one_note_on_the_overview_the_table_and_the_card(tmp_path) -> None:
                 check = page.text_content('#analysis-results-table '
                                           'tr[data-analysis="image_check"] td')
                 page.wait_for_selector(".cell-noted")
-                cell = page.text_content(".cell-noted")
+                cell = page.text_content('.analysis-cell-head[data-analysis="rmsd"] .cell-noted')
+                profile_row = page.text_content('#analysis-results-table '
+                                                'tr[data-analysis="rmsf"] '
+                                                '.analysis-results-noted summary')
+                page.wait_for_selector('.analysis-cell-head[data-analysis="rmsf"] .cell-noted')
+                profile_card = page.text_content('.analysis-cell-head[data-analysis="rmsf"] '
+                                                 '.cell-noted')
                 wide = page.evaluate("() => document.documentElement.scrollWidth "
                                      "- document.documentElement.clientWidth")
-                found[(width, scheme)] = (tile, badge, table, status, check, cell, wide, errors)
+                found[(width, scheme)] = (tile, badge, table, status, check, cell, wide, errors,
+                                          profile_row, profile_card)
                 page.close()
             browser.close()
     finally:
         session.server.shutdown()
+    profile = _profile_noted(root)
     for (width, scheme), (tile, badge, table, status, check, cell, wide,
-                          errors) in found.items():
+                          errors, profile_row, profile_card) in found.items():
+        assert profile_row == profile_card == profile, (width, scheme, profile_row)
         assert not errors, (width, scheme, errors)
         assert tile == table == cell == expected, (width, scheme, tile, table, cell)
         assert badge == "Determined" and status.strip() == "Determined"

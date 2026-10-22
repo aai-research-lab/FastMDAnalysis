@@ -283,7 +283,9 @@
       var rest = plain || cut < 0 ? "" : what.slice(cut + 1).trim();
       return '<tr data-analysis="' + escapeHTML(row.analysis) + '" data-status="' + key + '">' +
         '<th scope="row" class="analysis-results-name">' + nameLink(row) + "</th>" +
-        '<td colspan="3" class="analysis-results-other">' + escapeHTML(head) + "</td>" +
+        // A profile, map or table: its image note under it, as a mean's.
+        '<td colspan="3" class="analysis-results-other">' + escapeHTML(head) +
+        (key === "result" ? notedHtml(row) : "") + "</td>" +
         statusCell(key, said, rest) + "</tr>";
     }
     if (quantities.length === 1 && quantities[0].key === "mean") {

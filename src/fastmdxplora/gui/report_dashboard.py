@@ -645,6 +645,9 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
                              f"to {_format_metric_value(max(values))})"),
                     samples="—",
                     status=f"per {each}",
+                    # Its image note, as its row on the Analysis page says it.
+                    noted=str((by_name.get("rmsf") or {}).get("noted") or ""),
+                    noted_why=str((by_name.get("rmsf") or {}).get("noted_why") or ""),
                 ))
             continue
         row = by_name.get(name)
@@ -850,10 +853,16 @@ def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
         if not _records.is_file(data_path):
             continue
         try:
-            summary = (_image_check_caption(data_path) if kind == "image" else
-                       (_biased_caption(data_path, corrected) if biased else None)
-                       or (_what_the_analysis_found(data_path) if kind == "line" else None)
-                       or _summarise_data_file(data_path, kind))
+            if kind == "image":
+                summary = _image_check_caption(data_path)
+            else:
+                summary = ((_biased_caption(data_path, corrected) if biased else None)
+                           or (_what_the_analysis_found(data_path) if kind == "line"
+                               else None))
+                if not summary:
+                    # A profile, map or table: its analysis's image note
+                    # beside it, as its row on the Analysis page says it.
+                    summary = _summarise_data_file(data_path, kind) + _analysis_noted(data_path)
         except Exception as exc:  # noqa: BLE001 - a caption must never fail a report
             logger.debug("dashboard: no summary for %s: %s", title, exc)
             continue
@@ -953,6 +962,17 @@ def _image_noted(record: Any) -> str:
     found = found if isinstance(found, dict) else {}
     short = said_short(note_of(found.get("mean")) or note_of(found))
     return f"; {short}" if short else ""
+
+
+def _analysis_noted(data_path: Path) -> str:
+    """The image note of the analysis whose data file this is, for a caption
+    without a recorded mean (:func:`_image_noted`); empty where it has none."""
+    try:
+        record = json.loads(_records.read_text(data_path.parent / "options.json",
+                                               encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return _image_noted(record)
 
 
 def _image_check_caption(data_path: Path) -> str | None:

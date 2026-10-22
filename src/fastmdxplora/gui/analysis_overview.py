@@ -210,6 +210,11 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
                                     findings=findings)})
     if row["quantities"]:
         row["kind"] = "mean"
+    elif name != "image_check" and _noted(findings, findings)["noted"]:
+        # A profile, map or table (RMSF, the order parameters, the dihedrals,
+        # clustering, the projections): no mean to say it beside, so its
+        # image note is said on its row and its card.
+        row.update(_noted(findings, findings))
     return row
 
 

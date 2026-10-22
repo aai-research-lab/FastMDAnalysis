@@ -90,7 +90,16 @@
   /* What it determined, as the results table says it. */
   function values(row) {
     var quantities = row && Array.isArray(row.quantities) ? row.quantities : [];
-    if (!quantities.length) return null;
+    if (!quantities.length) {
+      // A profile, map or table: its image note, as its row says it.
+      if (!row || !row.noted) return null;
+      var only = make("span", "cell-values");
+      var note = make("span", "cell-value");
+      note.appendChild(make("span", "cell-noted", row.noted));
+      if (row.noted_why) note.title = row.noted_why;
+      only.appendChild(note);
+      return only;
+    }
     var host = make("span", "cell-values");
     quantities.slice(0, 4).forEach(function (q) {
       var item = make("span", "cell-value");
