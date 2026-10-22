@@ -345,6 +345,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   put its own saved words in the box sends nothing and says so. A note about
   the words in the box goes once they are sent.
 
+- A page reloaded while the Agent's run starts, its request cut as the page
+  goes, says when it comes back where the words typed then are kept, in
+  every order the cut request fails in.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is

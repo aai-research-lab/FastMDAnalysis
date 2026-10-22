@@ -1223,6 +1223,59 @@ def test_reloading_during_a_launch_asks_nothing_and_sends_nothing(tmp_path, monk
     assert errors == []
 
 
+#: The run's request held, and failed as the reload cuts it, between the
+#: panel's first pagehide listener and its later ones, as Chromium sometimes
+#: fails it (CI-774 reviews L17 E, L18 2).
+_RUN_FAILS_AMID_PAGEHIDE = (
+    "(() => { const real = window.fetch; let fail = null;"
+    " window.fetch = function (url, opts) {"
+    "   if (/[/]api[/]agent[/]run$/.test(String(url).split('?')[0])) {"
+    "     real.call(this, url, opts); return new Promise((ok, no) => { fail = no; }); }"
+    "   return real.apply(this, arguments); };"
+    " const add = window.addEventListener;"
+    " window.addEventListener = function (type, fn, opts) {"
+    "   const done = add.call(this, type, fn, opts);"
+    "   if (type === 'pagehide' && /leaving = true/.test(String(fn))) {"
+    "     add.call(window, 'pagehide', () => { if (fail) fail(new TypeError('Failed to fetch')); }); }"
+    "   return done; }; })();")
+
+
+def test_a_launch_failed_amid_the_reload_still_says_where_the_words_are(tmp_path, monkeypatch):
+    """L17 E and L18 2: Enter during a launch, then a reload whose cut
+    request failed between the page's own pagehide listeners. The failure
+    counted the launch answered first, so the words kept were not marked as
+    kept as a run started, and the page that came back said nothing of
+    them. The going takes the launch as it was when it began."""
+    from fastmdxplora.gui.workspace import study_key
+    from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=3.0)
+    words = "typed, then reloaded"
+    asked = []
+    page, errors, close = _page_with(session, [dict(_CONFIG), _answer("Answered.")],
+                                     _RUN_FAILS_AMID_PAGEHIDE)
+    try:
+        _asking(page, asked)
+        page.goto(session.url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_selector("#agent-request", state="visible")
+        _ready(page)
+        _typed_and_entered_during_a_launch(page, here, words)
+        page.reload(wait_until="domcontentloaded")
+        _shows(page, study_key(workspace / "run1"))
+        page.wait_for_function("(w) => document.getElementById('agent-request').value.includes(w)"
+                               " || ((document.getElementById('agent-unsent-note') || {}).textContent"
+                               " || '').includes('as a run started is kept for it')",
+                               arg=words, timeout=15000)
+        kept, box, note = _unsent(page), page.input_value("#agent-request"), _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["chignolin"], asked
+    assert kept.get(study_key(here)) == words, kept
+    assert words not in box and "as a run started is kept for it" in note, (box, note)
+    assert errors == []
+
+
 def test_enter_after_a_reload_during_a_launch_sends_nothing_by_itself(tmp_path, monkeypatch):
     """L12 F1: Run (the run's switch comes a few seconds in, as a real
     run's does), words typed, Enter (Send waits), the page reloaded. On the

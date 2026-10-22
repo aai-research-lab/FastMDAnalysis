@@ -2080,9 +2080,16 @@
     askedToGo = false;
     try { sessionStorage.removeItem(UNSENT); } catch (e) { /* none */ }
   });
+  /* A launch still unanswered as the page went, taken as the going begins:
+   * its request, cut by the going, may fail between this page's own pagehide
+   * listeners, and its failure then counts the launch as answered before
+   * the words kept are marked as kept as a run started (CI-774 reviews L17,
+   * L18: the page that came back said nothing of where they were). */
+  var leftLaunching = false;
   window.addEventListener("pagehide", function (event) {
     if (!event.persisted) {
       leaving = true;
+      leftLaunching = launching > 0;
       /* A question whose answer is still being written: kept, with the
        * answer said as stopped, as pressing Stop says it (nineteenth
        * review, 10-08: the question was saved only with its answer, and a
@@ -5256,7 +5263,7 @@
      * so, with their study's name, and the page that comes back says
      * where they are (CI-774 review L12). */
     window.addEventListener("pagehide", function () {
-      if (!launching || !validStudyKey(unsentKey) || !boxNow().trim()) return;
+      if (!(launching || leftLaunching) || !validStudyKey(unsentKey) || !boxNow().trim()) return;
       try {
         var kept = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + unsentKey) || "null");
         if (!kept || typeof kept !== "object") return;
