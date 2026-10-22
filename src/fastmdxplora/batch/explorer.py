@@ -730,6 +730,14 @@ def _execute_run(
         def __enter__(self):
             self.previous = _os.environ.get("FASTMDX_LOG_STYLE")
             _os.environ["FASTMDX_LOG_STYLE"] = "plain"
+            # The presenter reads the style once, when it is made. One made
+            # while the run goes is quiet and is set aside when it ends, and
+            # the one from before comes back: a presenter first made inside a
+            # batch run in process said nothing for everything after it.
+            from fastmdxplora.utils import presenter as _presenter
+
+            self.presenter = _presenter._PRESENTER
+            _presenter._PRESENTER = None
 
             self.saved = None
             try:
@@ -775,6 +783,9 @@ def _execute_run(
                 _os.environ.pop("FASTMDX_LOG_STYLE", None)
             else:
                 _os.environ["FASTMDX_LOG_STYLE"] = self.previous
+            from fastmdxplora.utils import presenter as _presenter
+
+            _presenter._PRESENTER = self.presenter
             return False
 
     # Imported here so the subprocess sets up its own logging/imports.

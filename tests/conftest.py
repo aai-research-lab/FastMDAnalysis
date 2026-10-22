@@ -169,7 +169,10 @@ def _a_test_has_a_presenter_of_its_own():
     process and decides once, when it is made, whether to be quiet: made
     inside a batch, which sets FASTMDX_LOG_STYLE=plain while it runs, it said
     nothing for every test after, so a test reading what a command said
-    failed when a batch test had run before it in the same process."""
+    failed when a batch test had run before it in the same process. The batch
+    now sets aside a presenter made while it runs
+    (`test_a_run_after_a_batch_run_in_process_speaks_as_before`); this stays
+    as a backstop."""
     from fastmdxplora.utils import presenter
 
     presenter.reset_presenter()
