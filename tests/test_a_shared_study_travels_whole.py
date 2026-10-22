@@ -4440,3 +4440,69 @@ def test_an_older_version_under_edit_listed_among_drafts_begins_the_new_one(
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert "(5)" not in capsys.readouterr().err
     assert any(c[1].endswith("/7/actions/newversion") for c in unsteady.calls)
+
+
+def test_an_earlier_release_s_description_with_curly_quotes_is_the_study_s(tmp_path,
+                                                                            unsteady,
+                                                                            capsys):
+    """Review of the forty-seventh commit: a draft 2.6.0 described from a
+    summary holding a curly quote (kept straight there) was compared with
+    the summary as this release sends it, escaped, and said to be perhaps
+    the person's."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    _analysed_again(study, "It’s “folded” here.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    # As 2.6.0 wrote it (its summary as it was), and Zenodo kept it.
+    unsteady.meta[7]["description"] = re.sub(
+        r"<p>[^<]*</p>", "<p>It's \"folded\" here.</p>",
+        re.sub(r"FastMDXplora \S+ as", "FastMDXplora 2.6.0 as",
+               unsteady.meta[7]["description"]), count=1)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    said = capsys.readouterr().out
+    assert "may be yours" not in said and "changed there" not in said
+
+
+def test_a_new_version_an_earlier_release_began_is_known_by_its_concept(tmp_path, unsteady,
+                                                                       monkeypatch):
+    """Review of the forty-seventh commit: Zenodo gives a draft no `latest`
+    link (only what is published), so a draft of a new version 2.6.0 began
+    was never known as one, and once deleted, followed by a record of its
+    own."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": dict(unsteady.meta[7]),
+                       "files": [{"key": "shared.zip"}]}
+    unsteady.meta[8] = {k: v for k, v in unsteady.meta[7].items() if k != "version"}
+    (study / "shared_to.json").write_text(json.dumps(
+        {"zenodo-sandbox": {"id": "8", "version": 2, "doi": "10.5072/zenodo.8"}}))
+    real = zenodo._call
+
+    def as_zenodo(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/c7"):
+            # The concept's address: its latest version.
+            return real(method, url.replace("/c7", "/latest"), **kwargs)
+        answer = real(method, url, **kwargs)
+        if method == "GET" and url.endswith("/api/deposit/depositions/8") \
+                and isinstance(answer, dict):
+            return {**answer, "links": {k: v for k, v in answer["links"].items()
+                                        if k != "latest"}}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", as_zenodo)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"][
+        "record"] == "7"
+
+
+def test_control_characters_go_as_ftfy_takes_them_out():
+    """Review of the forty-seventh commit: ftfy takes its control characters
+    out as it fixes, so an entity they break is read; Zenodo then takes out
+    what no XML may hold (a form feed)."""
+    assert zenodo._plain("&am\x01p;") == "&"
+    assert zenodo._plain("x\x0cy") == "xy"
+    assert zenodo._plain("a\x7fb") == "ab"

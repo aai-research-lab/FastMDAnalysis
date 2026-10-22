@@ -153,12 +153,14 @@ _QUOTES = str.maketrans({
     "\u02bc": "'", "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
     "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"'})
 
-#: What Zenodo takes out of text it keeps: control characters (but tabs and
-#: line breaks), those no XML may hold, byte-order marks, deprecated format
-#: controls, zero-width spaces.
-_TAKEN_OUT = re.compile(
-    "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b\u206a-\u206f\ufeff\ufff9-\ufffc"
-    "\ufffe\uffff\ud800-\udfff]")
+#: What ftfy takes out of text as it fixes it: control characters (but
+#: tabs, line breaks and form feeds), deprecated format controls, byte-order
+#: marks, interlinear annotations.
+_CONTROLS = re.compile("[\x00-\x08\x0b\x0e-\x1f\x7f\u206a-\u206f\ufeff\ufff9-\ufffc]")
+
+#: What Zenodo takes out once ftfy has fixed it: what no XML may hold, and
+#: zero-width spaces.
+_TAKEN_OUT = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\u200b\ufffe\uffff\ud800-\udfff]")
 
 #: A terminal's escape (a colour, say), which Zenodo takes out.
 _TERMINAL = re.compile("\x1b\\[((?:\\d|;)*)([a-zA-Z])")
@@ -235,7 +237,7 @@ def _plain(value: Any) -> Any:
                            lambda c: unicodedata.normalize("NFKC", c.group()), fixed)
             fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
             fixed = fixed.replace("\u2028", "\n").replace("\u2029", "\n")
-            fixed = unicodedata.normalize("NFC", fixed)
+            fixed = unicodedata.normalize("NFC", _CONTROLS.sub("", fixed))
             if fixed == was:
                 break
         lines.append(fixed)
@@ -1094,11 +1096,17 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             kept[site]["sums"] = {**_sums_kept(kept[site].get("sums")),
                                   archive.name: [_md5(held_there)]}
         # A draft of a new version that release began: of the record its
-        # concept's latest version is, so a deleted one is begun again.
-        if not versioned and not kept[site].get("record") \
-                and (deposition.get("links") or {}).get("latest"):
+        # concept's latest version is, so a deleted one is begun again. (By
+        # its concept's address where Zenodo gives a draft no `latest` link,
+        # as it gives it only to what is published.)
+        links = deposition.get("links") if isinstance(deposition.get("links"), dict) else {}
+        concept = str(deposition.get("conceptrecid") or "")
+        if not versioned and not kept[site].get("record") and (links.get("latest") or concept):
             try:
-                of = _latest_published(deposition, depositions, token, said)
+                of = _latest_published(
+                    deposition if links.get("latest") else
+                    {**deposition, "links": {**links, "latest": f"{base}/api/records/{concept}"}},
+                    depositions, token, said)
             except ShareRefused as exc:
                 # Not known: neither its record nor the version it is.
                 unknown = ShareRefused(
@@ -1303,8 +1311,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         said_there = str(held.get("description") or "")
         return by_earlier and not last and (
             not said_there or (bool(_EARLIER_WROTE.fullmatch(said_there))
-                               and _plain(said_there.split("</p>")[0])
-                               == _plain(summary_now)))
+                               and _text(said_there.split("</p>")[0])
+                               == _text(summary_now)))
 
     # The study's description alone, as written or sent there (an earlier
     # release's draft, whose other fields stay the person's).
