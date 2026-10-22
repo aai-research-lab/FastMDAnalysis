@@ -169,11 +169,25 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   what is simulated or which study's files are read. The study one
   continues or is prepared from (`simulation.resume_from`,
   `resume_unsealed`, `extra_ns`, `setup_from`, `prepared_from`), the files
-  it analyses (`analysis.trajectory`, `analysis.topology`) and its
+  it analyses (`analysis.trajectory`, `analysis.topology`), its
   structure, ligand, mutations, chains and model (`setup.fixed_pdb`,
-  `ligand`, `ligand_pose`, `mutations`, `chains`, `model`) were taken by
-  every new study made in the folder: `mutations: [L99A]` mutated every
-  protein.
+  `ligand`, `mutations`, `chains`, `model`), where its starting
+  coordinates come from (`setup.ligand_pose`) and every setting that names
+  one structure's parts (`setup.ligand_net_charge`, `ligand_name`,
+  `ligand_resname`, `residue_states`, `mutation_chain`,
+  `membrane_center_z_nm`, `simulation.dashboard_ligand_resname`, and the
+  biasing blocks `umbrella`, `steered`, `metadynamics` and `plumed`) were
+  taken by every new study made in the folder: `mutations: [L99A]` mutated
+  every protein, and `ligand_net_charge: -1` gave every ligand that charge.
+
+- New study says a defaults file that is refused, and why, above the form,
+  with the way to Settings' This folder: the form showed FastMDXplora's own
+  values with nothing said, so a file refused for one setting dropped all
+  its values silently, and the study was refused only once it started.
+
+- In a window 720 pixels tall, the Agent beside the page shrinks its
+  opening words and scrolls them: they pushed its box and the line under it
+  under the status bar.
 
 - The Agent's mode and GPU-hour ceiling are saved as they are chosen: a
   reload put the Agent back in Seeker with no ceiling, whatever was set.
@@ -721,7 +735,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   each setting it may hold beside FastMDXplora's own, set, given a reason
   or taken out there, the file checked as any defaults file is and left as
   it was when refused, one change at a time; a setting of several values
-  (a stopping rule, a biasing block) is shown as the file holds it. The
+  (a stopping rule, the analyses' options) is shown under its words as the
+  file holds it, set only by hand there. The
   gear's Settings… and the Agent's dialog lead to it, Cmd+K finds it by
   "preferences" too, and `#preferences` is its address.
 - A Display size, in Settings: the whole page at once, text included, from
@@ -730,7 +745,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   It is one zoom for every rule and script: the page is laid out as a
   window of its own width is (at 150% a 1500 pixel window as a 1000 pixel
   one), the Viewer's picking, tooltips and menus stay where they belong at
-  every size, and the columns end where the status bar begins.
+  every size, and the columns end where the status bar begins. It never
+  makes the page narrower than a phone's 390 pixels: the size applied is
+  the largest not above the one chosen that keeps it so, as the window is
+  resized too, and Settings says so beside it.
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's
