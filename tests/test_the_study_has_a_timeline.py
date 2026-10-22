@@ -809,6 +809,15 @@ def test_lengths_under_1_ns_are_said_in_ps_in_the_report_and_from_an_older_recor
             "not determined") in "\n".join(lines)
     assert stopping_payload(root)["said"].startswith("Stopped at the 1.2 ps ceiling, with")
     assert not any("0.0012 ns" in line or "0.0006" in line for line in lines)
+    # Older still, its ceiling with no unit.
+    _stopping(root, ["study"], [_round("extend", 0.0006, 0.0006)], "running",
+              "Extending by 0.0006 ns, to 0.0012 ns of the 0.0012 allowed: rmsd is not yet "
+              "determined.")
+    assert stopping_payload(root)["said"] == (
+        "Extending by 0.6 ps, to 1.2 ps of the 1.2 ps allowed: rmsd is not yet determined.")
+    _stopping(root, ["study"], [_round("extend", 1.0, 0.25)], "running",
+              "Extending by 0.25 ns, to 1.25 ns of the 5 allowed.")
+    assert stopping_payload(root)["said"] == "Extending by 250 ps, to 1.25 ns of the 5 ns allowed."
 
 
 def test_the_report_says_a_record_still_running_as_not_finished_when_written(tmp_path):

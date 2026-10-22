@@ -826,16 +826,21 @@ def study_ended(record: dict[str, Any]) -> str:
 def record_said(text: str) -> str:
     """A sentence a record holds, with its lengths in ps under 1 ns
     (`length_said`): a record written before its sentences were said so
-    gave "the 0.0012 ns ceiling" and "Extending by 0.25 ns"."""
+    gave "the 0.0012 ns ceiling", "Extending by 0.25 ns" and its ceiling
+    with no unit, "of the 0.0012 allowed"."""
     import re
 
     from fastmdxplora.simulation.sampling_ask import length_said
+
+    number = r"(\d+(?:\.\d+)?(?:[eE]-?\d+)?)"
 
     def said(found: "re.Match[str]") -> str:
         value = float(found.group(1))
         return length_said(value) if 0 < value < 1 else found.group(0)
 
-    return re.sub(r"(?<![\w.])(\d+(?:\.\d+)?(?:[eE]-?\d+)?) ns\b", said, str(text or ""))
+    text = re.sub(rf"(?<![\w.]){number} ns\b", said, str(text or ""))
+    return re.sub(rf"\bof the {number} allowed\b",
+                  lambda found: f"of the {length_said(float(found.group(1)))} allowed", text)
 
 
 def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) -> dict[str, Any]:
