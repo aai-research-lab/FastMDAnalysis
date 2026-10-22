@@ -92,7 +92,10 @@ stopped said by what stopped it (an analysis that recorded no mean, Ctrl+C
 or a signal, an error while the runs were extended), and "not recorded"
 where its record does not say. A round's record gives no time: it is
 placed by the recorded times of the steps around it, just before the
-pieces it began or after the last step before it, and says so. And two **seams** between
+pieces it began or after the last step before it, and says so. A run killed,
+or ended by a signal without writing its end, is said "Stopped without
+finishing" with the stage and step it had reached, at the time it last
+wrote, never as running or as finished at its last step. And two **seams** between
 the columns that drag, with a
 double-click to reset; the sidebar folds to a strip of its icons under
 FastMDXplora's mark, the side panel to a tab at its edge, and the centre stays

@@ -630,3 +630,54 @@ def test_the_side_panel_says_a_round_s_length_in_ps_and_its_time_not_recorded(in
     assert shown[1]["facts"].startswith(
         "judged after 1 ns of production · its time not recorded: placed just before the "
         "pieces it began"), shown[1]["facts"]
+
+
+# ---------------------------------------------------------------------------
+# A run stopped by a signal or killed writes no end: its Timeline listed
+# its steps up to the last recorded, as though it had finished there.
+
+@pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+def test_a_killed_run_is_said_stopped_without_finishing(tmp_path):
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import (
+        _a_gone_process, _a_run_said_it_was_going, _its_process)
+
+    root = tmp_path / "study"
+    root.mkdir()
+    (root / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04")]}), encoding="utf-8")
+    _a_run_said_it_was_going(root, last="2026-10-18T07:40:00+00:00")
+    _its_process(root, _a_gone_process())
+    events = timeline_of(root)["events"]
+    assert [e["said"] for e in events] == [
+        "Stopped without finishing, in production, at step 16,000 of 50,000", "Set up"]
+    ended = events[0]
+    assert ended["kind"] == "ended" and ended["at"] == "2026-10-18T07:40:00+00:00"
+    assert ended["detail"].startswith("its process is gone, and it wrote no end")
+    assert not any("running" in e["said"].lower() for e in events)
+
+
+def test_a_run_silent_for_a_day_is_said_stopped_without_finishing(tmp_path):
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import _a_run_said_it_was_going
+
+    root = tmp_path / "study"
+    root.mkdir()
+    _a_run_said_it_was_going(root, last="2026-10-18T07:40:00+00:00", step=400)
+    said = [e["said"] for e in timeline_of(root)["events"]]
+    assert said == ["Stopped without finishing, in production, at step 400 of 50,000"]
+    assert timeline_of(root)["events"][0]["detail"].startswith(
+        "nothing written for a day, and no end written")
+
+
+def test_a_run_going_or_finished_is_not_said_stopped(tmp_path):
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import _a_run_said_it_was_going
+
+    going = tmp_path / "going"
+    going.mkdir()
+    _a_run_said_it_was_going(going)
+    finished = tmp_path / "finished"
+    finished.mkdir()
+    _a_run_said_it_was_going(finished, said="completed")
+    assert timeline_of(going)["events"] == [] and timeline_of(finished)["events"] == []

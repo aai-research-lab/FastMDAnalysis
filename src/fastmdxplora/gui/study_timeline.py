@@ -69,6 +69,9 @@ def timeline_of(root: str | Path) -> dict[str, Any]:
                     again["again"] = True
     events += _pieces(base)
     events += _rounds(base, {base.name: ""})
+    ended = _ended(base)
+    if ended is not None:
+        events.append(ended)
     # In the order the records give them: those without a time are said
     # newest first by it, the Manifest's last phase first.
     for order, event in enumerate(events):
@@ -307,6 +310,39 @@ _CARRYING = frozenset({
     "simulation.nvt_steps", "simulation.npt_steps", "simulation.nvt_duration_ns",
     "simulation.npt_duration_ns",
 })
+
+
+def _ended(base: Path) -> dict[str, Any] | None:
+    """A run that stopped without finishing: its live record says it was
+    going, and it is known to have ended without writing its end (its
+    process gone, or a day of silence: `telemetry.status_as_it_stands`).
+    Said as stopped without finishing, at the last time it wrote, with how
+    far it had got; never as running, nor as the step before it finished.
+    Its own run alone is read, never its study's records outside it."""
+    from fastmdxplora.gui.telemetry import status_as_it_stands
+
+    try:
+        status = status_as_it_stands(base, include_campaign=False)
+    except Exception:  # noqa: BLE001 - the list stands without it
+        return None
+    if not isinstance(status, dict) or str(status.get("status") or "") != "interrupted":
+        return None
+    stage = str(status.get("stage") or "")
+    step, total = status.get("current_step"), status.get("total_planned_steps")
+    piece = status.get("piece") if isinstance(status.get("piece"), str) else ""
+    where = (f"in {piece}'s " if piece.startswith("segment-") else "in ") + stage if stage else ""
+    if (where and isinstance(step, (int, float)) and isinstance(total, (int, float))
+            and not isinstance(step, bool) and total > 0):
+        where += f", at step {int(step):,} of {int(total):,}"
+    how = {"process": "its process is gone, and it wrote no end",
+           "silence": "nothing written for a day, and no end written"}.get(
+        str(status.get("ended_by") or ""), "")
+    return {"kind": "ended", "phase": "simulation" if stage else "",
+            "said": "Stopped without finishing" + (f", {where}" if where else ""),
+            "status": "interrupted", "at": status.get("last_update_timestamp") or None,
+            "started": None, "seconds": None, "version": "", "host": "",
+            "replaced": False, "again": False, "changes": None,
+            "detail": how + ("; the time is when it last wrote" if how else "")}
 
 
 #: How `stopping.run_until_known` begins the record's sentence for a round
