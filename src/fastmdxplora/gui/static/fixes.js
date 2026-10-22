@@ -157,7 +157,11 @@
     var onlyStopped = fixes.length && fixes.every(function (fix) {
       return fix.code === "simulation.run.stopped";
     });
-    if (title) title.textContent = onlyStopped ? "To carry it on" : "What would fix it";
+    var named = onlyStopped ? "To carry it on" : "What would fix it";
+    if (title) title.textContent = named;
+    // The status strip's link to this card is named as the card is.
+    var link = document.getElementById("status-fix");
+    if (link) link.textContent = named;
     // The sidebar's "What would fix it" leads here, so it is shown only
     // while there is a fix to show: it was shown for every failed run and
     // led to the Overview's top, its card hidden and empty.

@@ -225,8 +225,9 @@ def test_a_stop_s_answer_goes_once_another_run_starts(browser, tmp_path):  # noq
 
 
 def test_a_stop_s_card_is_named_alike_wherever_it_is_led_to(browser, tmp_path):  # noqa: F811
-    """The card of a run stopped as asked is "To carry it on". The Problems
-    list's heading for the same stop still said "What would fix it"."""
+    """The card of a run stopped as asked is "To carry it on". The status
+    strip's link to it and the Problems list's heading for the same stop
+    still said "What would fix it"."""
     from fastmdxplora.gui.server import start_dashboard_session
 
     study = _going(tmp_path / "study", "nvt")
@@ -242,6 +243,8 @@ def test_a_stop_s_card_is_named_alike_wherever_it_is_led_to(browser, tmp_path): 
         page.goto(session.url + "#overview", wait_until="domcontentloaded")
         page.wait_for_selector("#fixes-card:not([hidden]) #fixes-list li")
         card = page.text_content("#fixes-card .card-title")
+        page.wait_for_selector("#status-fix", state="visible")
+        link = page.text_content("#status-fix")
         if page.locator("#side-expand").is_visible():
             page.locator("#side-expand").click()
         page.locator("#problems-tab").click()
@@ -254,4 +257,5 @@ def test_a_stop_s_card_is_named_alike_wherever_it_is_led_to(browser, tmp_path): 
         session.server.shutdown()
     assert errors == []
     assert card == "To carry it on"
+    assert link == "To carry it on"
     assert headings == [["health:stopped", "To carry it on"]], headings
