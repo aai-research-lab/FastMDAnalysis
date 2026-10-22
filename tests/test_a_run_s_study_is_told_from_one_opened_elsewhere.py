@@ -743,8 +743,8 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
     opens `other` (the words kept for `here`); words typed on `other`,
     another window opens `here` again. `here`'s words are back in its box,
     and `other`'s are kept for it: they were erased as the box emptied. The
-    two are of one system, and the note names the study with its folder
-    (L6 L1, L7 6)."""
+    two are of one system, and the note names the study by its folder
+    alone (L6 L1, L7 6, L16)."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
@@ -773,7 +773,10 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
         session.server.shutdown()
     assert box == "for here", (box, kept)
     assert kept.get(study_key(other)) == "for other", kept
-    assert "is kept for it" in note and "(here)" in note, note
+    # Named by its folder alone, never by its title as the switch is seen,
+    # which may be its system's before its run's name is read (L16).
+    assert "The unsent message typed for here is kept for it" in note, note
+    assert "tri-ala" not in note.lower(), note
     assert errors == []
 
 

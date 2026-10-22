@@ -1506,11 +1506,12 @@
     var key = study && study.key;
     if (!validStudyKey(key)) { leftForNoStudy(); return; }
     var title = (study && study.title) || "";
-    /* Named with its folder: a study is named from its manifest until its
-     * results are read, and several studies may be of one system (CI-774
-     * review L6). */
+    /* Named by its folder alone where it has one: a study is named from its
+     * manifest until its results are read, so its title as the switch is
+     * seen may be its system's, and several studies may be of one system
+     * (CI-774 reviews L6, L16: one study was named two ways in its notes). */
     var folder = (study && study.folder) || "";
-    if (folder && folder !== title) title = title ? title + " (" + folder + ")" : folder;
+    if (folder) title = folder;
     if (key === unsentKey) {
       seenWhileLaunching = null;
       unsentTitle = title || unsentTitle;

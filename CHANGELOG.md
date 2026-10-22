@@ -371,6 +371,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   into the workspace's chats. Words typed for a run the page started that
   ends at once stay in the box, to be sent.
 
+- A note of words kept for a study names it by its folder alone, so one
+  study is named one way in every note, also before its run's name is read.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is
