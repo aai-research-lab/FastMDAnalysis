@@ -289,10 +289,11 @@
         option.value = c[0];
         node.appendChild(option);
       });
-      node.value = here ? String(value) : "";
+      // `null` in the file is FastMDXplora's, chosen.
+      node.value = here && value !== null ? String(value) : "";
     } else if (field.control === "multiselect") {
       node = make("details", "settings-multi");
-      var summary = make("summary", "", here ? shownValue(field, value) : "FastMDXplora's");
+      var summary = make("summary", "", here && value !== null ? shownValue(field, value) : "FastMDXplora's");
       node.appendChild(summary);
       var list = make("div", "settings-multi-list");
       (field.choices || []).forEach(function (c) {
@@ -447,8 +448,18 @@
       folder.said = said;
       var focused = item && item.contains(document.activeElement)
         ? (document.activeElement.classList.contains("settings-why") ? ".settings-why" : ".settings-control") : "";
+      // A list of choices open as one is ticked stays open for the next.
+      var open = item && item.querySelector("details.settings-multi[open]");
+      var ticked = open && open.contains(document.activeElement) ? document.activeElement.value : null;
       var again = row(field);
       if (item) item.replaceWith(again);
+      var list = open && again.querySelector("details.settings-multi");
+      if (list) {
+        list.open = true;
+        focused = "";
+        var box = $$("input", list).filter(function (b) { return b.value === ticked; })[0];
+        if (box) box.focus();
+      }
       sayTheFile();
       found();
       var status = again.querySelector(".settings-status");

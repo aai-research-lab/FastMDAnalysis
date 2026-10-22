@@ -252,6 +252,48 @@ def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):
     assert words == "protein and not element H"
 
 
+def test_what_the_file_holds_is_said_and_a_list_of_choices_stays_open(browser, session):
+    """A `null` in the file is FastMDXplora's, chosen, not a blank box; a
+    stopping rule is shown as the file holds it and counted; a list of
+    choices stays open while it is ticked, one tick after another."""
+    started, where = session
+    where.write_text("simulation:\n  temperature_K: 310\n  stop_when:\n    measures:\n"
+                     "    - analysis: rmsd\n      standard_error: 0.01\n    max_duration_ns: 50\n"
+                     "setup:\n  dispersion_correction: null\n", encoding="utf-8")
+    dispersion = '.settings-field[data-name="setup.dispersion_correction"]'
+    stop = '.settings-field[data-name="simulation.stop_when"]'
+    include = '.settings-field[data-name="analysis.include"]'
+    page = _open(browser, started.url)
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{stop} .settings-fixed")
+    null = page.evaluate(f"""() => {{ const s = document.querySelector('{dispersion} select');
+        return [s.value, s.selectedOptions[0] && s.selectedOptions[0].textContent]; }}""")
+    held = page.text_content(f"{stop} .settings-fixed")
+    page.check("#settings-only-set")
+    only = (page.text_content("#settings-only-set-count"),
+            page.evaluate("""() => [...document.querySelectorAll('#settings-folder-body .settings-field')]
+                .filter((r) => !r.hidden).map((r) => r.dataset.name)"""))
+    page.uncheck("#settings-only-set")
+    page.click(f"{include} summary")
+    page.check(f'{include} input[value="rmsd"]')
+    page.wait_for_function(f"() => /Saved/.test(document.querySelector('{include} .settings-status')"
+                           ".textContent)")
+    still_open = page.evaluate(f"() => document.querySelector('{include} details').open")
+    page.check(f'{include} input[value="rmsf"]')
+    page.wait_for_function(f"""() => [...document.querySelectorAll('{include} input:checked')]
+        .length === 2 && !document.querySelector('{include}').hasAttribute('aria-busy')""")
+    written = yaml.safe_load(where.read_text(encoding="utf-8"))
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert null == ["", "FastMDXplora's"]
+    assert '"max_duration_ns":50' in held
+    assert only == (" (3)", ["setup.dispersion_correction", "simulation.stop_when",
+                             "simulation.temperature_K"])
+    assert still_open
+    assert written["analysis"]["include"] == ["rmsd", "rmsf"]
+
+
 def test_the_agent_s_mode_and_ceiling_are_saved(browser, session):
     started, _ = session
     page = _open(browser, started.url, "#agent")
