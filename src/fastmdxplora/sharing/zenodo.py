@@ -151,15 +151,20 @@ _LIGATURES = str.maketrans({
     "\ufb04": "ffl", "\ufb05": "\u017ft", "\ufb06": "st", "\u3000": " "})
 _QUOTES = str.maketrans({
     "\u02bc": "'", "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
-    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
-    "\u2028": "\n", "\u2029": "\n"})
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"'})
 
-#: What Zenodo takes out of text it keeps: control characters (but tabs,
-#: line breaks and form feeds), those no XML may hold, byte-order marks,
-#: deprecated format controls, zero-width spaces.
+#: What Zenodo takes out of text it keeps: control characters (but tabs and
+#: line breaks), those no XML may hold, byte-order marks, deprecated format
+#: controls, zero-width spaces.
 _TAKEN_OUT = re.compile(
     "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b\u206a-\u206f\ufeff\ufff9-\ufffc"
-    "\ufffe\uffff\ud800-\udfff\U000e0000-\U000e007f]")
+    "\ufffe\uffff\ud800-\udfff]")
+
+#: A terminal's escape (a colour, say), which Zenodo takes out.
+_TERMINAL = re.compile("\x1b\\[((?:\\d|;)*)([a-zA-Z])")
+
+#: An entity Zenodo reads as what it stands for: named, ended by ";".
+_ENTITY = re.compile("&#?[0-9A-Za-z]{1,24};")
 
 
 def _c1(found: re.Match[str]) -> str:
@@ -183,14 +188,24 @@ def _plain(value: Any) -> Any:
         return [_plain(v) for v in value]
     if not isinstance(value, str):
         return value
-    # (In ftfy's order, on the text with nothing around it.)
+    # (In ftfy's order, on the text with nothing around it, until nothing
+    # more changes; with nothing around what it gives either, so text and
+    # what Zenodo kept of it compare alike.)
     fixed = value.strip()
-    fixed = fixed if "<" in fixed else html.unescape(fixed)
-    fixed = re.sub("[\x80-\x9f]", _c1, fixed).translate(_LIGATURES)
-    fixed = re.sub("[\uff01-\uffee]", lambda c: unicodedata.normalize("NFKC", c.group()),
-                   fixed)
-    fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
-    return unicodedata.normalize("NFC", _TAKEN_OUT.sub("", fixed))
+    for _ in range(8):
+        was = fixed
+        if "<" not in fixed:
+            fixed = _ENTITY.sub(lambda e: html.unescape(e.group()), fixed)
+        fixed = _TERMINAL.sub("", fixed)
+        fixed = re.sub("[\x80-\x9f]", _c1, fixed).translate(_LIGATURES)
+        fixed = re.sub("[\uff01-\uffee]", lambda c: unicodedata.normalize("NFKC", c.group()),
+                       fixed)
+        fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
+        fixed = fixed.replace("\u2028", "\n").replace("\u2029", "\n")
+        fixed = unicodedata.normalize("NFC", _TAKEN_OUT.sub("", fixed))
+        if fixed == was:
+            break
+    return fixed.strip()
 
 
 #: Licences by the ids Zenodo takes them as, where these are not the ids it
@@ -242,6 +257,15 @@ def _as_kept(value: Any) -> Any:
     if isinstance(value, list):
         return [_as_kept(v) for v in value]
     return _plain(value)
+
+
+def _a_listing(answer: Any) -> bool:
+    """Whether an answer is a listing of drafts as Zenodo gives one: each
+    entry a deposition, with its id and metadata (else the drafts in it are
+    not known, and one may be there unread)."""
+    return isinstance(answer, list) and all(
+        isinstance(entry, dict) and entry.get("id") and isinstance(entry.get("metadata"), dict)
+        and entry["metadata"] for entry in answer)
 
 
 def _text(described: Any) -> str:
@@ -498,11 +522,10 @@ def _marked(depositions: str, token: str, title: str,
             # The token refused, say: no waiting mends it.
             raise
         return None
-    if not isinstance(found, list):
+    if not _a_listing(found):
         return None
-    return [str(entry.get("id")) for entry in found if isinstance(entry, dict)
-            and isinstance(entry.get("metadata"), dict)
-            and _plain(entry["metadata"].get("title")) == _plain(title)]
+    return [str(entry.get("id")) for entry in found
+            if _plain(entry["metadata"].get("title")) == _plain(title)]
 
 
 #: The waits before each look among the person's drafts for one whose answer
@@ -642,10 +665,9 @@ def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
         if not getattr(exc, "later", False):
             raise
         return None
-    if not isinstance(found, list):
+    if not _a_listing(found):
         return None
-    return [entry for entry in found if isinstance(entry, dict)
-            and str(entry.get("conceptrecid") or "") == concept
+    return [entry for entry in found if str(entry.get("conceptrecid") or "") == concept
             and str(entry.get("id")) != str(record.get("id"))]
 
 
@@ -828,9 +850,11 @@ def _load(path: Path) -> dict[str, Any]:
     return found if isinstance(found, dict) else {}
 
 
-def _keep(study: Path, kept: dict[str, Any]) -> None:
+def _keep(study: Path, kept: dict[str, Any], *, found_again: bool = True) -> None:
     """``kept`` written as the study's `shared_to.json`; a disk with no room
-    for it refuses, before anything more is asked of Zenodo."""
+    for it refuses, before anything more is asked of Zenodo, saying (where
+    ``found_again``, the draft named or asked for in it already) that the
+    draft is found again then."""
     temporary = study / f".{SHARED_TO}.{os.getpid()}.tmp"
     try:
         # Whole or not at all: emptied, it would forget the record it names.
@@ -840,14 +864,11 @@ def _keep(study: Path, kept: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
         if exc.errno not in (errno.ENOSPC, errno.EDQUOT):
             raise
-        # A draft named or asked for already is found again then, not made twice.
-        there = any(isinstance(of, dict) and (of.get("id") or of.get("asked_as"))
-                    for of in kept.values())
         raise ShareRefused(
             f"{study / SHARED_TO}, where the study keeps the record it is shared as, could "
             f"not be written: the disk has no room ({exc.strerror}). Make room there and "
             "share again" + (": a draft on Zenodo made for it is found and finished "
-                             "then, not made again." if there else "."),
+                             "then, not made again." if found_again else "."),
             code="environment.share.too_large", path=str(study / SHARED_TO)) from exc
 
 
@@ -944,7 +965,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         # Kept before it is asked for, so a draft made whose answer is lost
         # is found again at the next share.
         kept[site] = {"asked_as": title, "version": version}
-        _keep(study, kept)
+        _keep(study, kept, found_again=False)
         (deposition, answered), made_here = _new_draft(depositions, token, title, said), True
     if not isinstance(deposition, dict) or not deposition.get("id"):
         raise ShareRefused(
@@ -1082,7 +1103,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                                      if answered or (made_with.get(key)
                                                      and key != "upload_type")}
     try:
-        _keep(study, kept)
+        _keep(study, kept, found_again=not versioned or same)
     except ShareRefused as exc:
         if not versioned or same:
             raise
@@ -1582,7 +1603,8 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             # The draft of a new version deleted: begun again from its record.
             found = _call("GET", f"{depositions}/{published}", token=token, missing_ok=True,
                           said=said, gone=_GONE)
-            if isinstance(found, dict) and found.get("submitted") and said:
+            if isinstance(found, dict) and found.get("submitted") and said \
+                    and found.get("state") != "inprogress":
                 said(f"The draft {earlier['id']} of a new version is gone from {site}; "
                      f"beginning a new version again, from the latest version of record "
                      f"{published}.")
@@ -1678,7 +1700,7 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                 url=str((begun[0].get("links") or {}).get("html") or ""))
         # Where the study is written, written first: a disk with no room
         # refuses before Zenodo begins a version the study could not remember.
-        _keep(study, kept)
+        _keep(study, kept, found_again=False)
         asked = True
         newer = _call("POST", f"{depositions}/{published}/actions/newversion", token=token,
                       said=said)

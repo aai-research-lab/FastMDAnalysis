@@ -1667,7 +1667,8 @@ def test_a_full_disk_refuses_before_a_new_version_is_begun(tmp_path, unsteady, m
     monkeypatch.setattr(Path, "write_text", full)
     unsteady.calls.clear()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
-    assert "the disk has no room" in capsys.readouterr().err
+    said = capsys.readouterr().err
+    assert "the disk has no room" in said and "found and finished then" not in said
     assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
     monkeypatch.setattr(Path, "write_text", real)
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
@@ -1813,6 +1814,7 @@ def test_a_new_version_begun_on_a_disk_that_then_fills_is_named(tmp_path, unstea
     said = capsys.readouterr().err
     assert "Zenodo had begun a new version of record 7, draft 8" in said
     assert "delete that draft there, make room, then share again" in said
+    assert "found and finished then" not in said
 
 
 def test_a_new_version_left_as_begun_is_not_told_to_be_published(tmp_path, unsteady,
@@ -2391,10 +2393,10 @@ def test_a_share_failing_after_its_description_is_written_says_so(tmp_path, unst
             described.append(url)
         return answer
 
-    def keep(where, what):
+    def keep(where, what, **how):
         if described:
             raise ShareRefused("No room.", code="environment.share.too_large")
-        return real_keep(where, what)
+        return real_keep(where, what, **how)
 
     monkeypatch.setattr(zenodo, "_call", call)
     monkeypatch.setattr(zenodo, "_keep", keep)
@@ -2413,12 +2415,12 @@ def test_a_share_failing_before_the_earlier_archive_goes_warns_of_two(tmp_path, 
     real = zenodo._keep
     kept: list = []
 
-    def fills(where, what):
+    def fills(where, what, **how):
         kept.append(what)
         if what.get("zenodo-sandbox", {}).get("stale") and "uploading" not in \
                 what["zenodo-sandbox"]:
             raise ShareRefused("No room.", code="environment.share.too_large")
-        return real(where, what)
+        return real(where, what, **how)
 
     monkeypatch.setattr(zenodo, "_keep", fills)
     capsys.readouterr()
@@ -2504,10 +2506,10 @@ def test_an_archive_zenodo_took_away_is_not_said_perhaps_there(tmp_path, unstead
     unsteady.files = [{"id": "a", "filename": "a.zip"}]
     real = zenodo._keep
 
-    def fills(where, what):
+    def fills(where, what, **how):
         if what.get("zenodo-sandbox", {}).get("stale") == []:
             raise ShareRefused("No room.", code="environment.share.too_large")
-        return real(where, what)
+        return real(where, what, **how)
 
     monkeypatch.setattr(zenodo, "_keep", fills)
     capsys.readouterr()
@@ -4185,3 +4187,88 @@ def test_a_full_disk_after_the_draft_is_made_says_it_is_found_again(tmp_path, un
     unsteady.calls.clear()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+
+def test_a_full_disk_before_any_draft_is_asked_for_says_none_is_found(tmp_path, unsteady,
+                                                                      monkeypatch, capsys):
+    """Review of the forty-third commit: a disk full before anything was
+    asked of Zenodo said a draft made for the study is found again."""
+    import errno
+
+    study = _study(tmp_path / "study")
+    real = Path.write_text
+
+    def full(self, *args, **kwargs):
+        if self.name.startswith(f".{zenodo.SHARED_TO}."):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", full)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "the disk has no room" in said and "found and finished then" not in said
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+@pytest.mark.parametrize("odd", [["x"], [{"id": 9}], [{"metadata": {"title": "t"}}]])
+def test_a_listing_not_of_drafts_makes_no_second(tmp_path, unsteady, monkeypatch, capsys,
+                                                 odd):
+    """Review of the forty-third commit: a listing of the person's drafts
+    holding what is no draft was taken as one holding none of the title
+    asked for, and a second draft made."""
+    study = _study(tmp_path / "study")
+    unsteady.late = 99
+    unsteady.faults = {"POST": ["made late"]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.late = 0
+    for draft in unsteady.drafts:
+        draft["hidden"] = 0
+    real = zenodo._call
+
+    def listed_oddly(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "GET" and "?status=draft" in url and isinstance(answer, list):
+            return [*answer, *odd]
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", listed_oddly)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[0] == "POST" for c in unsteady.calls)
+
+
+def test_text_is_compared_as_zenodo_keeps_it_through_its_last_fixes():
+    """Review of the forty-third commit: a terminal's escape, entities read
+    over again, line breaks in ftfy's order, and nothing around what
+    Zenodo kept."""
+    assert zenodo._plain("a\x1b[1mb\x1b[0m") == "ab"
+    assert zenodo._plain("&amp;amp;") == "&"
+    assert zenodo._plain("5 per&cent") == "5 per&cent"
+    assert zenodo._plain("a\r b") == "a\n\nb"
+    assert zenodo._plain("\x00 b") == zenodo._plain(" b") == "b"
+    assert zenodo._plain("tag\U000e0041") == "tag\U000e0041"
+
+
+def test_a_new_version_begun_again_from_a_record_under_edit_is_not_said_begun(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Review of the forty-third commit: a share whose new version's draft
+    was deleted, its record holding an edit not published, said it was
+    beginning a new version again, then refused."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.gone = {8}
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        **answer, "state": "inprogress"})
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr()
+    assert "beginning a new version again" not in said.out
+    assert "holds an edit saved there and not published" in said.err
