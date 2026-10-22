@@ -3085,7 +3085,8 @@ def test_enter_just_after_a_switch_put_words_back_sends_nothing(tmp_path, monkey
     """L16: words left unsent on `here`; another window opens `other`, where
     the person types; another window opens `here` again, and the person
     presses Enter for what they typed. The words put back for `here` went,
-    not those typed. Said, and the next Enter sends them."""
+    not those typed. Said, and the next Enter sends them; the note then says
+    no more that they were not sent."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
@@ -3109,7 +3110,8 @@ def test_enter_just_after_a_switch_put_words_back_sends_nothing(tmp_path, monkey
         first = {"asked": _requests(asked), "note": _note(page), "box": page.input_value("#agent-request")}
         _send_when_offered(page)
         page.wait_for_selector("#agent-thread .agent-answer:has-text('Old.')", timeout=15000)
-        kept = _unsent(page)
+        page.wait_for_timeout(500)
+        kept, after = _unsent(page), _note(page)
     finally:
         close()
         session.server.shutdown()
@@ -3117,6 +3119,10 @@ def test_enter_just_after_a_switch_put_words_back_sends_nothing(tmp_path, monkey
     assert "Press Enter again to send them" in first["note"], first
     assert _requests(asked) == ["old words"], asked
     assert kept.get(study_key(other)) == "new words", kept
+    # L17 A, L18: once they are sent, the note no longer says they were not;
+    # what it says of the words saved for `other` stays.
+    assert "Not sent" not in after and "Press Enter again" not in after, after
+    assert "typed for other is kept for it" in after, after
     assert errors == []
 
 

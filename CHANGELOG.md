@@ -361,6 +361,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   study put in the box; the note asking for a choice in a review goes once
   no review is on screen.
 
+- Words put back for a study and sent with the second Enter leave no note
+  saying they were not sent; what it says of words saved for another study
+  stays.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is

@@ -2550,6 +2550,14 @@
       /* A note about the words in the box is done with once they are sent
        * (CI-774 review L16: a starter's note stayed beside an empty box). */
       if (noteKind === "moved" && !noteAbout) unsentSaid("");
+      /* Its sentence that they were not sent, joined to a note about
+       * another study's words, goes too (CI-774 reviews L17 A, L18). */
+      var shown = el("agent-unsent-note");
+      var told = noteKind === "moved" && shown ? shown.textContent : "";
+      if (told.slice(-SWAPPED.length) === SWAPPED) {
+        var rest = told.slice(0, -SWAPPED.length).trim();
+        unsentSaid(rest, "moved", noteAbout);
+      }
     }
     /* The thread this was said in. Another shown before the answer came
      * stops the answer, which is said in this one, not the one on screen
