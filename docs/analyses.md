@@ -74,13 +74,22 @@ shape, found with a k-d tree; kept as a series
 (`image_check.dat`), with the frames under the cutoff and under 0.5 nm
 counted, and the closest
 approach with its frame, its time and its two atoms (`findings.solute_image`).
-The solute is the macromolecules as one complex: every protein and nucleic
+The solute is the macromolecules: every protein and nucleic
 acid residue and every other polymer chain (a molecule bonded across two or
 more residues; in a topology with no bonds, a chain of two or more residues),
 so an RNA, a DNA duplex or a peptide of non-standard residues is checked as a
 protein is; a ligand or cofactor is counted with them only where it is in the
 solute the analyses already use (the scope's, `protein or resname LIG` with a
-ligand); water, ions and lipids never. Heavy atoms only, where
+ligand); water, ions and lipids never. Its molecules are grouped into
+complexes in the first frame the check reads: molecules bonded to each other,
+or in contact (any heavy atoms within 0.5 nm, at the nearest image), are one
+complex, kept whole from frame to frame. Each complex is checked against its
+own periodic images only. A copy meeting another copy's image (eight
+peptides in a box, an aggregation study) is contact between molecules in the
+box, their concentration, not a self-image, and is not counted: eight 2.2 nm
+peptides on a grid in a 6 nm cube each come 3.80 nm from their own images,
+though taken together they came 0.80 nm from theirs. The finding says how
+they were grouped (`complexes`, `grouped`). Heavy atoms only, where
 `gmx mindist -pi` counts every atom, so the distance reads about 0.1 nm longer
 than the closest pair of atoms that interact.
 The cutoff is the run's own real-space cutoff: its `nonbonded_cutoff_nm` as

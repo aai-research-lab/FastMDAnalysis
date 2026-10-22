@@ -486,9 +486,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - Every study with a solute in a periodic box is checked frame by frame
   against its own periodic images (`image_check`, run first, as
   `gmx mindist -pi` checks it): the closest approach of any heavy atom of
-  the solute (the macromolecules as one complex: protein, nucleic acids
-  and any other polymer chain, with a ligand only where the analyses'
-  solute holds it; never water, ions or lipids) to any heavy atom of every
+  the solute (the macromolecules: protein, nucleic acids and any other
+  polymer chain, with a ligand only where the analyses' solute holds it;
+  never water, ions or lipids; grouped into complexes, molecules bonded or
+  in contact within 0.5 nm in the first frame read, each complex checked
+  against its own images only, so separate copies meeting each other's
+  images in a box of several are not counted) to any heavy atom of every
   image it could reach (searched as far as
   the solute spans, not a fixed two cells), each frame made whole along its
   bonds, in a cell of any shape, kept as a series with the

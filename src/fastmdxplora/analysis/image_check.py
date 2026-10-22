@@ -18,9 +18,15 @@ counted, and those under 0.5 nm.
 (between heavy atoms; where the topology carries no bonds, along the chain's
 atom order, consecutive atoms of a chain being neighbours): every atom is
 placed at the minimum image of the atom it is bonded to, which is exact for a
-bond shorter than half the cell's narrowest width. Where the solute is
-several molecules (chains, a ligand), each keeps the place the loader gave it
-beside the others (:func:`fastmdxplora.analysis.loading._made_whole`).
+bond shorter than half the cell's narrowest width.
+
+**Complexes, each against its own images.** Where the solute is several
+molecules (chains, a ligand, copies of a peptide), they are grouped in the
+first frame read: molecules in contact, any heavy atoms within 0.5 nm, are
+one complex (:func:`complexes`), kept whole from frame to frame. Each complex
+is checked against its own images only. Two copies of a peptide meeting
+across the box's boundary are two molecules in contact, the box's
+concentration, not a molecule meeting its own copy, and are not counted.
 
 **The images searched.** Every lattice vector ``L = i a + j b + k c`` that
 could carry an image closer than the closest found, in any cell shape,
@@ -202,7 +208,7 @@ def _not_solute(residue) -> bool:
 def solute_atoms(topology, selection: str | None) -> tuple[np.ndarray, str]:
     """The atoms of the solute checked against its images, and the rule said.
 
-    The macromolecules as one complex: every residue that is protein or
+    The macromolecules: every residue that is protein or
     nucleic acid, and every other polymer chain (a molecule bonded across two
     or more residues; in a topology with no bonds, a chain of two or more
     residues), so an RNA, a DNA duplex or a peptide of residues MDTraj does
@@ -210,7 +216,8 @@ def solute_atoms(topology, selection: str | None) -> tuple[np.ndarray, str]:
     water, an ion or a lipid (a ligand, a cofactor) is counted with them
     only where it is part of ``selection``, the solute the study's analyses
     already use (the scope's, ``protein or resname LIG`` with a ligand).
-    Water, ions and lipids never.
+    Water, ions and lipids never. How they are grouped into complexes,
+    each checked against its own images only, is :func:`complexes`'.
     """
     from fastmdxplora.analysis.residues import _is_polymer
 
@@ -242,7 +249,7 @@ def solute_atoms(topology, selection: str | None) -> tuple[np.ndarray, str]:
              if a.residue.index in polymer
              or (a.index in chosen and not _not_solute(a.residue))]
     chains = len({topology.residue(i).chain.index for i in polymer})
-    said = (f"the macromolecules as one complex ({len(polymer):,} "
+    said = (f"the macromolecules ({len(polymer):,} "
             f"{'residue' if len(polymer) == 1 else 'residues'} in {chains:,} "
             f"{'chain' if chains == 1 else 'chains'})" if polymer
             else "no macromolecule")
@@ -381,6 +388,167 @@ def nearest_image(points: np.ndarray, box: np.ndarray) -> tuple[float, int, int,
     return best, near[0], near[1], max(furthest, 1)
 
 
+def _every_shift(reach: float, box: np.ndarray) -> np.ndarray:
+    """Every lattice shift, the zero shift and both of each pair, whose
+    vector could be shorter than ``reach`` (the bound of
+    :func:`shifts_within`): between two different sets of atoms ``L`` and
+    ``-L`` are not the same."""
+    columns = np.sqrt((np.linalg.inv(box) ** 2).sum(axis=0))
+    bound = np.floor(reach * columns + 1e-9).astype(int)
+    spans = [np.arange(-b, b + 1) for b in np.maximum(bound, 1)]
+    return np.array(np.meshgrid(*spans, indexing="ij")).reshape(3, -1).T.astype(np.float64)
+
+
+def nearest_between(fixed: np.ndarray, tree: Any, moving: np.ndarray,
+                    box: np.ndarray) -> tuple[float, np.ndarray]:
+    """The closest approach of any image of ``moving`` (the copy in the cell
+    included) to ``fixed`` (``tree`` its k-d tree), and the lattice vector
+    that gives it. Every shift that could be closer is searched: an image
+    ``L`` away comes within ``best`` of ``fixed`` only where
+    ``|L| < best + r_f + r_m + |c_m - c_f|``."""
+    centre_f, centre_m = fixed.mean(axis=0), moving.mean(axis=0)
+    reach_f = float(np.sqrt(((fixed - centre_f) ** 2).sum(axis=1).max()))
+    reach_m = float(np.sqrt(((moving - centre_m) ** 2).sum(axis=1).max()))
+    apart = float(np.linalg.norm(centre_m - centre_f))
+    best, vector = np.inf, np.zeros(3)
+    for reach in (None, 0.0):
+        shifts = (_every_shift(0.0, box) if reach is None
+                  else _every_shift(best + reach_f + reach_m + apart, box))
+        for shift in shifts @ box:
+            if np.linalg.norm(centre_m + shift - centre_f) - reach_f - reach_m >= best:
+                continue
+            found = float(tree.query(moving + shift, k=1)[0].min())
+            if found < best:
+                best, vector = found, shift
+    return best, vector
+
+
+def _molecules(n_points: int, steps: list[tuple[int, int]]) -> np.ndarray:
+    """Each point's molecule, numbered from 0: the points the steps that
+    make them whole join (bonds, or a chain's order without them)."""
+    label = np.arange(n_points)
+
+    def root(i: int) -> int:
+        while label[i] != i:
+            label[i] = label[label[i]]
+            i = int(label[i])
+        return i
+
+    for one, other in steps:
+        a, b = root(one), root(other)
+        if a != b:
+            label[max(a, b)] = min(a, b)
+    roots = np.array([root(i) for i in range(n_points)])
+    return np.unique(roots, return_inverse=True)[1]
+
+
+def complexes(xyz: np.ndarray, box: np.ndarray, molecule: np.ndarray
+              ) -> tuple[list[list[int]], dict[int, np.ndarray]]:
+    """The solute's molecules grouped into complexes, from one frame (the
+    first the check reads), each molecule already whole: molecules bonded
+    to each other are one (they are one molecule here), and molecules in
+    contact, any heavy atoms within :data:`CLOSE_NM` of each other, are one
+    complex. Each complex is checked against its own periodic images only:
+    two separate copies of a peptide in a box meeting across its boundary is
+    contact between molecules in the box (their concentration), not a
+    molecule meeting its own copy.
+
+    Returned with each molecule's lattice shift that makes its complex whole
+    in that frame: none where it is in contact with the molecule before it
+    as stored (the loader places a complex's molecules beside each other),
+    else the image of it in contact. Each complex lists its molecules in the
+    order they are placed, each in contact with one before it."""
+    from scipy.spatial import cKDTree
+
+    count = int(molecule.max()) + 1 if molecule.size else 0
+    points = [xyz[molecule == m] for m in range(count)]
+    trees = [cKDTree(p) for p in points]
+    touching: list[dict[int, np.ndarray]] = [{} for _ in range(count)]
+    for a in range(count):
+        for b in range(a + 1, count):
+            # As stored first: a shorter image of a molecule spanning the
+            # cell would otherwise be taken for the one beside it.
+            if float(trees[a].query(points[b], k=1)[0].min()) < CLOSE_NM:
+                shift = np.zeros(3)
+            else:
+                found, shift = nearest_between(points[a], trees[a], points[b], box)
+                if found >= CLOSE_NM:
+                    continue
+            touching[a][b] = shift
+            touching[b][a] = -shift
+    seen = np.zeros(count, dtype=bool)
+    groups: list[list[int]] = []
+    shifts: dict[int, np.ndarray] = {}
+    for start in range(count):
+        if seen[start]:
+            continue
+        seen[start] = True
+        shifts[start] = np.zeros(3)
+        order, queue = [start], [start]
+        while queue:
+            here = queue.pop(0)
+            for other in sorted(touching[here]):
+                if not seen[other]:
+                    seen[other] = True
+                    shifts[other] = shifts[here] + touching[here][other]
+                    order.append(other)
+                    queue.append(other)
+        groups.append(order)
+    return groups, shifts
+
+
+class _Complex:
+    """One complex, kept whole from frame to frame: its first molecule where
+    it is, and each other one at the image that moved least from where it
+    was against the first in the frame before (from the shifts of
+    :func:`complexes` in the first frame), as a trajectory is unwrapped. A
+    molecule moves far less than half the cell between saved frames."""
+
+    def __init__(self, members: list[int], molecule: np.ndarray,
+                 shifts: dict[int, np.ndarray]) -> None:
+        self.members = members
+        self.atoms = [np.nonzero(molecule == m)[0] for m in members]
+        self.where = np.concatenate(self.atoms)
+        self.first_shifts = [shifts[m] for m in members]
+        self.offsets: list[np.ndarray] | None = None
+
+    def points(self, xyz: np.ndarray, box: np.ndarray) -> np.ndarray:
+        centres = [xyz[atoms].mean(axis=0) for atoms in self.atoms]
+        if self.offsets is None:
+            moved = list(self.first_shifts)
+        else:
+            inverse = np.linalg.inv(box)
+            neighbours = np.array(np.meshgrid(*[np.arange(-1, 2)] * 3, indexing="ij")
+                                  ).reshape(3, -1).T @ box
+            moved = [np.zeros(3)]
+            for k in range(1, len(self.atoms)):
+                relative = centres[k] - centres[0]
+                guess = -np.rint((relative - self.offsets[k]) @ inverse) @ box
+                tried = guess + neighbours
+                miss = np.linalg.norm(relative + tried - self.offsets[k], axis=1)
+                moved.append(tried[int(np.argmin(miss))])
+        self.offsets = [centres[k] + moved[k] - centres[0] for k in range(len(self.atoms))]
+        return np.concatenate([xyz[atoms] + moved[k] for k, atoms in enumerate(self.atoms)])
+
+
+def _grouping_said(groups: list[list[int]]) -> str:
+    """How the solute's molecules were grouped, as the finding says it."""
+    rule = ("molecules bonded to each other, or in contact (any heavy atoms within "
+            f"{CLOSE_NM:g} nm) in the first frame read, are one complex")
+    if len(groups) == 1:
+        if len(groups[0]) == 1:
+            return "checked as one molecule against its own images"
+        return (f"checked as one complex of {len(groups[0])} molecules against its own "
+                f"images ({rule})")
+    sizes = sorted({len(group) for group in groups})
+    each = (f"of {sizes[0]} {'molecule' if sizes[0] == 1 else 'molecules'} each"
+            if len(sizes) == 1 else f"of {sizes[0]} to {sizes[-1]} molecules")
+    return (f"checked as {len(groups)} complexes {each}, each against its own images "
+            f"only ({rule}); a copy meeting another copy's image is contact between "
+            "molecules in the box, their concentration, not a self-image, and is "
+            "not counted")
+
+
 def run_cutoff(study: Path | None) -> tuple[float, str]:
     """The real-space cutoff the run used, in nm, and where it was read, as a
     phrase that follows "The cutoff is <x> nm, ": the run's
@@ -481,19 +649,33 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             "check against its images.",
             code="analysis.selection.empty", expression=None, role="solute")
     steps, how = walk(traj.topology, heavy)
+    molecule = _molecules(heavy.size, steps)
     n = traj.n_frames
     distances = np.empty(n, dtype=np.float64)
     pairs = np.empty((n, 2), dtype=np.int64)
     furthest = 1
+    groups: list[list[int]] | None = None
     for low in range(0, n, FRAMES_AT_A_TIME):
         high = min(low + FRAMES_AT_A_TIME, n)
         boxes = np.asarray(traj.unitcell_vectors[low:high], dtype=np.float64)
         xyz = made_whole(np.asarray(traj.xyz[low:high][:, heavy], dtype=np.float64),
                          boxes, steps)
+        if groups is None:
+            # From the first frame the check reads.
+            groups, shifts = complexes(xyz[0], boxes[0], molecule)
+            kept = [_Complex(members, molecule, shifts) for members in groups]
         for f in range(high - low):
-            d, i, j, cells = nearest_image(xyz[f], boxes[f])
-            distances[low + f], pairs[low + f] = d, (i, j)
-            furthest = max(furthest, cells)
+            best = (np.inf, -1, -1)
+            for one in kept:
+                if len(kept) == 1 and len(one.members) == 1:
+                    points, where = xyz[f], np.arange(heavy.size)
+                else:
+                    points, where = one.points(xyz[f], boxes[f]), one.where
+                d, i, j, cells = nearest_image(points, boxes[f])
+                furthest = max(furthest, cells)
+                if d < best[0]:
+                    best = (d, int(where[i]), int(where[j]))
+            distances[low + f], pairs[low + f] = best[0], best[1:]
 
     frame = int(np.argmin(distances))
     nearest = float(distances[frame])
@@ -518,6 +700,9 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
         "fraction_under_close": close / n,
         "heavy_atoms": int(heavy.size),
         "made_whole": how,
+        "complexes": len(groups or []),
+        "molecules": int(molecule.max()) + 1 if molecule.size else 0,
+        "grouped": _grouping_said(groups or [[0]]),
         # Every image within the solute's reach was searched; the most
         # cells away that took, in any frame.
         "most_cells_searched": int(furthest),
@@ -553,7 +738,7 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             f"frames. The closest was at {when}, {pair}. The cutoff is "
             f"{cutoff_nm:g} nm, {record['cutoff_from']}.")
     if solute_said:
-        record["said"] += f" The solute is {solute_said}."
+        record["said"] += f" The solute is {solute_said}, {record['grouped']}."
     return distances, record
 
 

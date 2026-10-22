@@ -367,8 +367,10 @@ def _chains_spanning(span: float, box: np.ndarray, seed: int,
                 top.add_bond(previous, atom)
             previous = atom
             xyz.append(point)
-        # The next chain begins beside where this one ended, as a complex.
-        start = path[-1] + 0.45 * direction
+        # The next chain begins beside where this one ended, in contact with
+        # it (its first atom under 0.5 nm from this one's last), so the two
+        # are one complex.
+        start = path[-1] + 0.1 * direction
     traj = md.Trajectory(np.asarray(xyz, dtype=np.float32)[None], top)
     traj.unitcell_vectors = box[None].astype(np.float32)
     return traj
@@ -862,3 +864,73 @@ class TestTheMapsLastCell:
         assert xs[0] == pytest.approx(-0.5) and xs[-1] == pytest.approx(2000.5)
         assert xs[-1] - xs[-2] == pytest.approx(1.0)
         plt.close(fig)
+
+
+def _copies(starts: np.ndarray, length: float = 2.2, n: int = 10,
+            box: float = 6.0, n_frames: int = 3) -> md.Trajectory:
+    """One straight chain of ``n`` alpha carbons, ``length`` nm along x,
+    from each of ``starts``, each its own molecule (bonded within), wrapped
+    into a cube of side ``box`` atom by atom as an engine may write it."""
+    top = md.Topology()
+    xyz = []
+    for start in starts:
+        chain = top.add_chain()
+        previous = None
+        for i in range(n):
+            atom = top.add_atom("CA", md.element.carbon,
+                                top.add_residue("ALA", chain, resSeq=i + 1))
+            if previous is not None:
+                top.add_bond(previous, atom)
+            previous = atom
+            xyz.append(start + [length * i / (n - 1), 0.0, 0.0])
+    xyz = np.asarray(xyz) % box
+    traj = md.Trajectory(np.repeat(xyz[None], n_frames, axis=0).astype(np.float32), top)
+    traj.unitcell_vectors = np.repeat(np.diag([box] * 3)[None], n_frames,
+                                      axis=0).astype(np.float32)
+    traj.time = np.arange(n_frames) * 10.0
+    return traj
+
+
+class TestSeparateCopiesAreNotOneComplex:
+    """Eight 2.2 nm peptides on a 2 by 2 by 2 grid in a 6 nm cube: each
+    comes no closer than 3.80 nm to its own images, while the eight taken as
+    one complex came 0.80 nm to theirs. A copy meeting another copy's image
+    is contact between molecules in the box, not a self-image."""
+
+    def test_eight_copies_are_each_checked_against_their_own_images(self):
+        from fastmdxplora.analysis.image_check import solute_atoms
+
+        starts = np.array([[0.4 + 3 * i, 1.5 + 3 * j, 1.5 + 3 * k]
+                           for i in range(2) for j in range(2) for k in range(2)])
+        traj = _copies(starts)
+        atoms, solute = solute_atoms(traj.topology, None)
+        series, found = solute_image_record(traj, atoms, solute_said=solute)
+        assert found["complexes"] == 8 and found["molecules"] == 8
+        assert np.allclose(series, 3.8, atol=1e-5)
+        assert found["frames_under_cutoff"] == 0 and not found["reaches_its_image"]
+        assert "8 complexes of 1 molecule each" in found["said"]
+        assert "not a self-image" in found["said"]
+        # Taken together, they would have come 0.80 nm to their images.
+        union = traj.xyz[0].astype(np.float64)
+        assert abs(_brute(union, np.diag([6.0] * 3), cells=1) - 0.8) < 1e-5
+
+    def test_a_dimer_in_contact_is_one_complex(self):
+        """Two chains 0.4 nm apart side by side: one complex, checked as the
+        union is, through each frame, though wrapped apart as stored."""
+        from fastmdxplora.analysis.image_check import solute_atoms
+
+        starts = np.array([[1.0, 2.0, 2.0], [1.0, 2.4, 2.0]])
+        traj = _copies(starts, length=3.4, box=4.0, n_frames=4)
+        # Drift the dimer across the boundary, frame by frame, together.
+        for f in range(4):
+            traj.xyz[f] = (traj.xyz[0] + [0.0, 0.9 * f, 0.0]) % 4.0
+        atoms, solute = solute_atoms(traj.topology, None)
+        series, found = solute_image_record(traj, atoms, solute_said=solute)
+        assert found["complexes"] == 1 and found["molecules"] == 2
+        assert "one complex of 2 molecules" in found["said"]
+        whole = np.r_[np.c_[1.0 + 3.4 * np.arange(10) / 9, np.full(10, 2.0), np.full(10, 2.0)],
+                      np.c_[1.0 + 3.4 * np.arange(10) / 9, np.full(10, 2.4), np.full(10, 2.0)]]
+        expected = _brute(whole, np.diag([4.0] * 3), cells=1)
+        assert abs(expected - 0.6) < 1e-5
+        assert np.allclose(series, expected, atol=1e-5)
+        assert found["frames_under_cutoff"] == 4
