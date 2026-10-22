@@ -1719,7 +1719,7 @@
     if (!shown.length && window.FastMDXPageState) {
       window.FastMDXPageState.show(empty, listRefused ? {
         kind: "error", title: "The studies could not be listed", detail: listRefused,
-        action: { label: "Try again", run: function () { load(lookedIn || undefined); } },
+        action: { label: "Try again", run: function () { load(refusedIn); } },
       } : studies.length ? {
         kind: "empty", title: "No study matches that",
         detail: "Clear the search, the chips or the tag to see them all.",
@@ -2191,6 +2191,8 @@
   var edited = 0;
   // Why the list could not be read, said in the page's empty block.
   var listRefused = null;
+  // The folder it was asked of (none: the workspace's).
+  var refusedIn;
   // Whether the list was ever answered: until it is, the block says it is
   // being read.
   var answered = false;
@@ -2201,6 +2203,8 @@
     answered = true;
     studies = [];
     listRefused = why;
+    // Try again reads the folder asked, not the last one listed.
+    refusedIn = where || undefined;
     el("studies-where").textContent = where ? "Looked in " + where + "." : "";
     draw();
   }

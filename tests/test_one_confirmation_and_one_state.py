@@ -94,10 +94,11 @@ def test_one_ask_one_state_and_one_list(tmp_path):
             none = page.inner_text("#studies-empty")
             page.fill("#studies-search", "")
             page.route("**/api/studies*", lambda route: route.fulfill(
-                json={"ok": False, "reason": "No such folder: /gone"}))
-            page.evaluate("() => window.FastMDXStudies.load('/gone')")
+                json={"ok": False, "reason": "Permission denied"}))
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
             page.wait_for_selector('#studies-empty .fmx-state[data-kind="error"]')
             listed = page.inner_text("#studies-empty")
+            # Read again, it is listed.
             page.unroute("**/api/studies*")
             page.click("#studies-empty .fmx-state-act")
             page.wait_for_selector("#studies-table tbody tr.studies-row")
@@ -129,7 +130,7 @@ def test_one_ask_one_state_and_one_list(tmp_path):
         "waiting": True, "ready": True, "read": "3 files, 1.2 MB.", "yes": True, "gone": True}
     assert compare.startswith("Nothing to compare yet")
     assert none.startswith("No study matches that")
-    assert listed.startswith("The studies could not be listed") and "No such folder: /gone" in listed
+    assert listed.startswith("The studies could not be listed") and "Permission denied" in listed
     assert talks == {
         "head": "Conversations", "add": "A new conversation about this study",
         "rows": ["# This study", "study: About this study",
@@ -319,3 +320,69 @@ def test_one_frame_for_a_question_a_whole_count_and_a_notice_beside_the_list(tmp
     assert whole and apart
     empty = render({"files": []}, None)
     assert 'class="fmx-state" data-kind="empty"' in empty and "files-empty" not in empty
+
+
+def test_try_again_reads_the_folder_asked_and_no_answer_is_said(tmp_path):
+    """Try again on All studies reads the folder that could not be listed,
+    not the last one listed; the Problems tab says the server did not
+    answer, as All studies does."""
+    pytest.importorskip("playwright.sync_api")
+    from urllib.parse import parse_qs, urlparse
+
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    study = _study(tmp_path / "alpha")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    asked: list[str] = []
+
+    def studies(route):
+        where = (parse_qs(urlparse(route.request.url).query).get("path") or [""])[0]
+        asked.append(where)
+        if where == str(locked):
+            route.fulfill(json={"ok": False, "reason": "Permission denied"})
+        else:
+            route.continue_()
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            context = browser.new_context(viewport={"width": 1440, "height": 900})
+            context.add_init_script("localStorage.setItem('fmx.panelCollapsed', '0');")
+            page = context.new_page()
+            page.set_default_timeout(60000)
+            page.route("**/api/studies*", studies)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(locked)!r})")
+            page.wait_for_selector('#studies-empty .fmx-state[data-kind="error"]')
+            before = len(asked)
+            with page.expect_response(lambda r: "/api/studies" in r.url):
+                page.click("#studies-empty .fmx-state-act")
+            again = asked[before:]
+            # The Problems tab, its read not answered.
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            if page.locator("#side-expand").is_visible():
+                page.locator("#side-expand").click()
+            page.locator("#problems-tab").click()
+            page.wait_for_function("() => !document.getElementById('problems-refresh').disabled"
+                                   " && !document.querySelector('#problems-body .fmx-state[data-kind=\"loading\"]')")
+            page.route("**/api/problems?*", lambda route: route.abort())
+            page.click("#problems-refresh")
+            page.wait_for_selector("#problems-body .fmx-state[data-kind='error']")
+            unanswered = page.inner_text("#problems-body .fmx-state")
+            page.unroute("**/api/problems?*")
+            page.click("#problems-body .fmx-state-act")
+            page.wait_for_function("() => !document.querySelector('#problems-body .fmx-state[data-kind=\"error\"]')")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert again == [str(locked)]
+    assert unanswered.startswith("The problems could not be read")
+    assert "The server did not answer." in unanswered

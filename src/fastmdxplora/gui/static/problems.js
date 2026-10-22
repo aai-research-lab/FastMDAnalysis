@@ -137,6 +137,9 @@
     byId("problems-refresh").disabled = true;
     fetch("/api/problems?study=" + encodeURIComponent(wanted), {
       cache: "no-store", signal: controller.signal
+    }).catch(function (error) {
+      // Not answered: said so, as All studies says it.
+      throw error.name === "AbortError" ? error : refused("The server did not answer.");
     }).then(function (response) {
       if (!response.ok) {
         return response.json().catch(function () { return {}; }).then(function (d) {
