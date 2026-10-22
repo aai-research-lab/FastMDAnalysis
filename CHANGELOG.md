@@ -263,6 +263,32 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - A toast is shown clear of the Agent's composer and Send: at the Agent's
   left beside a page, and at the top on the Agent page and where the Agent
   takes the whole width.
+- A study of one run renamed, copied or unpacked under another name has
+  its rounds placed in its Timeline by when they happened, not listed
+  below the oldest step.
+- A study of several runs' Overview, on a GUI bound beyond loopback, names
+  each run as text: opening one switched study, a post the server refused.
+- What stopped a round is said by one function
+  (`stopping.round_decided`) in the Report's table, its methods and the
+  Timeline, from the record: a round now records what stopped it
+  (`stopped_by`), and an older record is read as before, "not recorded"
+  where it does not say. The last round of a study still said running is
+  said as extending, and that the record does not say it finished.
+- A replica's methods say the start it shares with its replicas as they
+  differ, read from its campaign's sweep: replicas from the models of an
+  ensemble are no longer said "started from one structure".
+- A plan's replicas are said in one line from every axis that makes them
+  replicas: 3 models with 2 seeds are 6, each with a seed of its own.
+- Compare counts a study's runs by those it plans, not those written so
+  far, and says two replicas read alone without the error it calls too
+  tight or the rule for two measurements.
+- A run swept over its length is named by it in ps under 1 ns in Compare
+  and the runs' table ("duration 250 ps").
+- A study run until it is determined and stopped without finishing is said
+  so on its Overview's card, never "Still running", with its lengths, and
+  those of a stopping rule's record, in ps under 1 ns.
+- The Timeline lists rounds placed at one time newest first, and says a
+  run killed in a piece by the piece's number.
 
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
