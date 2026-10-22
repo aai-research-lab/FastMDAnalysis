@@ -265,3 +265,12 @@ def test_an_opened_folder_s_name_writes_still_more_letters_plainly():
     assert _slug("\u01fere") == "ore"
     assert _slug("\u018fliyev \u0259razi") == "eliyev-erazi"
     assert _slug("\u0181ello \u0257an \u0199asa") == "bello-dan-kasa"
+
+
+def test_an_opened_folder_s_name_writes_greek_plainly():
+    """Hands-on review of the fifty-fourth commit: Greek letters, the micro
+    sign among them, were dropped."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("x² H₂O µM Ω α-helix ΔG") == \
+        "x2-h2o-um-o-a-helix-dg"

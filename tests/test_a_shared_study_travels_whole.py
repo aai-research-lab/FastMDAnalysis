@@ -4769,3 +4769,46 @@ def test_an_open_s_lock_file_is_found_only_once_it_is_held(tmp_path, monkeypatch
         assert sorted(p.name for p in tmp_path.iterdir()) == [".open.lock"]
     finally:
         held.close()
+
+
+@pytest.mark.parametrize("latest", [
+    {"id": 9, "metadata": {"version": "2", "relations": {"version": [{"is_last": False}]}},
+     "files": []},
+    {"id": 5, "metadata": {"version": "0.9"}, "files": []}])
+def test_an_answer_for_the_latest_version_naming_an_earlier_one_begins_nothing(
+        tmp_path, unsteady, capsys, latest):
+    """Hands-on review of the fifty-fourth commit: the latest version's read,
+    answered with a version before the last, had a new version counted on
+    from it and asked of it."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = latest
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "not the latest version" in capsys.readouterr().err
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_a_latest_version_read_as_a_draft_begins_nothing(tmp_path, unsteady, monkeypatch):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"}, "files": []}
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/9",
+                     lambda answer, sent: {**answer, "submitted": False})
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_a_concept_answered_with_a_version_before_its_last_is_not_opened(monkeypatch):
+    """Hands-on review of the fifty-fourth commit: a concept DOI whose answer
+    named a version before the last was opened as the latest."""
+    monkeypatch.setattr(zenodo, "_call", lambda method, url, **kwargs: {
+        "id": 1009, "conceptrecid": "1007", "doi": "10.5072/zenodo.1009",
+        "metadata": {"relations": {"version": [{"index": 0, "is_last": False}]}},
+        "files": [{"key": "s.zip", "size": 1, "checksum": "md5:" + "0" * 32}]})
+    with pytest.raises(ShareRefused, match="not the latest"):
+        zenodo.archive_of("zenodo-sandbox", "1007")

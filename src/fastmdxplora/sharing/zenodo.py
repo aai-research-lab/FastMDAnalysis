@@ -506,6 +506,13 @@ def archive_of(site: str, record: str,
                              f"{found['id']}.", code="environment.service.unreachable")
         other.later = True
         raise other
+    if found.get("id") and str(record) != str(found["id"]) and _not_the_last(found):
+        # A concept's answer naming a version before its last.
+        older = ShareRefused(f"Zenodo's answer for record {record} named version "
+                             f"{found['id']}, not the latest.",
+                             code="environment.service.unreachable")
+        older.later = True
+        raise older
     entries = found.get("files") or []
     if isinstance(entries, dict):
         entries = entries.get("entries") or []
@@ -661,6 +668,16 @@ def _new_draft(depositions: str, token: str, title: str,
 _SET_BY_ZENODO = frozenset({"doi", "prereserve_doi", "publication_date", "version"})
 
 
+def _not_the_last(record: Any) -> bool:
+    """Whether a record's answer says it is not its concept's last version
+    (as Zenodo's records say, in their relations)."""
+    relations = ((record.get("metadata") or {}).get("relations") or {}) \
+        if isinstance(record, dict) else {}
+    versions = relations.get("version") if isinstance(relations, dict) else None
+    first = versions[0] if isinstance(versions, list) and versions else None
+    return isinstance(first, dict) and first.get("is_last") is False
+
+
 def _latest_published(found: dict[str, Any], depositions: str, token: str,
                       said: Callable[[str], None] | None) -> dict[str, Any]:
     """The latest published version of the record ``found`` is a version of,
@@ -688,11 +705,20 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
                                code="environment.service.unreachable")
         unnamed.later = True
         raise unnamed
+    if _not_the_last(record) or (found.get("submitted") and newest.isdigit()
+                                 and str(found.get("id") or "").isdigit()
+                                 and int(newest) < int(found["id"])):
+        # A version before another: the latest is not known from it (Zenodo
+        # numbers each version after the one before).
+        older = ShareRefused(f"Zenodo's answer for {link} named record {newest}, not the "
+                             "latest version.", code="environment.service.unreachable")
+        older.later = True
+        raise older
     if newest == str(found.get("id")):
         return found
     deposition = _call("GET", f"{depositions}/{newest}", token=token, missing_ok=True,
                        said=said)
-    if not _a_draft(deposition, newest) \
+    if not _a_draft(deposition, newest) or not deposition.get("submitted") \
             or str(deposition.get("conceptrecid") or "") != concept:
         unread = ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no "
                               "record.", code="environment.service.unreachable")
