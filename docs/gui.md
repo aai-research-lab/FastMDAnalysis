@@ -398,8 +398,9 @@ reports it, in its own pixels, so a system's own scaling is counted once:
 100% up to about 1920 by 1080, 125% at 2560 by 1440 (or an ultrawide 3440 by
 1440), 150% at 3840 by 2160. It chooses again when the window is moved to
 another screen, never as it is resized. Where the browser cannot size the
-page itself, Settings says to use the browser's own zoom. The layout's
-changes for a narrow window follow the window's width, not the size chosen.
+page itself, Settings says to use the browser's own zoom. The page is laid
+out as a window of its own width is: at 150%, a window 1500 pixels wide is
+laid out as one 1000 wide is at 100%.
 
 **Back and Forward** move between the GUI's pages, the analysis shown and
 the Cite and Viewer help dialogs. The address names the open

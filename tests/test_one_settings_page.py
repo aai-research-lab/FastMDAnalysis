@@ -498,6 +498,34 @@ def test_a_rule_within_container_holds_where_it_holds_at_100(browser, session):
     assert outline[0] == "sticky" and outline[1] <= outline[2] - 96 + 0.5, outline
 
 
+def test_a_media_query_is_compared_at_the_page_s_size(browser, session):
+    """The Display size is one zoom: at 150% a 1100 pixel window is a page
+    733 wide, and is laid out as a 733 pixel window is at 100%, by its
+    style sheets and its scripts alike. The media queries were compared
+    with the window's width, so it had the wide layout in a page too
+    narrow for it, while the scripts, told the page's width, laid out the
+    narrow one."""
+    look = """() => {
+        const of = (selector) => { const e = document.querySelector(selector);
+            if (!e) return null; const c = getComputedStyle(e);
+            return [c.display, c.position, c.flexDirection,
+                    c.gridTemplateColumns.split(' ').filter(Boolean).length]; };
+        return {css: ['.app-shell', '.sidebar', '.side-panel', '.main', '.status-bar',
+                      '.page[data-page="overview"] .page-header', '.page-subtitle'].map(of),
+                script: [matchMedia('(max-width: 800px)').matches,
+                         matchMedia('(min-width: 801px)').matches, innerWidth <= 800]}; }"""
+    page = _at(browser, session.url, "100", (733, 600))
+    at_100 = page.evaluate(look)
+    page.context.close()
+    page = _at(browser, session.url, "150", (1100, 900))
+    at_150 = page.evaluate(look)
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert at_100["script"] == [True, False, True]
+    assert at_150 == at_100, (at_150, at_100)
+
+
 @pytest.mark.parametrize("width", [900, 1250])
 def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width):
     """At 150% a 900 pixel window is a page 600 wide, and beside the Agent

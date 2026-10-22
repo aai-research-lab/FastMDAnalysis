@@ -41,11 +41,14 @@
  * (an element's box, where the pointer is, the window's width) while the
  * page lays itself out and is positioned in its own: every popover, menu
  * and tooltip placed from a box would land a quarter off at 125%, and the
- * Viewer's canvas would draw at the page's pixels, not the screen's. While
- * the page is zoomed, what it is told of the screen (a box, the pointer,
- * the window's width and height however read) is said in its own pixels,
- * as at 100%, and the screen's pixels per page pixel include the zoom; at
- * 100% nothing is changed. Where the browser does not zoom so (no
+ * Viewer's canvas would draw at the page's pixels, not the screen's. The
+ * Display size is one zoom, applied the same to every rule and script:
+ * while the page is zoomed, what it is told of the screen (a box, the
+ * pointer, the window's width and height however read) is said in its own
+ * pixels, as at 100%, the screen's pixels per page pixel include the zoom,
+ * a width or height in a media query is compared at the page's own size,
+ * and a rule sized by the window is sized by the page's (below); at 100%
+ * nothing is changed. Where the browser does not zoom so (no
  * `currentCSSZoom`), the page stays at 100% and Settings says to use the
  * browser's own zoom. */
 (function () {
@@ -88,6 +91,7 @@
       shim();
     }
     root.style.setProperty("--fmx-zoom", String(zoom));
+    queries();
     try { window.dispatchEvent(new CustomEvent("fmx:display-size", { detail: { zoom: zoom } })); }
     catch (e) { /* an old browser: the size still applies */ }
   }
@@ -146,6 +150,10 @@
           return this === document.documentElement ? value / zoom : value;
         } });
     });
+    var media = window.matchMedia;
+    if (typeof media === "function") {
+      window.matchMedia = function (query) { return media.call(window, zoomedQuery(String(query))); };
+    }
     var ratio = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
     if (ratio && ratio.configurable && ratio.get) {
       Object.defineProperty(window, "devicePixelRatio", { configurable: true, enumerable: ratio.enumerable,
@@ -155,6 +163,46 @@
       var at = Document.prototype[name];
       if (typeof at !== "function") return;
       Document.prototype[name] = function (x, y) { return at.call(this, x * zoom, y * zoom); };
+    });
+  }
+
+  /* A width or height in a media query, compared at the page's own size:
+   * the browser compares it with the window's, in screen pixels, so at
+   * 150% a 900 pixel window, a page 600 wide, still had the layout for a
+   * wide one. Each media rule's query is said again with its lengths times
+   * the zoom, from its own words saved the first time; a sheet added later
+   * is said so as it comes. */
+  var LENGTH = /(\d*\.?\d+)(px|em|rem)\b/g;
+  function zoomedQuery(text) {
+    if (zoom === 1) return text;
+    return text.replace(LENGTH, function (all, n, unit) {
+      return String(Math.round(Number(n) * zoom * 1000) / 1000) + unit;
+    });
+  }
+  var asWritten = typeof WeakMap === "function" ? new WeakMap() : null;
+  function written(rule) {
+    return (asWritten && asWritten.get(rule)) || rule.media.mediaText;
+  }
+  function queries() {
+    if (!asWritten || !document.styleSheets) return;
+    function each(rules) {
+      Array.prototype.forEach.call(rules, function (rule) {
+        if (rule.media && rule.cssRules && typeof CSSMediaRule !== "undefined"
+            && rule instanceof CSSMediaRule) {
+          var text = asWritten.get(rule);
+          if (text === undefined) {
+            if (zoom === 1) { each(rule.cssRules); return; }
+            text = rule.media.mediaText;
+            asWritten.set(rule, text);
+          }
+          var now = zoomedQuery(text);
+          if (rule.media.mediaText !== now) rule.media.mediaText = now;
+        }
+        if (rule.cssRules && !(rule.style && rule.selectorText)) each(rule.cssRules);
+      });
+    }
+    Array.prototype.forEach.call(document.styleSheets, function (sheet) {
+      try { each(sheet.cssRules); } catch (e) { /* another origin's sheet: none here */ }
     });
   }
 
@@ -200,6 +248,9 @@
      * copied with its own prelude, so a copy holds where its rule holds:
      * copied bare, a rule within `@container` held at every width. */
     function prelude(rule) {
+      if (typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule) {
+        return "@media " + written(rule);
+      }
       var text = rule.cssText;
       return text.slice(0, text.indexOf("{")).trim();
     }
@@ -230,6 +281,18 @@
     style.id = "fmx-display-size-rules";
     style.textContent = out.join("\n");
     document.head.appendChild(style);
+    queries();
+    // A sheet added later (a script's own) is said at the page's size too.
+    if (window.MutationObserver) {
+      new MutationObserver(function (changes) {
+        changes.forEach(function (change) {
+          Array.prototype.forEach.call(change.addedNodes, function (node) {
+            if (node.tagName === "STYLE") queries();
+            else if (node.tagName === "LINK") node.addEventListener("load", queries);
+          });
+        });
+      }).observe(document.head, { childList: true });
+    }
   }
 
   apply(wanted());
