@@ -532,16 +532,28 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   analysis's where it counts other frames than the mean's, and in its CSV),
   the line over each card, its caption and its convergence, the series, the
   Report page, the runs of a study compared (on the Analysis page and the
-  Overview of a study of runs, a difference past twice the combined error
-  said to be possibly the image's bias where either mean is noted), the
-  Report page's table of runs, the written comparison and its trend, and
-  the slides; an analysis with no mean over its frames (RMSF, the order
-  parameters, the dihedrals, clustering, the projections) on its row and
-  card, and RMSF's caption and Report page row; and the Agent, in its
-  reading of the analyses, its answers from the records, the means cited
-  under its answers and the means of the study cards; all from the record
-  through one reader (`image_note`), read on the pages without the report's
-  code marks. The image check's own row and card
+  Overview of a study of runs, each † said under the table, a difference
+  past twice the combined error said to be possibly the image's bias where
+  either mean is noted), the Report page's table of runs (its measures named
+  as the pages name them), the written comparison, its trend and its CSV (a
+  note column), the slides, All studies' rows and cards (beside the value,
+  and in its title), and the Compare page (either side, two studies or two
+  runs picked on an Overview, each † said under the table, and a resolved
+  difference with a noted side said to be possibly that bias); the
+  replicas' mean of their means, which shares their box, says how many of
+  their means are noted ("may be biased: in 2 of the 3 replicas the solute
+  was within 0.9 nm of its own image, in frames their means use"), on the
+  Overview's "The runs together", the All studies card and the written
+  comparison's "Across the replicas", and the runs compared keep their
+  noted-means sentence beside the calibration where it replaced it; an
+  analysis with no mean over its frames (RMSF, the order parameters, the
+  dihedrals, clustering, the projections) on its row and card, RMSF's
+  caption and Report page row, and the written dashboard's cards that have
+  no caption of their own (the order parameters, the cluster matrix, a
+  landscape); and the Agent, in its reading of the analyses, its answers
+  from the records, the means cited under its answers and the means of the
+  study cards; all from the record through one reader (`image_note`), read
+  on the pages without the report's code marks. The image check's own row and card
   give its finding in a sentence ("No complex of the solute came closer
   than ..." for several), its row opening to the rest of its paragraph, the
   card titled "Image check" and its atoms said as the heavy atoms of the
@@ -559,10 +571,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   exclusion paragraph keeps its setting as code; its Convergence part says
   how many frames were within the cutoff and, for a run in contact with its
   image in every frame, that no claim about the solute's shape is
-  supported and a longer run alone would not lift the bias, as the
-  Overview's lead and the Agent's answers on run length and on what would
-  strengthen the run now say beside the longer run they advise
-  (`image_note.longer_run_said`); the check's
+  supported and that a longer run, which may determine the means, would
+  not lift the bias, as the Overview's lead and the Agent's answers on run
+  length and on what would strengthen the run now say beside the longer run
+  they advise, with or without a figure of how much longer
+  (`image_note.longer_run_said`); where every mean is determined, the lead
+  and those answers say the means may still be biased and a larger box lifts
+  it (`image_note.determined_said`), never "determined" or "By its records,
+  yes" alone, and advise replicas in a larger box; a mean's "The remedy is a
+  longer run, or better, replicas" in the report is followed, for a mean in
+  contact with its image in every frame it uses, by neither lifting it. A
+  record written with both the analyses that ran and those left out, read
+  as the analyses that ran, which an image check left out joins, is said so
+  in the log. The check's
   figure gives its time in ps under 1 ns. Not yet done: complexes grouped
   again as the run goes (a complex that parts, a ligand that unbinds, an
   oligomer formed during the run), with one k-d tree over every complex
@@ -570,7 +591,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   goes; a ligand's approach to the protein's image recorded apart; grading
   the note by thresholds (it waits for a registered check); the GUI map's
   last block drawn its own width; several workers clustering at once; a
-  default frame cap (the person's choice); fetch sizes by kind.
+  default frame cap (the person's choice); fetch sizes by kind; the
+  Agent's citation chip saying a mean's verdict before its note (it reads
+  "..., may be biased: ... of its own image, not determined"; the chip is
+  drawn by `agent-panel.js`).
 
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
