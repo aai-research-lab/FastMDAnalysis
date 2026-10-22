@@ -89,10 +89,16 @@ said. A study run until what it asks is determined lists its rounds
 (`stopping.json`): the production each judged and what was decided on it
 ("Round 1: each run extended by 500 ps", lengths in ps under 1 ns), a round
 stopped said by what stopped it (an analysis that recorded no mean, Ctrl+C
-or a signal, an error while the runs were extended), and "not recorded"
-where its record does not say. A round's record gives no time: it is
+or a signal, an error while the runs were extended, read from the round's
+own `stopped_by`), and "not recorded" where its record does not say. The
+last round of a record still saying the study runs is said "extending each
+run by 99.5 ps; the record does not say it finished", never as done, since
+a record cannot tell a study still running from one killed; a study resumed
+and stopped before its rule was applied again says that as the rule's own
+step, never as its last round's. A round's record gives no time: it is
 placed by the recorded times of the steps around it, just before the
-pieces it began or after the last step before it, and says so. A run killed,
+pieces it began or, beginning none, after the analyses and report it
+judged, and says so. A run killed,
 or ended by a signal without writing its end, is said "Stopped without
 finishing" with the stage and step it had reached, at the time it last
 wrote, never as running or as finished at its last step. And two **seams** between
@@ -732,8 +738,12 @@ if it keeps falling as one over the root of the frames (the estimate the next
 piece is sized by), and the mean after each round with every replica's own
 mean beside it, so replicas that disagree are seen as well as said. It says
 what the piece now running adds and how long that takes at the speed the study
-has run, and lists every round and what was decided on it. The card reads the
-study's record and nothing else, so it says what the report says.
+has run, and lists every round and what was decided on it. It says the study
+running only where the study's process is known to be (its process record);
+a record still saying it runs is otherwise "Not finished when this was
+written", and a study whose run was killed "Stopped without finishing", with
+every run killed named. The card reads the study's records and nothing else,
+so it says what the report says.
 
 **The methods, to paste into a manuscript.** Once a phase has run, the
 Overview carries the study's methods paragraphs as the report gives them:
