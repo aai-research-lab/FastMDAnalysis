@@ -263,7 +263,7 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
                 fn, _flabel = _SUMMARY_FNS[summary_kind]
                 try:
                     mean = {"mean": float(fn(series)), "error": None, "discard": None,
-                            "qualified": None, "recorded": False}
+                            "qualified": None, "recorded": False, "noted": None}
                 except Exception:  # noqa: BLE001
                     continue
             per_run_means[rid][analysis] = mean
@@ -530,6 +530,7 @@ def _write_markdown(
     lines.append("| " + " | ".join(header) + " |")
     lines.append("|" + "|".join(["---"] * len(header)) + "|")
     whole = qualified = False
+    noted: list[str] = []
     for run in runs:
         rid = run["run_id"]
         cells = [rid]
@@ -548,6 +549,9 @@ def _write_markdown(
             if mean["qualified"]:
                 cell += " \\*"
                 qualified = True
+            if mean.get("noted"):
+                cell += " \u2020"
+                noted.append(f"{rid}, {_OVERLAY_ANALYSES[a][0]}: {mean['noted']}.")
             cells.append(cell)
         lines.append("| " + " | ".join(cells) + " |")
     lines.append("")
@@ -558,6 +562,8 @@ def _write_markdown(
     if qualified:
         lines += ["", "\\* Not determined: the run's analysis found the series too "
                   "short, or with too few independent samples, for its mean to be determined."]
+    for line in noted:
+        lines += ["", f"\u2020 {line}"]
     lines.append("")
     lines.append(f"Full table: `{csv_path.name}`.")
     lines.append("")
@@ -594,11 +600,11 @@ def _trend_takeaway(
         x = _axis_numeric_value(run, axis)
         mean = per_run_means.get(run["run_id"], {}).get(analysis)
         if x is not None and mean is not None:
-            pts.append((x, mean["mean"], mean["error"]))
+            pts.append((x, mean["mean"], mean["error"], bool(mean.get("noted"))))
     if len(pts) < 2:
         return None
     pts.sort(key=lambda p: p[0])
-    (x_lo, y_lo, e_lo), (x_hi, y_hi, e_hi) = pts[0], pts[-1]
+    (x_lo, y_lo, e_lo, n_lo), (x_hi, y_hi, e_hi, n_hi) = pts[0], pts[-1]
     unit_str = f" {unit}" if unit else ""
     where = f"From `{_short_axis(axis)}` {x_lo:g} to {x_hi:g}, the {flabel} {label.lower()}"
     change = y_hi - y_lo
@@ -613,8 +619,13 @@ def _trend_takeaway(
     by = f"{with_its_error(abs(change), combined)}{unit_str}"
     if abs(change) > bound:
         direction = "increases" if change > 0 else "decreases"
+        # An end whose solute saw its own image: the change may be that.
+        who = "Both ends' means" if n_lo and n_hi else "One end's mean"
+        biased = (f" {who} may be biased by the solute's own image (the note in the "
+                  "summary), so the change may be that bias and not the setting."
+                  if n_lo or n_hi else "")
         return (f"{where} {direction} from {ends}, a change of {by}, "
-                "more than twice its error.")
+                "more than twice its error." + biased)
     return (f"{where} goes from {ends}: the change, {by}, is within "
             "twice its error, so these runs do not tell the two ends apart.")
 
@@ -642,6 +653,8 @@ def _times(run_out: Path, n: int) -> np.ndarray | None:
 def _recorded_mean(findings: dict[str, Any] | None) -> dict[str, Any] | None:
     """The mean an analysis recorded (`findings.mean`), or None where it
     recorded none."""
+    from fastmdxplora.image_note import note_of, said_short
+
     record = (findings or {}).get("mean") if isinstance(findings, dict) else None
     if not isinstance(record, dict):
         return None
@@ -654,7 +667,9 @@ def _recorded_mean(findings: dict[str, Any] | None) -> dict[str, Any] | None:
     discard = record.get("discard")
     return {"mean": float(value), "error": error,
             "discard": int(discard) if isinstance(discard, (int, float)) else None,
-            "qualified": record.get("not_a_measurement") or None, "recorded": True}
+            "qualified": record.get("not_a_measurement") or None, "recorded": True,
+            # Its image note (`image_note`), said beside it in the table.
+            "noted": said_short(note_of(record)) or None}
 
 
 def _the_run(root: Path, run: dict[str, Any], axis: str | None,

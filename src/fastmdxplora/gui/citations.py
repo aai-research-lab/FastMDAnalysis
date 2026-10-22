@@ -102,8 +102,11 @@ def cited_findings(answer: str, root: Any) -> list[dict[str, Any]]:
     cites = []
     for name in sorted(found, key=found.__getitem__)[:MOST]:
         mean = _recorded_mean(held[name])
+        value, noted = _value(name, mean), _noted(mean)
         cites.append({"analysis": name, "label": _label(name),
-                      "value": _value(name, mean), "withheld": _withheld(mean)})
+                      # Its image note beside the value, as every page says it.
+                      "value": f"{value}; {noted}" if value and noted else value,
+                      "withheld": _withheld(mean), "noted": noted})
     return cites
 
 
@@ -151,6 +154,13 @@ def _value(name: str, mean: dict[str, Any] | None) -> str:
     if _finite(error) and error > 0 and not mean.get("not_a_measurement"):
         return f"{_with_its_error(value, error)}{unit}"
     return f"{_format_metric_value(value)}{unit}"
+
+
+def _noted(mean: dict[str, Any] | None) -> str:
+    """The mean's image note in a line (:func:`fastmdxplora.image_note.said_short`)."""
+    from fastmdxplora.image_note import note_of, said_short
+
+    return said_short(note_of(mean))
 
 
 def _withheld(mean: dict[str, Any] | None) -> str:

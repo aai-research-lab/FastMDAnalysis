@@ -148,6 +148,13 @@
         } else {
           td.textContent = withError(cell.mean, cell.error);
         }
+        if (cell.mean != null && cell.noted) {
+          // Its image note beside it, as the Analysis page says it.
+          td.appendChild(document.createTextNode(" \u2020"));
+          td.classList.add("is-noted");
+          td.title = (td.title ? td.title + " " : "") + cell.noted.charAt(0).toUpperCase()
+            + cell.noted.slice(1) + ".";
+        }
         row.appendChild(td);
       });
       body.appendChild(row);

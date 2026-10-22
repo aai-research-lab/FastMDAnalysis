@@ -444,6 +444,7 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
     short to measure stood among them as though it were a result."""
     from fastmdxplora.batch.aggregate import read_member_findings
     from fastmdxplora.gui.report_dashboard import _format_metric_value, unit_of
+    from fastmdxplora.image_note import note_of, said_short
     from fastmdxplora.statistics import with_its_error
 
     axes: list[str] = sorted({axis for r in runs for axis in (r.get("values") or {})})
@@ -484,6 +485,7 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
     lines.append("| run | " + " | ".join(head) + " |")
     lines.append("|---|" + "---|" * len(head))
     qualified = False
+    noted: list[str] = []
     for run in completed:
         cells = [str((run.get("values") or {}).get(axis, "")) for axis in axes]
         for measure in measures:
@@ -498,10 +500,17 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
             if record.get("not_a_measurement"):
                 cell += " \\*"
                 qualified = True
+            # Its image note, a mark here and said in full under the table.
+            short = said_short(note_of(record))
+            if short:
+                cell += " \u2020"
+                noted.append(f"{run['run_id']}, {measure}: {short}.")
             cells.append(cell)
         lines.append(f"| {run['run_id']} | " + " | ".join(cells) + " |")
     lines += ["", "Each mean is over the frames after equilibration, with its standard error."]
     if qualified:
         lines += ["", "\\* Not determined: the analysis found the series too short, or "
                   "with too few independent samples, for its mean to be determined."]
+    for line in noted:
+        lines += ["", f"\u2020 {line}"]
     return "\n".join(lines) + "\n"

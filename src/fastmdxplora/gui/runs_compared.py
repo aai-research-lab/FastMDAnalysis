@@ -98,6 +98,7 @@ def _order(name: str) -> tuple[int, str]:
 def _measure(name: str, runs: list[dict[str, Any]], found: dict[str, dict[str, Any]],
              replicas: bool, labels: dict[str, str]) -> dict[str, Any]:
     from fastmdxplora.gui.report_dashboard import unit_of
+    from fastmdxplora.image_note import note_of, said_short
 
     cells: list[dict[str, Any]] = []
     unit = ""
@@ -118,11 +119,14 @@ def _measure(name: str, runs: list[dict[str, Any]], found: dict[str, dict[str, A
             "error": None if withheld else error,
             "effective_samples": _finite(mean.get("effective_samples")),
             "withheld": str(withheld) if withheld else None,
+            # Its image note beside it (`image_note`): a difference from a
+            # run whose solute saw its own image may be that, not the setting.
+            "noted": said_short(note_of(mean)) or None,
         })
 
     measured = [c for c in cells if c.get("mean") is not None and c.get("error") is not None]
     reference = measured[0]["run_id"] if measured and not replicas else None
-    resolved = 0
+    resolved = noted_resolved = 0
     if reference is not None:
         first = measured[0]
         for cell in measured[1:]:
@@ -130,6 +134,7 @@ def _measure(name: str, runs: list[dict[str, Any]], found: dict[str, dict[str, A
             error = math.hypot(cell["error"], first["error"])
             marked = error > 0 and abs(difference) > RESOLVED_AT * error
             resolved += marked
+            noted_resolved += bool(marked and (cell.get("noted") or first.get("noted")))
             cell["versus"] = {"difference": difference, "error": error, "resolved": marked}
     return {
         "analysis": name,
@@ -138,7 +143,7 @@ def _measure(name: str, runs: list[dict[str, Any]], found: dict[str, dict[str, A
         "cells": cells,
         "reference": reference,
         "said": _said(cells, labels.get(reference or "", reference), resolved,
-                      len(measured), replicas),
+                      len(measured), replicas, noted_resolved=noted_resolved),
     }
 
 
@@ -155,8 +160,9 @@ def _named(name: str) -> str:
 
 
 def _said(cells: list[dict[str, Any]], reference: str | None, resolved: int,
-          measured: int, replicas: bool) -> str:
+          measured: int, replicas: bool, *, noted_resolved: int = 0) -> str:
     withheld = sum(1 for c in cells if c.get("withheld"))
+    noted = sum(1 for c in cells if c.get("noted"))
     missing = sum(1 for c in cells if c.get("mean") is None)
     parts: list[str] = []
     if replicas:
@@ -171,6 +177,13 @@ def _said(cells: list[dict[str, Any]], reference: str | None, resolved: int,
     else:
         parts.append(f"{resolved} of {measured - 1} differ from {reference} by more than "
                      f"{RESOLVED_AT:g} times their combined error.")
+    if noted_resolved:
+        parts.append(f"Where either mean may be biased by the solute's own image ("
+                     f"{noted_resolved} of these), the difference may be that bias and not "
+                     "the setting.")
+    if noted:
+        parts.append(f"{noted} may be biased by the solute's own image, as said beside "
+                     f"{'its' if noted == 1 else 'each'} value.")
     if withheld:
         parts.append(f"{withheld} not determined, and not compared.")
     if missing:

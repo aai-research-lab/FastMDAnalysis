@@ -213,6 +213,98 @@ class TestTheAgent:
         assert mean_said(side).endswith("; " + _expected(study, "rmsd"))
 
 
+#: A run's mean noted as the analysis code notes it (`note_numbers`).
+_NOTE = {"frames_used": 1864, "frames_under_cutoff": 372, "fraction_under_cutoff": 0.2,
+         "frames_under_close": 0, "nearest_nm": 0.62, "cutoff_nm": 1.0,
+         "counted_over": "frames"}
+
+
+@pytest.fixture
+def two_runs(tmp_path: Path) -> Path:
+    """A study of two runs whose RMSDs differ past twice their combined
+    error; the second run's solute came within the cutoff of its image."""
+    from tests.test_the_runs_of_a_study_are_compared_on_one_page import _study
+
+    root = _study(tmp_path / "sweep", {
+        "t300": {"value": 300, "rmsd": (0.160, 0.001, None)},
+        "t310": {"value": 310, "rmsd": (0.170, 0.001, None)}})
+    path = root / "runs" / "t310" / "analysis" / "rmsd" / "options.json"
+    record = json.loads(path.read_text())
+    record["findings"]["mean"]["solute_image"] = dict(_NOTE)
+    path.write_text(json.dumps(record))
+    # Each run's value as the written comparison reads it, for its trend.
+    manifest = json.loads((root / "batch_manifest.json").read_text())
+    for run, planned in zip(manifest["runs"], manifest["planned"]):
+        run["sweep_values"] = planned["sweep_values"]
+    (root / "batch_manifest.json").write_text(json.dumps(manifest))
+    return root
+
+
+class TestTheRunsOfAStudy:
+    """The runs compared, the Report page's table of runs, the means cited
+    under an Agent's answer, the written comparison and the slides showed a
+    noted mean with no note: a difference "resolved" between a run whose
+    solute saw its image and one whose solute did not, said with none."""
+
+    def test_the_runs_compared_carry_it_and_say_it_of_a_resolved_difference(self, two_runs):
+        from fastmdxplora.gui.runs_compared import runs_compared
+
+        (rmsd,) = runs_compared(two_runs)["measures"]
+        cells = {c["run_id"]: c for c in rmsd["cells"]}
+        assert cells["t300"]["noted"] is None
+        assert cells["t310"]["noted"] == said_short(_NOTE)
+        assert cells["t310"]["versus"]["resolved"] is True
+        assert ("Where either mean may be biased by the solute's own image (1 of these), the "
+                "difference may be that bias and not the setting.") in rmsd["said"]
+        assert "1 may be biased by the solute's own image, as said beside its value." in rmsd[
+            "said"]
+
+    def test_the_report_page_s_table_marks_it_and_says_it_under_the_table(self, two_runs):
+        from fastmdxplora.gui.exploration import runs_of_a_study
+        from fastmdxplora.gui.report_page import _so_far
+
+        runs = runs_of_a_study(two_runs)
+        text = _so_far(two_runs, runs, runs)
+        row = next(line for line in text.splitlines() if line.startswith("| t310 |"))
+        assert row.endswith(" \u2020 |")
+        assert f"\u2020 t310, rmsd: {said_short(_NOTE)}." in text
+        assert "\u2020" not in next(line for line in text.splitlines()
+                                    if line.startswith("| t300 |"))
+
+    def test_the_mean_cited_under_an_answer_says_it(self, two_runs):
+        from fastmdxplora.gui.citations import cited_findings
+
+        (cite,) = cited_findings("The RMSD settled.", two_runs / "runs" / "t310")
+        assert cite["noted"] == said_short(_NOTE)
+        assert cite["value"].endswith("nm; " + said_short(_NOTE))
+        (plain,) = cited_findings("The RMSD settled.", two_runs / "runs" / "t300")
+        assert plain["noted"] == "" and plain["value"].endswith(" nm")
+
+    def test_the_written_comparison_marks_it_and_says_it_of_the_trend(self, two_runs):
+        pytest.importorskip("matplotlib")
+        from fastmdxplora.batch.compare import build_comparison_report
+
+        md = (build_comparison_report(two_runs) / "comparison_report.md").read_text()
+        row = next(line for line in md.splitlines() if line.startswith("| t310 |"))
+        assert row.endswith(" \u2020 |")
+        assert f"\u2020 t310, RMSD: {said_short(_NOTE)}." in md
+        assert ("One end's mean may be biased by the solute's own image (the note in the "
+                "summary), so the change may be that bias and not the setting.") in md
+
+    def test_the_slides_say_it_beside_the_mean(self, study, monkeypatch):
+        from fastmdxplora.report import document, slides
+
+        assessed = {"observables": {
+            "rmsd": {"observable": "RMSD", "mean": 0.3, "standard_error": 0.001,
+                     "effective_samples": 40.0, "equilibrated": True},
+            "rg": {"observable": "Rg", "mean": 1.2, "standard_error": 0.01,
+                   "effective_samples": 40.0, "equilibrated": True}}, "findings": []}
+        monkeypatch.setattr(document, "_assess_this_run", lambda root: assessed)
+        rmsd, rg = slides._findings_bullets(study)
+        assert rmsd.endswith("; " + _expected(study, "rmsd"))
+        assert "may be biased" not in rg
+
+
 # --------------------------------------------------------------------------
 # In a browser: the Overview tile, the Analysis page's table and the cell
 # over its card give the same note for one mean.
@@ -299,3 +391,37 @@ def test_one_note_on_the_overview_the_table_and_the_card(tmp_path) -> None:
         assert badge == "Determined" and status.strip() == "Determined"
         assert check.startswith("The solute came within 0.420 nm"), check
         assert wide <= 0, (width, scheme, wide)
+
+
+def test_the_runs_compared_mark_it_and_say_it_under_the_table(two_runs) -> None:
+    """In a browser: the noted run's cell carries a mark, the note on it,
+    and the note is said in full under the table."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(two_runs), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            page.wait_for_selector("#runs-compared-table .is-noted")
+            marks = page.locator("#runs-compared-table .is-noted")
+            count = marks.count()
+            row = page.locator("#runs-compared-table .is-noted").first.evaluate(
+                "node => node.closest('tr').dataset.run")
+            title = marks.first.get_attribute("title")
+            under = page.locator("#runs-compared-said .runs-compared-noted").all_text_contents()
+            browser.close()
+    finally:
+        session.server.shutdown()
+    noted = said_short(_NOTE)
+    assert count == 1 and row == "t310"
+    assert title == noted[:1].upper() + noted[1:] + "."
+    assert under == [f"† temperature 310 K, RMSD: {noted}."]
+    assert errors == []
