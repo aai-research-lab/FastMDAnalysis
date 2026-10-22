@@ -298,6 +298,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   one now, a file or folder kept as a link, and one that cannot be read
   keep the study back, each named with what to do
   (`environment.share.not_finished`). See [Sharing](docs/sharing.md).
+- A study shared to Zenodo holds up over an unsteady connection: each
+  request is asked again where Zenodo says to (429, 502, 503, 504, a lost
+  connection), a draft whose answer was lost is found again under a title
+  of its own rather than made twice, an answer that names another draft or
+  record, or says nothing of what was asked, is never taken as done, and a
+  download of a shared study resumes where it was cut and says how far it
+  has gone. What the person did on Zenodo's site is left alone: a new
+  version already begun, an edit saved on the record and not published, a
+  description of their own, a file or archive of their own. Shared again
+  after publishing, a study begins a new version from the latest one,
+  counted on in its label's own form. A full disk while sharing or opening
+  is refused with what to do, leaving nothing behind. See
+  [Sharing](docs/sharing.md).
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's
