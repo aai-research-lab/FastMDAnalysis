@@ -4722,3 +4722,50 @@ def test_a_name_given_as_zenodo_writes_one_is_taken_as_it_is():
     as "Adekunle, Aina,"."""
     assert zenodo._creators([("Aina, Adekunle", "")]) == [{"name": "Aina, Adekunle"}]
     assert zenodo._creators([("Adekunle Aina", "")]) == [{"name": "Aina, Adekunle"}]
+
+
+@pytest.mark.parametrize("given", ["Aina ,Adekunle", "Aina,  Adekunle", "Aina,Adekunle",
+                                   " Aina, Adekunle "])
+def test_a_name_with_one_comma_is_sent_as_zenodo_keeps_it(given):
+    """Review of the fifty-fourth commit: a name holding one comma was sent
+    as typed, and Zenodo keeps it split there and trimmed, so a description
+    whose answer was lost was taken for the person's."""
+    assert zenodo._creators([(given, "")]) == [{"name": "Aina, Adekunle"}]
+
+
+def test_an_answer_naming_another_record_s_doi_for_the_draft_made_makes_no_second(
+        tmp_path, unsteady, monkeypatch):
+    """Review of the fifty-fourth commit: the answer to making a draft,
+    its DOI reserved for another record than its own id, had that id kept,
+    and the next share made a second draft."""
+    study = _study(tmp_path / "study")
+    _answers_changed(monkeypatch, "POST", "/api/deposit/depositions", lambda answer, sent: {
+        **answer, "id": 9, "metadata": {**answer["metadata"], "prereserve_doi": {
+            "doi": "10.5072/zenodo.7", "recid": 7}}})
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
+    assert sum(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+               for c in unsteady.calls) == 1
+
+
+def test_an_open_s_lock_file_is_found_only_once_it_is_held(tmp_path, monkeypatch):
+    """Review of the fifty-fourth commit: the lock file was made, then
+    locked, so a later open finding it in between took a folder just begun
+    for one left."""
+    import fcntl
+
+    from fastmdxplora.sharing import opening
+
+    real, seen = fcntl.flock, []
+
+    def flock(handle, how):
+        seen.append((tmp_path / ".open.lock").exists())
+        return real(handle, how)
+
+    monkeypatch.setattr(fcntl, "flock", flock)
+    held = opening._held(tmp_path)
+    try:
+        assert held is not None and seen == [False]
+        assert sorted(p.name for p in tmp_path.iterdir()) == [".open.lock"]
+    finally:
+        held.close()

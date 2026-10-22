@@ -602,6 +602,16 @@ def _taken(depositions: str, token: str, title: str, made: list[str],
     return found
 
 
+def _reserved_for(draft: dict[str, Any]) -> str:
+    """The record the DOI reserved in a draft's answer is for (its `recid`,
+    else its number), or "" where it names none."""
+    reserved = (draft.get("metadata") or {}).get("prereserve_doi")
+    if not isinstance(reserved, dict):
+        return ""
+    numbered = re.search(r"zenodo\.(\d+)$", str(reserved.get("doi") or ""))
+    return str(reserved.get("recid") or (numbered.group(1) if numbered else ""))
+
+
 def _new_draft(depositions: str, token: str, title: str,
                said: Callable[[str], None] | None) -> tuple[dict[str, Any], bool]:
     """A new draft titled ``title``, made once: where Zenodo's answer to
@@ -615,7 +625,8 @@ def _new_draft(depositions: str, token: str, title: str,
                      said=said)
         if not isinstance(made, dict) or not made.get("id") or (
                 _a_draft(made) and not made.get("submitted") and not made.get("files")
-                and _plain(made["metadata"].get("title")) == _plain(title)):
+                and _plain(made["metadata"].get("title")) == _plain(title)
+                and _reserved_for(made) in ("", str(made["id"]))):
             # The new draft; or none named, refused as such by the caller.
             return made, True
         other = ShareRefused(f"Zenodo's answer to making the draft (titled {title!r}) named "
@@ -852,8 +863,10 @@ def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
     out = []
     for name, orcid in authors:
         parts = name.split()
-        # Given as Zenodo writes a name ("Family, Given"): taken as it is.
-        said = name.strip() if "," in name else \
+        # Given as Zenodo writes a name ("Family, Given"): sent as it keeps it.
+        family, comma, given = name.partition(",")
+        said = ", ".join(part for part in (family.strip(), given.strip()) if part) \
+            if comma and "," not in given else name.strip() if comma else \
             f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
         creator = {"name": said}
         if orcid:

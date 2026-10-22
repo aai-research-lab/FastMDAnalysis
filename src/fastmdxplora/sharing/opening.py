@@ -514,12 +514,16 @@ def _held(work: Path) -> Any:
         import fcntl
     except ImportError:
         return None
+    # Locked under a name of its own, then named as the lock: a later open
+    # never finds the lock file before it is held.
+    taking = work / f"{_HELD}.{os.getpid()}"
     try:
-        held = (work / _HELD).open("w")
+        held = taking.open("w")
     except OSError:
         return None
     try:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.replace(taking, work / _HELD)
     except OSError:
         held.close()
         return None

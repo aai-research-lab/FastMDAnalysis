@@ -40,7 +40,7 @@ once every one of its runs has finished (below).
 | `--share FILE` | Writes the archive to `FILE`. |
 | `--share-all` | Packs every file of the study, not only what its pages read (below). |
 | `--share-license ID` | The licence the archive is shared under, as an SPDX identifier; `CC-BY-4.0` unless given. |
-| `--share-author NAME` | An author of the archive, given once for each; `"NAME;ORCID"` adds an ORCID iD (`"Adekunle Aina;0000-0002-8215-7452"`). On Zenodo a name is given family name first; one written so already (`"Aina, Adekunle"`) is taken as it is. The report's `--author` unless given; one is needed. |
+| `--share-author NAME` | An author of the archive, given once for each; `"NAME;ORCID"` adds an ORCID iD (`"Adekunle Aina;0000-0002-8215-7452"`). On Zenodo a name is given family name first; one written so already (`"Aina, Adekunle"`, a single comma) is sent as Zenodo keeps it, each part trimmed. The report's `--author` unless given; one is needed. |
 | `--share-to zenodo` | Also makes a draft of the archive on Zenodo (below); `zenodo-sandbox` on Zenodo's sandbox, for trying it out. |
 
 The same study packed twice with the same flags on the same day gives the same
