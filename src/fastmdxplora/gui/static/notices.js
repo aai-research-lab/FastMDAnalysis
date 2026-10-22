@@ -149,14 +149,32 @@
       .replace(/[,;:]+$/, "");
   }
 
+  // When this page was loaded: a study opened from it loads it again.
+  var loadedAt = Date.now();
+
+  /* A study opened elsewhere is one showing in every window that hears of
+   * it, whenever each hears (a window in the background hears late): the
+   * same study left for the same study, the latest of these saved, since
+   * this page was loaded. The server gives a switch no identity of its
+   * own. Another switch between two of the same studies was heard and
+   * saved in between, or was this window's own, which loaded it again. */
+  function sameSwitch(id) {
+    var latest = null;
+    notices.some(function (n) {
+      if (n.id && n.id.indexOf("switch:") === 0) { latest = n; return true; }
+      return false;
+    });
+    return Boolean(latest && latest.id === id && latest.at >= loadedAt);
+  }
+
   /* A notice saved, unless it is saved already: one with the same identity
-   * (a run's end, a refusal of the Log, as another window of the GUI saved
-   * it), or the same words of the same kind about the same study within two
-   * seconds (a toast shown again as a page is drawn again). The list is
-   * read from this computer first, where another window may have saved it.
-   * Saved is what was said with no path in it, the study's name and, only
-   * for what opens it (a run's end), the study's key: nothing of the study
-   * the notice did not show. */
+   * (a run's end, a refusal of the Log, a study opened elsewhere, as
+   * another window of the GUI saved it), or the same words of the same kind
+   * about the same study within two seconds (a toast shown again as a page
+   * is drawn again). The list is read from this computer first, where
+   * another window may have saved it. Saved is what was said with no path
+   * in it, the study's name and, only for what opens it (a run's end), the
+   * study's key: nothing of the study the notice did not show. */
   function add(kind, said, about, act, id) {
     said = withoutPaths(String(said || "").replace(/\s+/g, " ").trim());
     if (!said) return;
@@ -164,7 +182,7 @@
     var now = Date.now();
     var where = about || studyOfThePage();
     var name = where.name || "";
-    var already = notices.some(function (n) {
+    var already = id && id.indexOf("switch:") === 0 ? sameSwitch(id) : notices.some(function (n) {
       if (id) return n.id === id && Math.abs(now - n.at) < 300000;
       return n.kind === kind && n.said === said && (n.name || "") === name && Math.abs(now - n.at) < 2000;
     });
@@ -193,7 +211,8 @@
       if (said.firstChild === lastWords) return;
       lastWords = said.firstChild;
       var kind = toast.getAttribute("data-kind") || "ok";
-      add(kind === "warning" || kind === "error" ? "warning" : "ok", said.textContent);
+      add(kind === "warning" || kind === "error" ? "warning" : "ok", said.textContent, null, "",
+          switchSaid(said.textContent));
     }
     var reading = new MutationObserver(readToast);
     function attach() {
@@ -207,6 +226,21 @@
     }
     new MutationObserver(attach).observe(document.body, { childList: true });
     attach();
+  }
+
+  /* A study opened elsewhere (dashboard.js says it once the page has read
+   * the study's name, the latest only and while it is shown): its identity
+   * is the two studies the page gave it, the one left and the one shown. */
+  var switched = null;
+  window.addEventListener("dashboard:study-changed-elsewhere", function (event) {
+    var d = event.detail || {};
+    switched = d.from && d.to ? { from: String(d.from), to: String(d.to) } : null;
+  });
+  function switchSaid(words) {
+    if (!switched || !/ was opened elsewhere, /.test(words) || switched.to !== study().key) return undefined;
+    var id = "switch:" + switched.from + ">" + switched.to;
+    switched = null;
+    return id;
   }
 
   // A run that ended, as run-notice.js sees it: how it ended, as the

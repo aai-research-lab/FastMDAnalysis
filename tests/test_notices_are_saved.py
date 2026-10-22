@@ -520,3 +520,71 @@ def test_no_notice_is_saved_with_a_path_in_it(tmp_path):
     text = json.dumps(saved)
     for private in ("/Users", "/home", "C:", "~/", "lab-nas", "file:", "kunle", "Kunle", str(alpha)):
         assert private not in text, private
+
+
+SWITCHED = """() => JSON.parse(localStorage.getItem('fmx.notices') || '[]')
+    .filter((n) => / was opened elsewhere, /.test(n.said)).length"""
+
+
+def test_a_study_opened_elsewhere_is_saved_once_however_late_a_window_hears(tmp_path):
+    """Two windows hear of a study opened elsewhere, one 3 s late (as a
+    window in the background does): saved once. Each switch is saved, the
+    same two studies again included, and in one window after one of its
+    own."""
+    pytest.importorskip("playwright.sync_api")
+    import urllib.request
+
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.workspace import study_key
+
+    alpha, beta, serving = _session(tmp_path)
+
+    def switch(url, folder):
+        asked = urllib.request.Request(url + "/api/explore/switch", method="POST",
+                                       data=json.dumps({"folder": str(folder)}).encode(),
+                                       headers={"content-type": "application/json"})
+        assert json.loads(urllib.request.urlopen(asked, timeout=60).read())["ok"]
+
+    def heard(page, folder, n):
+        page.wait_for_function("""([key, n]) => window.FastMDXDashboard.state.studyShown === key
+            && window.__heard === n && / was opened elsewhere, /.test((document.querySelector(
+                '#dashboard-toast.show .dashboard-toast-said') || {}).textContent || '')""",
+                               arg=[study_key(folder), n])
+
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        context.add_init_script("""window.__heard = 0;
+            window.addEventListener('dashboard:study-changed-elsewhere', () => { window.__heard += 1; });""")
+        first = _page(browser, url, "#overview", context=context)
+        late = context.new_page()
+        late.set_default_timeout(60000)
+        late.add_init_script("""(() => { const fetched = window.fetch;
+            window.fetch = (what, ...rest) => /\\/api\\/(status|app-state)/.test(String(what))
+                ? new Promise((go) => setTimeout(go, 3000)).then(() => fetched(what, ...rest))
+                : fetched(what, ...rest); })();""")
+        late.goto(url + "#overview", wait_until="domcontentloaded")
+        late.wait_for_selector("body.state-ready")
+        late.wait_for_function("() => !!window.FastMDXNotices")
+        counts = []
+        for n, folder in enumerate((beta, alpha, beta), start=1):
+            switch(url, folder)
+            heard(first, folder, n)
+            heard(late, folder, n)
+            late.wait_for_timeout(300)
+            counts.append(first.evaluate(SWITCHED))
+        late.close()
+        # One window: the study opened from it, then elsewhere again.
+        first.evaluate("(alpha) => window.FastMDXPlace.open(alpha, 'overview')", str(alpha))
+        first.wait_for_function("(key) => !!window.FastMDXDashboard && window.FastMDXDashboard.state.studyShown === key",
+                                arg=study_key(alpha))
+        first.wait_for_function("() => !!window.FastMDXNotices")
+        first.wait_for_timeout(500)
+        switch(url, beta)
+        heard(first, beta, 1)
+        counts.append(first.evaluate(SWITCHED))
+        errors = first.errors
+        browser.close()
+    assert errors == []
+    assert counts == [1, 2, 3, 4]
