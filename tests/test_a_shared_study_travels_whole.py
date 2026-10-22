@@ -3756,14 +3756,17 @@ def test_another_s_doi_answered_for_the_one_reserved_is_not_packed(tmp_path, uns
     assert "zenodo.101" not in (study / "shared_to.json").read_text()
 
 
+@pytest.mark.parametrize("reserved", [{"doi": "10.5072/zenodo.101", "recid": 101},
+                                      {"doi": "10.5072/zenodo.101"}])
 def test_a_doi_reserved_for_another_record_is_not_packed(tmp_path, unsteady, monkeypatch,
-                                                         capsys):
+                                                         capsys, reserved):
+    """Hands-on review of the thirty-eighth commit: another record's DOI,
+    given without its number apart, was packed and kept."""
     study = _study(tmp_path / "study")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     unsteady.submitted = True
     _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/8", lambda answer, sent: {
-        **answer, "metadata": {**answer["metadata"], "prereserve_doi": {
-            "doi": "10.5072/zenodo.101", "recid": 101}}})
+        **answer, "metadata": {**answer["metadata"], "prereserve_doi": reserved}})
     unsteady.calls.clear()
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
@@ -3891,3 +3894,96 @@ def _analysed_again_from(study: Path, was: str, words: str) -> None:
     text = report.read_text()
     assert was in text
     report.write_text(text.replace(was, words))
+
+
+def test_a_draft_read_back_with_another_record_s_doi_is_not_packed(tmp_path, unsteady,
+                                                                    monkeypatch):
+    study = _study(tmp_path / "study")
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        **answer, "metadata": {**answer["metadata"],
+                               "prereserve_doi": {"doi": "10.5072/zenodo.101"}}})
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[0] == "PUT" and c[1].startswith("/files/") for c in unsteady.calls)
+    assert "zenodo.101" not in (study / "shared_to.json").read_text()
+
+
+def test_a_record_read_naming_no_concept_begins_no_version_of_another(tmp_path, unsteady,
+                                                                      monkeypatch):
+    """Hands-on review of the thirty-eighth commit: the study's record read
+    with no concept and its latest version another of the person's records
+    had a new version of that one begun, and the archive put in it."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "3"}, "files": []}
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        k: v for k, v in answer.items() if k != "conceptrecid"})
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[1].endswith("/actions/newversion") or c[0] == "PUT"
+                   for c in unsteady.calls)
+
+
+def _another_answers(monkeypatch, wanted, other) -> None:
+    """Zenodo, asked a PUT ``wanted`` picks, does nothing and answers with
+    another deposition, ``other`` of what was sent."""
+    real = zenodo._call
+
+    def instead(method, url, **kwargs):
+        if method == "PUT" and url.endswith("/api/deposit/depositions/7") and wanted(kwargs):
+            return other(kwargs["body"]["metadata"])
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", instead)
+
+
+@pytest.mark.parametrize("files", [[], [{"id": "k", "filename": "kb.zip"}]])
+def test_a_description_answered_by_another_draft_is_not_said_written(tmp_path, unsteady,
+                                                                     monkeypatch, capsys,
+                                                                     files):
+    """Hands-on review of the thirty-eighth commit: the description's answer,
+    another study's draft holding the same words and version, had the draft
+    said made with none of them; or holding a zip, that zip said put on
+    this one."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    _another_answers(monkeypatch, lambda sent: sent["body"]["metadata"].get("description"),
+                     lambda said: {"id": 101, "metadata": dict(said), "files": files})
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr()
+    assert "Draft made" not in said.out and "kb.zip" not in said.err
+    assert "said nothing of it" in said.err
+
+
+def test_a_version_answered_by_another_draft_is_not_said_given(tmp_path, unsteady,
+                                                               monkeypatch, capsys):
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    # The person's words there, its version taken away.
+    unsteady.edited = {7: {"description": "My own words.", "version": ""}}
+    _another_answers(monkeypatch, lambda sent: "version" in sent["body"]["metadata"],
+                     lambda said: {"id": 101, "metadata": dict(said), "files": []})
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "did not say it was given" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("answer, opened", [
+    ({"id": 1009, "conceptrecid": "1000"}, False),
+    ({"id": 1009, "conceptrecid": "1007"}, True),
+    ({"id": 1009, "parent": {"id": "1007"}}, True),
+    ({"id": 1007, "conceptrecid": "1000"}, True)])
+def test_a_record_answered_as_another_is_not_opened(monkeypatch, answer, opened):
+    """Hands-on review of the thirty-eighth commit: a record's answer naming
+    another record (not a version of the concept asked for) was opened as
+    the one asked for."""
+    monkeypatch.setattr(zenodo, "_call", lambda method, url, **kwargs: {
+        **answer, "doi": f"10.5072/zenodo.{answer['id']}",
+        "files": [{"key": "s.zip", "size": 1, "checksum": "md5:" + "0" * 32}]})
+    if opened:
+        assert zenodo.archive_of("zenodo-sandbox", "1007")["id"] == str(answer["id"])
+    else:
+        with pytest.raises(ShareRefused, match="named another, 1009"):
+            zenodo.archive_of("zenodo-sandbox", "1007")

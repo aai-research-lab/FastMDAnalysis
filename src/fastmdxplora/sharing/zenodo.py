@@ -349,6 +349,14 @@ def archive_of(site: str, record: str,
                               code="environment.service.unreachable")
         unread.later = True
         raise unread
+    parent = found.get("parent") if isinstance(found.get("parent"), dict) else {}
+    if found.get("id") and str(record) not in (
+            str(found["id"]), str(found.get("conceptrecid") or parent.get("id") or "")):
+        # Another record's answer (a concept's is its latest version's).
+        other = ShareRefused(f"Zenodo's answer for record {record} named another, "
+                             f"{found['id']}.", code="environment.service.unreachable")
+        other.later = True
+        raise other
     entries = found.get("files") or []
     if isinstance(entries, dict):
         entries = entries.get("entries") or []
@@ -498,7 +506,15 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
                       said: Callable[[str], None] | None) -> dict[str, Any]:
     """The latest published version of the record ``found`` is a version of,
     as a deposition (as its drafts are read): by its `latest` link, which
-    names it as a record; ``found`` itself where it names none."""
+    names it as a record; ``found`` itself where it names none. A record
+    read naming no concept (as Zenodo gives every one) is refused: no
+    version of it, nor of another, is told from it."""
+    concept = str(found.get("conceptrecid") or "")
+    if not concept:
+        unnamed = ShareRefused(f"Zenodo's answer for record {found.get('id')} named no "
+                               "concept.", code="environment.service.unreachable")
+        unnamed.later = True
+        raise unnamed
     link = str((found.get("links") or {}).get("latest") or "")
     if not link:
         return found
@@ -517,9 +533,8 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
         return found
     deposition = _call("GET", f"{depositions}/{newest}", token=token, missing_ok=True,
                        said=said)
-    concept = str(found.get("conceptrecid") or "")
-    if not _a_draft(deposition, newest) or (
-            concept and str(deposition.get("conceptrecid") or "") != concept):
+    if not _a_draft(deposition, newest) \
+            or str(deposition.get("conceptrecid") or "") != concept:
         unread = ShareRefused(f"Zenodo's answer for the latest version, {newest}, was no "
                               "record.", code="environment.service.unreachable")
         unread.later = True
@@ -1025,12 +1040,14 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         doi = str(reserved_as.get("doi") or "") if isinstance(reserved_as, dict) else ""
         if not doi:
             raise ShareRefused(
-                f"Zenodo reserved no DOI for the draft {page} (its answer named none). The "
+                f"Zenodo reserved no DOI for the draft {page} (its answer named none for it). The "
                 "draft is kept as it was: share again once Zenodo answers, and that draft is "
                 "finished, not another made.", code="environment.service.unreachable",
                 url=page)
+    # A DOI Zenodo reserves names the record it is for, as its number.
     recid = str(reserved_as.get("recid") or "") if isinstance(reserved_as, dict) else ""
-    if recid and recid != identifier:
+    numbered = re.search(r"zenodo\.(\d+)$", doi)
+    if (recid and recid != identifier) or (numbered and numbered.group(1) != identifier):
         raise ShareRefused(
             f"Zenodo's answer for the draft {page} named the DOI of another record ({doi}). "
             "The draft is kept as it was: share again once Zenodo answers, and that draft is "
@@ -1315,7 +1332,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             answer = _call("PUT", f"{depositions}/{identifier}", token=token,
                            body={"metadata": {**inherited, **ours_said}}, said=said)
             described = True
-            answered_as = answer.get("metadata") if isinstance(answer, dict) else None
+            # Said only by an answer naming this draft.
+            answered_as = answer["metadata"] if _a_draft(answer, identifier) else None
             if not (isinstance(answered_as, dict)
                     and _text(answered_as.get("description"))
                     == _text(ours_said.get("description"))
@@ -1357,9 +1375,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 labelled = _call("PUT", f"{depositions}/{identifier}", token=token,
                                  body={"metadata": {**inherited, "version": str(version)}},
                                  said=said)
-                if not (isinstance(labelled, dict) and str(
-                        (labelled.get("metadata") or {}).get("version") or "")
-                        == str(version)):
+                if not (_a_draft(labelled, identifier) and _plain(str(
+                        labelled["metadata"].get("version") or "")) == _plain(str(version))):
                     unlabelled = ShareRefused(
                         f"Zenodo's answer to giving the draft {page} version {version} did "
                         "not say it was given. Its version is perhaps not yet written; the "

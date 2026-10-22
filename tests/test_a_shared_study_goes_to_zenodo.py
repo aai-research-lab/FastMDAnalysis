@@ -46,6 +46,7 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
     def _deposition(self, number):
         # Draft 8 is the new version begun (Zenodo's latest_draft): a draft.
         return {"id": number, "submitted": type(self).submitted and number != 8,
+                "conceptrecid": "c7",
                 "metadata": {"prereserve_doi": {"doi": f"10.5072/zenodo.{number}"}},
                 "links": {"bucket": f"{self._base()}/files/b{number}",
                           "html": f"{self._base()}/uploads/{number}",
@@ -88,6 +89,9 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         type(self).calls.append(("GET", self.path, self.headers.get("Authorization")))
+        if self.path.startswith("/api/deposit/depositions?"):
+            # The person's drafts: none besides the study's.
+            return self._json([])
         if self.path.startswith("/api/deposit/depositions/"):
             number = int(self.path.rsplit("/", 1)[1])
             if number not in (7, 8):
