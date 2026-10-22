@@ -371,7 +371,12 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     A round's record gives no time. It is placed by the recorded times of
     the steps it came between: just before the pieces it began (each run's
     piece of the length the round asked for, the next in the run's order),
-    or, where it began none, just after the last step before it."""
+    or, where it began none, just after the last step before the pieces a
+    later round began: the analyses and report it judged, which each piece
+    is followed by (`resume.extend_study`). A study of one run writes its
+    report again once its rounds end (`explorer._report_again`), so its
+    report is not a step before its last round unless its record still
+    says it is running."""
     from fastmdxplora.simulation.sampling_ask import length_said
     from fastmdxplora.simulation.stopping import RECORD, record_said, study_ended
 
@@ -382,16 +387,17 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     runs = [str(name) for name in record.get("runs") or [] if isinstance(name, (str, int))]
     folders = [folder for folder in (_run_folder(base, name, alone=len(runs) == 1)
                                      for name in runs) if folder]
-    # Each run's production before the rounds, and its pieces in order.
-    latest = max((t for t in (_simulated_until(folder) for folder in folders) if t),
-                 default=None)
+    # Each run's own steps, as its Manifest last recorded them, and its
+    # pieces in order.
+    steps = [step for folder in folders for step in _steps_of(folder)]
     pieces = {folder: _timed_pieces(folder) for folder in folders}
+    times = steps + [(time, "piece") for each in pieces.values() for piece in each
+                     for time in (piece["started"], piece["finished"]) if time]
     taken = {folder: 0 for folder in folders}
     said = str(record.get("said") or "")
-    events: list[dict[str, Any]] = []
-    for number, entry in enumerate(rounds, start=1):
+    began_by: list[list[str]] = []
+    for entry in rounds:
         entry = entry if isinstance(entry, dict) else {}
-        last = number == len(rounds)
         more = _finite(entry.get("more_ns"))
         began: list[dict[str, Any]] = []
         if more is not None and more > 0:
@@ -401,17 +407,23 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
                 if found is not None:
                     began.append(pieces[folder][found])
                     taken[folder] = found + 1
-        starts = [p["started"] for p in began if p["started"]]
-        if starts:
-            placed = {"at": min(starts), "before": True}
-        elif latest:
-            placed = {"at": latest, "before": False}
-        else:
-            placed = None
-        for piece in began:
-            for time in (piece["started"], piece["finished"]):
-                if time and (latest is None or str(time) > str(latest)):
-                    latest = time
+        began_by.append([p["started"] for p in began if p["started"]])
+    written_again = len(runs) == 1 and str(record.get("outcome") or "") != "running"
+
+    def after_the_steps_before(later: list[list[str]], *, last: bool) -> dict[str, Any] | None:
+        bound = min((t for starts in later for t in starts), default=None)
+        before = [str(time) for time, phase in times
+                  if (bound is None or str(time) < str(bound))
+                  and not (last and written_again and phase == "report")]
+        return {"at": max(before), "before": False} if before else None
+
+    events: list[dict[str, Any]] = []
+    for number, entry in enumerate(rounds, start=1):
+        entry = entry if isinstance(entry, dict) else {}
+        last = number == len(rounds)
+        starts = began_by[number - 1]
+        placed = ({"at": min(starts), "before": True} if starts
+                  else after_the_steps_before(began_by[number:], last=last))
         event = _round(number, entry, record, last=last)
         event["placed"] = placed
         production = _finite(entry.get("production_ns"))
@@ -431,7 +443,7 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
                 + ("applied again" if rounds else "first applied") if asked
                 else "not applied" + (" again" if rounds else "")),
             "detail": record_said(said), "stopped_by": "asked" if asked else "",
-            "placed": {"at": latest, "before": False} if latest else None,
+            "placed": after_the_steps_before([], last=False),
             "production_said": "", "round": None})
     return events
 
@@ -481,16 +493,14 @@ def _run_folder(base: Path, name: str, *, alone: bool = False) -> Path | None:
     return base if base.name == name else None
 
 
-def _simulated_until(folder: Path) -> str | None:
-    """When a run's own production (before any piece) ended, as its
-    Manifest records it."""
+def _steps_of(folder: Path) -> list[tuple[str, str]]:
+    """When a run's own simulation, analyses and report began and ended, as
+    its Manifest last recorded them, each with its phase."""
     manifest = _json(folder / "manifest.json")
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
-    simulated = next((p for p in phases or [] if isinstance(p, dict)
-                      and p.get("name") == "simulation"), None)
-    if simulated is None:
-        return None
-    return simulated.get("finished_at") or simulated.get("started_at") or None
+    return [(str(p[key]), str(p["name"])) for p in phases or [] if isinstance(p, dict)
+            and p.get("name") in ("simulation", "analysis", "report")
+            for key in ("started_at", "finished_at") if p.get(key)]
 
 
 def _timed_pieces(folder: Path) -> list[dict[str, Any]]:

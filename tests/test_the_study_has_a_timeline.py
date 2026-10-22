@@ -840,6 +840,62 @@ def test_rounds_placed_at_one_time_are_newest_first(tmp_path):
     assert rounds == [3, 2, 1]
 
 
+def test_a_round_with_no_piece_is_placed_after_the_analyses_it_judged(tmp_path):
+    """A round begins no piece where it stopped or met what was asked: it
+    was placed after the runs' simulation, between "seed 2: Simulated" and
+    "seed 2: Analysed", though the rule judges the analyses' means."""
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    first, second = sorted((root / "runs").iterdir())
+    for run, end in ((first, "07:30:00"), (second, "07:40:00")):
+        (run / "manifest.json").write_text(json.dumps({"phases": [
+            _phase("setup", "06:59:00", "06:59:40"), _phase("simulation", "07:00:00", end),
+            _phase("analysis", end, end.replace(":00", ":20", 1)),
+            _phase("report", end.replace(":00", ":20", 1), end.replace(":00", ":30", 1))]}),
+            encoding="utf-8")
+    _stopping(root, [first.name, second.name], [{**_round("stopped", 1.0, 0.5),
+                                                 "stopped_by": "asked"}], "stopped",
+              f"Stopped when asked, while extending {first.name}. Resuming the study judges "
+              "the runs again and carries on from there.")
+    said = [(e.get("run", ""), e["said"]) for e in timeline_of(root)["events"]]
+    assert said[:3] == [
+        ("", "Round 1: stopped when asked (Ctrl+C or a signal) while the runs were extended"),
+        ("seed 2", "Report written"), ("seed 2", "Analysed")], said
+
+
+def _one_run_judged(root: Path, outcome: str, rounds: list[dict], said: str) -> list[str]:
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    root.mkdir()
+    (root / "resolved_config.yml").write_text("simulation:\n  duration_ns: 1.0\n",
+                                              encoding="utf-8")
+    (root / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04"), _phase("simulation", "07:00:04", "07:30:04"),
+        _phase("analysis", "08:20:00", "08:21:00"), _phase("report", "08:21:00", "08:22:00")]}),
+        encoding="utf-8")
+    _a_piece(root, 1, 0.25, "08:00:00", "08:10:00")
+    _stopping(root, ["study"], rounds, outcome, said)
+    return [e["said"] for e in timeline_of(root)["events"]]
+
+
+def test_a_one_run_study_s_last_round_is_placed_before_its_report_written_again(tmp_path):
+    """Its report is written again once its rounds end: the last round
+    comes after the analyses of the last piece and before that report."""
+    said = _one_run_judged(tmp_path / "met", "met",
+                           [_round("extend", 1.0, 0.25), _round("met", 1.25)],
+                           "After 1.25 ns of production: rmsd 0.150 ± 0.001 nm.")
+    assert said[:3] == ["Report written", "Round 2: determined as asked, so stopped",
+                        "Analysed"], said
+    # Still said running (or killed): no report was written after it.
+    said = _one_run_judged(tmp_path / "going", "running",
+                           [_round("extend", 1.0, 0.25), _round("extend", 1.25, 0.5)],
+                           "Extending by 500 ps, to 1.75 ns of the 5 ns allowed.")
+    assert said[:2] == ["Round 2: extending the run by 500 ps; the record does not say it "
+                        "finished", "Report written"], said
+
+
 def test_a_run_killed_in_a_piece_says_the_piece_by_its_number(tmp_path, monkeypatch):
     from fastmdxplora.gui import telemetry
     from fastmdxplora.gui.study_timeline import timeline_of
