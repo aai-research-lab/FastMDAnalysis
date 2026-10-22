@@ -242,6 +242,14 @@ def test_replicas_from_the_models_of_an_ensemble_are_said_so_not_seed_alone(tmp_
     plan = {line["label"]: line["value"] for line in plan_of(
         {"systems": [{"system": "1L2Y"}], "sweep": {"setup.model": [1, 5, 12]}})}
     assert plan["Replicas"] == "3, started from models 1, 5, 12 of the ensemble"
+    # Models and seeds together: one line, never a second "differing only by
+    # random seed" of runs that also differ by model.
+    lines = [(line["label"], line["value"]) for line in plan_of(
+        {"systems": [{"system": "1L2Y"}],
+         "sweep": {"setup.model": [1, 5, 12], "simulation.random_seed": [1, 2]}})
+        if line["label"] in ("Replicas", "Varied")]
+    assert lines == [("Replicas", "6, started from models 1, 5, 12 of the ensemble, "
+                                  "each with a seed of its own")], lines
     met = _said_met([Verdict("rmsd", True, "rmsd 0.150 ± 0.001 nm")], 2.0, 3, "required",
                     axes=["setup.model"])
     assert "The 3 replicas started from different models of the ensemble, so" in met
