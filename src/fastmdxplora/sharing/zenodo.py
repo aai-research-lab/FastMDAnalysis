@@ -428,11 +428,22 @@ def _new_draft(depositions: str, token: str, title: str,
                said: Callable[[str], None] | None) -> tuple[dict[str, Any], bool]:
     """A new draft titled ``title``, made once: where Zenodo's answer to
     making it is lost and it may have been made, the draft of that title is
-    looked for and taken; never one of another title."""
+    looked for and taken; never one of another title. An answer naming
+    another deposition is taken as lost: the draft it may have made is
+    looked for the same way."""
     try:
-        return _call("POST", depositions, token=token,
+        made = _call("POST", depositions, token=token,
                      body={"metadata": {"prereserve_doi": True, "title": title}},
-                     said=said), True
+                     said=said)
+        if not isinstance(made, dict) or not made.get("id") or (
+                _a_draft(made) and not made.get("submitted") and not made.get("files")
+                and made["metadata"].get("title") == title):
+            # The new draft; or none named, refused as such by the caller.
+            return made, True
+        other = ShareRefused(f"Zenodo's answer to making the draft (titled {title!r}) named "
+                             "another.", code="environment.service.unreachable")
+        other.unclear = other.later = True
+        raise other
     except ShareRefused as exc:
         if not getattr(exc, "unclear", False):
             if getattr(exc, "later", False):
@@ -984,14 +995,23 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                 f"{exc} The draft {page} is kept as it was, its DOI not yet reserved: "
                 f"{mend}, and that draft is finished, not another made.",
                 code=exc.refusal.code, url=page) from exc
-        doi = str((((reserved or {}).get("metadata") or {}).get("prereserve_doi") or {})
-                  .get("doi") or "") if isinstance(reserved, dict) else ""
+        # Taken only from an answer naming this draft: another's DOI written
+        # into the archive would name the wrong record.
+        reserved_as = (reserved["metadata"].get("prereserve_doi")
+                       if _a_draft(reserved, identifier) else None)
+        doi = str(reserved_as.get("doi") or "") if isinstance(reserved_as, dict) else ""
         if not doi:
             raise ShareRefused(
                 f"Zenodo reserved no DOI for the draft {page} (its answer named none). The "
                 "draft is kept as it was: share again once Zenodo answers, and that draft is "
                 "finished, not another made.", code="environment.service.unreachable",
                 url=page)
+    recid = str(reserved_as.get("recid") or "") if isinstance(reserved_as, dict) else ""
+    if recid and recid != identifier:
+        raise ShareRefused(
+            f"Zenodo's answer for the draft {page} named the DOI of another record ({doi}). "
+            "The draft is kept as it was: share again once Zenodo answers, and that draft is "
+            "finished, not another made.", code="environment.service.unreachable", url=page)
     if doi:
         try:
             packed = pack(f"https://doi.org/{doi}")
@@ -1518,6 +1538,13 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                       said=said)
         # Answered as Zenodo answers: begun. An empty answer may be either.
         answered = isinstance(newer, dict) and bool(newer)
+        if answered and str(newer.get("id") or "") != published:
+            # Another deposition's answer: what was begun is not known.
+            answered = False
+            other = ShareRefused("Zenodo's answer to beginning a new version named another "
+                                 "deposition.", code="environment.service.unreachable")
+            other.unclear = other.later = True
+            raise other
         links = newer.get("links") if isinstance(newer, dict) else None
         latest = str(links.get("latest_draft") or "") if isinstance(links, dict) else ""
         if not latest:
@@ -1530,6 +1557,16 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
         if not _a_draft(deposition, latest.rsplit("/", 1)[-1]):
             raise ShareRefused(f"Zenodo's answer for {latest} was no draft.",
                                code="environment.service.unreachable")
+        if deposition.get("submitted") or str(deposition.get("conceptrecid") or "") \
+                != str(newest.get("conceptrecid") or ""):
+            # Not a draft of this record's next version: what was begun, and
+            # where, is not known.
+            answered = False
+            other = ShareRefused(f"Zenodo's answer to beginning a new version named {latest}, "
+                                 f"no draft of a new version of record {published}.",
+                                 code="environment.service.unreachable")
+            other.unclear = other.later = True
+            raise other
     except ShareRefused as exc:
         if exc.refusal.code == "environment.service.unusable_response" \
                 or "did not list your drafts" in str(exc):

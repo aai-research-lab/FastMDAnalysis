@@ -164,7 +164,9 @@ class _Unsteady(_Zenodo):
             made = type(self).drafts[-1]
             if type(self).meta is not None:
                 type(self).meta[made["id"]] = {"title": made["title"]}
-            return self._json(self._deposition(made["id"]), 201)
+            answer = self._deposition(made["id"])
+            answer["metadata"]["title"] = made["title"]
+            return self._json(answer, 201)
         if fault == "504 cut":
             type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
             self._body()
@@ -3678,3 +3680,141 @@ def test_a_zip_put_on_the_draft_as_it_is_described_is_said(tmp_path, unsteady,
     said = capsys.readouterr()
     assert "holds mine.zip, put there on Zenodo during this share" in said.err
     assert "Draft made" not in said.out
+
+
+def _answers_changed(monkeypatch, method: str, ending: str, change) -> None:
+    """Zenodo, asked ``method`` of a URL ending in ``ending``, does it and
+    answers with ``change`` of its answer."""
+    real = zenodo._call
+
+    def changed(m, url, **kwargs):
+        answer = real(m, url, **kwargs)
+        if m == method and url.endswith(ending) and isinstance(answer, dict):
+            return change(answer, kwargs)
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", changed)
+
+
+_THE_PERSON_S = {"id": 42, "submitted": False,
+                 "metadata": {"title": "My own paper", "description": "MY OWN WORDS"},
+                 "files": [{"id": "p", "filename": "paper.pdf"}],
+                 "links": {"bucket": "http://127.0.0.1:9/files/b42"}}
+
+
+@pytest.mark.parametrize("other", [_THE_PERSON_S, {**_THE_PERSON_S, "files": []},
+                                   {**_THE_PERSON_S, "submitted": True}])
+def test_another_draft_answered_for_the_one_made_is_left_alone(tmp_path, unsteady,
+                                                                monkeypatch, other):
+    """Review of the thirty-seventh commit: the answer to making a draft,
+    naming one of the person's own, had that one titled, described and
+    given the archive."""
+    study = _study(tmp_path / "study")
+    _answers_changed(monkeypatch, "POST", "/api/deposit/depositions",
+                     lambda answer, sent: json.loads(json.dumps(other)))
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
+    assert not any("/42" in c[1] or "/b42" in c[1] for c in unsteady.calls)
+
+
+def _no_doi_in(answer, sent):
+    """A draft of a new version read as Zenodo begins one: no DOI reserved."""
+    return {**answer, "metadata": {k: v for k, v in answer["metadata"].items()
+                                   if k != "prereserve_doi"}}
+
+
+def test_another_s_doi_answered_for_the_one_reserved_is_not_packed(tmp_path, unsteady,
+                                                                    monkeypatch, capsys):
+    """Review of the thirty-seventh commit: the answer to reserving a new
+    version's DOI, naming another deposition, had that one's DOI written
+    into the archive and kept, and every later share refused."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = zenodo._call
+
+    def other(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if not isinstance(answer, dict) or not url.endswith("/api/deposit/depositions/8"):
+            return answer
+        if method == "GET":
+            return _no_doi_in(answer, kwargs)
+        if method == "PUT" and "prereserve_doi" in (kwargs.get("body") or {}).get(
+                "metadata", {}):
+            return {**answer, "id": 101, "metadata": {
+                **answer["metadata"], "prereserve_doi": {"doi": "10.5072/zenodo.101",
+                                                         "recid": 101}}}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", other)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "share again once Zenodo answers" in capsys.readouterr().err
+    assert not any(c[0] == "PUT" and c[1].startswith("/files/") for c in unsteady.calls)
+    assert "zenodo.101" not in (study / "shared_to.json").read_text()
+
+
+def test_a_doi_reserved_for_another_record_is_not_packed(tmp_path, unsteady, monkeypatch,
+                                                         capsys):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/8", lambda answer, sent: {
+        **answer, "metadata": {**answer["metadata"], "prereserve_doi": {
+            "doi": "10.5072/zenodo.101", "recid": 101}}})
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "named the DOI of another record (10.5072/zenodo.101)" in capsys.readouterr().err
+    assert not any(c[0] == "PUT" and c[1].startswith("/files/") for c in unsteady.calls)
+
+
+def test_another_deposition_answered_for_a_new_version_names_none(tmp_path, unsteady,
+                                                                  monkeypatch, capsys):
+    """Review of the thirty-seventh commit: the answer to beginning a new
+    version, naming another deposition, had that one's draft named for the
+    person to delete."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    _answers_changed(monkeypatch, "POST", "/7/actions/newversion", lambda answer, sent: {
+        **answer, "id": 101, "links": {**answer["links"],
+                                       "latest_draft": answer["links"]["latest_draft"]
+                                       .replace("/8", "/101")}})
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr().err
+    assert "Zenodo may have begun the new version of record 7" in said and "101" not in \
+        said.split("named another deposition.")[-1]
+    assert not any(c[1].endswith("/101") for c in unsteady.calls)
+
+
+@pytest.mark.parametrize("change", [{"conceptrecid": "c99"}, {"submitted": True}])
+def test_a_new_version_s_draft_of_another_record_is_not_written(tmp_path, unsteady,
+                                                                monkeypatch, change):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/8",
+                     lambda answer, sent: {**answer, **change})
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[0] == "PUT" for c in unsteady.calls)
+
+
+def test_a_latest_version_of_another_concept_begins_nothing(tmp_path, unsteady,
+                                                            monkeypatch):
+    """Review of the thirty-seventh commit: the latest version's concept was
+    compared, and no test failed with that undone."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"}, "files": []}
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/9",
+                     lambda answer, sent: {**answer, "conceptrecid": "c99"})
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)

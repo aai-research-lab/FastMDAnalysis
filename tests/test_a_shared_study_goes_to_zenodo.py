@@ -44,7 +44,8 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
         return f"http://127.0.0.1:{self.server.server_port}"
 
     def _deposition(self, number):
-        return {"id": number, "submitted": type(self).submitted,
+        # Draft 8 is the new version begun (Zenodo's latest_draft): a draft.
+        return {"id": number, "submitted": type(self).submitted and number != 8,
                 "metadata": {"prereserve_doi": {"doi": f"10.5072/zenodo.{number}"}},
                 "links": {"bucket": f"{self._base()}/files/b{number}",
                           "html": f"{self._base()}/uploads/{number}",
@@ -54,11 +55,16 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         type(self).calls.append(("POST", self.path, self.headers.get("Authorization")))
-        self._body()
+        body = self._body()
         if self.path == "/api/deposit/depositions":
-            return self._json(self._deposition(7), 201)
+            # Answered, as Zenodo answers, with the draft under the title asked.
+            made = self._deposition(7)
+            made["metadata"]["title"] = (json.loads(body or b"{}").get("metadata")
+                                         or {}).get("title")
+            return self._json(made, 201)
         if self.path.endswith("/actions/newversion"):
-            return self._json(self._deposition(7))
+            # Answered, as Zenodo answers, with the deposition it is of.
+            return self._json(self._deposition(int(self.path.split("/")[-3])))
         self._json({"status": 404, "message": "not found"}, 404)
 
     def do_PUT(self):  # noqa: N802

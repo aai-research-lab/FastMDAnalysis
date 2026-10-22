@@ -225,7 +225,8 @@ asked for under a title of its own (`FastMDXplora: sharing <study>
 (<eight letters and digits>)`, replaced by the study's once it is filled
 in), kept in `shared_to.json` first. Where the answer to making it is lost
 once the request had gone (a 5xx, a connection cut while waiting for the
-answer), your drafts are looked through for that title for up to about two
+answer, or an answer naming another draft or record), your drafts are
+looked through for that title for up to about two
 minutes; at the next share, they are looked through first and, if it is not
 among them, it is asked for again under the same title. The one found is
 taken as this one: a draft you made is never taken, and two found of that
@@ -277,7 +278,8 @@ always leads to its latest version. Its version is counted on from the
 latest one published (one you published by hand included), in that one's
 own form: 3 after 2, 1.3 after 1.2, v4 after v3. Zenodo keeps one draft
 of a new version at a time, and gives it to whoever asks: one there
-already, begun on its site or by a share whose answer was lost, cannot be
+already, begun on its site or by a share whose answer was lost or named
+another, cannot be
 told apart, so it is left alone (publish or delete it, then share again;
 one still holding the record as it was, its words and files the same,
 is said to be deleted, as published it would be the record again). One a share began and could not
