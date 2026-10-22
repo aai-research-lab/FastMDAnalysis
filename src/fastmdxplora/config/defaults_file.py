@@ -17,7 +17,8 @@ The rules, each for a reason:
   simulates, not what.
 - **A continuation is left alone.** A study that continues another
   (`simulation.resume_from`) keeps that study's settings, and one prepared
-  from another (`simulation.setup_from`) keeps its setup.
+  from another (`simulation.setup_from`) keeps its setup. Those settings
+  are refused in the file: they are one study's, never a folder's.
 - **Each value it fills is said.** It is recorded in the study's
   `decisions` with `source: fastmdx-defaults.yml` and the file's `why`, so
   the report's **Why these settings** says which values were the lab's,
@@ -42,6 +43,12 @@ DEFAULTS_FILE = "fastmdx-defaults.yml"
 
 #: What the file may set: how a study is simulated, never what.
 _BLOCKS = ("setup", "simulation", "analysis", "report", "execution")
+
+#: Settings that name the study one study continues or is prepared from:
+#: one study's, never a folder's, or every new study made there would
+#: continue that one.
+_ONE_STUDY_S = ("simulation.resume_from", "simulation.resume_unsealed",
+                "simulation.setup_from", "simulation.prepared_from")
 
 def _one_of() -> tuple[frozenset[str], ...]:
     """Settings that answer one question between them: a config that gives
@@ -157,6 +164,14 @@ def read_defaults(path: str | Path) -> YourDefaults:
                 f"{where}: `{key}` is a mapping of settings.",
                 code="config.option.wrong_type", option=str(key), context=DEFAULTS_FILE,
                 expected_type="mapping", found_type=type(data[key]).__name__)
+        for setting in data[key]:
+            name = f"{key}.{setting}"
+            if name in _ONE_STUDY_S:
+                raise ConfigError(
+                    f"{where} sets `{name}`, which names the study one study continues "
+                    "or is prepared from: every new study made here would continue it. "
+                    "It belongs to that study's config.",
+                    code="config.option.inapplicable", option=name, context=DEFAULTS_FILE)
     try:
         # Checked as part of a config: every setting known, every value one
         # the schema accepts. On a copy: the check settles some values in

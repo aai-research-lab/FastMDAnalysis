@@ -67,6 +67,29 @@ def test_the_file_is_checked_as_part_of_a_config(tmp_path):
         assert DEFAULTS_FILE in str(caught.value)
 
 
+@pytest.mark.parametrize("setting, value", [
+    ("resume_from", "runs/old"), ("resume_unsealed", True),
+    ("setup_from", "runs/old"), ("prepared_from", "runs/old"),
+])
+def test_a_setting_of_one_study_is_refused_in_the_file(tmp_path, setting, value):
+    """The study one study continues or is prepared from is that study's:
+    in the file, every new study made in the folder would continue it."""
+    from fastmdxplora.config.defaults_file import write_defaults
+
+    with pytest.raises(ConfigError) as caught:
+        read_defaults(_write(tmp_path, {"simulation": {"temperature_K": 310, setting: value}}))
+    assert caught.value.code == "config.option.inapplicable"
+    assert caught.value.refusal.details["option"] == f"simulation.{setting}"
+    assert DEFAULTS_FILE in str(caught.value) and f"simulation.{setting}" in str(caught.value)
+    # Nor written into one (Settings' This folder), the file left as it was.
+    where = _write(tmp_path / "written")
+    before = where.read_text()
+    with pytest.raises(ConfigError) as caught:
+        write_defaults(where, given={f"simulation.{setting}": value})
+    assert caught.value.code == "config.option.inapplicable"
+    assert where.read_text() == before
+
+
 # ---------------------------------------------------------------------------
 # What they fill
 # ---------------------------------------------------------------------------

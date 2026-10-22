@@ -15,19 +15,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+# The settings that name another study, which a defaults file refuses:
+# not offered.
+from fastmdxplora.config.defaults_file import _ONE_STUDY_S
+
 __all__ = ["defaults_changed", "defaults_said", "has_comments"]
 
 #: The controls This folder draws; a setting drawn another way (a list of
 #: residues, a stopping rule, a script, a mapping) is shown as the file
 #: holds it and changed by hand.
 _DRAWN = {"select", "number", "checkbox", "tristate", "text", "list", "multiselect"}
-
-
-#: Settings that name another study, which a study continues or is
-#: prepared from: one study's, never every new study's in a folder.
-_ONE_STUDY_S = {"simulation.resume_from", "simulation.resume_unsealed",
-                "simulation.setup_from", "simulation.prepared_from"}
-
 
 def has_comments(text: str) -> bool:
     """Whether YAML ``text`` has a comment: a ``#`` that starts a line or

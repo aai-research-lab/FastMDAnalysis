@@ -158,6 +158,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   leg runs the tests that drive no browser on every core and the browser
   tests one at a time after them; tests held to what the code now does.
 
+- A defaults file that sets `simulation.resume_from`, `setup_from`,
+  `prepared_from` or `resume_unsealed` is refused, as one that sets
+  `systems` is: each names the study one study continues or is prepared
+  from, and in the file every new study made in the folder would have
+  continued it.
+
 - The Agent's mode and GPU-hour ceiling are saved as they are chosen: a
   reload put the Agent back in Seeker with no ceiling, whatever was set.
 
