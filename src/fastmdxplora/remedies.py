@@ -643,6 +643,12 @@ def _resume(code: str, why: str, where: str, folders: list[Path],
         if any(checkpoint is None for checkpoint in checkpoints):
             family = ("Open the owning study's Overview to check its checkpoints "
                       "before choosing how to continue.")
+        elif "checkpoint" in why:
+            # The stop's own words already say there is no checkpoint (a
+            # run stopped in equilibration): said again here, the card
+            # read the same sentence twice.
+            family = ("Run it again from the start." if carried == 1 else
+                      "Run them again from the start.")
         else:
             family = ("Run it again: it stopped before production, so it wrote no "
                       "checkpoint to carry on from." if carried == 1 else
@@ -1137,8 +1143,9 @@ def _speed(folder: Path | None, study: Path | None) -> tuple[float | None, str]:
 
 
 def _speed_it_recorded(folder: Path) -> tuple[float | None, str]:
-    """Seconds per nanosecond from the last production sample of a run's
-    live record that measured a speed, and its platform."""
+    """Seconds per nanosecond from a run's live record, and its platform:
+    its production samples, or its equilibration's where it stopped before
+    production."""
     from datetime import datetime
 
     from fastmdxplora.gui.telemetry import read_metrics, read_status
@@ -1154,23 +1161,21 @@ def _speed_it_recorded(folder: Path) -> tuple[float | None, str]:
     # priced a stop's remainder three times what the sidebar's time left
     # said.
     timestep = status.get("timestep_fs")
-    taken = []
+    taken: dict[str, list[tuple[datetime, float]]] = {"production": [], "equilibration": []}
     for row in rows:
-        if "production" not in str(row.get("stage") or "").lower():
+        stage = str(row.get("stage") or "").lower()
+        kind = next((k for k in taken if k in stage), None)
+        if kind is None:
             continue
         try:
             step = float(row.get("step"))
             when = datetime.fromisoformat(str(row.get("timestamp")).replace("Z", "+00:00"))
         except (TypeError, ValueError):
             continue
-        taken.append((when, step))
-    if isinstance(timestep, (int, float)) and timestep > 0 and len(taken) >= 2:
-        (began, first), (ended, last) = taken[0], taken[-1]
-        seconds = (ended - began).total_seconds()
-        ns = (last - first) * timestep * 1e-6
-        # Seconds apart at least, or the clock's resolution is the rate.
-        if seconds >= 5 and ns > 0:
-            return seconds / ns, platform
+        taken[kind].append((when, step))
+    rate = _rate_of(taken["production"], timestep)
+    if rate is not None:
+        return rate, platform
     for row in reversed(rows):
         if "production" not in str(row.get("stage") or "").lower():
             continue
@@ -1180,7 +1185,24 @@ def _speed_it_recorded(folder: Path) -> tuple[float | None, str]:
             continue
         if speed > 0:
             return 86400.0 / speed, platform
+    # Stopped before production: its equilibration's steps cost what
+    # production's do on the same system and machine. A run stopped six
+    # minutes into NVT said no speed had been measured here.
+    rate = _rate_of(taken["equilibration"], timestep)
+    if rate is not None:
+        return rate, platform
     return None, ""
+
+
+def _rate_of(taken: list, timestep: Any) -> float | None:
+    """Seconds per nanosecond between the first and last (time, step)."""
+    if not (isinstance(timestep, (int, float)) and timestep > 0 and len(taken) >= 2):
+        return None
+    (began, first), (ended, last) = taken[0], taken[-1]
+    seconds = (ended - began).total_seconds()
+    ns = (last - first) * timestep * 1e-6
+    # Seconds apart at least, or the clock's resolution is the rate.
+    return seconds / ns if seconds >= 5 and ns > 0 else None
 
 
 def _from_the_top(root: Path, spec: Any) -> Price | None:

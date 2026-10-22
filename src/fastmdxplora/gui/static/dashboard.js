@@ -779,6 +779,7 @@
     state.analysisSectionsKey = "";
     state.status = {};
     state.health = {};
+    state.times = {};
     state.results = {};
     state.analysisCount = 0;
     state.structureInfo = null;
@@ -870,6 +871,7 @@
     if (!state.appState?.active_run) {
       state.status = {};
       state.health = {};
+      state.times = {};
       state.stages = [];
       state.phases = [];
       renderTopBar({}, {});
@@ -1780,7 +1782,20 @@
       if (body) body.textContent = said.body;
       if (actions) actions.hidden = !said.offerToStart;
     }
-    if (nothing) return;
+    if (nothing) {
+      // The Overview's line under the study's name is read from these
+      // cells: left as they were, a study just opened said the last one's
+      // length, wall time and last update until its own first status.
+      ["live-simtime-cell", "live-elapsed-cell", "live-lastupdate-cell"]
+        .forEach((id) => setText(id, "\u2014"));
+      setText("live-simtime-label", "");
+      const note = byId("live-simtime-note");
+      if (note) {
+        note.textContent = "";
+        note.hidden = true;
+      }
+      return;
+    }
 
     const pct = progressPercent(status);
     setWidth("live-progress-fill", pct);

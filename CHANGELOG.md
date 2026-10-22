@@ -61,6 +61,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `left_out_of_bundle.txt` inside the bundle and in the report. A
   chignolin study's bundle was 7.3 GB.
 
+- A study just started no longer shows the last study's length, wall time
+  and last update under its name on the Overview until its own first
+  status arrives.
+- The NVT equilibration's box, in ns, said "Not set: 500 ps"; it says
+  "0.5 ns (500 ps)", so the number read is the number to type.
+- A run stopped before production is priced at the speed its
+  equilibration measured, not "no speed has been measured here". A run
+  stopped as asked is under "To carry it on" rather than "What would fix
+  it", and says it wrote no checkpoint once, not twice.
+- The New study form's results folder says its timestamp is UTC, as the
+  docs do: the folder read 23:48 beside a log at 16:48.
+
 - New study: a spelling offered for a refused value, once pressed, takes the
   refusal's mark off its field at once.
 - An older answer about your machines no longer replaces a newer one (or

@@ -2598,7 +2598,7 @@
       : ((el("run-topology") && el("run-topology").value.trim()) || "");
     const slug = system ? system.split(/[\\/]/).pop().replace(/\.[^.]+$/, "")
       .replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 40) : "";
-    return "fastmdxplora" + (slug ? "_" + slug : "") + "_study_<timestamp>";
+    return "fastmdxplora" + (slug ? "_" + slug : "") + "_study_<UTC timestamp>";
   }
 
   function ready() {

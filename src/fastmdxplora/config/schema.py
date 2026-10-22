@@ -1350,7 +1350,8 @@ UNSET_MEANS: dict[str, str] = {
     "setup.hydrogen_mass_amu": "off",
     "setup.mutation_chain": "the first chain",
     "simulation.duration_ns": "2 ns",
-    "simulation.nvt_duration_ns": "500 ps",
+    # In the box's own unit: "500 ps" over a box in ns read as 500.
+    "simulation.nvt_duration_ns": "0.5 ns (500 ps)",
     "simulation.npt_duration_ns": "1 ns",
     "simulation.ensemble": "as the NPT stage implies",
     "simulation.random_seed": "a different seed each run",
