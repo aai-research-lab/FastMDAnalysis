@@ -211,7 +211,7 @@ def test_a_study_another_window_opens_during_a_launch_takes_no_words(tmp_path, m
     assert words not in kept.get(study_key(other), "")
     assert words not in kept.get(left, ""), kept
     assert kept.get(run) == words, kept
-    # Named with its folder (L12 F8).
-    assert "The unsent message typed for the run's study (run2) is saved for it, not put here" \
+    # Named by its folder alone, as every note names a study (L12 F8, L20).
+    assert "The unsent message typed for run2 is saved for it, not put here" \
         in said, said
     assert errors == []

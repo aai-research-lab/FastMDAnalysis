@@ -1549,8 +1549,9 @@
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
       unsentKey = follow;
-      /* Named by its folder, as notes name a study (CI-774 review L12). */
-      unsentTitle = runFolders[follow] ? "the run's study (" + runFolders[follow] + ")" : "the run's study";
+      /* Named by its folder alone, as every note names a study (CI-774
+       * reviews L12, L20). */
+      unsentTitle = runFolders[follow] || "the run's study";
     }
     var area = el("agent-request");
     var typed = boxNow();
