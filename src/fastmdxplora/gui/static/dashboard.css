@@ -5653,7 +5653,9 @@ html[data-page="viewer"] .page-shell { --shell-pad-bottom: 0px; padding-bottom: 
 .agent-drawer-spacer { flex: 1; }
 .agent-drawer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 0 0 16px; }
 .agent-drawer .agent-thread { padding-right: 12px; }
-.agent-drawer .agent-start { margin: 16px 0 8px; padding-right: 12px; }
+/* Beside a short page the opening words shrink and scroll: they pushed
+   the box and the line under it below the drawer, under the status bar. */
+.agent-drawer .agent-start { flex: 0 1 auto; min-height: 0; overflow-y: auto; margin: 16px 0 8px; padding-right: 12px; }
 .agent-drawer .agent-start-title { font-size: var(--text-lg); }
 .agent-drawer .agent-msg-user { max-width: 88%; }
 .agent-drawer .agent-composer { padding-right: 12px; background: var(--background-primary); }
