@@ -63,8 +63,10 @@ minimum in g(r) — never assumed, because the radius decides the number.
 `image_check` runs first on every study with a solute in a periodic box, as
 `gmx mindist -pi` does the check: in each frame, made whole along its bonds,
 the closest approach of any heavy atom of the solute (the scope's, the
-protein and any ligand) to any heavy atom of its images within two cells
-either way, in a cell of any shape, found with a k-d tree; kept as a series
+protein and any ligand) to any heavy atom of its images, every image the
+solute could reach searched (the shifts enumerated from the closest approach
+plus the solute's diameter, however many cells that is), in a cell of any
+shape, found with a k-d tree; kept as a series
 (`image_check.dat`), with the frames under the cutoff (`cutoff_nm`, 1.0 nm,
 the cutoff setup uses by default) and under 0.5 nm counted, and the closest
 approach with its frame, its time and its two atoms (`findings.solute_image`).

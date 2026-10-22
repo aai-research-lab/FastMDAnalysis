@@ -467,8 +467,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - Every study with a solute in a periodic box is checked frame by frame
   against its own periodic images (`image_check`, run first, as
   `gmx mindist -pi` checks it): the closest approach of any solute heavy
-  atom to any heavy atom of its images within two cells, each frame made
-  whole along its bonds, in a cell of any shape, kept as a series with the
+  atom to any heavy atom of every image it could reach (searched as far as
+  the solute spans, not a fixed two cells), each frame made whole along its
+  bonds, in a cell of any shape, kept as a series with the
   frames under the 1.0 nm cutoff and under 0.5 nm counted. Where the solute
   reaches its image, every analysis of those frames reads that one finding:
   each mean is given without its error bar and with the reason, where the

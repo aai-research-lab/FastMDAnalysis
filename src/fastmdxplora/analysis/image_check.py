@@ -22,15 +22,19 @@ bond shorter than half the cell's narrowest width. Where the solute is
 several molecules (chains, a ligand), each keeps the place the loader gave it
 beside the others (:func:`fastmdxplora.analysis.loading._made_whole`).
 
-**The images searched.** Every lattice vector ``L = i a + j b + k c`` with
-``i, j, k`` from -2 to 2 but not all zero (two cells either way, in any cell
-shape, triclinic included), and for each the nearest pair between the solute
-and its image ``L`` away, found with a k-d tree. ``L`` and ``-L`` give the
-same distance, so half are searched; and an image whose shift is longer than
-the closest approach found so far plus the solute's diameter cannot be
-closer, so the search stops there. Frames where it did not stop before the
-two cells ran out are counted: an image further away than two cells could
-not be ruled out in them.
+**The images searched.** Every lattice vector ``L = i a + j b + k c`` that
+could carry an image closer than the closest found, in any cell shape,
+triclinic included, and for each the nearest pair between the solute and its
+image ``L`` away, found with a k-d tree. An image ``L`` away can come within
+``best`` of the solute only if ``|L| < best + 2r`` (``r`` the solute's
+reach from its centre), and every lattice vector that short has
+``|i| <= (best + 2r) |c_1|`` (and the same for ``j`` and ``k``), ``c_n`` the
+columns of the inverse cell. So the shifts searched are enumerated from that
+reach, with ``best`` first taken over the 26 neighbouring cells: a solute
+spanning several cells is searched as far as it reaches, and no frame is
+settled with a shorter vector unsearched. ``L`` and ``-L`` give the same
+distance, so half are searched, shortest first, stopping where
+``|L| - 2r`` passes the closest approach found.
 
 The check's finding (``findings.solute_image``) is the one finding every
 other analysis of the same frames reads (the orchestrator hands it to each):
@@ -60,9 +64,6 @@ CUTOFF_NM = 1.0
 #: Closer than this, the solute is in contact with its own copy, not merely
 #: within the cutoff of it.
 CLOSE_NM = 0.5
-
-#: How many cells either way the images are searched.
-SEARCHED_CELLS = 2
 
 #: Frames made whole and searched at a time, so memory stays bounded.
 FRAMES_AT_A_TIME = 1000
@@ -130,33 +131,39 @@ def made_whole(xyz: np.ndarray, boxes: np.ndarray,
     return xyz
 
 
-def _shifts(cells: int = SEARCHED_CELLS) -> np.ndarray:
-    """The lattice shifts searched, one of each pair L and -L."""
-    span = np.arange(-cells, cells + 1)
-    every = np.array(np.meshgrid(span, span, span, indexing="ij")).reshape(3, -1).T
-    first = np.array([row[np.nonzero(row)[0][0]] if row.any() else 0 for row in every])
-    return every[first > 0].astype(np.float64)
+def _half(every: np.ndarray) -> np.ndarray:
+    """One of each pair of shifts L and -L, the zero shift left out."""
+    nonzero = every[np.any(every != 0, axis=1)]
+    first = nonzero[np.arange(len(nonzero)), np.argmax(nonzero != 0, axis=1)]
+    return nonzero[first > 0]
 
 
-def nearest_image(points: np.ndarray, box: np.ndarray,
-                  shifts: np.ndarray) -> tuple[float, int, int, bool]:
-    """The closest approach of ``points`` to their images ``shifts @ box``
-    away: the distance, the atom (a position in ``points``), the atom whose
-    image it is, and whether the search stopped before the shifts ran out
-    (an image further away could not then be closer)."""
-    from scipy.spatial import cKDTree
+#: The 26 neighbouring cells, one of each pair: where the first closest
+#: approach is found, from which the reach to search is worked out.
+_NEIGHBOURS = _half(np.array(np.meshgrid(*[np.arange(-1, 2)] * 3, indexing="ij"))
+                    .reshape(3, -1).T).astype(np.float64)
 
-    centre = points.mean(axis=0)
-    radius = float(np.sqrt(((points - centre) ** 2).sum(axis=1).max()))
-    lattice = shifts @ box
+
+def shifts_within(reach: float, box: np.ndarray) -> np.ndarray:
+    """Every lattice shift ``n`` (one of each pair) whose vector ``n @ box``
+    could be shorter than ``reach``: ``|n_i| <= reach |c_i|``, ``c_i`` the
+    i-th column of the inverse cell, which bounds every lattice vector of
+    that length exactly."""
+    columns = np.sqrt((np.linalg.inv(box) ** 2).sum(axis=0))
+    bound = np.floor(reach * columns + 1e-9).astype(int)
+    spans = [np.arange(-b, b + 1) for b in bound]
+    every = np.array(np.meshgrid(*spans, indexing="ij")).reshape(3, -1).T
+    return _half(every).astype(np.float64)
+
+
+def _closest_over(points: np.ndarray, tree: Any, centre: np.ndarray, radius: float,
+                  lattice: np.ndarray, best: float, near: tuple[int, int]
+                  ) -> tuple[float, tuple[int, int]]:
     lengths = np.sqrt((lattice ** 2).sum(axis=1))
-    order = np.argsort(lengths, kind="stable")
-    tree = cKDTree(points)
-    best, near_atom, image_atom = np.inf, -1, -1
-    for k in order:
+    for k in np.argsort(lengths, kind="stable"):
         # |x_j + L - x_i| >= |L| - |x_j - c| - |x_i - c| >= |L| - 2r.
         if lengths[k] - 2.0 * radius >= best:
-            return best, near_atom, image_atom, True
+            break
         image = points + lattice[k]
         # An image atom within `best` of any atom is within r + best of the centre.
         candidates = np.nonzero(((image - centre) ** 2).sum(axis=1)
@@ -167,8 +174,27 @@ def nearest_image(points: np.ndarray, box: np.ndarray,
         which = int(np.argmin(found))
         if found[which] < best:
             best = float(found[which])
-            near_atom, image_atom = int(nearest[which]), int(candidates[which])
-    return best, near_atom, image_atom, False
+            near = (int(nearest[which]), int(candidates[which]))
+    return best, near
+
+
+def nearest_image(points: np.ndarray, box: np.ndarray) -> tuple[float, int, int, int]:
+    """The closest approach of ``points`` to their own periodic images in the
+    cell ``box`` (rows the cell vectors): the distance, the atom (a position
+    in ``points``), the atom whose image it is, and the most cells away any
+    shift searched went. Every image that could be closer is searched
+    (:func:`shifts_within`)."""
+    from scipy.spatial import cKDTree
+
+    centre = points.mean(axis=0)
+    radius = float(np.sqrt(((points - centre) ** 2).sum(axis=1).max()))
+    tree = cKDTree(points)
+    best, near = _closest_over(points, tree, centre, radius, _NEIGHBOURS @ box,
+                               np.inf, (-1, -1))
+    shifts = shifts_within(best + 2.0 * radius, box)
+    best, near = _closest_over(points, tree, centre, radius, shifts @ box, best, near)
+    furthest = int(np.abs(shifts).max()) if shifts.size else 1
+    return best, near[0], near[1], max(furthest, 1)
 
 
 def _atom_said(topology, index: int) -> str:
@@ -204,20 +230,19 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             "check against its images.",
             code="analysis.selection.empty", expression=None, role="solute")
     steps, how = walk(traj.topology, heavy)
-    shifts = _shifts()
     n = traj.n_frames
     distances = np.empty(n, dtype=np.float64)
     pairs = np.empty((n, 2), dtype=np.int64)
-    open_ended = 0
+    furthest = 1
     for low in range(0, n, FRAMES_AT_A_TIME):
         high = min(low + FRAMES_AT_A_TIME, n)
         boxes = np.asarray(traj.unitcell_vectors[low:high], dtype=np.float64)
         xyz = made_whole(np.asarray(traj.xyz[low:high][:, heavy], dtype=np.float64),
                          boxes, steps)
         for f in range(high - low):
-            d, i, j, closed = nearest_image(xyz[f], boxes[f], shifts)
+            d, i, j, cells = nearest_image(xyz[f], boxes[f])
             distances[low + f], pairs[low + f] = d, (i, j)
-            open_ended += not closed
+            furthest = max(furthest, cells)
 
     frame = int(np.argmin(distances))
     nearest = float(distances[frame])
@@ -241,8 +266,9 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
         "fraction_under_close": close / n,
         "heavy_atoms": int(heavy.size),
         "made_whole": how,
-        "searched_cells": SEARCHED_CELLS,
-        "frames_beyond_not_ruled_out": int(open_ended),
+        # Every image within the solute's reach was searched; the most
+        # cells away that took, in any frame.
+        "most_cells_searched": int(furthest),
         "narrowest_width_nm": [float(np.min(widths)), float(np.max(widths))],
         "reaches_its_image": bool(under),
     }
@@ -264,11 +290,6 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             f"The solute comes no closer than {nearest:.3f} nm to its own periodic "
             f"image ({when}: {atoms_said}), outside the {cutoff_nm:g} nm cutoff in "
             f"every one of {n:,} frames.")
-    if open_ended:
-        record["said"] += (
-            f" In {open_ended:,} frames the solute is long enough against the cell "
-            f"that an image further than {SEARCHED_CELLS} cells away could not be "
-            "ruled out.")
     return distances, record
 
 

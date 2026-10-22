@@ -318,3 +318,76 @@ class TestEveryAnalysisOfTheFramesReadsIt:
                                             str(folder.parent / "top.pdb"),
                                             output_dir=folder.parent / "again")
         assert orchestrator._build_plan(None, None)[0] == "image_check"
+
+
+def _chains_spanning(span: float, box: np.ndarray, seed: int,
+                     n_chains: int = 2) -> md.Trajectory:
+    """``n_chains`` chains of 0.38 nm steps, one after the other, together
+    spanning about ``span`` nm along a random direction, one frame, whole."""
+    rng = np.random.default_rng(seed)
+    direction = rng.normal(size=3)
+    direction /= np.linalg.norm(direction)
+    per_chain = 16
+    top = md.Topology()
+    xyz = []
+    start = np.zeros(3)
+    for _ in range(n_chains):
+        chain = top.add_chain()
+        previous = None
+        steps = rng.normal(size=(per_chain, 3)) * 0.6 + direction * (
+            span / (n_chains * per_chain * 0.38))
+        steps = 0.38 * steps / np.linalg.norm(steps, axis=1)[:, None]
+        path = start + np.cumsum(steps, axis=0)
+        for i, point in enumerate(path):
+            residue = top.add_residue("ALA", chain, resSeq=i + 1)
+            atom = top.add_atom("CA", md.element.carbon, residue)
+            if previous is not None:
+                top.add_bond(previous, atom)
+            previous = atom
+            xyz.append(point)
+        # The next chain begins beside where this one ended, as a complex.
+        start = path[-1] + 0.45 * direction
+    traj = md.Trajectory(np.asarray(xyz, dtype=np.float32)[None], top)
+    traj.unitcell_vectors = box[None].astype(np.float32)
+    return traj
+
+
+def _brute_far(points: np.ndarray, box: np.ndarray, cells: int) -> float:
+    shifts = np.array([s for s in itertools.product(range(-cells, cells + 1), repeat=3)
+                       if any(s)], dtype=np.float64) @ box
+    best = np.inf
+    for shift in shifts:
+        best = min(best, float(cdist(points, points + shift).min()))
+    return best
+
+
+class TestEveryImageWithinReachIsSearched:
+    """A solute spanning several cells is searched as far as it reaches: a
+    fixed two cells either way left lattice vectors unsearched that are
+    shorter than ones searched (in a dodecahedron 2.24 d against 4.47 d)."""
+
+    @pytest.mark.parametrize("shape,cell", [
+        ("cube", lambda d: np.diag([d, d, d])),
+        ("dodecahedron", _dodecahedron),
+        ("octahedron", _octahedron),
+    ])
+    def test_as_far_as_the_solute_spans(self, shape, cell):
+        wrong = []
+        for k, factor in enumerate((1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.4, 3.8)):
+            for seed in range(3):
+                box = np.asarray(cell(2.0), dtype=np.float64)
+                widths = 1.0 / np.sqrt((np.linalg.inv(box) ** 2).sum(axis=0))
+                traj = _chains_spanning(factor * widths.min(), box, seed=100 * k + seed)
+                found, _ = solute_image_record(traj, np.arange(traj.n_atoms))
+                points = traj.xyz[0].astype(np.float64)
+                cells = np.asarray(traj.unitcell_vectors[0], dtype=np.float64)
+                # Every lattice vector shorter than |a| + 2r (|a| bounds the
+                # closest approach) has |n_i| <= that times |column i| of
+                # the inverse cell: brute force over all of those.
+                radius = np.sqrt(((points - points.mean(axis=0)) ** 2).sum(axis=1).max())
+                reach = np.linalg.norm(cells[0]) + 2 * radius
+                far = int(np.ceil(reach * np.sqrt((np.linalg.inv(cells) ** 2).sum(axis=0)).max()))
+                expected = _brute_far(points, cells, cells=far)
+                if abs(found[0] - expected) > 1e-6:
+                    wrong.append((factor, seed, float(found[0]), expected))
+        assert not wrong, wrong
