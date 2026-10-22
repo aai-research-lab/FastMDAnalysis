@@ -785,3 +785,49 @@ def test_a_path_is_left_out_whole_and_the_words_about_it_stay(tmp_path):
     assert [(n["said"], n["id"]) for n in before] == [
         ("The folder could not be read", "event::2026-10-21T10:00:00Z:The folder could not be read")]
     assert saved == [said for _, said in PATHS_AND_WORDS]
+
+
+UNDO_TOAST = """(said) => window.FastMDXDashboard.toast(said, 'ok',
+    {label: 'Undo', run: () => { window.undone = (window.undone || 0) + 1; }})"""
+ON = "() => document.activeElement.textContent"
+
+
+def test_a_notice_s_undo_beside_the_open_list_is_reached_by_tab(tmp_path):
+    """With the list open, Tab goes round its buttons and the Undo of a
+    notice shown beside it; Undo done gives the keyboard back to the list,
+    a notice saved meanwhile leaves it where it was, and Escape on the Undo
+    closes the list."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        page = _page(browser, url, "#overview")
+        page.evaluate(UNDO_TOAST, "Saved the tags and note of alpha.")
+        page.click("#sb-notices")
+        went = []
+        for key in ["Tab"] * 6 + ["Shift+Tab"] * 2:
+            page.keyboard.press(key)
+            went.append(page.evaluate(ON))
+        page.keyboard.press("Enter")
+        undone = page.evaluate("() => [window.undone, document.getElementById('notices').hidden]")
+        after_undo = page.evaluate(ON)
+        # Another notice with Undo while the keyboard is in the list.
+        page.keyboard.press("Tab")
+        page.evaluate(UNDO_TOAST, "Saved the tags and note of beta.")
+        page.wait_for_function("() => window.FastMDXNotices.all.length === 2")
+        kept = page.evaluate(ON)
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Shift+Tab")
+        on_undo = page.evaluate(ON)
+        page.keyboard.press("Escape")
+        closed = page.evaluate("() => [document.getElementById('notices').hidden, document.activeElement.id]")
+        errors = page.errors
+        browser.close()
+    assert errors == []
+    assert went == ["Runs", "Refusals and warnings", "Clear the list", "Undo", "All", "Runs", "All", "Undo"]
+    assert undone == [1, False] and after_undo == "All"
+    assert kept == "Runs"
+    assert on_undo == "Undo"
+    assert closed == [True, "sb-notices"]

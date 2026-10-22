@@ -281,7 +281,7 @@
     if (notices.length > MOST) notices.length = MOST;
     write();
     drawBell();
-    if (!panel().hidden) drawList();
+    if (!panel().hidden) drawAgain();
   }
 
   /* ---- What is saved ---- */
@@ -398,27 +398,49 @@
     box.setAttribute("aria-label", "Notices");
     // Keys pressed in the list stay in it: Escape closes the list alone,
     // and a page's own keys (All studies' c, j, k, t, x) do nothing under
-    // it. Tab goes round its buttons: the keyboard stays in the open list
-    // until Escape or a choice closes it.
+    // it. Tab goes round its buttons and a notice's Undo beside it: the
+    // keyboard stays with the open list until Escape or a choice closes it.
     box.addEventListener("keydown", function (event) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       event.stopPropagation();
       if (event.key === "Escape") { event.preventDefault(); close(true); return; }
-      if (event.key !== "Tab") return;
-      var stops = Array.prototype.filter.call(box.querySelectorAll("button"), function (b) {
-        return !b.disabled && b.offsetParent !== null;
-      });
-      if (!stops.length) { event.preventDefault(); return; }
-      var at = stops.indexOf(document.activeElement);
-      var last = stops.length - 1;
-      if (event.shiftKey ? at <= 0 : at === last || at < 0) {
-        event.preventDefault();
-        stops[event.shiftKey ? last : 0].focus();
-      }
+      if (event.key === "Tab") goRound(event);
     });
     document.body.appendChild(box);
     return box;
   }
+
+  /* What Tab goes round while the list is open: its buttons, then the
+   * action (Undo) of a notice shown beside it, while that notice shows. */
+  function stops() {
+    function offered(b) { return !b.disabled && b.offsetParent !== null; }
+    var inList = Array.prototype.filter.call(panel().querySelectorAll("button"), offered);
+    var toast = el("dashboard-toast");
+    var beside = toast && toast.classList.contains("show") ?
+      Array.prototype.filter.call(toast.querySelectorAll(".dashboard-toast-action"), offered) : [];
+    return inList.concat(beside);
+  }
+
+  function goRound(event) {
+    event.preventDefault();
+    var all = stops();
+    if (!all.length) return;
+    var at = all.indexOf(document.activeElement);
+    var last = all.length - 1;
+    all[event.shiftKey ? (at <= 0 ? last : at - 1) : (at < 0 || at === last ? 0 : at + 1)].focus();
+  }
+
+  // On that notice's action, Tab goes on round the list, and Escape
+  // closes the list as in it.
+  document.addEventListener("keydown", function (event) {
+    var box = el("notices");
+    if (!box || box.hidden || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!event.target.closest || !event.target.closest("#dashboard-toast")) return;
+    if (event.key !== "Tab" && event.key !== "Escape") return;
+    event.stopPropagation();
+    if (event.key === "Escape") { event.preventDefault(); close(true); return; }
+    goRound(event);
+  }, true);
 
   var KINDS = { all: "All", runs: "Runs", refused: "Refusals and warnings" };
   function shownNow() {
@@ -523,6 +545,18 @@
     box.appendChild(foot);
   }
 
+  /* The open list drawn again for a notice saved meanwhile, here or in
+   * another window: the keyboard stays where it was in it (a notice's
+   * Open its Overview, moved by the new one, gives it to the chip shown). */
+  function drawAgain() {
+    var on = document.activeElement;
+    if (!panel().contains(on)) { drawList(); return; }
+    var named = /\bnotices-(?:clear|undo)\b/.exec(on.className);
+    drawList();
+    refocus(on.dataset.show ? "[data-show='" + on.dataset.show + "']" :
+      named ? "." + named[0] : ".notices-chip[aria-pressed='true']");
+  }
+
   function refocus(selector) {
     var node = panel().querySelector(selector);
     if (node) node.focus();
@@ -584,6 +618,12 @@
     }
     document.addEventListener("click", function (event) {
       var box = el("notices");
+      // The action of a notice beside the open list, done: the keyboard
+      // back in the list.
+      if (box && !box.hidden && event.target.classList && event.target.classList.contains("dashboard-toast-action")) {
+        refocus(".notices-chip[aria-pressed='true']");
+        return;
+      }
       // A click in the list that drew it again took its target out of the
       // page: still in the list.
       if (!event.target.isConnected) return;
@@ -594,7 +634,7 @@
       if (event.key !== SAVED && event.key !== SEEN) return;
       read();
       drawBell();
-      if (!panel().hidden) drawList();
+      if (!panel().hidden) drawAgain();
     });
     watchToast();
     drawBell();
