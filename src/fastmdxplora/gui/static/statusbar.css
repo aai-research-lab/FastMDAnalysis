@@ -81,3 +81,12 @@ body:not(.has-study) .sb-live { display: none; }
     .status-bar, .sb-stop-ask { display: none; }
     .app-shell, .sidebar, .main { height: auto; }
 }
+
+/* Printed: no strip, and the columns the page's length. Loaded after
+ * dashboard.css, the heights above outranked its print rules, and the
+ * Report printed its first screen and stopped. */
+@media print {
+    :root { --status-bar-height: 0px; }
+    .status-bar, .sb-stop-ask { display: none !important; }
+    .app-shell, .sidebar, .main, .side-panel { height: auto; }
+}
