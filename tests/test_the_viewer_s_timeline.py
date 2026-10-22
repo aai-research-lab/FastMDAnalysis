@@ -44,10 +44,44 @@ def test_the_marks_are_read_from_the_records(tmp_path):
     assert [m["frame"] for m in medoids] == [2, 4]
     assert medoids[0]["label"] == "The medoid of kmeans cluster 0, 50% of the frames"
     assert [m["time_ns"] for m in checks] == [0.004, 0.008]
-    # In the words the report says them in (`stopping._DECIDED`).
-    assert checks[0]["label"] == "Judged after round 1: extended by 0.004 ns"
-    assert checks[1]["label"] == "Judged after round 2: stopped: determined as asked"
+    # As every page and the report say a round (`stopping.round_decided`).
+    assert checks[0]["label"] == "Judged after round 1: the run extended by 4 ps"
+    assert checks[1]["label"] == "Judged after round 2: determined as asked, so stopped"
     assert timeline_payload(tmp_path / "nothing") == {"ok": True, "marks": []}
+
+
+@pytest.mark.parametrize("rounds, outcome, said, labels", [
+    ([{"production_ns": 0.5, "decision": "extend", "more_ns": 0.25},
+      {"production_ns": 0.75, "decision": "stopped", "stopped_by": "error"}], "stopped",
+     "Stopped: extending study failed at simulation: CUDA_ERROR_OUT_OF_MEMORY",
+     ["Judged after round 1: the run extended by 250 ps",
+      "Judged after round 2: stopped by an error while the run was extended"]),
+    ([{"production_ns": 0.5, "decision": "stopped"}], "stopped",
+     "Stopped when asked, while extending study. Resuming the study judges the runs again "
+     "and carries on from there.",
+     ["Judged after round 1: stopped when asked (Ctrl+C or a signal) while the run was "
+      "extended"]),
+    ([{"production_ns": 0.5, "decision": "extend", "more_ns": 0.0995}], "running",
+     "Extending by 99.5 ps, to 599.5 ps of the 5 ns allowed.",
+     ["Judged after round 1: extending the run by 99.5 ps; the record does not say it "
+      "finished"]),
+], ids=["an error", "asked", "killed while extending"])
+def test_a_round_is_marked_as_the_report_and_the_timeline_say_it(tmp_path, rounds, outcome,
+                                                                  said, labels):
+    """The Viewer worded rounds its own way: "extended by 0.0995 ns" of an
+    extension the record does not say finished, and "stopped" with no
+    cause, where the report and the Timeline said what stopped it."""
+    from fastmdxplora.gui.timeline_view import timeline_payload
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    (tmp_path / "stopping.json").write_text(json.dumps({
+        "targets": [{"analysis": "rmsd", "standard_error": 0.01}], "runs": ["study"],
+        "rounds": rounds, "outcome": outcome, "said": said}), encoding="utf-8")
+    marks = [m["label"] for m in timeline_payload(tmp_path)["marks"] if m["kind"] == "check"]
+    assert marks == labels
+    table = "\n".join(stopping_section(tmp_path))
+    for label in labels:
+        assert f" | {label.split(': ', 1)[1]} |" in table
 
 
 def _loaded(root: Path, frame_times_ps: list[float] | None = None, **load_kwargs) -> None:

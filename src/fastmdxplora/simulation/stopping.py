@@ -791,9 +791,6 @@ def _said_met(verdicts: list[Verdict], production: float, runs: int, independent
 # The record, written up
 # ---------------------------------------------------------------------------
 
-_DECIDED = {"met": "stopped: determined as asked", "extend": "extended by {more:g} ns",
-            "ceiling": "stopped at the ceiling", "stopped": "stopped"}
-
 #: How `run_until_known` begins the record's sentence for a round stopped
 #: while it extended the runs: asked to stop (Ctrl+C, or a signal such as
 #: a scheduler's or the GUI's Stop), or an extension that failed. Read for
