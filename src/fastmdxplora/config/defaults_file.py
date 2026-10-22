@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = ["DEFAULTS_FILE", "YourDefaults", "defaults_for", "find_defaults",
-           "read_defaults", "refused_with", "with_defaults"]
+           "read_defaults", "refused_with", "with_defaults", "write_defaults"]
 
 DEFAULTS_FILE = "fastmdx-defaults.yml"
 
@@ -191,6 +191,111 @@ def read_defaults(path: str | Path) -> YourDefaults:
         whys[str(name)] = " ".join(why.split())
     return YourDefaults(where, {block: dict(settings) for block, settings in data.items()},
                         whys)
+
+
+def write_defaults(path: str | Path, *, given: dict[str, Any] | None = None,
+                   unset: list[str] | tuple[str, ...] | None = None,
+                   whys: dict[str, str | None] | None = None) -> YourDefaults:
+    """The defaults file at ``path`` written with the settings ``given`` (by
+    dotted name), without those ``unset``, and with each reason in ``whys``
+    (an empty one removes it), from GUI Settings' This folder.
+
+    What is written is read back as `read_defaults` reads any defaults
+    file, before it takes the file's place: a value the schema refuses or
+    a setting the file may not hold is refused with the same words, and
+    the file is left as it was. A reason goes with its setting: one for a
+    setting the file does not give is not written.
+    The file is written whole from what it says, its blocks in the order
+    the schema gives them and the reasons last, so comments in it would
+    be lost: Settings refuses a file with comments before it asks
+    (`gui/settings_page.py`). It is created where there is none.
+    """
+    import os
+    import stat
+    import tempfile
+
+    import yaml
+
+    from fastmdxplora.config.loader import ConfigError
+
+    where = Path(path)
+    data: dict[str, Any] = {}
+    if where.is_file():
+        try:
+            text = where.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ConfigError(f"{where} could not be read: {exc}",
+                              code="config.file.missing", path=str(where)) from exc
+        # Checked first: a file already wrong is said as it is, not
+        # written over with what was asked.
+        read_defaults(where)
+        loaded = yaml.safe_load(text)
+        data = dict(loaded) if isinstance(loaded, dict) else {}
+    decisions = data.pop("decisions", None) or {}
+    decisions = dict(decisions) if isinstance(decisions, dict) else {}
+
+    def split(name: str) -> tuple[str, str]:
+        block, _, key = str(name).partition(".")
+        if block not in _BLOCKS or not key or "." in key:
+            raise ConfigError(
+                f"`{name}` is not a setting your defaults may hold: they say how a study "
+                f"is simulated ({', '.join(_BLOCKS)}), one setting at a time.",
+                code="config.option.not_permitted", option=str(name),
+                context=DEFAULTS_FILE, permitted=list(_BLOCKS))
+        return block, key
+
+    for name, value in (given or {}).items():
+        block, key = split(name)
+        held = data.get(block)
+        data[block] = dict(held) if isinstance(held, dict) else {}
+        data[block][key] = value
+    for name in unset or ():
+        block, key = split(name)
+        held = data.get(block)
+        if isinstance(held, dict):
+            held = dict(held)
+            held.pop(key, None)
+            data[block] = held
+        decisions.pop(name, None)
+    for name, why in (whys or {}).items():
+        split(name)
+        said = " ".join(str(why or "").split())
+        if said:
+            decisions[name] = {"why": said}
+        else:
+            decisions.pop(name, None)
+    data = {block: data[block] for block in _BLOCKS
+            if isinstance(data.get(block), dict) and data[block]}
+    given_now = {f"{block}.{key}" for block, settings in data.items() for key in settings}
+    # A reason goes with its setting.
+    decisions = {name: said for name, said in decisions.items() if name in given_now}
+    if decisions:
+        data["decisions"] = decisions
+    where.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix=".fastmdx-defaults.", suffix=".yml",
+                                         dir=where.parent)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            yaml.safe_dump(data, out, sort_keys=False, allow_unicode=True,
+                           default_flow_style=False)
+        # Readable as the file was, or as a new file is here: a temporary
+        # file is its owner's alone, and a lab's shared file would become so.
+        if where.is_file():
+            os.chmod(temporary, stat.S_IMODE(where.stat().st_mode))
+        else:
+            mask = os.umask(0)
+            os.umask(mask)
+            os.chmod(temporary, 0o666 & ~mask)
+        try:
+            read_defaults(temporary)
+        except ConfigError as exc:
+            raise ConfigError(str(exc).replace(temporary, str(where)), code=exc.code,
+                              **exc.refusal.details) from exc
+        os.replace(temporary, where)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return read_defaults(where)
 
 
 def defaults_for(start: str | Path, *, home: str | Path | None = None) -> YourDefaults | None:

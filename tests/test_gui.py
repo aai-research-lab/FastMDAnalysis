@@ -507,8 +507,9 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
     # "live" was a page of its own; its panels are on the overview now.
     for page in ("overview", "viewer", "analysis", "files"):
         assert f'data-page="{page}"' in html
-    # Preferences and the citation are dialogs over any page.
-    assert 'id="prefs-dialog"' in html and 'id="cite-dialog"' in html
+    # The citation is a dialog over any page; Preferences are on the Settings page.
+    assert 'data-page="settings"' in html and 'id="cite-dialog"' in html
+    assert 'id="prefs-dialog"' not in html
 
     # Loading screen + branded particles
     assert "loading-screen" in html
