@@ -461,6 +461,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   counted on in its label's own form. A full disk while sharing or opening
   is refused with what to do, leaving nothing behind. See
   [Sharing](docs/sharing.md).
+
+- Every study with a solute in a periodic box is checked frame by frame
+  against its own periodic images (`image_check`, run first, as
+  `gmx mindist -pi` checks it): the closest approach of any solute heavy
+  atom to any heavy atom of its images within two cells, each frame made
+  whole along its bonds, in a cell of any shape, kept as a series with the
+  frames under the 1.0 nm cutoff and under 0.5 nm counted. Where the solute
+  reaches its image, every analysis of those frames reads that one finding:
+  each mean is given without its error bar and with the reason, where the
+  report, the Overview and the Agent read it, and an analysis with no mean
+  says it in its findings. `end_to_end` reads it rather than checking the
+  chain's two ends, a check that passed a chignolin chain which came to
+  0.261 nm of its own copy. It is not yet said while the run goes.
+
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's

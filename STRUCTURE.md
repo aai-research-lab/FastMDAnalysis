@@ -119,6 +119,7 @@ FastMDXplora/
 │       │   ├── pair_distance.py end_to_end.py moments_of_inertia.py rdf.py
 │       │   ├── coordination_number.py order_parameters.py bfactor_comparison.py
 │       │   ├── thermodynamics.py  # Density, energy and temperature, from the run's own record
+│       │   ├── image_check.py     # Every frame's solute against its own periodic images, read by every analysis
 │       │   ├── interaction_summary.py  # How often an interaction was there, and over how much
 │       │   ├── joining.py         # A study's pieces put back together, refused where they do not fit
 │       │   ├── residues.py        # How a residue is named in what the analyses write

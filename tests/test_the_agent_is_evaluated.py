@@ -1068,8 +1068,10 @@ RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-1
 #: count beside its duration); no verdict changed. Set again by
 #: `physics-restraints` (`restrain` takes a list of blocks as well as a
 #: selection) and `physics-nonbonded` (`dispersion_correction` the force
-#: field's own unless given); no verdict changed.
-ASKED_NOW = "daaeeb9ca9adfaee62ff6813faa84d12440d5b36e2790df064683377e6570def"
+#: field's own unless given); no verdict changed. Set again by `core-bounds`
+#: (`image_check` among the analyses `include` and `exclude` accept); no
+#: verdict changed.
+ASKED_NOW = "a6a410ccb1ffcf8761c4591123bbb520ac1319c1d415c178a92b5f4bbac1c337"
 
 
 def _asked_in_own_words(monkeypatch) -> list[str]:
@@ -1430,8 +1432,8 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 #: cases resolve what is named from the folders here, where the study the
 #: run was asked against is not.
 CONTEXT_ASKED_NOW = {
-    True: "5624a307422708eee0da547762fa7c6154841e4fa0699a7a9b22a763f19d988d",
-    False: "3fe22be96ab0d2982f63c6dc48d179261067e4b6d7b0f8b3ec2718ed36443438"}
+    True: "b3d755fd7e10152cf0d26d7e12adff5142e473fa2c6b8ae831ec197243d8471b",
+    False: "49680375b6f051109f33a2530272045dc25e631d16f000a85864a5b3ef0ad448"}
 
 
 def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:

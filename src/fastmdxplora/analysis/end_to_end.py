@@ -30,12 +30,15 @@ limit, so the sum is the same for a chain stored whole and one wrapped
 into the cell, and it is not bounded by the box.
 
 What the box still bounds is whether the chain is an isolated chain. A
-chain whose end comes within a nonbonded cutoff (taken as 1.0 nm, the
-cutoff setup uses unless told otherwise) of a periodic image of its other
-end is interacting with its own copy, and its extension then says as much
-about the cell as about the chain. That distance is found exactly over the
-lattice, whatever the cell's shape, and where it falls short the run is
-marked and the mean is given without an error bar.
+chain any part of which comes within a nonbonded cutoff (taken as 1.0 nm,
+the cutoff setup uses unless told otherwise) of a periodic image of itself
+is interacting with its own copy, and its extension then says as much about
+the cell as about the chain. That is the image check's finding
+(:mod:`fastmdxplora.analysis.image_check`), the one every analysis of the
+frames reads: the whole chain, not its two ends, whose check passed a chain
+that came to 0.261 nm of its copy. Where it falls short the run is marked
+and the mean is given without an error bar. The ends' own distance to the
+other end's image is still recorded (``findings.periodic``).
 
 Which atoms are "the ends" is stated rather than inferred. ``atom="CA"``
 -- the default -- measures between the alpha carbons of the first and last
@@ -53,6 +56,7 @@ import mdtraj as md
 import numpy as np
 
 from fastmdxplora.analysis.base import Analysis, narrowest_width
+from fastmdxplora.analysis.image_check import CUTOFF_NM, solute_image_record
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.refusals import StudyError
 
@@ -112,10 +116,10 @@ def _terminal_atoms(
                  for residue in (first, last))  # type: ignore[return-value]
 
 
-#: How close an end may come to a periodic image of the other end before the
-#: chain is taken to be interacting with its own copy: the nonbonded cutoff
-#: setup uses unless a force field or the person sets another.
-SELF_IMAGE_NM = 1.0
+#: How close the chain may come to a periodic image of itself before it is
+#: taken to be interacting with its own copy: the image check's cutoff, the
+#: nonbonded cutoff setup uses unless a force field or the person sets another.
+SELF_IMAGE_NM = CUTOFF_NM
 
 
 def _path(topology, atom_name: str | None, chain_index: int,
@@ -213,7 +217,9 @@ class EndToEndDistance(Analysis):
     def _note_if_the_box_bounds_the_chain(
         self, traj: md.Trajectory, vectors: list[np.ndarray], longest_step: float
     ) -> None:
-        """Say when a chain end reaches a periodic image of its other end."""
+        """Say when the chain reaches a periodic image of itself, as the image
+        check found it: handed to this analysis with the frames, or, run on
+        its own, found here by the same check of the chain measured."""
         if traj.unitcell_vectors is None:
             self.findings["periodic"] = (
                 "This trajectory carries no unit cell, so distances are taken "
@@ -231,6 +237,14 @@ class EndToEndDistance(Analysis):
             "nearest_self_image_nm": nearest,
             "longest_step_nm": longest_step,
         }
+        image = self.solute_image
+        if not isinstance(image, dict) or "reaches_its_image" not in image:
+            try:
+                image = solute_image_record(traj, np.arange(traj.n_atoms))[1]
+                self.solute_image = image
+            except StudyError as exc:  # a chain of beads with no elements
+                image = {"said": str(exc)}
+        self.findings["periodic"]["nearest_self_image_whole_chain_nm"] = image.get("nearest_nm")
         reasons = []
         if longest_step > 0.5 * narrowest:
             reasons.append(
@@ -240,15 +254,12 @@ class EndToEndDistance(Analysis):
                 "cannot say which way round that step went and the summed "
                 "distance may be wrong. A chain with a break in it does this."
             )
-        if nearest < SELF_IMAGE_NM:
+        if image.get("reaches_its_image"):
             reasons.append(
-                f"The chain reaches {longest:.3f} nm from end to end, and an end "
-                f"comes within {nearest:.3f} nm of a periodic image of the other "
-                f"end, inside a {SELF_IMAGE_NM:g} nm cutoff (the cell's narrowest "
-                f"width is {narrowest:.3f} nm). The chain is then interacting "
-                "with its own copy, and its extension describes the cell as "
-                "much as the chain. A larger box is what would change this."
-            )
+                f"The chain reaches {longest:.3f} nm from end to end (the cell's "
+                f"narrowest width is {narrowest:.3f} nm, and an end comes within "
+                f"{nearest:.3f} nm of a periodic image of the other end). "
+                + str(image.get("said") or ""))
         if reasons:
             self.findings["not_a_measurement"] = " ".join(reasons)
 

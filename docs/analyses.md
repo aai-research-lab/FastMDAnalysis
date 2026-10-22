@@ -1,6 +1,6 @@
 # The FastMDXplora analyses
 
-Twenty-seven analyses of the trajectory, and three more that read what a biased
+Twenty-eight analyses of the trajectory, and three more that read what a biased
 run itself produced.
 
 Each writes its data, its figure, and the settings it actually used:
@@ -58,6 +58,24 @@ minimum in g(r) — never assumed, because the radius decides the number.
 | `pair_distance` | The separation of two selections, by centre of mass or closest approach, by the minimum image in a periodic cell of any shape |
 | `end_to_end` | The distance between the two ends of a chain, the coarsest description of extension there is |
 | `moments_of_inertia` | The three principal moments, which separate a rod from a disc where the radius of gyration cannot, and the asphericity, acylindricity and relative shape anisotropy of the gyration tensor |
+| `image_check` | The solute's closest approach to its own periodic images in every frame, with the frames within the cutoff counted |
+
+`image_check` runs first on every study with a solute in a periodic box, as
+`gmx mindist -pi` does the check: in each frame, made whole along its bonds,
+the closest approach of any heavy atom of the solute (the scope's, the
+protein and any ligand) to any heavy atom of its images within two cells
+either way, in a cell of any shape, found with a k-d tree; kept as a series
+(`image_check.dat`), with the frames under the cutoff (`cutoff_nm`, 1.0 nm,
+the cutoff setup uses by default) and under 0.5 nm counted, and the closest
+approach with its frame, its time and its two atoms (`findings.solute_image`).
+Where the solute comes within the cutoff of its image, it is interacting with
+its own copy in those frames, and that is one finding every other analysis
+of the frames reads: each mean is given without its error bar and with the
+reason, where the report, the Overview and the Agent read it, and an
+analysis with no mean says it in its findings. `end_to_end` reads it rather
+than checking the chain's two ends alone, which passed a chignolin chain
+that came to 0.261 nm of its own copy. A larger box, in a new study, is what
+changes it.
 
 ### The bilayer
 
@@ -574,6 +592,9 @@ read before comparing a result against another tool.
    :members:
 
 .. automodule:: fastmdxplora.analysis.moments_of_inertia
+   :members:
+
+.. automodule:: fastmdxplora.analysis.image_check
    :members:
 
 .. automodule:: fastmdxplora.analysis.area_per_lipid

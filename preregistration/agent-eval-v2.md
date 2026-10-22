@@ -322,3 +322,11 @@ study's record as an AI app is given it, where it stands first. The suite's
 three digests of what is sent were set again; every verdict of the three
 recordings replays as recorded. Whether the Agent answers better with the
 new looks is for a run asked again, not claimed here.
+
+### What is sent, changed again (`core-bounds`, 2026-10-22)
+
+The analyses `include` and `exclude` accept gained `image_check`, the check
+of each frame's solute against its own periodic images: a setting's
+choices, in the schema's structure. The suite's three digests of what is
+sent were set again; every verdict of the three recordings replays as
+recorded.

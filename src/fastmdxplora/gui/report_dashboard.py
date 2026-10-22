@@ -37,6 +37,7 @@ logger = get_logger("gui.report_dashboard")
 ANALYSIS_THEMES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     ("The run's ensemble", (
         ("thermodynamics", "Energy, temperature and density"),
+        ("image_check", "Closest approach to its own image"),
     )),
     ("Structure and stability", (
         ("rmsd", "RMSD"),
@@ -857,7 +858,8 @@ def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
 _UNITS = {"rmsd": "nm", "rmsf": "nm", "rg": "nm", "sasa": "nm\u00b2", "hbonds": "",
           "qvalue": "", "end_to_end": "nm", "pair_distance": "nm", "ligand_rmsd": "nm",
           "area_per_lipid": "nm\u00b2", "bilayer_thickness": "nm",
-          "moments_of_inertia": "amu nm\u00b2", "coordination_number": ""}
+          "moments_of_inertia": "amu nm\u00b2", "coordination_number": "",
+          "image_check": "nm"}
 
 
 def unit_of(name: str, found: dict[str, Any] | None = None) -> str:

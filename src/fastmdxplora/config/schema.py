@@ -73,6 +73,9 @@ ANALYSIS_NAMES = (
     # measured where there is one: what a membrane run is checked against
     # before anything about the protein in it is believed.
     "area_per_lipid", "bilayer_thickness", "lipid_order",
+    # Every frame's solute against its own periodic images, where there is
+    # a box: run first, and read by every other analysis of the frames.
+    "image_check",
 )
 
 
@@ -978,7 +981,9 @@ ANALYSIS = PhaseSchema(
               example="simulation/topology.pdb"),
         Field("include", list, None,
               "Subset of analyses to run. Default: every analysis the "
-              "system supports -- eleven always, the fraction of native "
+              "system supports -- eleven always, the check of the solute "
+              "against its own periodic images where there is a box, the "
+              "fraction of native "
               "contacts where the chain is long enough to have a fold, "
               "water sites where the "
               "trajectory has water, five more where there is a ligand, and "

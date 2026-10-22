@@ -1126,6 +1126,13 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
         notes.append(str(measured["not_a_measurement"]))
     if findings.get("made_whole"):
         notes.append(str(findings["made_whole"]))
+    # How close the solute came to its own images: the image check's own
+    # result, and on every other analysis of the frames where it reached one.
+    image = findings.get("solute_image")
+    if isinstance(image, dict) and image.get("said"):
+        said = str(image["said"])
+        if not any(said in note for note in notes):
+            notes.append(said)
     shell = findings.get("shell")
     if isinstance(shell, dict) and shell.get("said"):
         notes.append(str(shell["said"]))

@@ -108,6 +108,10 @@ _WATER_RESIDUES = frozenset({"HOH", "WAT", "TIP", "TIP3", "SOL", "H2O"})
 
 _REGISTRY: dict[str, type[Analysis]] = {}
 
+#: The check of the solute against its own periodic images, registered
+#: first (at the foot of this module) and run first.
+_IMAGE_CHECK = "image_check"
+
 
 def register_analysis(name: str, cls: type[Analysis]) -> None:
     """Register an analysis class under a short name.
@@ -281,11 +285,15 @@ class AnalysisOrchestrator:
             Also stored on ``self.results``.
         """
         plan = self._build_plan(include, exclude, options)
+        # The image check first, so its finding is there for every analysis
+        # of the same frames after it.
+        plan.sort(key=lambda name: name != _IMAGE_CHECK)
         merged_options = self._merge_options(plan, options)
 
         logger.debug("Plan: %s", ", ".join(plan))
 
         self.results = {}
+        solute_image: dict[str, Any] | None = None
         for name in plan:
             cls = get_analysis_class(name)
             raw_opts = dict(merged_options[name])
@@ -330,6 +338,9 @@ class AnalysisOrchestrator:
                 continue
 
             logger.debug("--> running analysis '%s'", name)
+            # The one finding of how close the solute came to its own images,
+            # read by every analysis of these frames.
+            analysis.solute_image = solute_image
             # Its own trajectory, not the shared one. Superposition in
             # mdtraj rotates coordinates in place, so an analysis that
             # aligns leaves every later analysis reading rotated
@@ -340,6 +351,18 @@ class AnalysisOrchestrator:
             # rmsf and ligand_rmsd had aligned the frames, and 10 when run
             # by itself. The 10 was right.
             self.results[name] = analysis.run(carry_wholeness(self.traj, self.traj[:]))
+            if name == _IMAGE_CHECK and self.results[name].status == "ok":
+                solute_image = analysis.findings.get("solute_image")
+            elif solute_image and self.results[name].status == "ok" \
+                    and "solute_image" not in analysis.findings:
+                # An analysis whose `run` is its own (clustering, the
+                # projections) is qualified after it, and its record written
+                # again with it.
+                analysis._qualify_by_the_solute_image(self.traj)
+                try:
+                    analysis._write_options_manifest()
+                except OSError:
+                    logger.debug("Could not rewrite %s's options", name, exc_info=True)
 
         self._reweight()
         self._write_manifest()
@@ -595,6 +618,20 @@ class AnalysisOrchestrator:
             except Exception:
                 return False
 
+        def _solute_ok(name: str) -> bool:
+            """A check of the solute against its own images needs a solute:
+            the scope's (the protein and any ligand), else the protein."""
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_solute", False):
+                return True
+            traj = getattr(self, "traj", None)
+            if traj is None:
+                return True
+            try:
+                return len(traj.topology.select(self.scope_selection or "protein")) > 0
+            except Exception:  # noqa: BLE001 - a selection this cannot make
+                return False
+
         def _box_ok(name: str) -> bool:
             """A g(r) divides by the bulk density, which needs a volume.
 
@@ -728,7 +765,7 @@ class AnalysisOrchestrator:
                 and _box_ok(n) and _named_ok(n) and _bilayer_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
-                and _alignable(n)
+                and _alignable(n) and _solute_ok(n)
             ]
 
         # Default plan: everything except ligand-only analyses when there is
@@ -738,7 +775,7 @@ class AnalysisOrchestrator:
                 and _bfactor_ok(n) and _state_ok(n) and _box_ok(n)
                 and _named_ok(n) and _bilayer_ok(n) and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
-                and _fold_ok(n) and _alignable(n)]
+                and _fold_ok(n) and _alignable(n) and _solute_ok(n)]
 
     def _merge_options(
         self,
@@ -930,3 +967,9 @@ def _separation_for(cls: type, asked: dict[str, Any]) -> int:
     except (KeyError, TypeError, ValueError):
         return 4
     return 4 if declared is inspect.Parameter.empty else int(declared)
+
+
+# The check of the solute against its own periodic images registers here,
+# before any other analysis, so it is first in every plan and its finding is
+# there for each analysis of the same frames.
+from fastmdxplora.analysis import image_check as _image_check  # noqa: E402, F401

@@ -197,6 +197,13 @@ class Analysis(ABC):
     #: Human-readable description used in figure titles.
     description: str = ""
 
+    #: How close the solute came to its own periodic images in these frames,
+    #: as the image check found it (``findings.solute_image`` of
+    #: :mod:`fastmdxplora.analysis.image_check`). The orchestrator hands it
+    #: to every analysis of the same frames; where the solute reached its
+    #: image, each is qualified by it (:meth:`_qualify_by_the_solute_image`).
+    solute_image: dict[str, Any] | None = None
+
 
     #: True for analyses that only apply to protein-ligand complexes (e.g.
     #: ligand pose RMSD). The orchestrator runs these automatically when a
@@ -434,6 +441,7 @@ class Analysis(ABC):
                 self.findings["made_whole"] = made_whole
             self.result = self.compute(traj)
             self._record_what_the_mean_is_worth(traj)
+            self._qualify_by_the_solute_image(traj)
             # Written again, because an analysis can only record some things
             # once it has looked at the trajectory: how confidently it knew
             # the ligand's chemistry, which measurements it could not make and
@@ -565,6 +573,28 @@ class Analysis(ABC):
         record["error_withheld_because"] = because
         if "standard_error" in record:
             record["standard_error"] = float("nan")
+
+    def _qualify_by_the_solute_image(self, traj: md.Trajectory) -> None:
+        """Where the solute reached its own periodic image in these frames,
+        say so in the findings, and give the mean without its error bar and
+        with that reason, where there is a mean: one finding, read the same
+        way by every analysis of the frames (the image check's own included).
+        Said once, however often this is called."""
+        record = self.solute_image
+        if not isinstance(record, dict) or not record.get("reaches_its_image"):
+            return
+        said = str(record.get("said") or "")
+        self.findings["solute_image"] = (
+            record if self.findings.get("solute_image") is record
+            else {"reaches_its_image": True, "said": said,
+                  "nearest_nm": record.get("nearest_nm"),
+                  "frames_under_cutoff": record.get("frames_under_cutoff"),
+                  "read_from": "image_check"})
+        mean = self.findings.get("mean")
+        if isinstance(mean, dict) and said and said not in str(
+                mean.get("not_a_measurement") or ""):
+            self._withhold_the_error(traj, said,
+                                     because="solute reaches its periodic image")
 
     def _mark_what_the_mean_rests_on(self, ax: plt.Axes) -> None:
         """Draw the equilibrated region, its mean, and the error bar or its absence.
