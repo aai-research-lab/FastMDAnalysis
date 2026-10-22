@@ -15,9 +15,12 @@ The rules, each for a reason:
 - **It says how studies are run, never what is simulated or which study's
   files are read.** `systems`, `output`, `sweep` and the study-level keys
   are refused in it, and so are the settings of one study (`_ONE_STUDY_S`):
-  the study it continues or is prepared from, the files it analyses, and
-  the structure, ligand, mutations, chains and model it simulates. In the
-  file, every new study made in the folder would take them.
+  the study it continues or is prepared from, the files it analyses, the
+  structure, ligand, mutations, chains and model it simulates, and every
+  setting that names one structure's parts (a ligand's name and charge,
+  residues by their numbers, the chain mutated, the bilayer's place in its
+  frame, the atoms a bias acts on). In the file, every new study made in
+  the folder would take them.
 - **A continuation is left alone.** A study that continues another
   (`simulation.resume_from`) keeps that study's settings, and one prepared
   from another (`simulation.setup_from`) keeps its setup.
@@ -50,6 +53,10 @@ _BLOCKS = ("setup", "simulation", "analysis", "report", "execution")
 #: that study.
 _CONTINUES = "says how one study continues another, with `simulation.resume_from`"
 _SIMULATES = "says what one study simulates, so every new study made here would simulate it"
+_LIGAND_NAMED = ("names one study's ligand, so every new study made here would give its own "
+                 "ligand that name")
+_BIASED = ("names one structure's atoms in its variables, so every new study made here would "
+           "be biased by them")
 _ONE_STUDY_SAID = {
     "simulation.resume_from": ("names the study one study continues, so every new study "
                                "made here would continue it"),
@@ -65,10 +72,29 @@ _ONE_STUDY_SAID = {
                           "would analyse them under its own name"),
     "setup.fixed_pdb": _SIMULATES,
     "setup.ligand": _SIMULATES,
-    "setup.ligand_pose": _SIMULATES,
+    "setup.ligand_pose": ("says where one study's starting coordinates come from, which "
+                          "goes with that study's ligand"),
     "setup.mutations": _SIMULATES,
     "setup.chains": _SIMULATES,
     "setup.model": _SIMULATES,
+    # The settings that name one structure's parts: what is simulated too.
+    "setup.ligand_net_charge": ("says one ligand's formal charge, so every new study made "
+                                "here would give its own ligand that charge"),
+    "setup.ligand_name": _LIGAND_NAMED,
+    "setup.ligand_resname": _LIGAND_NAMED,
+    "setup.mutation_chain": ("says which chain one study's mutations are made in, which "
+                             "goes with that study's `setup.mutations`"),
+    "setup.residue_states": ("names residues as one structure numbers them, so every new "
+                             "study made here would set the states of those numbers in its own"),
+    "setup.membrane_center_z_nm": ("says where the bilayer's centre is in one structure's "
+                                   "own frame, so every new study made here would put it there"),
+    "simulation.dashboard_ligand_resname": ("names one study's ligand for the dashboard, so "
+                                            "every new study made here would look for it"),
+    "simulation.umbrella": _BIASED,
+    "simulation.steered": _BIASED,
+    "simulation.metadynamics": _BIASED,
+    "simulation.plumed": ("is one system's PLUMED input, whose variables name that system's "
+                          "atoms, so every new study made here would be biased by it"),
 }
 _ONE_STUDY_S = tuple(_ONE_STUDY_SAID)
 #: The rule, as a refusal says it.

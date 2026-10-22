@@ -196,12 +196,18 @@ def test_a_file_with_comments_is_shown_and_not_written(browser, session):
     assert "comments" in said[0] and said[1] == "305" and said[2] == 0
 
 
-def test_a_file_setting_what_is_simulated_is_said_once_and_not_changed(browser, session):
-    """`L99A` in the folder's file would mutate every new study's protein:
-    refused, said with the path once (in the lead) and the setting's name
-    as code, and nothing offered to change."""
+@pytest.mark.parametrize("held, words", [
+    ("mutations: [L99A]", "sets setup.mutations, which says what one study simulates"),
+    ("ligand_net_charge: -1", "sets setup.ligand_net_charge, which says one ligand's formal charge"),
+])
+def test_a_file_setting_what_is_simulated_is_said_once_and_not_changed(browser, session, held, words):
+    """`L99A` in the folder's file would mutate every new study's protein,
+    and `ligand_net_charge: -1` charge every new study's ligand: refused,
+    said with the path once (in the lead) and the setting's name as code,
+    and nothing offered to change."""
     started, where = session
-    where.write_text("setup:\n  mutations: [L99A]\n", encoding="utf-8")
+    text = f"setup:\n  {held}\n"
+    where.write_text(text, encoding="utf-8")
     page = _open(browser, started.url)
     page.click("#settings-scope-folder")
     page.wait_for_selector("#settings-folder-body .settings-cannot")
@@ -213,10 +219,11 @@ def test_a_file_setting_what_is_simulated_is_said_once_and_not_changed(browser, 
     errors = page.errors
     page.context.close()
     assert errors == []
-    assert "sets setup.mutations, which says what one study simulates" in said[0], said[0]
-    assert "`" not in said[0] and str(where) not in said[0] and said[1] == ["setup.mutations"]
+    assert words in said[0], said[0]
+    assert "`" not in said[0] and str(where) not in said[0]
+    assert said[1] == ["setup." + held.split(":")[0]]
     assert said[2] == 0 and str(where) in said[3]
-    assert where.read_text(encoding="utf-8") == "setup:\n  mutations: [L99A]\n"
+    assert where.read_text(encoding="utf-8") == text
 
 
 def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):

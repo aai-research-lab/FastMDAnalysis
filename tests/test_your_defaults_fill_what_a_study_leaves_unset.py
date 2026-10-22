@@ -74,13 +74,27 @@ def test_the_file_is_checked_as_part_of_a_config(tmp_path):
     ("analysis.topology", "/data/old/topology.pdb"), ("setup.fixed_pdb", "prepared.pdb"),
     ("setup.ligand", "ligand.sdf"), ("setup.ligand_pose", "file"),
     ("setup.mutations", ["L99A"]), ("setup.chains", ["A"]), ("setup.model", 2),
+    ("setup.ligand_net_charge", -1), ("setup.ligand_name", "BEN"),
+    ("setup.ligand_resname", "BEN"), ("setup.mutation_chain", "B"),
+    ("setup.residue_states", {"A:57": "HIP"}), ("setup.membrane_center_z_nm", 2.0),
+    ("simulation.dashboard_ligand_resname", "EPE"),
+    ("simulation.umbrella", {"collective_variable": "distance", "from": 0.3, "to": 1.5,
+                             "n_windows": 7, "force_constant": 5000}),
+    ("simulation.steered", {"collective_variable": "distance", "to": 1.5, "steps": 1000}),
+    ("simulation.metadynamics", {"collective_variable": "radius_of_gyration",
+                                 "selection": "protein and name CA", "sigma": 0.02}),
+    ("simulation.plumed", {"enabled": True, "script": "metad.dat"}),
 ])
 def test_a_setting_of_one_study_is_refused_in_the_file(tmp_path, setting, value):
     """A folder's defaults say how studies are run, never what is simulated
     or which study's files are read: the study one study continues or is
     prepared from, the files it analyses, its structure, ligand, mutations,
-    chains and model are that study's. In the file, every new study made in
-    the folder would take them (`L99A` would mutate every protein)."""
+    chains and model are that study's, and so is every setting that names
+    one structure's parts (a ligand's charge and name, residues by number,
+    the chain mutated, the bilayer's place, the atoms a bias acts on). In
+    the file, every new study made in the folder would take them (`L99A`
+    would mutate every protein, `ligand_net_charge: -1` charge every
+    ligand)."""
     from fastmdxplora.config.defaults_file import write_defaults
 
     block, _, key = setting.partition(".")
@@ -114,6 +128,18 @@ def test_each_refusal_of_one_study_s_setting_says_what_it_is():
         assert "continue" not in _ONE_STUDY_SAID[prepared]
     assert "files" in _ONE_STUDY_SAID["analysis.trajectory"]
     assert "simulates" in _ONE_STUDY_SAID["setup.mutations"]
+    # The pose says where the starting coordinates come from, not what is
+    # simulated; each setting of one structure's parts says its own.
+    assert "starting coordinates" in _ONE_STUDY_SAID["setup.ligand_pose"]
+    assert "simulates" not in _ONE_STUDY_SAID["setup.ligand_pose"]
+    assert "charge" in _ONE_STUDY_SAID["setup.ligand_net_charge"]
+    assert "chain" in _ONE_STUDY_SAID["setup.mutation_chain"]
+    assert "residues" in _ONE_STUDY_SAID["setup.residue_states"]
+    assert "bilayer" in _ONE_STUDY_SAID["setup.membrane_center_z_nm"]
+    assert "dashboard" in _ONE_STUDY_SAID["simulation.dashboard_ligand_resname"]
+    for bias in ("simulation.umbrella", "simulation.steered", "simulation.metadynamics",
+                 "simulation.plumed"):
+        assert "atoms" in _ONE_STUDY_SAID[bias], bias
 
 
 def test_the_rule_is_said_in_the_docs():
@@ -125,6 +151,14 @@ def test_the_rule_is_said_in_the_docs():
     assert row and "never what is simulated or which study's files are read" in row[0]
     config = (docs / "config.md").read_text(encoding="utf-8")
     assert "never what is simulated or which study's files are read" in config
+    # Each setting refused is named in both.
+    from fastmdxplora.config.defaults_file import _ONE_STUDY_SAID
+
+    section = config[config.index("never what is simulated"):config.index("**Which file.**")]
+    for name in _ONE_STUDY_SAID:
+        key = name.partition(".")[2]
+        assert f"`{key}`" in row[0] or f"`{name}`" in row[0], name
+        assert f"`{key}`" in section or f"`{name}`" in section, name
 
 
 # ---------------------------------------------------------------------------

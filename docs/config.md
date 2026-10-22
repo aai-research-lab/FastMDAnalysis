@@ -150,9 +150,16 @@ and so are the settings of one study, since every new study made in the
 folder would take them: the study it continues or is prepared from
 (`simulation.resume_from`, `resume_unsealed`, `extra_ns`, `setup_from`,
 `prepared_from`), the files it analyses (`analysis.trajectory`,
-`analysis.topology`), and its structure, ligand, mutations, chains and
-model (`setup.fixed_pdb`, `ligand`, `ligand_pose`, `mutations`, `chains`,
-`model`).
+`analysis.topology`), its structure, ligand, mutations, chains and model
+(`setup.fixed_pdb`, `ligand`, `mutations`, `chains`, `model`), where its
+starting coordinates come from (`setup.ligand_pose`), and every setting
+that names one structure's parts: a ligand's charge and name
+(`setup.ligand_net_charge`, `ligand_name`, `ligand_resname`,
+`simulation.dashboard_ligand_resname`), residues by their numbers
+(`setup.residue_states`), the chain mutated (`setup.mutation_chain`), the
+bilayer's place in the structure's frame (`setup.membrane_center_z_nm`)
+and the atoms a bias acts on (`simulation.umbrella`, `steered`,
+`metadynamics`, `plumed`).
 
 **Which file.** The nearest `fastmdx-defaults.yml` in the study's folder or
 a folder above it, as git finds its repository, stopping at your home

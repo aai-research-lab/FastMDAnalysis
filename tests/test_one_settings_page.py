@@ -132,7 +132,12 @@ def test_this_folder_says_every_setting_with_fastmdxplora_s_own(tmp_path):
                         "simulation.setup_from", "simulation.prepared_from",
                         "simulation.extra_ns", "analysis.trajectory", "analysis.topology",
                         "setup.fixed_pdb", "setup.ligand", "setup.ligand_pose",
-                        "setup.mutations", "setup.chains", "setup.model"):
+                        "setup.mutations", "setup.chains", "setup.model",
+                        "setup.ligand_net_charge", "setup.ligand_name", "setup.ligand_resname",
+                        "setup.mutation_chain", "setup.residue_states",
+                        "setup.membrane_center_z_nm", "simulation.dashboard_ligand_resname",
+                        "simulation.umbrella", "simulation.steered", "simulation.metadynamics",
+                        "simulation.plumed"):
         assert one_study_s not in fields, one_study_s
 
 
@@ -159,6 +164,25 @@ def test_a_file_setting_what_is_simulated_is_refused_and_said(tmp_path):
     assert where.read_text(encoding="utf-8") == "setup:\n  ph: 7.0\n"
 
 
+def test_a_ligand_s_charge_in_the_file_is_refused_and_said(tmp_path):
+    """`ligand_net_charge: -1` in the folder's file gave every new study's
+    ligand that charge: a wrong one where its file does not settle it, and
+    a study refused where it does."""
+    from fastmdxplora.gui.settings_page import defaults_changed, defaults_said
+
+    where = tmp_path / "fastmdx-defaults.yml"
+    where.write_text("setup:\n  ligand_net_charge: -1\n", encoding="utf-8")
+    said = defaults_said(tmp_path)
+    assert said["refused"].startswith("It sets `setup.ligand_net_charge`, which says one "
+                                      "ligand's formal charge"), said["refused"]
+    assert str(where) not in said["refused"] and said["values"] == {}
+    where.write_text("setup:\n  ph: 7.0\n", encoding="utf-8")
+    refused = defaults_changed(tmp_path, {"set": {"setup.ligand_net_charge": -1}})
+    assert refused["ok"] is False
+    assert refused["reason"].startswith("It sets `setup.ligand_net_charge`")
+    assert where.read_text(encoding="utf-8") == "setup:\n  ph: 7.0\n"
+
+
 def test_a_setting_of_several_values_the_file_holds_is_shown(tmp_path):
     """A stopping rule in the file makes every new study run until it is
     determined, up to its ceiling: shown as the file holds it, and counted."""
@@ -171,8 +195,7 @@ def test_a_setting_of_several_values_the_file_holds_is_shown(tmp_path):
     said = defaults_said(tmp_path)
     fields = {f["name"]: f for f in said["fields"]}
     assert set(said["values"]) <= set(fields)
-    for several in ("simulation.stop_when", "simulation.umbrella", "simulation.metadynamics",
-                    "setup.residue_states", "analysis.options"):
+    for several in ("simulation.stop_when", "analysis.options", "report.region_highlights"):
         assert fields[several]["control"] == "", several
     assert said["values"]["simulation.stop_when"]["max_duration_ns"] == 50
 
