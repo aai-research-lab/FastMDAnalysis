@@ -291,6 +291,32 @@ def test_every_run_killed_is_named_as_every_page_names_it(tmp_path):
     assert stopping_payload(runs[1])["said"] == page["said"]
 
 
+@pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+def test_every_run_killed_is_said_as_it_ended(tmp_path):
+    """The card gave how the first run killed ended for all of them: "its
+    process is gone" of a run that fell silent with no process to ask."""
+    from datetime import datetime, timedelta, timezone
+
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import (
+        _a_gone_process, _a_run_said_it_was_going, _its_process)
+
+    root = _a_campaign_killed_in_its_first_piece(tmp_path)
+    runs = sorted((root / "runs").iterdir())
+    (runs[1] / ".fastmdxplora_run.json").unlink()
+    _a_run_said_it_was_going(runs[1], last=(
+        datetime.now(timezone.utc) - timedelta(days=2)).isoformat())
+    page = stopping_payload(root)
+    assert page["said"] == (
+        "Stopped without finishing in its first piece, in seed 1 and seed 2; in seed 1, its "
+        "process is gone, and it wrote no end; in seed 2, nothing written for a day, and no "
+        "end written."), page["said"]
+    # Ended alike, said once.
+    _its_process(runs[1], _a_gone_process())
+    assert page["said"] != stopping_payload(root)["said"]
+    assert stopping_payload(root)["said"].endswith(
+        "in seed 1 and seed 2; its process is gone, and it wrote no end.")
+
+
 def test_its_lengths_are_said_in_ps_under_1_ns(finished, tmp_path):
     root, mid = finished
     small = tmp_path / "small"

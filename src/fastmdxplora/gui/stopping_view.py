@@ -187,7 +187,8 @@ def _ended_without_finishing(record: dict[str, Any], where: Path) -> dict[str, A
     silence: `telemetry.status_as_it_stands`, as its header and Timeline
     read it): said stopped without finishing, never still running. Every
     run of it that ended so is named, as every page names a run
-    (`exploration.run_label`, through the Timeline's list of its runs)."""
+    (`exploration.run_label`, through the Timeline's list of its runs), and
+    how each ended where they ended differently."""
     from fastmdxplora.gui.study_timeline import ENDED_HOW, _runs_of
     from fastmdxplora.gui.telemetry import status_as_it_stands
 
@@ -207,8 +208,14 @@ def _ended_without_finishing(record: dict[str, Any], where: Path) -> dict[str, A
     if not ended:
         return None
     labels = {run["run_id"]: run["label"] for run in _runs_of(where) or []}
-    named = [labels.get(place.name, place.name) for place, _how in ended if place != where]
-    return {"runs": named, "how": ended[0][1]}
+    named = [(labels.get(place.name, place.name), how) for place, how in ended if place != where]
+    # How each run ended, where they ended differently; else the one way.
+    hows = [how for _name, how in named if how] or [how for _place, how in ended if how]
+    if len(set(hows)) > 1:
+        how = "; ".join(f"in {name}, {how}" for name, how in named if how)
+    else:
+        how = hows[0] if hows else ""
+    return {"runs": [name for name, _how in named], "how": how}
 
 
 def _known_live(record: dict[str, Any], where: Path) -> bool:

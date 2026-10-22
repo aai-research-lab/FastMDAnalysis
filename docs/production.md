@@ -285,7 +285,7 @@ production, each quantity with its error and what was asked, whether the
 replicas agreed, what was decided, and the round's own sentence (`said`). A
 round stopped also records what stopped it (`stopped_by`: `no mean`, an
 analysis that recorded none; `asked`, Ctrl+C or a signal; `error`, an
-extension that failed), kept when the study is resumed, since the record's
+extension that failed), saved when the study is resumed, since the record's
 own last sentence is then written over. A study stopped when asked before
 its rule was applied again says so in that sentence, the study's and none of
 its rounds'. A record written before these fields is read as it stands, with
