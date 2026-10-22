@@ -474,3 +474,79 @@ class TestTheRunsOwnCutoff:
         found = json.loads((study / "analysis" / "image_check" / "options.json")
                            .read_text())["findings"]["solute_image"]
         assert found["cutoff_nm"] == 1.05 and "set for this check" in found["cutoff_from"]
+
+
+def _polymer_in_water(resname: str, atom: str, element, *, bonded: bool,
+                      n_frames: int = 20) -> md.Trajectory:
+    """Ten residues of ``resname`` (one heavy atom each, 0.38 nm apart),
+    straight along x in a 4.0 nm cube in the first 5 frames (ends 0.58 nm
+    from each other's image) and folded otherwise; a water and a sodium ion
+    beside it, the ion 0.3 nm from its own image in every frame."""
+    top = md.Topology()
+    chain = top.add_chain()
+    previous = None
+    for i in range(10):
+        here = top.add_atom(atom, element, top.add_residue(resname, chain, resSeq=i + 1))
+        if bonded and previous is not None:
+            top.add_bond(previous, here)
+        previous = here
+    water = top.add_residue("HOH", top.add_chain(), resSeq=1)
+    top.add_atom("O", md.element.oxygen, water)
+    ion = top.add_residue("NA", top.add_chain(), resSeq=1)
+    top.add_atom("NA", md.element.sodium, ion)
+    straight = np.c_[0.38 * np.arange(10), np.zeros(10), np.zeros(10)]
+    folded = np.r_[straight[:5], straight[:5][::-1] + [0.0, 0.5, 0.0]]
+    frames = []
+    for f in range(n_frames):
+        chain_xyz = (straight if f < 5 else folded) + 0.3
+        frames.append(np.r_[chain_xyz, [[2.0, 2.0, 2.0]], [[3.85, 2.5, 2.5]]])
+    traj = md.Trajectory(np.asarray(frames, dtype=np.float32), top)
+    traj.unitcell_lengths = np.full((n_frames, 3), 4.0, dtype=np.float32)
+    traj.unitcell_angles = np.full((n_frames, 3), 90.0, dtype=np.float32)
+    traj.time = np.arange(n_frames) * 10.0
+    return traj
+
+
+class TestTheSoluteIsTheMacromolecules:
+    """An RNA, or a peptide of residues MDTraj does not call protein, is a
+    solute as a protein is; water and ions are not."""
+
+    @pytest.mark.parametrize("resname,atom,element,bonded", [
+        ("U", "P", md.element.phosphorus, False),
+        ("XAA", "CA", md.element.carbon, True),
+    ], ids=["rna", "non-standard peptide"])
+    def test_it_is_checked(self, tmp_path, resname, atom, element, bonded):
+        traj = _polymer_in_water(resname, atom, element, bonded=bonded)
+        # As the orchestrator hands it the scope's solute, "protein".
+        analysis = SoluteImage(output_dir=tmp_path, selection="protein")
+        result = analysis.run(traj)
+        assert result.status == "ok", result.message
+        found = analysis.findings["solute_image"]
+        assert found["heavy_atoms"] == 10
+        assert found["frames_under_cutoff"] == 5
+        assert found["nearest_nm"] == pytest.approx(0.58, abs=1e-5)
+        assert "water, ions and lipids left out" in found["solute"]
+
+    def test_the_orchestrator_plans_it(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+
+        traj = _polymer_in_water("U", "P", md.element.phosphorus, bonded=False)
+        traj[0].save_pdb(str(tmp_path / "top.pdb"))
+        traj.save_dcd(str(tmp_path / "traj.dcd"))
+        orchestrator = AnalysisOrchestrator(str(tmp_path / "traj.dcd"), str(tmp_path / "top.pdb"),
+                                            output_dir=tmp_path / "analysis")
+        assert "image_check" in orchestrator._build_plan(None, None)
+
+    def test_a_ligand_counts_only_in_the_analyses_solute(self):
+        from fastmdxplora.analysis.image_check import solute_atoms
+
+        traj = _polymer_in_water("ALA", "CA", md.element.carbon, bonded=True)
+        top = traj.topology
+        assert len(solute_atoms(top, "protein")[0]) == 10
+        # The ion, named in a selection, is still not the solute.
+        assert len(solute_atoms(top, "protein or resname NA")[0]) == 10
+        top = top.copy()
+        top.add_atom("C1", md.element.carbon, top.add_residue("LIG", top.add_chain(), resSeq=1))
+        assert len(solute_atoms(top, "protein")[0]) == 10
+        atoms, said = solute_atoms(top, "protein or resname LIG")
+        assert len(atoms) == 11 and "LIG" in said

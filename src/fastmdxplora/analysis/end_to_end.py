@@ -56,7 +56,7 @@ import mdtraj as md
 import numpy as np
 
 from fastmdxplora.analysis.base import Analysis, narrowest_width
-from fastmdxplora.analysis.image_check import CUTOFF_NM, solute_image_record
+from fastmdxplora.analysis.image_check import CUTOFF_NM, solute_atoms, solute_image_record
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.refusals import StudyError
 
@@ -240,7 +240,8 @@ class EndToEndDistance(Analysis):
         image = self.solute_image
         if not isinstance(image, dict) or "reaches_its_image" not in image:
             try:
-                image = solute_image_record(traj, np.arange(traj.n_atoms))[1]
+                image = solute_image_record(
+                    traj, solute_atoms(traj.topology, self.selection)[0])[1]
                 self.solute_image = image
             except StudyError as exc:  # a chain of beads with no elements
                 image = {"said": str(exc)}

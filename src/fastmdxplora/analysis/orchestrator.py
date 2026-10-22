@@ -625,17 +625,18 @@ class AnalysisOrchestrator:
 
         def _solute_ok(name: str) -> bool:
             """A check of the solute against its own images needs a solute:
-            the scope's (the protein and any ligand), else the protein."""
+            the macromolecules, with what of the scope's solute is not water,
+            an ion or a lipid (``image_check.solute_atoms``)."""
             cls = _REGISTRY[name]
             if not getattr(cls, "requires_solute", False):
                 return True
             traj = getattr(self, "traj", None)
             if traj is None:
                 return True
-            try:
-                return len(traj.topology.select(self.scope_selection or "protein")) > 0
-            except Exception:  # noqa: BLE001 - a selection this cannot make
-                return False
+            from fastmdxplora.analysis.image_check import solute_atoms
+
+            return len(solute_atoms(traj.topology, self.default_selection
+                                    or self.scope_selection)[0]) > 0
 
         def _box_ok(name: str) -> bool:
             """A g(r) divides by the bulk density, which needs a volume.

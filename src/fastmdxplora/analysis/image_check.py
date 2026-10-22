@@ -74,6 +74,70 @@ CLOSE_NM = 0.5
 FRAMES_AT_A_TIME = 1000
 
 
+def _not_solute(residue) -> bool:
+    """Water, an ion or a lipid of a bilayer: never the solute checked."""
+    from fastmdxplora.ligand_detection import ION_RESNAMES, WATER_RESNAMES
+    from fastmdxplora.lipids import is_lipid
+
+    name = str(residue.name).strip().upper()
+    return (bool(getattr(residue, "is_water", False)) or name in WATER_RESNAMES
+            or name in ION_RESNAMES or is_lipid(name))
+
+
+def solute_atoms(topology, selection: str | None) -> tuple[np.ndarray, str]:
+    """The atoms of the solute checked against its images, and the rule said.
+
+    The macromolecules as one complex: every residue that is protein or
+    nucleic acid, and every other polymer chain (a molecule bonded across two
+    or more residues; in a topology with no bonds, a chain of two or more
+    residues), so an RNA, a DNA duplex or a peptide of residues MDTraj does
+    not call protein is checked as a protein is. Anything else that is not
+    water, an ion or a lipid (a ligand, a cofactor) is counted with them
+    only where it is part of ``selection``, the solute the study's analyses
+    already use (the scope's, ``protein or resname LIG`` with a ligand).
+    Water, ions and lipids never.
+    """
+    from fastmdxplora.analysis.residues import _is_polymer
+
+    residues = list(topology.residues)
+    polymer = {r.index for r in residues if not _not_solute(r) and _is_polymer(r)}
+    if topology.n_bonds:
+        for molecule in topology.find_molecules():
+            spanned = {a.residue.index for a in molecule}
+            if len(spanned) > 1 and not any(_not_solute(topology.residue(i))
+                                            for i in spanned):
+                polymer |= spanned
+            elif spanned & polymer:
+                polymer |= {i for i in spanned if not _not_solute(topology.residue(i))}
+    else:
+        for chain in topology.chains:
+            kept = [r.index for r in chain.residues if not _not_solute(r)]
+            if len(kept) > 1:
+                polymer |= set(kept)
+    chosen = set()
+    if selection:
+        try:
+            chosen = {int(a) for a in topology.select(selection)}
+        except Exception:  # noqa: BLE001 - a selection this topology cannot make
+            chosen = set()
+    with_them = sorted({topology.atom(a).residue.name for a in chosen
+                        if topology.atom(a).residue.index not in polymer
+                        and not _not_solute(topology.atom(a).residue)})
+    atoms = [a.index for a in topology.atoms
+             if a.residue.index in polymer
+             or (a.index in chosen and not _not_solute(a.residue))]
+    chains = len({topology.residue(i).chain.index for i in polymer})
+    said = (f"the macromolecules as one complex ({len(polymer):,} "
+            f"{'residue' if len(polymer) == 1 else 'residues'} in {chains:,} "
+            f"{'chain' if chains == 1 else 'chains'})" if polymer
+            else "no macromolecule")
+    if with_them:
+        said += (f"{' with' if polymer else ', only'} {', '.join(with_them)} of the "
+                 "analyses' solute")
+    said += "; water, ions and lipids left out"
+    return np.asarray(atoms, dtype=np.int64), said
+
+
 def _heavy(topology, atoms: np.ndarray) -> np.ndarray:
     """The heavy atoms among ``atoms``: those with an element that is not
     hydrogen (a virtual site has none)."""
@@ -354,9 +418,10 @@ class SoluteImage(Analysis):
         record where the orchestrator runs the check (:func:`run_cutoff`),
         else 1.0 nm, said as taken.
     selection : str, optional
-        MDTraj atom selection for the solute; its heavy atoms are checked.
-        The analysis scope's solute by default (the protein and any ligand),
-        the protein where the scope is ``all``.
+        The analyses' solute (the scope's by default, the protein and any
+        ligand): a ligand or cofactor in it is checked with the
+        macromolecules, which are always checked (:func:`solute_atoms`).
+        Heavy atoms only.
 
     Output
     ------
@@ -399,16 +464,17 @@ class SoluteImage(Analysis):
     _traj_for_plot: md.Trajectory | None = None
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
-        atoms = (traj.topology.select(self.selection) if self.selection
-                 else traj.topology.select("protein"))
+        atoms, solute = solute_atoms(traj.topology, self.selection)
         if len(atoms) == 0:
             raise StudyError(
-                f"Selection {self.selection or 'protein'!r} matched no atoms, so "
-                "there is no solute to check against its images.",
+                "The system holds no macromolecule and the analyses' solute "
+                f"({self.selection or 'none given'!r}) nothing that is not water, an "
+                "ion or a lipid, so there is no solute to check against its images.",
                 code="analysis.selection.empty",
-                expression=self.selection or "protein", role="solute")
+                expression=self.selection, role="solute")
         distances, record = solute_image_record(traj, atoms, cutoff_nm=self.cutoff_nm,
                                                 cutoff_from=self.cutoff_from)
+        record["solute"] = solute
         self.findings["solute_image"] = record
         # Read by this analysis as by every other.
         self.solute_image = record

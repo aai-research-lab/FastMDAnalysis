@@ -62,14 +62,23 @@ minimum in g(r) — never assumed, because the radius decides the number.
 
 `image_check` runs first on every study with a solute in a periodic box, as
 `gmx mindist -pi` does the check: in each frame, made whole along its bonds,
-the closest approach of any heavy atom of the solute (the scope's, the
-protein and any ligand) to any heavy atom of its images, every image the
+the closest approach of any heavy atom of the solute to any heavy atom of its
+images, every image the
 solute could reach searched (the shifts enumerated from the closest approach
 plus the solute's diameter, however many cells that is), in a cell of any
 shape, found with a k-d tree; kept as a series
 (`image_check.dat`), with the frames under the cutoff and under 0.5 nm
 counted, and the closest
 approach with its frame, its time and its two atoms (`findings.solute_image`).
+The solute is the macromolecules as one complex: every protein and nucleic
+acid residue and every other polymer chain (a molecule bonded across two or
+more residues; in a topology with no bonds, a chain of two or more residues),
+so an RNA, a DNA duplex or a peptide of non-standard residues is checked as a
+protein is; a ligand or cofactor is counted with them only where it is in the
+solute the analyses already use (the scope's, `protein or resname LIG` with a
+ligand); water, ions and lipids never. Heavy atoms only, where
+`gmx mindist -pi` counts every atom, so the distance reads about 0.1 nm longer
+than the closest pair of atoms that interact.
 The cutoff is the run's own real-space cutoff: its `nonbonded_cutoff_nm` as
 set or as setup resolved it, read from the study's `setup/setup_parameters.json`;
 else the cutoff of the force field that record names (1.2 nm for CHARMM36,
