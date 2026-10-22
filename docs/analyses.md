@@ -126,7 +126,9 @@ and the solvent's analyses, that a mean may be. The report says the check's
 finding once, in its own section, and under each analysis one line pointing
 there. Every page that shows the mean (the Overview's tiles and production
 means, the Analysis page's table, the line over each card, its caption and its
-convergence, the Report page's table) and the Agent say the note beside the
+convergence, the Report page's table, the runs of a study compared and the
+Report page's table of runs, the written comparison and the slides) and the
+Agent (the means cited under its answers too) say the note beside the
 mean's verdict, which it does not change ("may be biased: in 54 of 270
 frames used (20%) the solute was within 1 nm of its own image"), the analysis's
 paragraph a click away, all read from the record by one reader

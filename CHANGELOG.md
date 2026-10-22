@@ -21,15 +21,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   peak counted as resident memory measures it (17 n^2 bytes beside the
   matrix for an average or complete linkage, SciPy's own copy included).
   Past it, clustering is refused
-  (`analysis.memory.matrix_too_large`) with the frames, the bytes needed and
-  available, and the stride that fits (`options: {cluster: {stride: k}}`,
-  new); the other analyses still run. A chignolin study extended to 128,000
+  (`analysis.memory.matrix_too_large`), said in the log, leading with the
+  stride that fits (`options: {cluster: {stride: k}}`, new), then the
+  frames, the bytes needed and available, and last where the memory was
+  read; the other analyses still run. A chignolin study extended to 128,000
   frames was killed by the kernel while clustering, a matrix of 131 GB and a
   copy of 66 GB. The matrix is made with no copies beside it where it was
   made with two, and k-means, Ward and DBSCAN on `features: coordinates`
   make none. `dimred`'s MDS is checked and refused the same way, before
-  any of its methods runs (PCA asked for beside it is run and kept, the
-  refusal recorded and said in the report; "every 2nd frame"), and makes
+  any of its methods runs (PCA, t-SNE or UMAP asked for beside it are run
+  and their projections saved, the refusal recorded and said in the report;
+  "every 2nd frame"), and makes
   its matrix as clustering does, without the five copies of it it made.
 - Clustering no longer writes the frame-by-frame matrix twice:
   `hierarchical_distance_matrix.npy` is gone (the dendrogram is the
@@ -46,7 +48,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   command stopped with "--include-phase and --exclude-phase are mutually
   exclusive". The help of `--analyses` and `--exclude-analyses` (the
   schema's) says the image check joins a listed plan, and what excluding it
-  leaves unchecked.
+  leaves unchecked. The study's `resolved_config.yml` then holds the
+  analyses left out (`exclude`), not also the plan they resolved to
+  (`include`, in the analysis manifest), which the loader refused beside it,
+  so `fastmdx report` and `fastmdx analyze --rerun` on the study stopped; a
+  record written with both is read as the plan that ran.
 - The estimate of what setup will build keeps a given `solvent_padding_nm`
   of 0.0 (the schema's least) where it read it as unset, now 2.0 nm.
 - The project bundle holds results and records, not working matrices: the
@@ -493,7 +499,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   never water, ions or lipids; grouped into complexes, molecules bonded or
   in contact within 0.5 nm in the first frame read, each complex checked
   against its own images only, so separate copies meeting each other's
-  images in a box of several are not counted) to any heavy atom of every
+  images in a box of several are not counted; grouped once, so a complex
+  that parts or a ligand that unbinds may still be noted and molecules that
+  join later are checked apart, as the finding says) to any heavy atom of every
   image it could reach (searched as far as
   the solute spans, not a fixed two cells), each frame made whole along its
   bonds, in a cell of any shape, kept as a series with the
@@ -518,15 +526,26 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   biased. The report says the check's finding once, in its "Image check"
   section, and one line under each analysis. Every page that shows a noted
   mean says the note beside its verdict, which it does not change ("may be
-  biased: 54 of 270 frames used (20%) came within 1 nm of the solute's own
-  image"): the Overview's tiles and production means, the Analysis page's
-  table (the analysis's paragraph a click away, and in its CSV), the line
-  over each card, its caption and its convergence, the series, and the
-  Report page; and the Agent, in its reading of the analyses, its answers
-  from the records and the means of the study cards; all from the record
-  through one reader (`image_note`). The image check's own row and card
-  give its finding in a sentence, the card titled "Image check" and its
-  atoms said as the heavy atoms of the macromolecules. `end_to_end` alone withholds its error, as it did
+  biased: in 54 of 270 frames used (20%) the solute was within 1 nm of its
+  own image"): the Overview's tiles and production means, the Analysis
+  page's table (the analysis's paragraph a click away, said as the
+  analysis's where it counts other frames than the mean's, and in its CSV),
+  the line over each card, its caption and its convergence, the series, the
+  Report page, the runs of a study compared (on the Analysis page and the
+  Overview of a study of runs, a difference past twice the combined error
+  said to be possibly the image's bias where either mean is noted), the
+  Report page's table of runs, the written comparison and its trend, and
+  the slides; an analysis with no mean over its frames (RMSF, the order
+  parameters, the dihedrals, clustering, the projections) on its row and
+  card, and RMSF's caption and Report page row; and the Agent, in its
+  reading of the analyses, its answers from the records, the means cited
+  under its answers and the means of the study cards; all from the record
+  through one reader (`image_note`), read on the pages without the report's
+  code marks. The image check's own row and card
+  give its finding in a sentence ("No complex of the solute came closer
+  than ..." for several), its row opening to the rest of its paragraph, the
+  card titled "Image check" and its atoms said as the heavy atoms of the
+  macromolecules. `end_to_end` alone withholds its error, as it did
   for its two ends, now from the same note rather than its ends, a check
   that passed a chignolin chain which came to 0.261 nm of its own copy. It runs with every plan where there is a box
   and a solute, a study's listed analyses (`include`, as the GUI writes
@@ -540,8 +559,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   exclusion paragraph keeps its setting as code; its Convergence part says
   how many frames were within the cutoff and, for a run in contact with its
   image in every frame, that no claim about the solute's shape is
-  supported and a longer run alone would not lift the bias; the check's
-  figure gives its time in ps under 1 ns. Not yet done: said while the run
+  supported and a longer run alone would not lift the bias, as the
+  Overview's lead and the Agent's answers on run length and on what would
+  strengthen the run now say beside the longer run they advise
+  (`image_note.longer_run_said`); the check's
+  figure gives its time in ps under 1 ns. Not yet done: complexes grouped
+  again as the run goes (a complex that parts, a ligand that unbinds, an
+  oligomer formed during the run), with one k-d tree over every complex
+  (64 copies of a decapeptide take about 0.15 s a frame); said while the run
   goes; a ligand's approach to the protein's image recorded apart; grading
   the note by thresholds (it waits for a registered check); the GUI map's
   last block drawn its own width; several workers clustering at once; a
