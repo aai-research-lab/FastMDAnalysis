@@ -157,14 +157,9 @@ frame-to-frame RMSD it clustered on, with the frames' times, as
 frames, the block recorded in the file (`block`) and in `options.json`
 (`findings.matrix`) and said in the figure's title and the report's
 caption. The GUI and the report read that one file. The whole matrix is
-written only when asked, as `cluster_rmsd_matrix_full.npy` (float32, its
-size said in the log first):
-
-```yaml
-analysis:
-  options:
-    cluster: {save_full_matrix: true}
-```
+written only when asked, with `cluster: {save_full_matrix: true}` under the
+analysis phase's `options`, as `cluster_rmsd_matrix_full.npy` (float32, its
+size said in the log first).
 
 The matrix grows with the square of the frames clustered: 31,000 frames make
 7.7 GB of it in float64 and 128,000 frames 131 GB, before the copies a
