@@ -659,6 +659,41 @@ def test_a_tab_grown_before_the_open_one_keeps_it_in_view_unless_moved_away(brow
     assert abs(stayed - left) <= 1, (left, stayed)
 
 
+def test_a_strip_moved_by_the_wheel_stays_put_through_a_redraw_before_it_scrolls(browser, site):
+    """The strip followed the open tab until the scroll event a frame after
+    the wheel, so a redraw in between (a study's id read, a switch begun
+    elsewhere) scrolled the open tab back into view."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    key = "fmx.studyTabs:" + str(site["root"])
+    entries = {"tabs": [{"key": f"{n:016x}", "title": f"Study {n}", "page": "overview"} for n in range(10, 34)]
+               + [{"key": site["keys"][0], "title": "Alpha", "page": "overview"}]}
+    context.add_init_script("sessionStorage.setItem(" + json.dumps(key) + ", " + json.dumps(json.dumps(entries)) + ");")
+    page = _open(browser, site, context=context)
+    frames = "new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))"
+    try:
+        page.wait_for_function(IN_VIEW)
+        page.evaluate(frames)
+        moved = page.evaluate("""() => {
+            const list = document.getElementById('study-tabs-list');
+            const before = list.scrollLeft;
+            list.dispatchEvent(new WheelEvent('wheel', {deltaY: -4000, bubbles: true, cancelable: true}));
+            const wheeled = list.scrollLeft;
+            // Drawn again in the same task: a switch begun and ended elsewhere.
+            const dashboard = window.FastMDXDashboard;
+            const held = dashboard.beginStudySwitch();
+            if (!held) dashboard.endStudySwitch();
+            return {before, wheeled, held};
+        }""")
+        page.evaluate(frames)
+        left = page.evaluate("document.getElementById('study-tabs-list').scrollLeft")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert moved["held"] == ""
+    assert moved["before"] > 50 and moved["wheeled"] < 50, moved
+    assert left < 50, (moved, left)
+
+
 LAYOUT = """() => {
     const box = el => el && el.getClientRects().length ? el.getBoundingClientRect() : null;
     const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
