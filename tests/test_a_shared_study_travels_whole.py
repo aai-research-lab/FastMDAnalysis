@@ -3653,3 +3653,28 @@ def test_a_draft_read_back_empty_once_made_is_not_written_back(tmp_path, unstead
     # (Zenodo's PUT replaces the whole metadata: one sent with nothing in it
     # but the DOI asked for would empty the draft.)
     assert all(set(body) - {"prereserve_doi"} for body in sent)
+
+
+def test_a_zip_put_on_the_draft_as_it_is_described_is_said(tmp_path, unsteady,
+                                                          monkeypatch, capsys):
+    """Hands-on review of the thirty-fifth commit: a zip the person put on the
+    draft between its read after the upload and its description was missed,
+    and the draft said made."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def late(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "PUT" and (kwargs.get("body") or {}).get("metadata", {}).get(
+                "description") and isinstance(answer, dict):
+            return {**answer, "files": [*answer.get("files", []),
+                                        {"id": "m", "filename": "mine.zip"}]}
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", late)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    said = capsys.readouterr()
+    assert "holds mine.zip, put there on Zenodo during this share" in said.err
+    assert "Draft made" not in said.out

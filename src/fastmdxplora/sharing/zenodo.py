@@ -1292,6 +1292,19 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                         {"description": answer["metadata"].get("description")})
                 kept[site].pop("sending", None)
                 kept[site].pop("sending_words", None)
+                # A zip put there since the draft was read again, as its answer
+                # lists it.
+                late = sorted(name for name in _names(answer) if name.lower().endswith(".zip")
+                              and name != archive.name)
+                if late:
+                    _keep(study, kept)
+                    put_late = ShareRefused(
+                        f"The draft {page} holds {', '.join(late)}, put there on Zenodo during "
+                        "this share; a record of two archives opens as neither. Delete it "
+                        "there before you publish, then share again.",
+                        code="environment.service.unusable_response", url=page)
+                    put_late.whole = True
+                    raise put_late
             # Else what it holds is not known: what was sent stays the study's.
         else:
             # The person's words, kept; the version is the study's to say.
