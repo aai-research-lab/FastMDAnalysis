@@ -816,3 +816,49 @@ def test_compare_says_a_noted_mean_on_either_side(two_runs, tmp_path) -> None:
     assert errors == []
     assert studies["cells"][2].endswith(" nm †")
     assert studies["lines"][0] == f"† second, RMSD: {said_short(_NOTE_09)}."
+
+
+def test_the_overview_of_a_study_of_runs_says_what_its_mark_means(two_runs, tmp_path) -> None:
+    """In a browser: the Overview of a study of runs marked a noted mean
+    with † and put the note only in the cell's title, which the keyboard
+    and a touch screen do not reach; the replicas' row "The runs together"
+    gave the mean of their means with no mark at all."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    replicas = _noted_replicas(tmp_path / "replicas")
+    found = {}
+    for study in (two_runs, replicas):
+        session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+                for width in (1440, 390):
+                    page = browser.new_page(viewport={"width": width, "height": 900})
+                    page.set_default_timeout(60000)
+                    errors: list[str] = []
+                    page.on("pageerror", lambda error, seen=errors: seen.append(str(error)))
+                    page.goto(session.url + "#overview", wait_until="domcontentloaded")
+                    page.wait_for_selector("#overview-runs-table .is-noted")
+                    found[(study.name, width)] = (page.evaluate("""() => ({
+                        lines: [...document.querySelectorAll('#overview-runs-noted p')]
+                            .filter((n) => n.getClientRects().length).map((n) => n.textContent),
+                        together: (document.querySelector(
+                            '.overview-runs-together .is-noted') || {}).textContent || '',
+                    })"""), errors)
+                    page.close()
+                browser.close()
+        finally:
+            session.server.shutdown()
+    for width in (1440, 390):
+        shown, errors = found[("sweep", width)]
+        assert errors == []
+        assert shown["lines"] == [f"† temperature 310 K, RMSD: {said_short(_NOTE)}."]
+        shown, errors = found[("replicas", width)]
+        assert errors == []
+        assert shown["together"].endswith(" †"), shown
+        noted = said_short(_NOTE_09)
+        assert shown["lines"] == [f"† seed 1, RMSD: {noted}.", f"† seed 2, RMSD: {noted}.",
+                                  f"† The runs together, RMSD: {_TWO_OF_THREE}."], shown

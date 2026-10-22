@@ -194,6 +194,13 @@
         } else {
           td.textContent = "\u2014";
         }
+        if (m.ensemble && m.ensemble.noted) {
+          // Replicas share the box: their means' image notes are in the
+          // mean of them (runs_compared.mean_of_replicas), said under the table.
+          td.appendChild(document.createTextNode(" \u2020"));
+          td.classList.add("is-noted");
+          td.title += " " + m.ensemble.noted.charAt(0).toUpperCase() + m.ensemble.noted.slice(1) + ".";
+        }
         together.appendChild(td);
       });
       foot.appendChild(together);
@@ -251,6 +258,34 @@
     var note = byId("overview-runs-note");
     note.textContent = more > 0 ? more + " more measure" + (more === 1 ? "" : "s")
       + " on the Analysis page, compared run against run." : "";
+    renderNoted(note);
+  }
+
+  /* What † in the table means, a line for each mean it marks, as the
+   * Analysis page's runs compared say it (runs-compared.js): the note on a
+   * cell's title alone was not reached by keyboard or touch. */
+  function renderNoted(after) {
+    var host = byId("overview-runs-noted");
+    if (!host) {
+      host = el("div", "overview-runs-noted");
+      host.id = "overview-runs-noted";
+      after.parentNode.insertBefore(host, after.nextSibling);
+    }
+    host.innerHTML = "";
+    var labels = {};
+    (data.runs || []).forEach(function (run) { labels[run.run_id] = run.label || run.run_id; });
+    shownMeasures().forEach(function (m) {
+      m.cells.forEach(function (c) {
+        if (c.mean == null || !c.noted) return;
+        host.appendChild(el("p", "muted small runs-compared-noted", "† " +
+          (labels[c.run_id] || c.run_id) + ", " + m.label + ": " + c.noted + "."));
+      });
+      if (data.replicas && m.ensemble && m.ensemble.noted) {
+        host.appendChild(el("p", "muted small runs-compared-noted", "† The runs together, " +
+          m.label + ": " + m.ensemble.noted + "."));
+      }
+    });
+    host.hidden = !host.childNodes.length;
   }
 
   /* What is not determined, and in which runs: the reason's first words
