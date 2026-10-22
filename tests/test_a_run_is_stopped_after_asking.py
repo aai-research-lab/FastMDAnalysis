@@ -222,3 +222,36 @@ def test_a_stop_s_answer_goes_once_another_run_starts(browser, tmp_path):  # noq
     finally:
         page.close()
         session.server.shutdown()
+
+
+def test_a_stop_s_card_is_named_alike_wherever_it_is_led_to(browser, tmp_path):  # noqa: F811
+    """The card of a run stopped as asked is "To carry it on". The Problems
+    list's heading for the same stop still said "What would fix it"."""
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    study = _going(tmp_path / "study", "nvt")
+    _runtime_running(study).stop()
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    context.add_init_script("localStorage.setItem('fmx.panelCollapsed', '0');")
+    page = context.new_page()
+    errors: list = []
+    try:
+        page.set_default_timeout(60000)
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(session.url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("#fixes-card:not([hidden]) #fixes-list li")
+        card = page.text_content("#fixes-card .card-title")
+        if page.locator("#side-expand").is_visible():
+            page.locator("#side-expand").click()
+        page.locator("#problems-tab").click()
+        page.wait_for_selector("#problems-body .problem-item[data-problem-id] h4")
+        headings = page.eval_on_selector_all(
+            "#problems-body .problem-item", "items => items.map(i => [i.dataset.problemId, "
+            "i.querySelector('h4').textContent])")
+    finally:
+        context.close()
+        session.server.shutdown()
+    assert errors == []
+    assert card == "To carry it on"
+    assert headings == [["health:stopped", "To carry it on"]], headings

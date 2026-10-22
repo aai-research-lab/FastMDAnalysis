@@ -97,7 +97,11 @@
       card.appendChild(element("h3", "", item.title));
       card.appendChild(element("p", "", item.reason));
       if (item.code) card.appendChild(element("code", "problem-code", item.code));
-      card.appendChild(element("h4", "", "What would fix it"));
+      // Named as the Overview's card is (fixes.js): a run stopped as asked
+      // is not a fault, and is carried on rather than fixed. The stop is
+      // read from a phase's refusal or from the run's health record.
+      var stopped = item.code === "simulation.run.stopped" || item.id === "health:stopped";
+      card.appendChild(element("h4", "", stopped ? "To carry it on" : "What would fix it"));
       card.appendChild(element("p", "", item.fix || "No remedy is recorded."));
       if (item.file) {
         var file = element("div", "problem-file");
