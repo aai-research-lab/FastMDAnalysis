@@ -189,9 +189,12 @@ def memory_available() -> tuple[int | None, str]:
 
     ``psutil`` where it is installed (it is not a dependency); else
     ``MemAvailable`` in ``/proc/meminfo`` (Linux: free memory and the caches
-    the kernel can give back); else ``os.sysconf`` (free pages, which leave
-    the caches out and so read low). None where none answers (macOS without
-    psutil), and the check is then not made, which the record says.
+    the kernel can give back); else free pages from ``os.sysconf``, which
+    leave the caches out and so read low; else, where no available memory
+    can be read (macOS without psutil), the machine's total physical memory
+    from ``os.sysconf``, said as such: a matrix past it cannot fit whatever
+    else is running, and one within it may still not. None where nothing
+    answers, and the check is then not made, which the record says.
     """
     try:
         import psutil  # type: ignore[import-not-found]
@@ -199,23 +202,37 @@ def memory_available() -> tuple[int | None, str]:
         return int(psutil.virtual_memory().available), "psutil, available memory"
     except Exception:  # noqa: BLE001 -- not installed, or no answer
         pass
+    found = _proc_meminfo_available()
+    if found:
+        return found, "MemAvailable in /proc/meminfo"
+    for name, said in (("SC_AVPHYS_PAGES", "free pages from os.sysconf"),
+                       ("SC_PHYS_PAGES", "the machine's total memory from os.sysconf, "
+                                         "its available memory not readable here")):
+        found = _sysconf_bytes(name)
+        if found:
+            return found, said
+    return None, "not read: no psutil, /proc/meminfo or os.sysconf on this machine"
+
+
+def _proc_meminfo_available() -> int | None:
     try:
         with open("/proc/meminfo", encoding="ascii") as meminfo:
             for line in meminfo:
                 if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) * 1024, "MemAvailable in /proc/meminfo"
+                    return int(line.split()[1]) * 1024
     except (OSError, ValueError, IndexError):
         pass
+    return None
+
+
+def _sysconf_bytes(name: str) -> int | None:
     import os
 
     try:
-        pages = os.sysconf("SC_AVPHYS_PAGES")
-        size = os.sysconf("SC_PAGE_SIZE")
-        if pages > 0 and size > 0:
-            return int(pages) * int(size), "free pages from os.sysconf"
+        pages, size = os.sysconf(name), os.sysconf("SC_PAGE_SIZE")
     except (AttributeError, ValueError, OSError):
-        pass
-    return None, "not read: no psutil, /proc/meminfo or os.sysconf on this machine"
+        return None
+    return int(pages) * int(size) if pages > 0 and size > 0 else None
 
 
 def _gigabytes(n_bytes: float) -> str:

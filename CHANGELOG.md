@@ -10,7 +10,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 
 - Clustering checks its frame-by-frame RMSD matrix against the memory this
-  machine has available before it makes it, and past it is refused
+  machine has available before it makes it (psutil where installed, else
+  `/proc/meminfo` or `os.sysconf`; on a Mac without psutil, the machine's
+  total memory, said as such), and past it is refused
   (`analysis.memory.matrix_too_large`) with the frames, the bytes needed and
   available, and the stride that fits (`options: {cluster: {stride: k}}`,
   new); the other analyses still run. A chignolin study extended to 128,000

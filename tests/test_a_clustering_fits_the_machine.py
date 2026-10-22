@@ -230,6 +230,18 @@ class TestTheMemoryCheck:
         assert available is None or available > 0
         assert where
 
+    def test_where_only_the_total_is_readable_it_is_said_as_the_total(self, monkeypatch):
+        """macOS without psutil: no /proc/meminfo and no free pages."""
+        import sys
+
+        monkeypatch.setitem(sys.modules, "psutil", None)
+        monkeypatch.setattr(clustering, "_proc_meminfo_available", lambda: None)
+        monkeypatch.setattr(clustering, "_sysconf_bytes",
+                            lambda name: 16 * 10**9 if name == "SC_PHYS_PAGES" else None)
+        available, where = clustering.memory_available()
+        assert available == 16 * 10**9
+        assert "total" in where and "not readable" in where
+
 
 class TestTheEstimateIsWhatTheMethodsMake:
     """The bytes the check counts against the peak the methods traced: never
