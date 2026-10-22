@@ -1705,8 +1705,22 @@
   var swappedAt = 0;
   var SWAPPED = "Not sent: the box now holds the words saved for this study, put back as it was "
     + "opened. Press Enter again to send them.";
+  /* An edit saved as the page was left (a reload) is put back with the
+   * words: said once, as a switch says it (CI-774 review L20: in the box,
+   * with nothing said of why). */
+  var EDIT_LEFT = "The edit not sent as the page was left is in the box, to send from there.";
+  function editLeftFor(key) {
+    try {
+      var raw = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + key) || "null");
+      if (!raw || typeof raw !== "object" || !raw.editLeft) return false;
+      delete raw.editLeft;
+      sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify(raw));
+      return true;
+    } catch (e) { return false; }
+  }
   function putBack(key, typed) {
     var area = el("agent-request");
+    var edited = editLeftFor(key);
     var kept = storedUnsent(key);
     var files = kept ? kept.files : [];
     var words = kept ? kept.words : "";
@@ -1726,6 +1740,7 @@
     keepUnsent();
     /* Open now: a note that its words are kept for it says so no more. */
     if (noteKind === "moved" && noteAbout === key) unsentSaid("");
+    if (edited) unsentSaid(EDIT_LEFT, "moved", "");
     sendWaitSaid();
   }
   function attachFile(path) {
@@ -5453,7 +5468,7 @@
         try {
           sessionStorage.setItem(UNSENT_WORDS + e.key, JSON.stringify({
             words: kept.words.trim() ? kept.words + "\n\n" + words : words,
-            files: withFiles(kept.files, e.files) }));
+            files: withFiles(kept.files, e.files), editLeft: true }));
         } catch (err) { /* this browser keeps nothing */ }
       });
     });

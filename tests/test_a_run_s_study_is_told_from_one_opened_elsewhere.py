@@ -2997,7 +2997,10 @@ def test_an_edit_refused_by_a_review_is_kept_as_its_thread_is_replaced(tmp_path,
         assert "The edit not sent is saved for here" in out["note"], out
         assert out["back"] == edited, out
     else:
+        # Said why it is there (L20: nothing was).
         assert out["box"] == edited, out
+        assert out["note"] == ("The edit not sent as the page was left is in the box, "
+                               "to send from there."), out
     assert errors == []
 
 
