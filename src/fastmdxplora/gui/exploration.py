@@ -272,9 +272,14 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
         rounds_of_a_study,
     )
 
-    manifest = _json_mapping(Path(root) / "batch_manifest.json")
+    with record_access.refusals_noted() as refused:
+        manifest = _json_mapping(Path(root) / "batch_manifest.json")
+    if refused and not manifest:
+        # Linked out of the study, it is not read (`record_access`): its runs
+        # are named by their folders, with no values or results of its.
+        manifest = {"planned": _runs_by_their_folders(Path(root))}
     planned = manifest.get("planned") or manifest.get("runs") or []
-    if not manifest or not isinstance(planned, list):
+    if not manifest or not isinstance(planned, list) or not planned:
         return None
     results = {r.get("run_id"): r for r in (manifest.get("runs") or []) if isinstance(r, dict)}
     entries = [entry for entry in planned if isinstance(entry, dict) and entry.get("run_id")]
@@ -372,6 +377,35 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
     return out
 
 
+def _runs_by_their_folders(root: Path) -> list[dict[str, Any]]:
+    """A study's runs as its `runs/` folder has them, for a study whose
+    batch manifest was not read: each by its folder's name alone."""
+    from fastmdxplora import record_access
+
+    try:
+        return [{"run_id": folder.name} for folder in sorted(record_access.iterdir(root / "runs"))
+                if not folder.name.startswith(".") and record_access.is_dir(folder)]
+    except OSError:
+        return []
+
+
+def _runs_held(root: Path) -> dict[str, Any]:
+    """The open folder's runs (`runs_of_a_study`) and, for a run of a study,
+    its study (`study_a_run_belongs_to`), read held to the study as its
+    pages read its records (`server._confined`): a batch manifest linked
+    out of the study is not read, its runs named by their folders, and it
+    is said not read (``unavailable``, ``not_read``). Paths are said as the
+    folder was opened."""
+    from fastmdxplora.gui.server import _as_opened, _confined, _said_not_read
+
+    answer = _said_not_read(_confined(Path(root), lambda inside: {
+        "runs": runs_of_a_study(inside), "run_of": study_a_run_belongs_to(inside)}))
+    if not isinstance(answer, dict):
+        return {}
+    inside, opened = str(Path(root).resolve()), str(root)
+    return answer if inside == opened else _as_opened(answer, inside, opened)
+
+
 def axes_that_differ(runs: list[dict[str, Any]]) -> list[str]:
     """The swept settings whose values differ between the runs, in the
     order they first appear."""
@@ -455,12 +489,17 @@ def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
 def study_a_run_belongs_to(root: Path) -> dict[str, Any] | None:
     """For a run under a study of several: that study's folder and this run's
     swept values, so the page can say where it belongs and go back."""
+    from fastmdxplora import record_access
     from fastmdxplora.gui.browse import run_of
 
-    member = run_of(Path(root))
+    with record_access.refusals_noted() as refused:
+        member = run_of(Path(root))
+    study = Path(root).parent.parent
+    if not member and refused and Path(root).parent.name == "runs":
+        # Its study's batch manifest not read: a run of it, by its folder.
+        member = {"study": study.name}
     if not member:
         return None
-    study = Path(root).parent.parent
     # Its study's runs, so the place can offer the others (place.js), and
     # this run by what sets it apart among them.
     runs = runs_of_a_study(study) or []
@@ -734,6 +773,26 @@ def _json_mapping_or_yaml(path: Path) -> dict[str, Any]:
     except (OSError, yaml.YAMLError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _process_record_held(root: Path) -> dict[str, Any]:
+    """The run's process record in ``root``, read held to the study as the
+    pages read its records (`server._confined`): one linked out of the
+    study is not read, so its process is never adopted or signalled; it is
+    said in the log."""
+    from fastmdxplora.gui.server import _confined
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+
+    answer = _confined(Path(root), lambda inside: {
+        "record": _json_mapping(inside / RUN_PROCESS_FILE)})
+    if not isinstance(answer, dict):
+        return {}
+    if answer.get("unavailable"):
+        logger.info("%s in %s was not read: it leads outside the study, so its process "
+                    "is not taken for the run.", RUN_PROCESS_FILE, root)
+        return {}
+    record = answer.get("record")
+    return dict(record) if isinstance(record, dict) else {}
 
 
 def _json_mapping(path: Path) -> dict[str, Any]:
@@ -1181,6 +1240,8 @@ class DashboardRuntime:
                 status = "failed"
             no_study = self._no_study_open()
             open_root = None if no_study or self.data_stale else self.active_root
+            # Its runs, and the study it is a run of, read held to the study.
+            held = _runs_held(open_root) if open_root else {}
             return {
                 "mode": "home" if open_root is None else "run",
                 "status": status,
@@ -1201,11 +1262,14 @@ class DashboardRuntime:
                 "log_path": str(self.log_path) if self.log_path else None,
                 # The runs of a study of several, each with its state, so the
                 # page can list them and open one. None for a study of one.
-                "runs": runs_of_a_study(open_root) if open_root else None,
+                "runs": held.get("runs"),
                 # A study that analysed a trajectory and ran no simulation
                 # here, so has no record of one to show or narrate.
                 "analysed_only": _analysed_only(open_root) if open_root else False,
-                "run_of": study_a_run_belongs_to(open_root) if open_root else None,
+                "run_of": held.get("run_of"),
+                # Its batch manifest, or its study's, linked out and not read.
+                **({key: held[key] for key in ("unavailable", "unavailable_why", "not_read")
+                    if key in held}),
                 "command": list(self.command),
                 "can_launch": not running,
                 # Whether this installation carries the demo study to open.
@@ -1708,9 +1772,7 @@ class DashboardRuntime:
         self._adoption_root = None
         if root is None or self.process is not None and self.process.poll() is None:
             return False
-        from fastmdxplora.orchestrator import RUN_PROCESS_FILE
-
-        record = _json_mapping(Path(root) / RUN_PROCESS_FILE)
+        record = _process_record_held(Path(root))
         pid = record.get("pid")
         if not isinstance(pid, int) or pid <= 0:
             return False
@@ -1762,8 +1824,6 @@ class DashboardRuntime:
     def _keep_trying_to_adopt(self, root: Path) -> None:
         import time
 
-        from fastmdxplora.orchestrator import RUN_PROCESS_FILE
-
         deadline = time.monotonic() + ADOPTION_RETRY_SECONDS
         while time.monotonic() < deadline:
             time.sleep(ADOPTION_RETRY_INTERVAL)
@@ -1772,7 +1832,7 @@ class DashboardRuntime:
                     return  # the person has opened a different study
                 if self.process is not None and self.process.poll() is None:
                     return  # already watching a run
-            record = _json_mapping(root / RUN_PROCESS_FILE)
+            record = _process_record_held(root)
             pid = record.get("pid")
             if not isinstance(pid, int) or pid <= 0:
                 return  # the run finished and took its record with it

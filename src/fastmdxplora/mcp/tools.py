@@ -1102,21 +1102,16 @@ def _recorded(ctx: Context, folder: Path, pid: int) -> None:
 
 
 def _stop_study(ctx: Context, args: dict[str, Any]) -> str:
-    import json
-
-    from fastmdxplora.gui.exploration import _AdoptedProcess, _identify_run
-    from fastmdxplora.orchestrator import RUN_PROCESS_FILE, record_is_from_elsewhere
+    from fastmdxplora.gui.exploration import (_AdoptedProcess, _identify_run,
+                                              _process_record_held)
+    from fastmdxplora.orchestrator import record_is_from_elsewhere
     from fastmdxplora.simulation.runner import stop_grace_seconds
     from fastmdxplora.stop_after import see_it_stops
 
     folder = _study(ctx, args["study"])
     shown = ctx.workspace.shown(folder)
-    try:
-        record = json.loads((folder / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        record = {}
-    if not isinstance(record, dict):
-        record = {}
+    # Held to the study: a process record linked out of it names no run of it.
+    record = _process_record_held(folder)
     pid = record.get("pid")
     if (not isinstance(pid, int) or pid <= 0 or record_is_from_elsewhere(record)
             or _identify_run(pid, folder, record) is not True):

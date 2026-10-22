@@ -1529,7 +1529,13 @@ def make_handler(
             if path == "/api/runs-compared":
                 from fastmdxplora.gui.runs_compared import runs_compared
 
-                self._send_json(runs_compared(root))
+                # Read from the study's own records only (`_confined`): a
+                # batch manifest linked out of it names no run of it. Its
+                # runs' paths said as the study was opened.
+                answer = _said_not_read(_confined(root, runs_compared))
+                inside, opened = str(root.resolve()), str(root)
+                self._send_json(answer if inside == opened
+                                else _as_opened(answer, inside, opened))
                 return
             if path == "/api/protein-preview":
                 # Beyond loopback a viewer reads what the run has; it does
