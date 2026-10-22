@@ -20,6 +20,11 @@
   // the tags the studies here carry (offered as one is typed).
   var tagged = null;
   var editing = null;
+  // The tags, note and tag half typed of the card being tagged, not yet
+  // kept: the cards drawn again (the page's list read again as it opens, a
+  // study's ID given) drew its editor again from the tags kept, and what
+  // had been added was gone.
+  var draft = null;
   var tagsUsed = [];
   var TAG_LENGTH = 40;
   var NOTE_LENGTH = 200;
@@ -89,6 +94,7 @@
     tag.title = (some ? "Tags" : "Tag") + ": words and a note of your own, kept in the study's folder";
     tag.addEventListener("click", function () {
       editing = study.path;
+      draft = null;
       draw();
       var input = document.querySelector(".study-tag-editor .study-tag-input");
       if (input) input.focus();
@@ -145,7 +151,11 @@
   function tagEditor(study) {
     var form = make("form", "study-tag-editor");
     form.setAttribute("aria-label", "Tags of " + study.name);
-    var tags = (study.tags || []).slice();
+    if (!draft || draft.path !== study.path) {
+      draft = { path: study.path, tags: (study.tags || []).slice(), note: study.note || "",
+                adding: "" };
+    }
+    var tags = draft.tags;
     var list = make("div", "study-tags");
     function drawTags() {
       list.replaceChildren.apply(list, tags.map(function (tag, i) {
@@ -168,6 +178,8 @@
     adding.setAttribute("list", "studies-tags-used");
     adding.placeholder = "Add a tag";
     adding.setAttribute("aria-label", "A tag to add");
+    adding.value = draft.adding;
+    adding.addEventListener("input", function () { draft.adding = adding.value; });
     function add() {
       var tag = adding.value.replace(/\s+/g, " ").trim();
       if (tag && !tags.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); })) {
@@ -175,6 +187,7 @@
         drawTags();
       }
       adding.value = "";
+      draft.adding = "";
     }
     adding.addEventListener("keydown", function (event) {
       if (event.key === "Enter") {
@@ -188,7 +201,8 @@
     var note = make("input", "study-note-input");
     note.type = "text";
     note.maxLength = NOTE_LENGTH;
-    note.value = study.note || "";
+    note.value = draft.note;
+    note.addEventListener("input", function () { draft.note = note.value; });
     note.placeholder = "A note: one line";
     note.setAttribute("aria-label", "A note on the study");
     var said = make("p", "muted small study-tag-said");
@@ -199,6 +213,7 @@
     cancel.type = "button";
     cancel.addEventListener("click", function () {
       editing = null;
+      draft = null;
       draw();
     });
     form.addEventListener("submit", function (event) {
@@ -222,10 +237,17 @@
           said.textContent = (d && (d.reason || d.error)) || "The tags could not be kept.";
           return;
         }
-        study.tags = d.tags;
-        study.note = d.note;
+        // The card as listed now, as Undo does: a list answered while the
+        // tags were being kept was drawn from studies of its own, and the
+        // tags just kept went on the one it replaced, the card shown none.
+        studies.filter(function (one) { return one.path === study.path; })
+          .concat([study]).forEach(function (one) {
+            one.tags = d.tags;
+            one.note = d.note;
+          });
         edited += 1;
         editing = null;
+        draft = null;
         tagsUsed = countTags();
         offerTags();
         draw();
@@ -404,11 +426,11 @@
       frame.appendChild(make("span", "study-thumb-none", shownId(study) || study.name));
       frame.dataset.picture = "none";
       frame.title = unread(study, "molecule")
-        ? "Not drawn: its structure was not read. " + (study.not_read || "")
+        ? "Not rendered: its structure was not read. " + (study.not_read || "")
         : study.molecule_outside
-          ? "Not drawn: the structure it is to start from, " + study.molecule_outside +
+          ? "Not rendered: the structure it is to start from, " + study.molecule_outside +
             ", is outside its folder, and only the study's own files are read"
-          : "Nothing to draw yet: no structure of it is here";
+          : "Nothing to render yet: no structure of it is here";
     }
     return frame;
   }
@@ -2207,14 +2229,16 @@
           return studies.some(function (s) { return s.path === path; });
         });
         // The count kept whole, the folder shortened where the head is
-        // narrow (the Agent beside): the count was what was cut.
-        var where = el("studies-where");
+        // narrow (the Agent beside): the count was what was cut. Not named
+        // `where`: so named it hid the folder asked for, and a list read
+        // again, or counted, was of the workspace instead.
+        var said = el("studies-where");
         var count = make("span", "studies-where-n", studies.length + " stud" +
           (studies.length === 1 ? "y" : "ies"));
         var folder = make("span", "studies-where-in", "\u00a0in " + data.root +
           (data.more ? ", the newest first; there are more than this shows." : "."));
-        where.title = count.textContent + folder.textContent;
-        where.replaceChildren(count, folder);
+        said.title = count.textContent + folder.textContent;
+        said.replaceChildren(count, folder);
         draw();
       })
       .catch(function () {
@@ -2261,8 +2285,21 @@
     });
     wireOpenShared();
     keepThePlace();
+    // Opened on this page, its studies are listed as it loads, below. Until
+    // another page is gone to, a navigation to this one (the page's first,
+    // and its route put in its address once its state is read) is the same
+    // page and not a return to it: listed again then, the cards were drawn
+    // again under whatever had been done to them meanwhile.
+    var listedAsItLoaded = null;
+    var notLeftSinceLoaded = false;
     var opened = function (detail) {
       var page = detail && detail.page ? detail.page : detail;
+      if (page !== "studies") notLeftSinceLoaded = false;
+      if (page === "studies" && notLeftSinceLoaded) {
+        if (listedAsItLoaded) listedAsItLoaded.then(returnToThePlace, returnToThePlace);
+        listedAsItLoaded = null;
+        return;
+      }
       if (page === "studies") {
         var back = load(lookedIn);
         if (back && back.then) back.then(returnToThePlace, returnToThePlace);
@@ -2272,7 +2309,10 @@
     if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
       window.FastMDXDashboard.on("navigate", opened);
     }
-    if (location.hash === "#studies") load();
+    if (location.hash === "#studies") {
+      listedAsItLoaded = load() || null;
+      notLeftSinceLoaded = true;
+    }
   }
 
   /* Where All studies was scrolled to, and its search, kept when the page

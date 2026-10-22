@@ -56,6 +56,8 @@ def _open(browser, session):
     page.goto("about:blank")
     page.goto(session.url + "#overview", wait_until="domcontentloaded")
     page.wait_for_function("() => document.body.classList.contains('state-ready')")
+    # Its first route put in its address too, a step it may write.
+    page.wait_for_function("() => window.FastMDXDashboard.state.initialRouteResolved")
     return page
 
 
@@ -242,6 +244,8 @@ def test_a_reload_with_a_dialog_open_opens_it_again(browser, session) -> None:
     page = _open(browser, session)
     page.click("#settings-open")
     page.click("[data-dialog-open='prefs-dialog']")
+    # Reloaded once the dialog's step is in the history it is opened from.
+    page.wait_for_function("() => (history.state || {}).fmxDialog === 'prefs-dialog'")
     page.reload(wait_until="domcontentloaded")
     page.wait_for_function("() => document.body.classList.contains('state-ready')")
     page.wait_for_function("() => !document.getElementById('prefs-dialog').hidden")

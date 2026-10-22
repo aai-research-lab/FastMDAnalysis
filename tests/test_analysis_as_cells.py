@@ -152,7 +152,7 @@ def test_each_analysis_is_a_cell_whose_plots_zoom_share_a_range_and_save(study, 
     assert (after["rmsd"], after["rg"], after["ss"], after["range"]) == ("", "", "", "")
     # A run under a nanosecond (0.4 ns here) read in picoseconds.
     assert many[0] == "image" and "Time (ps)" in many[1] and "400" in many[1]
-    assert many[2].startswith("Drawn as a picture of its 400 by 300 cells") and many[3] == "pixelated"
+    assert many[2].startswith("Plotted as a picture of its 400 by 300 cells") and many[3] == "pixelated"
 
 
 def _page(pw, session):
@@ -249,7 +249,18 @@ def test_the_range_is_marked_on_the_viewer_s_timeline(study):
             browser, page, errors = _page(pw, session)
             page.goto(session.url + "#analysis", wait_until="domcontentloaded")
             page.wait_for_selector('.series-chart[data-analysis="rmsd"] .plot-tools')
-            _drag(page, '.series-chart[data-analysis="rmsd"]', (0.4, 0.4), (0.8, 0.45))
+            # Dragged under the loading screen, the range was not drawn.
+            page.wait_for_selector("body.state-ready")
+            # A chart whose width changes is drawn again, and a drag begun on
+            # the plot it replaced is lost: dragged once every plot is in,
+            # and again on a plot drawn while it was dragged.
+            page.wait_for_function("() => !document.querySelector('[data-series-ready=\"pending\"]')")
+            chart = '.series-chart[data-analysis="rmsd"]'
+            for _ in range(3):
+                page.evaluate(f"() => {{ document.querySelector('{chart} svg').dataset.dragOn = '1'; }}")
+                _drag(page, chart, (0.4, 0.4), (0.8, 0.45))
+                if page.evaluate(f"() => !!document.querySelector('{chart} svg').dataset.dragOn"):
+                    break
             page.wait_for_selector("#analysis-cell-range:not([hidden])")
             page.click('[data-view-link="viewer"]')
             page.wait_for_selector("#timeline-ruler svg .timeline-range")
@@ -366,6 +377,7 @@ def test_a_plot_is_zoomed_moved_and_shown_whole_by_the_keyboard(study):
             page.goto(session.url + "#analysis", wait_until="domcontentloaded")
             page.wait_for_selector('.series-chart[data-analysis="rmsd"] .plot-tools')
             page.wait_for_selector('.figure-chart[data-figure-kind="states"] .plot-tools')
+            page.wait_for_selector("body.state-ready")
             view = "(s) => document.querySelector(s).dataset.view"
             rmsd = '.series-chart[data-analysis="rmsd"]'
             page.locator(rmsd + " svg").focus()
@@ -480,6 +492,12 @@ def test_a_cell_follows_its_page_and_says_what_its_analysis_read(full):
             page.wait_for_selector('.analysis-cell-head[data-analysis="thermodynamics"]')
             page.wait_for_selector('.analysis-cell-head[data-analysis="rmsd"] .cell-again')
             page.wait_for_selector('.series-chart[data-analysis="rmsf"] .plot-tools')
+            # The cell is drawn again once the results table it reads is in,
+            # with that table's quantities: read before, it still said the
+            # trajectory's frames, the table not yet in.
+            page.wait_for_function("() => document.querySelector("
+                                   "'.analysis-cell-head[data-analysis=\"thermodynamics\"]')"
+                                   ".textContent.includes('Temperature')")
             thermo = page.text_content('.analysis-cell-head[data-analysis="thermodynamics"]')
             rmsf = '.series-chart[data-analysis="rmsf"]'
             page.locator(rmsf + " svg").scroll_into_view_if_needed()

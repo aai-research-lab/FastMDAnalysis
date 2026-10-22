@@ -4,7 +4,7 @@ A finished study of several runs keeps no record of a simulation in its own
 folder; each run keeps its own. Its Overview said "Waiting for the
 simulation" and "Setup is under way", as it did for any study open without
 one: the page told only "a study is open" from "none is". Now a study of
-several runs says how many it has and where to view them, a study being run
+several runs shows them on its Overview instead, a study being run
 from the GUI waits for its simulation, and any other study says it kept no
 live record and why it may not have.
 """
@@ -51,16 +51,36 @@ def _said(study: Path) -> tuple[str, str, bool]:
     return said
 
 
-def test_a_finished_study_of_several_runs_says_where_they_are():
+def test_a_finished_study_of_several_runs_shows_them_instead():
+    """Its runs are on its Overview since ac336f15 (overview-runs.js), so the
+    note that there is no live record is not shown over them."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
     root = _a_sweep_study(Path(tempfile.mkdtemp()))
     for status in root.glob("runs/*/simulation/live_status.json"):
         status.write_text(json.dumps({"stage": "completed", "current_step": 500,
                                       "total_planned_steps": 500}), encoding="utf-8")
-    title, body, hidden = _said(root)
-    assert title == "A study of 2 runs"
-    assert body.startswith("2 of 2 completed.")
-    assert "view one from Runs in the sidebar" in body
-    assert hidden
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("#overview-runs:not([hidden]) #overview-runs-table tbody tr")
+            rows = page.locator("#overview-runs-table tbody tr").count()
+            absent_hidden = page.eval_on_selector("#live-absent", "e => e.hidden")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert rows == 2
+    assert absent_hidden
 
 
 def test_a_study_with_no_live_record_says_so():

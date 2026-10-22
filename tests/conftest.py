@@ -143,6 +143,37 @@ def pytest_configure(config):
     os.environ["FASTMDXPLORA_CACHE_DIR"] = os.path.join(root, "cache")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _a_test_file_reads_the_insertion_codes_of_its_own_structures():
+    """The insertion codes read from one test file's structures are not there
+    for the next. `residues._INSERTION_CODES` is kept for the process, keyed
+    by atom serial, residue name and number, so trypsin's 184A read by one
+    file made another file's slice of the same deposition read as having
+    insertions, and its RMSF came back as a table by chain: it depended on
+    which file had run before it in the process, which under pytest-xdist
+    differs from the order the suite runs in alone. They are cleared once a
+    file, before its own fixtures, which may read them for all its tests."""
+    from fastmdxplora.analysis import residues
+
+    residues._INSERTION_CODES.clear()
+    yield
+    residues._INSERTION_CODES.clear()
+
+
+@pytest.fixture(autouse=True)
+def _a_test_has_a_presenter_of_its_own():
+    """The presenter one test made is not the next one's. It is kept for the
+    process and decides once, when it is made, whether to be quiet: made
+    inside a batch, which sets FASTMDX_LOG_STYLE=plain while it runs, it said
+    nothing for every test after, so a test reading what a command said
+    failed when a batch test had run before it in the same process."""
+    from fastmdxplora.utils import presenter
+
+    presenter.reset_presenter()
+    yield
+    presenter.reset_presenter()
+
+
 @pytest.fixture(autouse=True)
 def _a_test_has_settings_of_its_own(monkeypatch, tmp_path_factory):
     """And each test starts from none: a calibration or a chosen model one

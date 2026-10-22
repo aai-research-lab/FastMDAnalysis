@@ -723,7 +723,7 @@ def study_thumbnail(folder: Path | str, *, scheme: str = "light",
                 pass
         picture = backbone_svg(inside, scheme)
         if picture is None:
-            return {"ok": False, "reason": "no figure, and no structure to draw"}
+            return {"ok": False, "reason": "no figure, and no structure to render"}
         return {"ok": True, "data": picture.encode("utf-8"), "kind": "image/svg+xml"}
 
     out = _out_of_its_study(Path(folder))

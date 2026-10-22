@@ -228,7 +228,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         shell: bash
         run: |
-          python -m pip install playwright
+          python -m pip install playwright pytest-xdist
           python -m playwright install --with-deps chromium
 
       - name: Run tests
@@ -244,8 +244,26 @@ jobs:
           # with its reason, so a red job names what failed and a program or
           # a package missing from a job is read here rather than inferred
           # from a coverage report.
+          #
+          # The coverage leg runs the browser tests too, traced, and grew
+          # past its 150 minutes: from 82 at 1094e1c9 (10-16) to past 145 by
+          # 10-18, cancelled at about 78% on every push since, so main read
+          # red on all of them. The tests that drive no browser run on every
+          # core of the runner (pytest-xdist, a file's tests on one worker);
+          # the files that drive Chromium run after them one at a time, as
+          # before: four browsers on the runner's four cores, traced, timed
+          # out on waits that pass alone (16 of them in the first try, on
+          # #65). A file drives Chromium if it names Playwright, or opens a
+          # page or takes a browser from a fixture it imports from another.
+          # pytest-cov appends the second run to the first.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python-version }}" = "3.11" ]; then
-            pytest -rfEs --cov=fastmdxplora --cov-report=term-missing --cov-report=xml
+            browser=$(grep -lE 'playwright|\.goto\(|new_page\(|^def test_[a-z0-9_]+\([^)]*\bbrowser\b' tests/*.py)
+            status=0
+            pytest -rfEs -n auto --dist loadfile --cov=fastmdxplora --cov-report= \
+              $(printf -- '--ignore=%s ' $browser) || status=1
+            pytest -rfEs --cov=fastmdxplora --cov-append \
+              --cov-report=term-missing --cov-report=xml $browser || status=1
+            exit $status
           else
             pytest -rfEs
           fi

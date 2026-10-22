@@ -636,6 +636,7 @@
       emit("run-changed", {previousRun, activeRun, first: firstAppState});
     }
     if (activeRun) state.outputDir = activeRun;
+    renderAnalysisMeta();
     // Why there is no live record follows the study's state, which changes
     // without a status arriving: a run of the study starting or ending.
     if (!state.status || Object.keys(state.status).length === 0) renderLiveProgress({});
@@ -752,6 +753,7 @@
     state.status = {};
     state.health = {};
     state.results = {};
+    state.analysisCount = 0;
     state.structureInfo = null;
     state.setupManifest = {};
     state.simManifest = {};
@@ -2060,9 +2062,18 @@
         + (fromReport && fromReport < svgCount
           ? `, ${fromReport} of them the report's` : fromReport ? ", the report's" : "");
     }
-    const count = analyses.length || plots.length;
+    state.analysisCount = analyses.length || plots.length;
+    renderAnalysisMeta();
+    if (cards.length) empty.setAttribute("hidden", "");
+    else empty.removeAttribute("hidden");
+  }
+
+  function renderAnalysisMeta() {
+    const count = state.analysisCount || 0;
     // A study of several runs keeps its analyses in its runs, compared on
-    // this page below: "no analyses yet" sat above runs of 14 each.
+    // this page below: "no analyses yet" sat above runs of 14 each. Said
+    // again when the study's state arrives, which can be after its results:
+    // read before it, a study of runs stayed "no analyses yet".
     const runs = Array.isArray(state.appState?.runs) ? state.appState.runs : null;
     setText(
       "analysis-meta",
@@ -2070,8 +2081,6 @@
         : runs && runs.length ? `the analyses of ${runs.length} run${runs.length === 1 ? "" : "s"}, compared below`
         : "no analyses yet"
     );
-    if (cards.length) empty.setAttribute("hidden", "");
-    else empty.removeAttribute("hidden");
   }
 
   function analysisCardHtml(analysis, plot) {

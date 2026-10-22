@@ -56,7 +56,18 @@ def _open(browser, site, width=1440, theme="dark", context=None):
     page.errors = errors
     page.goto(site["session"].url + "#overview", wait_until="domcontentloaded")
     page.locator('.study-tab-link[aria-current="page"]').wait_for()
+    _ready(page)
     return page
+
+
+def _ready(page):
+    # Under the loading screen until the study is read, and its first page
+    # put in its address once its state is: a page gone to before then was
+    # the one a person could not yet reach, and kept as the study's last.
+    page.wait_for_function("() => document.body.classList.contains('state-ready')"
+                           " && window.FastMDXDashboard"
+                           " && window.FastMDXDashboard.state.initialRouteResolved",
+                           timeout=20000)
 
 
 def _link(page, key):
@@ -73,6 +84,7 @@ def _active(page, key):
     expect(_link(page, key)).to_have_attribute("aria-current", "page", timeout=20000)
     page.wait_for_function("key => new URL(location.href).searchParams.get('study') === key", arg=key,
                            timeout=20000)
+    _ready(page)
 
 
 def _outside_open(page, site, index, route="overview"):
@@ -102,6 +114,28 @@ def test_tabs_restore_each_studys_last_page_and_survive_reload(browser, site):
         _link(page, site["keys"][1]).click()
         _active(page, site["keys"][1])
         assert page.url.endswith("#overview")
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_study_opened_another_way_keeps_the_page_gone_to_just_before(browser, site):
+    """A page is announced on the frame after it is gone to. A study opened
+    from Recent, All studies or the Agent before that frame went with the
+    page: the study before kept the page it had been on before that one."""
+    page = _open(browser, site)
+    try:
+        page.evaluate("""async (path) => {
+            const answer = await (await fetch('/api/explore/switch', {
+                method: 'POST', headers: {'content-type': 'application/json'},
+                body: JSON.stringify({folder: path})})).json();
+            window.FastMDXDashboard.navigate('analysis/rmsd');
+            window.FastMDXDashboard.studyOpened(answer, 'overview');
+        }""", str(site["studies"][1]))
+        _active(page, site["keys"][1])
+        _link(page, site["keys"][0]).click()
+        _active(page, site["keys"][0])
+        assert page.url.endswith("#analysis/rmsd")
         assert page.errors == []
     finally:
         page.context.close()
@@ -698,6 +732,12 @@ def test_a_delayed_success_does_not_show_new_records_under_the_old_tab(browser, 
         page.route("**/api/explore/switch", switch)
         _link(page, site["keys"][0]).click()
         expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
+        # The strip is busy before the switch is asked: the Builder's draft
+        # is saved first, so the request comes after a reply of its own.
+        for _ in range(100):
+            if held:
+                break
+            page.wait_for_timeout(50)
         assert held
         assert page.evaluate("getComputedStyle(document.querySelector('.page-shell')).visibility") == "hidden"
         assert page.evaluate("window.FastMDXDashboard.state.studyShown") == site["keys"][1]
