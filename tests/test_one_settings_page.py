@@ -177,6 +177,34 @@ def test_a_setting_of_several_values_the_file_holds_is_shown(tmp_path):
     assert said["values"]["simulation.stop_when"]["max_duration_ns"] == 50
 
 
+def test_two_changes_at_once_are_both_written(tmp_path, monkeypatch):
+    """Each request is answered in its own thread: two changes that read
+    the file before either was written lost the first."""
+    import os
+    import threading
+    import time
+
+    from fastmdxplora.config.defaults_file import read_defaults
+    from fastmdxplora.gui.settings_page import defaults_changed
+
+    replace = os.replace
+
+    def slowly(source, target):
+        time.sleep(0.4)
+        replace(source, target)
+
+    monkeypatch.setattr(os, "replace", slowly)
+    asked = [{"set": {"setup.ph": 7.0}}, {"set": {"simulation.temperature_K": 310}}]
+    threads = [threading.Thread(target=defaults_changed, args=(tmp_path, body)) for body in asked]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.1)
+    for thread in threads:
+        thread.join()
+    assert dict(read_defaults(tmp_path / "fastmdx-defaults.yml").settings()) == {
+        "setup.ph": 7.0, "simulation.temperature_K": 310}
+
+
 def test_the_nearest_file_above_is_the_one_shown_and_changed(tmp_path):
     from fastmdxplora.gui.settings_page import defaults_changed, defaults_said
 

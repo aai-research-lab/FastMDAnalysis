@@ -12,6 +12,7 @@ studies: the nearest above where they are put, else a new one there.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,11 @@ __all__ = ["defaults_changed", "defaults_said", "has_comments"]
 #: residues, a stopping rule, a script, a mapping) is shown as the file
 #: holds it and changed by hand.
 _DRAWN = {"select", "number", "checkbox", "tristate", "text", "list", "multiselect"}
+
+#: One change at a time: each request is answered in its own thread, and
+#: two changes read, changed and written over each other lost the first.
+_WRITING = threading.Lock()
+
 
 def has_comments(text: str) -> bool:
     """Whether YAML ``text`` has a comment: a ``#`` that starts a line or
@@ -145,21 +151,23 @@ def defaults_changed(root: str | Path, body: Any) -> dict[str, Any]:
     unset = [str(n) for n in asked.get("unset") or [] if isinstance(n, str)]
     whys = asked.get("why") if isinstance(asked.get("why"), dict) else {}
     path = _where(Path(root))
-    try:
-        if path.is_file() and has_comments(path.read_text(encoding="utf-8")):
+    with _WRITING:
+        try:
+            if path.is_file() and has_comments(path.read_text(encoding="utf-8")):
+                said = defaults_said(root)
+                said.update({"ok": False, "reason": (
+                    "The file has comments in it, which writing it again would lose. Change "
+                    "it by hand, or take its comments out to change it here.")})
+                return said
+            write_defaults(path, given=given, unset=unset, whys=whys)
+        except ConfigError as exc:
+            # Said beside the setting, under the file's own name.
             said = defaults_said(root)
-            said.update({"ok": False, "reason": (
-                "The file has comments in it, which writing it again would lose. Change "
-                "it by hand, or take its comments out to change it here.")})
+            said.update({"ok": False, "reason": _of_the_file(str(exc), path)})
             return said
-        write_defaults(path, given=given, unset=unset, whys=whys)
-    except ConfigError as exc:
-        # Said beside the setting, under the file's own name.
-        said = defaults_said(root)
-        said.update({"ok": False, "reason": _of_the_file(str(exc), path)})
-        return said
-    except OSError as exc:
-        said = defaults_said(root)
-        said.update({"ok": False, "reason": f"{path} could not be written: {exc.strerror or exc}."})
-        return said
-    return defaults_said(root)
+        except OSError as exc:
+            said = defaults_said(root)
+            said.update({"ok": False,
+                         "reason": f"{path} could not be written: {exc.strerror or exc}."})
+            return said
+        return defaults_said(root)
