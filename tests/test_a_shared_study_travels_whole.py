@@ -4939,3 +4939,69 @@ def test_a_tiny_download_s_amounts_are_said_in_bytes():
 
     assert _got(5, 17, "at") == " at 5 of 17 bytes"
     assert _got(5, 17) == ", with 5 of 17 bytes downloaded"
+
+
+def test_a_copy_shared_first_to_the_other_site_is_still_refused(tmp_path, unsteady,
+                                                                 monkeypatch, capsys):
+    """Review of the fifty-ninth commit: a copy shared once to the other site
+    had its folder kept as its own, and its next share took the original's
+    draft."""
+    import shutil
+
+    from fastmdxplora.cli.main import main
+
+    monkeypatch.setenv("ZENODO_TOKEN", "token")
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    capsys.readouterr()
+    assert main(["report", "--output", str(copy), "--share", str(tmp_path / "b.zip"),
+                 "--share-author", "Adekunle Aina", "--share-to", "zenodo"]) == 2
+    assert "copied with it" in capsys.readouterr().err
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+
+
+def test_the_same_folder_reached_by_another_path_is_no_copy(tmp_path, unsteady):
+    """Review of the fifty-ninth commit: one folder reached by two paths (a
+    bind mount) was taken for a copy, and deleting its shared_to.json as
+    said made a second draft."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    other_path = tmp_path / "mounted"
+    other_path.symlink_to(study)
+    kept = json.loads((study / "shared_to.json").read_text())
+    kept["folder"] = str(other_path)
+    (study / "shared_to.json").write_text(json.dumps(kept))
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    assert not any(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+                   for c in unsteady.calls)
+
+
+def test_a_recorded_folder_not_to_be_looked_into_is_taken_as_not_there(tmp_path, unsteady,
+                                                                       monkeypatch):
+    """Review of the fifty-ninth commit: a folder named in shared_to.json that
+    cannot be looked into (another's, or a stale mount) ended in a
+    traceback."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    closed = tmp_path / "closed" / "study"
+    kept = json.loads((study / "shared_to.json").read_text())
+    kept["folder"] = str(closed)
+    (study / "shared_to.json").write_text(json.dumps(kept))
+    real = Path.is_dir
+
+    def is_dir(self):
+        if self == closed:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+
+
+def test_one_byte_is_said_as_one():
+    from fastmdxplora.sharing import said_size
+
+    assert said_size(1) == "1 byte" and said_size(2) == "2 bytes"

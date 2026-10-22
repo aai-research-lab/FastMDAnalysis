@@ -246,8 +246,10 @@ once are not told apart: share one at a time there). A study's
 `shared_to.json` names its folder too: a study copied by hand with it, while
 the one it was copied from still holds the same draft or record, is refused
 (`environment.share.not_finished`), saying to delete the copy's
-`shared_to.json` to share it as a study of its own; a study moved goes on with
-its draft or record.
+`shared_to.json` to share it as a study of its own; a study moved, or the same
+folder reached by another path (a container's bind mount, say), goes on with
+its draft or record. (A copy made before its `shared_to.json` named its folder,
+as every one written by 2.6.0 or before this release, is not told apart.)
 
 It needs a Zenodo token in `ZENODO_TOKEN` (`ZENODO_SANDBOX_TOKEN` for
 `--share-to zenodo-sandbox`) with the **deposit:write** scope, made under

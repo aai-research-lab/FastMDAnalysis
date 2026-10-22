@@ -938,28 +938,40 @@ def _metadata(crate: dict[str, Any], *, authors: list[tuple[str, str]], license_
             "prereserve_doi": True}
 
 
-def _not_a_copy(study: Path, kept: dict[str, Any], earlier: dict[str, Any],
-                site: str) -> None:
+def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
     """The study's `shared_to.json` its own, not one copied with a study it
     was copied from: refused where the folder it names still holds the same
     draft or record. (A study moved goes on: its folder is gone.) The folder
     is then kept as this one's."""
     here = str(study.resolve())
     recorded = kept.get("folder") if isinstance(kept.get("folder"), str) else ""
-    named = {str(earlier.get(key) or "") for key in ("id", "record")} - {""}
+    named = _named_in(kept)
     if recorded and recorded != here and named:
         there = Path(recorded)
-        theirs = _load(there / SHARED_TO).get(site) if there.is_dir() else None
-        if isinstance(theirs, dict) and named & (
-                {str(theirs.get(key) or "") for key in ("id", "record")} - {""}):
+        try:
+            # The same folder reached by another way (a bind mount, say).
+            same = there.is_dir() and there.samefile(study)
+            theirs = {} if same or not there.is_dir() else _load(there / SHARED_TO)
+        except OSError:
+            # Not to be looked into (another's, or gone stale): not there.
+            same, theirs = False, {}
+        both = sorted(named & _named_in(theirs)) if not same else []
+        if both:
+            where, _, which = both[0].partition(":")
             raise ShareRefused(
                 f"{study / SHARED_TO} is the one of the study at {there}, copied with it: "
-                f"both name Zenodo's draft or record {sorted(named)[0]}, and sharing this "
+                f"both name the draft or record {which} on {where}, and sharing this "
                 f"one would write over that one's. To share this study as one of its own, "
                 f"delete {study / SHARED_TO} and share again; to go on with that one, share "
                 "it from its own folder.", code="environment.share.not_finished",
                 path=str(study / SHARED_TO))
     kept["folder"] = here
+
+
+def _named_in(kept: dict[str, Any]) -> set[str]:
+    """Every draft and record a `shared_to.json` names, on whichever site."""
+    return {f"{site}:{entry.get(key)}" for site, entry in kept.items()
+            if isinstance(entry, dict) for key in ("id", "record") if entry.get(key)}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -1054,7 +1066,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     depositions = f"{base}/api/deposit/depositions"
     kept = _load(study / SHARED_TO)
     earlier = kept.get(site) if isinstance(kept.get(site), dict) else {}
-    _not_a_copy(study, kept, earlier, site)
+    _not_a_copy(study, kept)
     found_as = _found(study, kept, earlier, site=site, depositions=depositions, token=token,
                       said=said)
     deposition, version = found_as["deposition"], found_as["version"]

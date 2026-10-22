@@ -283,3 +283,11 @@ def test_an_opened_folder_s_name_tells_mu_from_the_micro_sign():
 
     assert _slug("μ-opioid in µM") == "m-opioid-in-um"
     assert _slug("ƒoo ɔ ɛ ʒ ɖ ʉ ꜳ") == "foo-o-e-z-d-u-aa"
+
+
+def test_an_opened_folder_s_name_writes_capitals_and_more_plainly():
+    """Review of the fifty-ninth commit: the capitals of letters written
+    plainly were dropped, and esh and phi with them."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("Ƒ Ɖx Ʉ ʃa ɸi") == "f-dx-u-sha-phi"
