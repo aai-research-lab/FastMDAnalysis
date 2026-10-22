@@ -704,7 +704,10 @@ def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
         return None
     if not _a_listing(found):
         return None
+    # (A version published, under an edit saved there, is listed too: no
+    # draft of a new version.)
     return [entry for entry in found if str(entry.get("conceptrecid") or "") == concept
+            and not entry.get("submitted")
             and str(entry.get("id")) != str(record.get("id"))]
 
 

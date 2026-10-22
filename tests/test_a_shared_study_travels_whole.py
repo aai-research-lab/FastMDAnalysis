@@ -4416,3 +4416,27 @@ def test_a_new_version_begun_again_from_a_newer_version_is_said_begun(tmp_path, 
     _share_to_zenodo(study, tmp_path / "shared.zip")
     said = capsys.readouterr()
     assert "beginning a new version again, from the latest version of record 9" in said.out
+
+
+def test_an_older_version_under_edit_listed_among_drafts_begins_the_new_one(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Hands-on review of the forty-fifth commit: an older published version
+    holding an edit saved there, listed with the person's drafts, was named
+    as a draft of a new version to publish or delete."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = zenodo._call
+
+    def listed_with_an_edit(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "GET" and "?status=draft" in url and isinstance(answer, list):
+            return [*answer, {"id": 5, "conceptrecid": "c7", "submitted": True,
+                              "state": "inprogress", "metadata": {"title": "An older one"}}]
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", listed_with_an_edit)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "(5)" not in capsys.readouterr().err
+    assert any(c[1].endswith("/7/actions/newversion") for c in unsteady.calls)
