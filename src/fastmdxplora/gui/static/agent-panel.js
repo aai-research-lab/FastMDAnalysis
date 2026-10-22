@@ -2016,6 +2016,45 @@
                + "study it was written in, in the box again when that study is open; its answer is "
                + "not kept.", "moved", key);
   }
+  /* A message refused as the study open changed as it was sent (another
+   * window or an AI app opened a study, `agent.view.changed`): not answered,
+   * so not left in its thread, which went out of view with it (CI-774
+   * review L19 M1: the words were gone, unsaid). Its words go back as a
+   * refused save's do: in the box for a chat of no study or the study the
+   * box is for, else saved for the study it was written in; and said. */
+  var NOT_SENT_VIEW = "Not sent, as the study open changed as it was sent: ";
+  function viewChangedWords(c, entries, heard, asked, said, bubble, reply) {
+    var at = entries.indexOf(said);
+    if (at >= 0) entries.splice(at, 1);
+    var told = heard.indexOf(asked);
+    if (told >= 0) heard.splice(told, 1);
+    [bubble, reply].forEach(function (n) { if (n && n.parentNode) n.parentNode.removeChild(n); });
+    if (c === conv) placeholder();
+    if (c.known[said.eid]) persistOf(c, entries);
+    var files = (said.attachments || []).map(fileKept);
+    var key = c.study ? c.page || (c === conv ? convFor : "") || "" : "";
+    if (!validStudyKey(key) || key === unsentKey) {
+      var area = el("agent-request");
+      if (!area) return;
+      area.value = boxNow().trim() ? boxNow() + "\n\n" + said.text : said.text;
+      area.dispatchEvent(new Event("input"));
+      if (files.length) readFilesAgain(files, unsentKey);
+      unsentSaid(NOT_SENT_VIEW + "the message is back in the box.", "moved", "");
+      return;
+    }
+    var kept = storedUnsent(key);
+    var all = kept && kept.words.trim() ? kept.words + "\n\n" + said.text : said.text;
+    var allFiles = (kept ? kept.files : []).concat(files.filter(function (f) {
+      return !(kept ? kept.files : []).some(function (k) { return k.path === f.path; });
+    })).slice(0, 6);
+    try {
+      sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify({ words: all, files: allFiles }));
+    } catch (e) {
+      heldInPage[key] = { words: all, files: allFiles, title: "" };
+    }
+    unsentSaid(NOT_SENT_VIEW + "the message is saved for the study it was written in, in the box "
+               + "again when that study is open.", "moved", key);
+  }
   function settled(c) {
     c.waiting -= 1;
     if (!c.waiting) waitingThreads = waitingThreads.filter(function (t) { return t !== c; });
@@ -2572,9 +2611,10 @@
       return { name: f.name, path: f.path, size: f.size, sha256: f.sha256, truncated: !!f.truncated };
     });
     spendChoices();
-    say(typed, record);
+    var bubble = say(typed, record);
     var historyText = typed + (record.length ? "\n[attached: " + record.map(function (a) { return a.name; }).join(", ") + "]" : "");
-    history.push({ role: "user", text: historyText });
+    var heard = { role: "user", text: historyText };
+    history.push(heard);
     var said = record.length ? { role: "user", text: typed, attachments: record }
       : { role: "user", text: typed };
     /* Its own id from the start: a second save of it is merged on the
@@ -2655,7 +2695,12 @@
       current_view: pageHints(),
       steps: currentSteps
     }, box).then(function (data) {
-      if (!stands() || elsewhere()) return;
+      if (!stands()) return;
+      if (data && !data.ok && data.code === "agent.view.changed") {
+        viewChangedWords(mine, saidHere, heardHere, heard, said, bubble, r.node);
+        return;
+      }
+      if (elsewhere()) return;
       box.innerHTML = "";
       if (data.memory === "reading") memoryUnder(r.node, replyKey);
       looked(box, data.looks);

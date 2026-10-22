@@ -3351,3 +3351,93 @@ def test_run_as_it_is_with_an_unreadable_answer_is_offered_again(browser, site):
     finally:
         page.context.close()
     assert errors == []
+
+
+@pytest.mark.parametrize("start", ["no study", "a study"])
+def test_a_message_refused_as_a_study_opens_is_put_back_or_saved(tmp_path, monkeypatch, start):
+    """L19 M1 (L18's orders): Enter pressed as another window opens a study,
+    from no study or from another study; the Agent refuses it, and it was
+    left in its thread with the refusal, the thread then out of view: the
+    words were gone, unsaid. They are in the box (no study) or saved for
+    the study they were written in (said), and sent from there once."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    words = "pressed as other opened"
+    asked, held, polls = [], [], []
+
+    def propose(route):
+        request = json.loads(route.request.post_data or "{}").get("request")
+        asked.append(request)
+        if request == words and not held:
+            held.append(route)
+        else:
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(_answer("A: " + request)))
+
+    page, errors, close = _page_on(session, [])
+    try:
+        page.unroute("**/api/agent/propose*")
+        page.route("**/api/agent/propose*", propose)
+        if start == "no study":
+            session.runtime.data_stale = True
+            session.runtime.active_root = None
+            page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                                   timeout=30000)
+            page.wait_for_function("() => window.FastMDXDashboard.studyKnown()"
+                                   " && !window.FastMDXAgentPanel.waits", timeout=30000)
+            _say(page, "with none first")
+            page.wait_for_selector("#agent-thread .agent-answer:has-text('A: with none first')",
+                                   timeout=15000)
+            page.wait_for_timeout(500)
+        else:
+            _shows(page, study_key(here))
+            _when_known(page)
+        _hold(page, polls)
+        _say(page, words)
+        while not held:
+            page.wait_for_timeout(50)
+        session.runtime.data_stale = False
+        _switch_elsewhere(session, other)
+        held[0].continue_()
+        page.wait_for_function("() => /Not sent, as the study open changed|Select it again/"
+                               ".test(document.getElementById('agent-thread').textContent + ' '"
+                               " + ((document.getElementById('agent-unsent-note') || {}).textContent || ''))",
+                               timeout=15000)
+        page.wait_for_timeout(300)
+        refused = {"note": _note(page), "box": page.input_value("#agent-request")}
+        assert refused["box"] == words, refused
+        _release(page, polls)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study", timeout=20000)
+        page.wait_for_timeout(1500)
+        on_other = {"note": _note(page), "box": page.input_value("#agent-request"),
+                    "kept": _unsent(page),
+                    "users": page.locator("#agent-thread .agent-msg-user").all_text_contents()}
+        if start == "a study":
+            _switch_elsewhere(session, here)
+            _shows(page, study_key(here))
+            page.wait_for_function("(w) => document.getElementById('agent-request').value === w",
+                                   arg=words, timeout=20000)
+        _send_when_offered(page)
+        page.wait_for_selector(f"#agent-thread .agent-answer:has-text('A: {words}')", timeout=15000)
+        page.wait_for_timeout(1500)
+    finally:
+        close()
+        session.server.shutdown()
+    assert refused["note"].startswith("Not sent, as the study open changed as it was sent"), refused
+    assert on_other["users"] == [], on_other
+    if start == "no study":
+        assert on_other["box"] == words and "back in the box" in on_other["note"], on_other
+        place = "other/"
+    else:
+        assert on_other["box"] == "" and on_other["kept"].get(study_key(here)) == words, on_other
+        assert "The unsent message typed for here is saved for it" in on_other["note"], on_other
+        place = "here/"
+    first = ["with none first"] if start == "no study" else []
+    assert asked == [*first, words, words], asked
+    where = _where(workspace, words)
+    assert len(where) == 1 and where[0].startswith(place), where
+    said = [e for e in _entries_everywhere(workspace)[str(workspace / where[0])] if e.get("text") == words]
+    assert len(said) == 1, said
+    assert errors == []
