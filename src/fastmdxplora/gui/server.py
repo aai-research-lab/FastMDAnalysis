@@ -268,11 +268,14 @@ def _a_run_in_its_study(inside: Path) -> tuple[Path, Callable[[Path], bool]] | N
     such a study writes): the study, and admission for a confined read
     rooted there. A run waiting for its study's next round is known so only
     from the study's own records (`telemetry.between_rounds`): its
-    `stopping.json` and process record, and its runs' own records. Each run
-    is admitted as Problems admits a study (`admitted_for_problems`), and
-    only where it is: a record of one run linked to another's, or to the
-    study's, is a link out of it and refused. Nothing else of the study is
-    admitted. None for a study of its own."""
+    `stopping.json` and process record, and its runs' own records. Its
+    `batch_manifest.json` says what the runs were swept over, which a run's
+    methods say its replicas by (`methods._campaign_axes`). Each of these is
+    admitted only where it is, never through a link. Each run is admitted
+    as Problems admits a study (`admitted_for_problems`), and only where it
+    is: a record of one run linked to another's, or to the study's, is a
+    link out of it and refused. Nothing else of the study is admitted. None
+    for a study of its own."""
     if inside.parent.name != "runs":
         return None
     from fastmdxplora.gui.problems_view import admitted_for_problems
@@ -285,7 +288,7 @@ def _a_run_in_its_study(inside: Path) -> tuple[Path, Callable[[Path], bool]] | N
         try:
             parts = path.relative_to(study).parts
             if len(parts) == 1:
-                return (parts[0] in (RECORD, RUN_PROCESS_FILE, runs.name)
+                return (parts[0] in (RECORD, RUN_PROCESS_FILE, "batch_manifest.json", runs.name)
                         and path.resolve() == study / parts[0])
             if len(parts) < 2 or parts[0] != runs.name or _private(parts[1:2]):
                 return False
@@ -390,7 +393,7 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
             # A copy: the answer may be one a reader keeps for its next call.
             # Each named with why it was not read, for the page to say so.
             answer = {**answer, "unavailable": sorted(refused),
-                      "unavailable_why": {name: _why_not_read(inside, name)
+                      "unavailable_why": {name: _why_not_read(inside, name, held)
                                           for name in sorted(refused)}}
     return answer
 
@@ -528,16 +531,19 @@ def _withheld_where_not_read(answer: dict[str, Any], key: str) -> dict[str, Any]
     return answer
 
 
-def _why_not_read(inside: Path, name: str) -> str:
+def _why_not_read(inside: Path, name: str, held: Path | None = None) -> str:
     """Why the confined read of the open folder ``inside`` refused the
-    record it names ``name`` (a key of `series.NOT_READ_BECAUSE`)."""
+    record it names ``name`` (a key of `series.NOT_READ_BECAUSE`), told
+    from the folder the read was held to, ``held`` (the study a run of it
+    belongs to): a file of that study that is not a link is never said to
+    be one."""
     from fastmdxplora.gui.series import why_not_read
 
     if name == "a non-regular record":
         return "not a file"
     if name in _UNNAMED_REFUSALS:
         return "outside"
-    return why_not_read(inside, inside / name)
+    return why_not_read(held or inside, inside / name)
 
 
 def _served_beyond_loopback(root: Path, target: Path) -> bool:

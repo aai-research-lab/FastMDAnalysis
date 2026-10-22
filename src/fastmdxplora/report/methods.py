@@ -779,7 +779,7 @@ def methods_paragraphs(
 
     # ---- analysis -----------------------------------------------------
     analysis = _analysis_paragraph(means or {}, stopping,
-                                   axes=_campaign_axes(project_root) if means else None)
+                                   axes=_campaign_axes(project_root, means or {}, stopping))
     if analysis:
         parts.append("**Analysis.** " + analysis)
 
@@ -963,17 +963,32 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
     return said
 
 
-def _campaign_axes(project_root: Path) -> set[str] | None:
+def _campaign_axes(project_root: Path, means: dict[str, dict[str, Any]],
+                   stopping: dict[str, Any] | None) -> set[str] | None:
     """The axes the campaign a run belongs to (`runs/<id>` under it) swept
     its runs over, from its batch manifest, read through `record_access` so
-    a read held to the run (`server._confined`) refuses it; None where it
-    was not read or the study is no campaign's run."""
+    a read held to the study (`server._confined`) admits it only where it
+    is; None where it was not read or the study is no campaign's run.
+
+    Read only where they are said: a mean whose start is shared with its
+    replicas (`stopping.share_the_start`). And only where the campaign's
+    record of its rule was read for this run (``stopping``, naming it),
+    which the report reads only where its ``may_read`` admits the campaign's
+    folder (`document._stopping_record_of`): nothing more of a campaign is
+    read than the rule that shared the start."""
     import json
 
     from fastmdxplora import record_access
 
     root = Path(project_root).absolute()
     if root.parent.name != "runs":
+        return None
+    if not any(isinstance(record, dict)
+               and isinstance(record.get("start_shared_with_replicas"), int)
+               for record in means.values()):
+        return None
+    named = stopping.get("runs") if isinstance(stopping, dict) else None
+    if not isinstance(named, list) or root.name not in named:
         return None
     try:
         manifest = json.loads(record_access.read_text(root.parent.parent / "batch_manifest.json",
