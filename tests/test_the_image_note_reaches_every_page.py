@@ -356,6 +356,59 @@ class TestTheRunsOfAStudy:
         assert "may be biased" not in rg
 
 
+class TestALongerRunAlone:
+    """For a run in contact with its image in every frame, the Overview's
+    lead and the Agent's answers advised only a longer run ("about 2.5 ns
+    more production should determine it"), while the report said a longer
+    run in the same box samples the same contact."""
+
+    @pytest.fixture
+    def in_contact(self, tmp_path: Path) -> Path:
+        from tests.test_a_run_s_overview_leads_with_what_it_needs import _a_run, _withheld
+        from tests.test_a_study_of_runs_is_shown_as_one import _recorded
+
+        root = _a_run(tmp_path, _withheld(2.43), _recorded(1.2))
+        finding, _ = _finding()
+        finding.update(frames_under_close=N, frames_under_cutoff=N)
+        (root / "analysis" / "image_check").mkdir(exist_ok=True)
+        (root / "analysis" / "image_check" / "options.json").write_text(json.dumps(
+            {"analysis": "image_check", "findings": {"solute_image": finding}}))
+        return root
+
+    def _said(self) -> str:
+        from fastmdxplora.image_note import longer_run_said
+
+        finding, _ = _finding()
+        return longer_run_said({**finding, "frames_under_close": N})
+
+    def test_the_overview_s_lead_says_it(self, in_contact):
+        from fastmdxplora.gui.overview_view import overview_payload
+
+        said = overview_payload(in_contact)["lead"]["said"]
+        assert said.startswith("1 of 2 means is not determined: about 2.5 ns more production")
+        assert said.endswith(" " + self._said())
+        assert "a larger box, in a new study, is what lifts it" in self._said()
+        # Not where it was in contact in some frames only.
+        path = in_contact / "analysis" / "image_check" / "options.json"
+        record = json.loads(path.read_text())
+        record["findings"]["solute_image"]["frames_under_close"] = N - 1
+        path.write_text(json.dumps(record))
+        assert "lifts it" not in overview_payload(in_contact)["lead"]["said"]
+
+    def test_the_agent_s_answers_say_it(self, in_contact, monkeypatch):
+        from fastmdxplora.gui import records_answer
+
+        monkeypatch.setattr(records_answer, "_supports", lambda base: "")
+        for question in ("long_enough", "strengthen"):
+            said = records_answer.answer_from_the_records(in_contact, question)
+            assert "more production" in said and self._said() in said, question
+
+    def test_the_report_says_it_from_the_same_helper(self, in_contact):
+        from fastmdxplora.report.document import _convergence_section
+
+        assert self._said() in _convergence_section(in_contact)
+
+
 # --------------------------------------------------------------------------
 # In a browser: the Overview tile, the Analysis page's table and the cell
 # over its card give the same note for one mean.

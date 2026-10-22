@@ -150,7 +150,9 @@ the cutoff and in contact; where the solute was in contact with its image in
 every frame, it lists any claim about the solute's shape among what the run
 cannot support, since a longer run in the same box samples the same contact,
 and says that the longer run it asks for would determine the means without
-lifting that bias.
+lifting that bias, as the Overview's lead and the Agent's answers on run
+length and on what would strengthen the run say beside the longer run they
+advise (`image_note.longer_run_said`).
 Not done yet: the check is not said while the run goes; a ligand's approach
 to an image of the protein is not recorded apart from the complex's; the
 note is not graded by thresholds (above); the GUI's map of time against time

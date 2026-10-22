@@ -285,6 +285,7 @@ def _long_enough(base: Path) -> str:
         parts.append("What they need, every mean withheld counted: " + text)
         if command:
             parts.append(f"To run it, extending the study in place:\n\n`{command}`")
+        parts.extend(_not_a_longer_run_alone(base))
     elif _determined(supports):
         parts.append("By its records, yes. " + supports)
     elif supports:
@@ -295,6 +296,16 @@ def _long_enough(base: Path) -> str:
                      "series equilibrated.")
     parts.append(TRAPPED)
     return "\n\n".join(parts)
+
+
+def _not_a_longer_run_alone(base: Path) -> list[str]:
+    """Where the solute met its own image in every frame, that the longer
+    run asked for does not lift that bias, as the report says it
+    (:func:`fastmdxplora.image_note.longer_run_said`)."""
+    from fastmdxplora.image_note import longer_run_said, recorded_finding
+
+    lifted = longer_run_said(recorded_finding(base))
+    return [lifted] if lifted else []
 
 
 def _strengthen(base: Path) -> str:
@@ -310,6 +321,7 @@ def _strengthen(base: Path) -> str:
         parts.append("What they need: " + text)
         if command:
             parts.append(f"`{command}`")
+        parts.extend(_not_a_longer_run_alone(base))
     elif _determined(supports):
         parts.append("Its means are determined, so a longer run of this one adds "
                      "precision but not a check.")

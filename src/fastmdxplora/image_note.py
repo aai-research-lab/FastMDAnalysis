@@ -15,8 +15,10 @@ alone on the next. Every reader now reads the note here, from the record:
 :func:`note_of` (the mean's numbers), :func:`said_short` (beside the
 verdict, "may be biased: 54 of 270 frames used came within 1 nm of the
 solute's own image"), :func:`paragraph_of` (the analysis's paragraph, one
-click or one look away) and :func:`finding_said` (the image check's own
-finding, in a sentence, for its row and its card).
+click or one look away), :func:`finding_said` (the image check's own
+finding, in a sentence, for its row and its card) and :func:`longer_run_said`
+(beside the advice of a longer run, for a run in contact with its image in
+every frame).
 
 Light on purpose: no analysis code is imported, so a page reads it without
 loading the trajectory tools.
@@ -94,6 +96,42 @@ def paragraph_of(findings: Any) -> str:
     if not isinstance(image, dict):
         return ""
     return str(image.get("said") or "")
+
+
+def longer_run_said(finding: Any) -> str:
+    """Where the image check found the solute in contact with its own image
+    (under 0.5 nm) in every frame it read, that a longer run, which would
+    determine the means, does not lift that bias, and what does; an empty
+    string otherwise. One sentence for the report, the Overview's lead and
+    the Agent's answers, which advised only a longer run."""
+    if not isinstance(finding, dict) or "frames_used" in finding:
+        return ""
+    frames, close = _count(finding.get("frames")), _count(finding.get("frames_under_close"))
+    if not frames or close != frames:
+        return ""
+    return ("A longer run would determine the means; it would not lift the bias of the "
+            "solute's own image, in contact with it in every frame: a longer run in the "
+            "same box samples the same contact, and a larger box, in a new study, is what "
+            "lifts it.")
+
+
+def recorded_finding(root: Any) -> dict[str, Any] | None:
+    """The image check's finding as a run recorded it (its
+    ``analysis/image_check/options.json``, read through `record_access`);
+    None where there is none, or it cannot be read."""
+    import json
+    from pathlib import Path
+
+    from fastmdxplora import record_access
+
+    try:
+        record = json.loads(record_access.read_text(
+            Path(root) / "analysis" / "image_check" / "options.json", encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    found = (record.get("findings") or {}).get("solute_image") if isinstance(record, dict) \
+        else None
+    return found if isinstance(found, dict) else None
 
 
 def finding_said(finding: Any) -> str:

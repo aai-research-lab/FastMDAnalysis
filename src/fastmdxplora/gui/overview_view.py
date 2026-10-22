@@ -312,7 +312,11 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
         said += (f" {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} not read, "
                  f"so what {'it says' if len(refused) == 1 else 'they say'} is not counted "
                  f"here.")
-    said += unread
+    # Not a longer run alone, where the solute met its image in every frame.
+    from fastmdxplora.image_note import longer_run_said, recorded_finding
+
+    lifted = longer_run_said(recorded_finding(root))
+    said += (f" {lifted}" if lifted else "") + unread
     return {"said": said, "undetermined": undetermined, "means": means,
             "more_ns": ask.more_ns, "seconds": ask.seconds, "platform": ask.platform,
             "lower_bound": ask.lower_bound}

@@ -1075,9 +1075,13 @@ def _convergence_section(project_root: Path) -> str:
                 "the same box samples the same contact. A larger box, in a new study "
                 "(a box cannot grow mid-run), is what would support one.")
     asked = _what_more_sampling_needs(project_root)
-    if asked and image and image["close"] == image["frames"]:
-        asked += ("\n\nThat longer run would determine the means; it would not lift the "
-                  "image's bias, which only a larger box does.")
+    if asked and image:
+        from fastmdxplora.image_note import longer_run_said, recorded_finding
+
+        # One sentence for the report, the Overview and the Agent.
+        lifted = longer_run_said(recorded_finding(project_root))
+        if lifted:
+            asked += "\n\n" + lifted
     if cannot:
         lines.append("### What this run cannot support")
         lines.append("")
