@@ -97,3 +97,38 @@ def test_the_numbers_of_an_inserted_residue_stay_numbers(tmp_path):
 
     traj = load_trajectory(str(_deposited(tmp_path, "3PTB.pdb.gz")))
     assert all(isinstance(n, (int, np.integer)) for n, _ in _rmsf_labels(traj))
+
+
+def _glycines(path, numbers):
+    """Four glycines of N, CA, C and O, numbered as given: "184A" has a code."""
+    lines, serial = [], 1
+    for i, given in enumerate(numbers):
+        resseq, code = int(given[:3]), given[3:]
+        for k, name in enumerate(("N", "CA", "C", "O")):
+            lines.append(f"ATOM  {serial:5d}  {name:<3s} GLY A{resseq:4d}{code:1s}   "
+                         f"{3.6 * i + 0.4 * k:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00           {name[0]}\n")
+            serial += 1
+    path.write_text("".join(lines) + "END\n")
+    return path
+
+
+def test_a_second_structure_read_in_one_process_has_only_its_own_codes(tmp_path):
+    """A structure read after one with an insertion code had that code
+    wherever an atom had the same serial, name and number: one with none
+    read as having insertions, and its 184 was "184A"."""
+    from fastmdxplora.analysis.loading import load_trajectory
+    from fastmdxplora.analysis.residues import has_insertions, label
+
+    first = _glycines(tmp_path / "a.pdb", ["183", "184A", "184", "185"])
+    second = _glycines(tmp_path / "b.pdb", ["183", "184", "185", "186"])
+
+    a = load_trajectory(str(first))
+    assert has_insertions(a.topology)
+    assert [label(r, qualified=False) for r in a.topology.residues] == [183, "184A", 184, 185]
+
+    b = load_trajectory(str(second))
+    assert not has_insertions(b.topology)
+    assert [label(r, qualified=False) for r in b.topology.residues] == [183, 184, 185, 186]
+
+    again = load_trajectory(str(first))
+    assert [label(r, qualified=False) for r in again.topology.residues] == [183, "184A", 184, 185]

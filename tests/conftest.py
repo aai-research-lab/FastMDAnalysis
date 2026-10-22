@@ -147,12 +147,15 @@ def pytest_configure(config):
 def _a_test_file_reads_the_insertion_codes_of_its_own_structures():
     """The insertion codes read from one test file's structures are not there
     for the next. `residues._INSERTION_CODES` is kept for the process, keyed
-    by atom serial, residue name and number, so trypsin's 184A read by one
+    by atom serial, residue name and number, and trypsin's 184A read by one
     file made another file's slice of the same deposition read as having
-    insertions, and its RMSF came back as a table by chain: it depended on
-    which file had run before it in the process, which under pytest-xdist
-    differs from the order the suite runs in alone. They are cleared once a
-    file, before its own fixtures, which may read them for all its tests."""
+    insertions, and its RMSF came back as a table by chain, depending on the
+    order the files ran in. That defect is fixed in `residues`: each topology
+    read starts from no codes
+    (`test_a_second_structure_read_in_one_process_has_only_its_own_codes`).
+    This stays as a backstop for tests that set the table themselves. They
+    are cleared once a file, before its own fixtures, which may read them for
+    all its tests."""
     from fastmdxplora.analysis import residues
 
     residues._INSERTION_CODES.clear()
