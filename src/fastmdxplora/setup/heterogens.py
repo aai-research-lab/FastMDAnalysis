@@ -595,10 +595,15 @@ def _glycan_residues(
 
     A sugar with no such LINK whose C1 is bonded to an asparagine's ND2 by
     distance (`N_GLYCOSIDIC_CUTOFF_A`) is the first sugar of an N-glycan
-    too, and is said to be one by distance.
+    too, and is said to be one by distance. Only an ND2 no LINK bonds to a
+    sugar already: an amide nitrogen carries one sugar, so a second one
+    near it is not a second glycan on that asparagine.
     """
     sugars = {het.key: het for het in heterogens if het.resname in SUGARS}
-    amides = [a for a in polymer if a.resname == "ASN" and a.name == "ND2"]
+    linked = {(end[1], end[2], end[3].strip()) for het in sugars.values()
+              for end in het.linked_to if end[0] == "ASN"}
+    amides = [a for a in polymer if a.resname == "ASN" and a.name == "ND2"
+              and (a.chain, a.resseq, a.icode.strip()) not in linked]
     carried: dict[tuple, str] = {}
     queue: list[tuple] = []
     for key, het in sorted(sugars.items()):

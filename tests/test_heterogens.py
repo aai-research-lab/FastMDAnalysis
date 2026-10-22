@@ -603,6 +603,19 @@ class TestAGlycanWithNoLinkToItsAsparagine:
         with pytest.raises(AmbiguousStructureError, match="free sugar"):
             resolve(_structure(lines))
 
+    def test_an_asparagine_a_link_bonds_to_a_sugar_takes_no_second_by_distance(self) -> None:
+        # An amide nitrogen carries one sugar. NAG B500 at 2.5 A from an ND2
+        # already LINKed to NAG A400 was read as a second glycan on ASN A2,
+        # "bonded by distance; no LINK record names it".
+        lines = list(PROTEIN) + ASPARAGINE
+        lines += [
+            "LINK         ND2 ASN A   2                 C1  NAG A 400",
+            _atom("HETATM", 300, "C1", " ", "NAG", "A", 400, 11.45, 0, 0),
+            _atom("HETATM", 310, "C1", " ", "NAG", "B", 500, 10, 2.5, 0),
+        ]
+        with pytest.raises(AmbiguousStructureError, match="NAG B500 is bonded to no glycosylated"):
+            resolve(_structure(lines))
+
     def test_only_the_anomeric_carbon_bonds_a_sugar_to_the_asparagine(self) -> None:
         lines = list(PROTEIN) + ASPARAGINE
         lines += [
