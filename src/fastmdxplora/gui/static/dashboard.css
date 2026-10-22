@@ -2805,13 +2805,12 @@ body.state-ready .loading-screen {
     padding: 14px 18px;
 }
 
-/* ---- Preferences, the citation and a study's own words ------------------
+/* ---- The citation and a study's own words --------------------------------
    The Agent's dialog, narrower; each a title with Close, a body that
-   scrolls on its own, and a foot. A row of Preferences is its name on the
+   scrolls on its own, and a foot. A row of Settings is its name on the
    left and its control on the right, as a system's settings are. */
 .agent-dialog-panel.dialog-narrow { width: min(540px, 100%); }
 .agent-dialog-foot { gap: 8px; }
-#prefs-dialog .agent-dialog-foot { justify-content: flex-start; }
 .pref-group + .pref-group { margin-top: 18px; }
 .pref-group-title {
     margin: 0 0 7px;

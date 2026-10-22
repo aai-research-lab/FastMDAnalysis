@@ -215,9 +215,11 @@
     heading.focus({preventScroll: true});
   }
 
-  /* Preferences and the citation were pages and are dialogs over the page
-   * shown; a link to either (#settings, #cite) opens it. */
-  const DIALOG_OF = {settings: "prefs-dialog", preferences: "prefs-dialog", cite: "cite-dialog"};
+  /* The citation was a page and is a dialog over the page shown; a link to
+   * it (#cite) opens it. Preferences were one too, and are the Settings
+   * page (#settings; settings.js takes #preferences, their old address,
+   * there). */
+  const DIALOG_OF = {cite: "cite-dialog"};
 
   /* A page and the place on it the address names: `#analysis/rmsd` is the
    * Analysis page at the RMSD's section. */
@@ -427,8 +429,8 @@
   }
 
   function wireSettings() {
-    // The Preferences dialog's fields, and the study's own words from the
-    // study card's menu (preferences.js keeps both in the browser).
+    // The fields of Settings' You, and the study's own words from the
+    // study card's menu (preferences.js saves both in the browser).
     const ids = [
       "setting-protein-rep", "setting-ground", "setting-show-water", "setting-show-ions",
       "setting-spin", "setting-preserve-camera", "setting-pocket-cutoff",

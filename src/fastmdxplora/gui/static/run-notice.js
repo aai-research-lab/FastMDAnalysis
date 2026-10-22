@@ -3,7 +3,7 @@
  * A run of hours is watched from another tab or another window. While it
  * runs, the tab's title begins with how far it is ("42% · 1L2Y"); once it
  * ends, the title is the page's own again. Where the person has asked for
- * it in Preferences (Notify when a run ends), the browser shows a notice as
+ * it in Settings (Notify when a run ends), the browser shows a notice as
  * the run completes, stops or fails: only a run seen running in this page,
  * so opening a finished study says nothing. The browser asks the person
  * once whether the page may; refused, the setting is unticked and says so.

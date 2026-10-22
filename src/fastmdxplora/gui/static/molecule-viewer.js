@@ -85,7 +85,7 @@
     // "dark" (black) or "white".
     // The page's scheme's (--viewer-ground), unless white or dark is chosen.
     ground: "scheme",
-    // What Preferences last said of the ground, spin and the ligand.
+    // What Settings last said of the ground, spin and the ligand.
     groundChosen: "",
     spinChosen: false,
     ligandChosen: false,
@@ -2779,7 +2779,7 @@
   /* ------------------------------------------------------------------ */
   /* Settings, status, selections                                        */
   /* ------------------------------------------------------------------ */
-  /* The Preferences dialog's settings, as the Viewer starts and as they
+  /* The Viewer's settings in Settings, as the Viewer starts and as they
    * change. The ground and spin follow a preference only when it changes,
    * so the ground button and the spin button keep what they were last
    * set to otherwise. */
