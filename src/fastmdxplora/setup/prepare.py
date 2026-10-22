@@ -1033,7 +1033,7 @@ def prepare_system(
         system = ff.createSystem(modeller.topology, **create_system_kwargs)
     except ValueError as exc:
         raise _explain_unparameterized(exc, ff, modeller.topology) from exc
-    _refuse_masses_not_positive(system, modeller.topology, hydrogen_mass_amu)
+    _refuse_masses_not_positive(system, modeller.topology, hydrogen_mass_amu, unit)
     # Only under periodic boundaries: OpenMM applies the tail correction
     # there alone, whatever the flag says for a non-periodic cutoff.
     dispersion_used = _dispersion_correction_of(omm["openmm"], system) \
@@ -1760,16 +1760,18 @@ def _resolve_constraints(omm: dict, constraints: str):
 
 
 def _refuse_masses_not_positive(system: Any, topology: Any,
-                                hydrogen_mass_amu: float | None) -> None:
+                                hydrogen_mass_amu: float | None, unit: Any = None) -> None:
     """Refuse a system that gives a real atom a mass at or below zero.
 
     Repartitioning takes each hydrogen's added mass from the heavy atom it
     is bonded to, so a hydrogen mass of 6 amu left a methyl carbon at
     -2.966 amu: setup said "ok" and the run then failed on a NaN called an
     instability. A virtual site has a mass of zero by design and is not
-    counted.
+    counted. ``unit`` is the OpenMM units module the system was built
+    with, read here only where it is not given.
     """
-    from openmm import unit
+    if unit is None:
+        from openmm import unit  # noqa: PLC0415 -- optional backend
 
     virtual = {i for i in range(system.getNumParticles())
                if system.isVirtualSite(i)}
