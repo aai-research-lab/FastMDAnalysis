@@ -17,9 +17,10 @@ verdict, "may be biased: in 54 of 270 frames used (20%) the solute was
 within 1 nm of its own image"), :func:`paragraph_of` (the analysis's
 paragraph, one click or one look away), :func:`replicas_said` (beside the
 replicas' mean of their means), :func:`finding_said` (the image check's own
-finding, in a sentence, for its row and its card) and :func:`longer_run_said`
+finding, in a sentence, for its row and its card), :func:`longer_run_said`
 (beside the advice of a longer run, for a run in contact with its image in
-every frame).
+every frame) and :func:`determined_said` (beside means all determined, for
+such a run).
 
 Light on purpose: no analysis code is imported, so a page reads it without
 loading the trajectory tools.
@@ -123,21 +124,45 @@ def paragraph_of(findings: Any) -> str:
     return str(image.get("said") or "").replace("`", "")
 
 
+#: What lifts the bias of a solute in contact with its image in every frame,
+#: and what does not: said beside any advice of a longer run or replicas.
+_WHAT_LIFTS_IT = ("a longer run in the same box, like replicas in it, samples the same "
+                  "contact, and a larger box, in a new study, is what lifts it.")
+
+
+def _in_contact_throughout(finding: Any) -> bool:
+    """Whether the image check found the solute in contact with its own
+    image (under 0.5 nm) in every frame it read."""
+    if not isinstance(finding, dict) or "frames_used" in finding:
+        return False
+    frames, close = _count(finding.get("frames")), _count(finding.get("frames_under_close"))
+    return bool(frames) and close == frames
+
+
 def longer_run_said(finding: Any) -> str:
     """Where the image check found the solute in contact with its own image
-    (under 0.5 nm) in every frame it read, that a longer run, which would
+    (under 0.5 nm) in every frame it read, that a longer run, which may
     determine the means, does not lift that bias, and what does; an empty
     string otherwise. One sentence for the report, the Overview's lead and
     the Agent's answers, which advised only a longer run."""
-    if not isinstance(finding, dict) or "frames_used" in finding:
+    if not _in_contact_throughout(finding):
         return ""
-    frames, close = _count(finding.get("frames")), _count(finding.get("frames_under_close"))
-    if not frames or close != frames:
+    return ("A longer run may determine the means; it would not lift the bias of the "
+            "solute's own image, in contact with it in every frame: " + _WHAT_LIFTS_IT)
+
+
+def determined_said(finding: Any, means: int | None = None) -> str:
+    """For a run whose means are all determined, where the image check found
+    the solute in contact with its own image in every frame, that they may
+    still be biased by it, and what lifts that; an empty string otherwise.
+    Beside "All 2 means are determined" on the Overview and "By its records,
+    yes" in the Agent's answers, which said nothing more. ``means`` is how
+    many there are, for one to be said "its mean"."""
+    if not _in_contact_throughout(finding):
         return ""
-    return ("A longer run would determine the means; it would not lift the bias of the "
-            "solute's own image, in contact with it in every frame: a longer run in the "
-            "same box samples the same contact, and a larger box, in a new study, is what "
-            "lifts it.")
+    subject = "Its mean" if means == 1 else "Its means"
+    return (f"{subject} may still be biased by the solute's own image, in contact with it "
+            "in every frame: " + _WHAT_LIFTS_IT)
 
 
 def recorded_finding(root: Any) -> dict[str, Any] | None:

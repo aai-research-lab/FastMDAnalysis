@@ -405,6 +405,30 @@ class TestTheRunsOfAStudy:
         assert "may be biased" not in rg
 
 
+#: Beside a longer run advised, for a run in contact with its image in every
+#: frame; and beside means all determined, for such a run.
+LONGER = ("A longer run may determine the means; it would not lift the bias of the solute's "
+          "own image, in contact with it in every frame: a longer run in the same box, like "
+          "replicas in it, samples the same contact, and a larger box, in a new study, is what "
+          "lifts it.")
+DETERMINED = ("Its means may still be biased by the solute's own image, in contact with it in "
+              "every frame: a longer run in the same box, like replicas in it, samples the "
+              "same contact, and a larger box, in a new study, is what lifts it.")
+
+
+def _in_contact(where: Path, rmsd: dict, rg: dict) -> Path:
+    """A run whose solute was in contact with its own image in every frame."""
+    from tests.test_a_run_s_overview_leads_with_what_it_needs import _a_run
+
+    root = _a_run(where, rmsd, rg)
+    finding, _ = _finding()
+    finding.update(frames_under_close=N, frames_under_cutoff=N)
+    (root / "analysis" / "image_check").mkdir(exist_ok=True)
+    (root / "analysis" / "image_check" / "options.json").write_text(json.dumps(
+        {"analysis": "image_check", "findings": {"solute_image": finding}}))
+    return root
+
+
 class TestALongerRunAlone:
     """For a run in contact with its image in every frame, the Overview's
     lead and the Agent's answers advised only a longer run ("about 2.5 ns
@@ -425,10 +449,7 @@ class TestALongerRunAlone:
         return root
 
     def _said(self) -> str:
-        from fastmdxplora.image_note import longer_run_said
-
-        finding, _ = _finding()
-        return longer_run_said({**finding, "frames_under_close": N})
+        return LONGER
 
     def test_the_overview_s_lead_says_it(self, in_contact):
         from fastmdxplora.gui.overview_view import overview_payload
@@ -456,6 +477,51 @@ class TestALongerRunAlone:
         from fastmdxplora.report.document import _convergence_section
 
         assert self._said() in _convergence_section(in_contact)
+
+
+class TestADeterminedRunInContact:
+    """A run in contact with its image in every frame, its means all
+    determined, was told "By its records, yes." and advised "Then
+    replicas.", and its Overview led "All 2 means are determined." and no
+    more; where no figure says how much longer, a longer run was advised
+    with no word of the image."""
+
+    ALL = "All 2 of 2 observables assessed, 2 had equilibrated, their means determined."
+    SOME = "Of 2 observables assessed, 1 had too few independent samples to average."
+
+    def test_the_overview_s_lead_says_it(self, tmp_path):
+        from tests.test_a_run_s_overview_leads_with_what_it_needs import _withheld
+        from tests.test_a_study_of_runs_is_shown_as_one import _recorded
+
+        from fastmdxplora.gui.overview_view import overview_payload
+
+        root = _in_contact(tmp_path / "all", _recorded(0.15), _recorded(1.2))
+        assert overview_payload(root)["lead"]["said"] == (
+            "All 2 means are determined. " + DETERMINED)
+        unsaid = _in_contact(tmp_path / "unsaid", _withheld(None), _recorded(1.2))
+        said = overview_payload(unsaid)["lead"]["said"]
+        assert said.startswith("1 of 2 means is not determined. How much longer would "
+                               "determine it is not in the records")
+        assert said.endswith(" " + LONGER)
+
+    def test_the_agent_s_answers_say_it(self, tmp_path, monkeypatch):
+        from tests.test_a_study_of_runs_is_shown_as_one import _recorded
+
+        from fastmdxplora.gui import records_answer
+
+        root = _in_contact(tmp_path, _recorded(0.15), _recorded(1.2))
+        monkeypatch.setattr(records_answer, "_supports", lambda base: self.ALL)
+        enough = records_answer.answer_from_the_records(root, "long_enough")
+        assert f"By its records, yes. {self.ALL}\n\n{DETERMINED}\n\n" in enough
+        strengthen = records_answer.answer_from_the_records(root, "strengthen")
+        assert ("Its means are determined, so a longer run of this one adds precision but "
+                f"not a check.\n\n{DETERMINED}\n\nThen replicas in a larger box. ") in strengthen
+        monkeypatch.setattr(records_answer, "_supports", lambda base: self.SOME)
+        enough = records_answer.answer_from_the_records(root, "long_enough")
+        assert enough.count(LONGER) == 1 and f"Not by its records. {self.SOME}" in enough
+        strengthen = records_answer.answer_from_the_records(root, "strengthen")
+        assert strengthen.count(LONGER) == 1 and f"A longer run first. {self.SOME}" in strengthen
+        assert "Then replicas in a larger box. " in strengthen
 
 
 #: A replica's mean noted at the run's cutoff of 0.9 nm, as the analysis

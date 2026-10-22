@@ -154,10 +154,14 @@ counts both. The report's Convergence part says how many frames were within
 the cutoff and in contact; where the solute was in contact with its image in
 every frame, it lists any claim about the solute's shape among what the run
 cannot support, since a longer run in the same box samples the same contact,
-and says that the longer run it asks for would determine the means without
+and says that the longer run it asks for may determine the means without
 lifting that bias, as the Overview's lead and the Agent's answers on run
 length and on what would strengthen the run say beside the longer run they
-advise (`image_note.longer_run_said`).
+advise (`image_note.longer_run_said`), with or without a figure of how much
+longer. Where every mean is determined, the lead and those answers say that
+the means may still be biased by the image and that a larger box lifts it,
+never "determined" or "yes" alone, and replicas are advised in a larger box
+(`image_note.determined_said`).
 Not done yet: complexes are not grouped again frame by frame (above); the
 check is not said while the run goes; a ligand's approach
 to an image of the protein is not recorded apart from the complex's; the

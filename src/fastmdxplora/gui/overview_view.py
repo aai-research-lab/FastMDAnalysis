@@ -263,9 +263,15 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
             return None
         return {"said": unread.strip(), "undetermined": 0, "means": 0, "more_ns": None,
                 "seconds": None, "platform": "", "lower_bound": False}
+    from fastmdxplora.image_note import determined_said, longer_run_said, recorded_finding
+
     if determined >= means:
         said = ("Its mean is determined." if means == 1
                 else f"All {means} means are determined.")
+        # Determined, and still biased where the solute met its own image
+        # in every frame: never said determined alone.
+        image = determined_said(recorded_finding(root), means)
+        said += f" {image}" if image else ""
         return {"said": said + unread, "undetermined": 0, "means": means, "more_ns": None,
                 "seconds": None, "platform": "", "lower_bound": False}
     from fastmdxplora import record_access
@@ -293,6 +299,8 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
     if ask is None:
         why = (f"is not said: {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} "
                f"not read." if refused else "is not in the records: each says why below.")
+        lifted = longer_run_said(recorded_finding(root))
+        why += f" {lifted}" if lifted else ""
         return {"said": f"{counted}. How much longer would determine {them} {why}" + unread,
                 "undetermined": undetermined, "means": means, "more_ns": None,
                 "seconds": None, "platform": "", "lower_bound": False}
@@ -313,8 +321,6 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
                  f"so what {'it says' if len(refused) == 1 else 'they say'} is not counted "
                  f"here.")
     # Not a longer run alone, where the solute met its image in every frame.
-    from fastmdxplora.image_note import longer_run_said, recorded_finding
-
     lifted = longer_run_said(recorded_finding(root))
     said += (f" {lifted}" if lifted else "") + unread
     return {"said": said, "undetermined": undetermined, "means": means,

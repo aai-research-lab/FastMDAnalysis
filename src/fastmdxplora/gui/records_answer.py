@@ -288,9 +288,11 @@ def _long_enough(base: Path) -> str:
         parts.extend(_not_a_longer_run_alone(base))
     elif _determined(supports):
         parts.append("By its records, yes. " + supports)
+        parts.extend(_the_image_beside(base, determined=True))
     elif supports:
         parts.append("Not by its records. " + supports)
         parts.append(_no_figure(base))
+        parts.extend(_not_a_longer_run_alone(base))
     else:
         parts.append("Its records do not say yet: no analysis has judged whether its "
                      "series equilibrated.")
@@ -306,6 +308,16 @@ def _not_a_longer_run_alone(base: Path) -> list[str]:
 
     lifted = longer_run_said(recorded_finding(base))
     return [lifted] if lifted else []
+
+
+def _the_image_beside(base: Path, *, determined: bool) -> list[str]:
+    """Beside means all determined, where the solute met its own image in
+    every frame, that they may still be biased by it, and what lifts it
+    (:func:`fastmdxplora.image_note.determined_said`): never "yes" alone."""
+    from fastmdxplora.image_note import determined_said, recorded_finding
+
+    said = determined_said(recorded_finding(base)) if determined else ""
+    return [said] if said else []
 
 
 def _strengthen(base: Path) -> str:
@@ -325,16 +337,23 @@ def _strengthen(base: Path) -> str:
     elif _determined(supports):
         parts.append("Its means are determined, so a longer run of this one adds "
                      "precision but not a check.")
+        parts.extend(_the_image_beside(base, determined=True))
     elif supports:
         parts.append("A longer run first. " + supports)
         parts.append(_no_figure(base))
+        parts.extend(_not_a_longer_run_alone(base))
     of = study_a_run_belongs_to(base)
     if of:
         parts.append(f"This run is one of the study {of.get('study')}. Its Report page "
                      "sets the runs' spread against each run's own error, which is the "
                      "check a single run cannot make.")
     else:
-        parts.append("Then replicas. " + TRAPPED)
+        # In contact with its image in every frame: replicas in the same
+        # box sample the same contact, as said above.
+        from fastmdxplora.image_note import longer_run_said, recorded_finding
+
+        larger = " in a larger box" if longer_run_said(recorded_finding(base)) else ""
+        parts.append(f"Then replicas{larger}. " + TRAPPED)
     return "\n\n".join(parts)
 
 
