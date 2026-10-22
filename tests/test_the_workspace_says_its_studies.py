@@ -426,6 +426,66 @@ def test_why_a_study_did_not_open_outlasts_the_cards_drawn_again(workspace) -> N
     assert errors == []
 
 
+def test_why_a_study_did_not_open_wraps_in_the_table(workspace) -> None:
+    """In the table at 1440 with the side panel open, the reason was said on
+    one line beside Open, Tag and Files: the table grew past its wrapper and
+    the reason ran out of sight on the right."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    why = "ubiquitin does not look like a study now: its records were moved."
+    measure = """() => {
+        const wrap = document.getElementById('studies-table-wrap');
+        const said = wrap.querySelector('.study-open-said');
+        const box = said && said.getBoundingClientRect();
+        const edge = wrap.getBoundingClientRect();
+        return {over: wrap.scrollWidth - wrap.clientWidth,
+                inside: !box || (box.left >= edge.left - 1 && box.right <= edge.right + 1),
+                lines: box ? Math.round(box.height / parseFloat(getComputedStyle(said).lineHeight)) : 0,
+                shown: !said || getComputedStyle(said.closest('.studies-actions')).opacity === '1',
+                page: document.documentElement.scrollWidth - document.documentElement.clientWidth};
+    }"""
+    session = start_dashboard_session(output=str(workspace / "ubiquitin"), host="127.0.0.1",
+                                      port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'table');"
+                                 " localStorage.setItem('fmx.panelCollapsed', '0'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/explore/switch",
+                       lambda route: route.fulfill(json={"ok": False, "error": why}))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            row = 'tr.studies-row[data-path$="/stopped"]'
+            page.wait_for_selector(row + " .study-open", state="attached")
+            page.wait_for_timeout(300)
+            panel = page.evaluate("() => !document.body.classList.contains('panel-collapsed')")
+            before = page.evaluate(measure)
+            page.hover(row)
+            page.click(row + " .study-open")
+            page.wait_for_selector(row + ' .study-open-said:has-text("records were moved")')
+            # Said with the pointer and the focus away from the row too.
+            page.mouse.move(5, 5)
+            page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            page.wait_for_timeout(500)
+            after = page.evaluate(measure)
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert panel
+    assert before["over"] <= 1
+    assert after["over"] <= 1, after
+    assert after["inside"] and after["lines"] >= 2 and after["page"] <= 0, after
+    assert after["shown"], after
+
+
 def test_why_a_study_did_not_open_is_not_said_once_it_has_passed(workspace) -> None:
     """Why a study did not open was kept until that study was asked again. A
     hold of the page's own (unsent Agent words) was still said on the card

@@ -2254,6 +2254,13 @@
       host.appendChild(said);
     }
     said.textContent = why;
+    // In the table it is a line under the row's buttons, and the table is
+    // fitted again: said beside them, it widened the table past its column.
+    var wrap = host.closest ? host.closest("#studies-table-wrap") : null;
+    if (wrap) {
+      fitTheList(wrap);
+      moreToTheRight(wrap);
+    }
   }
 
   /* Tags or an archive saved from this page, counted: a list asked for
