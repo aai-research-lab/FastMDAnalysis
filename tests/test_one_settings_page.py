@@ -594,11 +594,34 @@ def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width
     """At 150% a 900 pixel window is a page 600 wide, and beside the Agent
     at 1250 the page had about 380: the accents were drawn over their name,
     the scopes broke inside their words, the subtitle was cut to "E." and
-    This folder's words stood in a column 100 pixels wide."""
+    This folder's words stood in a column 100 pixels wide.
+
+    The Agent stands beside the page only where the strip (56), the Agent
+    at its least (340) and a page at its least (480) with its margins fit,
+    in the page's pixels (932). At 150% a 1250 window is a page 833 wide,
+    so the Agent is over the page, as in an 833 window at 100%, and this
+    case measures Settings under it; at 125% the page is 1000 wide, and
+    the Agent is beside it with the page at least 480 wide."""
     page = _at(browser, session.url, "150", (width, 900), "#settings", folder=True)
+    agent = """() => { const main = document.querySelector('.main').getBoundingClientRect();
+        return [parseFloat(getComputedStyle(document.querySelector('.app-shell')).paddingRight),
+                main.width, main.right - document.getElementById('agent-drawer')
+                    .getBoundingClientRect().left]; }"""
     if width == 1250:
         page.keyboard.press("Control+j")
         page.wait_for_selector("#agent-drawer:not([hidden])")
+        over = page.evaluate(agent)
+        # Over the page: the shell keeps its width, and the drawer covers it.
+        assert over[0] == 0 and over[2] > 300, over
+        beside = _at(browser, session.url, "125", (width, 900), "#settings", folder=True)
+        beside.keyboard.press("Control+j")
+        beside.wait_for_selector("#agent-drawer:not([hidden])")
+        beside.wait_for_function("() => parseFloat(getComputedStyle("
+                                 "document.querySelector('.app-shell')).paddingRight) > 0")
+        at_125 = beside.evaluate(agent)
+        beside.context.close()
+        # Beside it: the page ends where the drawer starts, at least 480 wide.
+        assert at_125[1] >= 480 and at_125[2] <= 1, at_125
     said = {}
     for scope in ("you", "folder"):
         page.click(f"#settings-scope-{scope}")
