@@ -380,17 +380,18 @@ there. Two scopes:
   here starts from, from the GUI, the command line and the Agent alike. Every
   setting it may hold is listed by its phase, FastMDXplora's own value beside
   it; a setting of one study (what it continues or is prepared from, the files
-  it analyses, its structure, ligand, mutations, chains and model) is not one,
-  and a file that sets one is refused. A value set is written into the file at
+  it analyses, its structure, ligand, mutations, chains and model, or one that
+  names its structure's parts: a ligand's charge, residues by number, the
+  atoms a bias acts on) is not one, and a file that sets one is refused. A value set is written into the file at
   once and checked as any defaults file is: one it refuses is said beside the
   setting, and the file is left as it was. **Use FastMDXplora's** takes it out
   again, a reason given is saved with it in the file's `decisions` (a study's
   report says it under **Why these settings**), and **Undo** puts back what
   was there. A setting no control draws (the RMSF figure's regions, a stopping
-  rule, a biasing block, the analyses' options), or a value its control cannot
-  say (restraints written as blocks), is shown as the file holds it, and a
-  file with comments is shown and changed by hand, as writing it again would
-  lose them. Not offered when the GUI is served to others.
+  rule, the analyses' options), or a value its control cannot say (restraints
+  written as blocks), is set only by hand in the file and shown under its
+  words as the file holds it, and a file with comments is shown and changed
+  by hand, as writing it again would lose them. Not offered when the GUI is served to others.
 
 The **Display size** sizes everything at once, text included: Auto, 90%,
 100%, 110%, 125% or 150%. Auto chooses from the screen as the browser

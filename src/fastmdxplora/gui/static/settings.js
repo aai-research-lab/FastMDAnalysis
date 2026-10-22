@@ -290,7 +290,14 @@
     var node;
     var here = value !== undefined;
     if (!drawable(field, value) || fixed) {
-      node = make("code", "settings-fixed mono", here ? shownValue(field, value) : theirs(field));
+      // A setting of several values, as the file holds them, under the words.
+      if (here && value !== null && typeof value === "object") {
+        return make("pre", "settings-fixed settings-several mono", JSON.stringify(value, null, 2));
+      }
+      // Set only by hand, and not set: said beside it, no value of its own.
+      if (!here && !fixed && !drawable(field, value)) return null;
+      node = make("code", "settings-fixed mono", here ? (value === null ? "FastMDXplora's"
+        : shownValue(field, value)) : theirs(field));
       return node;
     }
     if (field.control === "select" || isBool(field)) {
@@ -362,7 +369,8 @@
 
     var side = make("div", "settings-side");
     var input = control(field, value, fixed);
-    side.appendChild(input);
+    var several = Boolean(input) && input.tagName === "PRE";
+    if (input && !several) side.appendChild(input);
     var drawn = drawable(field, value);
     if (!fixed && drawn) {
       if (value !== undefined) {
@@ -392,9 +400,11 @@
         });
       }
     } else if (!drawn && !fixed) {
-      side.appendChild(make("small", "settings-by-hand", "Changed in the file by hand"));
+      side.appendChild(make("small", "settings-by-hand", value === undefined
+        ? "Set only by hand in the file" : "Changed in the file by hand"));
     }
     item.appendChild(side);
+    if (several) item.appendChild(input);
 
     if (value !== undefined && fixed) {
       if (said.whys[field.name]) item.appendChild(make("small", "settings-why-said", "Why: " + said.whys[field.name]));

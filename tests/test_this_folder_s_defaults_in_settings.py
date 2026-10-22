@@ -284,7 +284,8 @@ def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):
     errors = page.errors
     page.context.close()
     assert errors == []
-    assert held[0] == '{"kind":"position","selection":"protein and name CA","force_constant":500}'
+    assert yaml.safe_load(held[0]) == [{"kind": "position", "selection": "protein and name CA",
+                                        "force_constant": 500}]
     assert held[1] == 0 and held[2] == "Changed in the file by hand"
     assert theirs.startswith("FastMDXplora's: as the force field was developed")
     assert words == "protein and not element H"
@@ -307,6 +308,18 @@ def test_what_the_file_holds_is_said_and_a_list_of_choices_stays_open(browser, s
     null = page.evaluate(f"""() => {{ const s = document.querySelector('{dispersion} select');
         return [s.value, s.selectedOptions[0] && s.selectedOptions[0].textContent]; }}""")
     held = page.text_content(f"{stop} .settings-fixed")
+    # As the file holds it, under the words and read from the left; one
+    # the file does not set says it is set only by hand there.
+    options = '.settings-field[data-name="analysis.options"]'
+    shown = page.evaluate(f"""() => {{
+        const pre = document.querySelector('{stop} pre.settings-several');
+        const words = document.querySelector('{stop} .settings-words').getBoundingClientRect();
+        const unset = document.querySelector('{options}');
+        return [pre.textContent, getComputedStyle(pre).textAlign,
+                pre.getBoundingClientRect().top >= words.bottom - 0.5,
+                document.querySelector('{stop} .settings-by-hand').textContent,
+                unset.querySelector('.settings-by-hand').textContent,
+                unset.querySelectorAll('.settings-fixed').length]; }}""")
     page.check("#settings-only-set")
     only = (page.text_content("#settings-only-set-count"),
             page.evaluate("""() => [...document.querySelectorAll('#settings-folder-body .settings-field')]
@@ -325,7 +338,10 @@ def test_what_the_file_holds_is_said_and_a_list_of_choices_stays_open(browser, s
     page.context.close()
     assert errors == []
     assert null == ["", "FastMDXplora's"]
-    assert '"max_duration_ns":50' in held
+    assert '"max_duration_ns": 50' in held
+    assert shown[0] == json.dumps({"measures": [{"analysis": "rmsd", "standard_error": 0.01}],
+                                   "max_duration_ns": 50}, indent=2), shown[0]
+    assert shown[1:] == ["left", True, "Changed in the file by hand", "Set only by hand in the file", 0]
     assert only == (" (3)", ["setup.dispersion_correction", "simulation.stop_when",
                              "simulation.temperature_K"])
     assert still_open

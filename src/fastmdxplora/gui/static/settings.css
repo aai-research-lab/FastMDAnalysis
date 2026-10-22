@@ -157,6 +157,19 @@
     overflow-wrap: anywhere;
 }
 .settings-by-hand { color: var(--text-muted); font-size: var(--text-2xs); }
+.settings-several {
+    grid-column: 1 / -1;
+    max-width: none;
+    max-height: 240px;
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    overflow: auto;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--background-soft);
+    text-align: left;
+    white-space: pre-wrap;
+}
 .settings-use-theirs { font-size: var(--text-xs); }
 .settings-why { grid-column: 1 / -1; width: 100%; margin-top: 8px; font-size: var(--text-xs); }
 .settings-why-said { grid-column: 1 / -1; margin-top: 6px; color: var(--text-secondary); font-size: var(--text-xs); }
