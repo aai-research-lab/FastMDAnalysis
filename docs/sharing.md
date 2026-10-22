@@ -286,7 +286,9 @@ is said to be deleted, as published it would be the record again). One a share b
 remember, its disk full just after, is named for you to delete. One a
 share began and you deleted is begun again from the published record,
 holding its archive. What you changed on the record before publishing it
-is carried into its new version, not written over. Only an archive the study put there is taken away: another `.zip` on
+is carried into its new version, not written over; an edit you saved on it
+and did not publish keeps the share back until you publish or discard it
+there (`environment.service.unusable_response`). Only an archive the study put there is taken away: another `.zip` on
 the draft keeps the share back, as a record of two archives opens as
 neither.
 
@@ -517,4 +519,4 @@ The packing list of the demo study, cut to one file of each kind:
 | `environment.share.too_large` | The archive is over the download limit, or the disk it is opened into has no room for it. |
 | `environment.share.unverified` | A file missing, of another size or SHA-256, or not listed; or the archive not the one Zenodo recorded. |
 | `environment.service.unreachable` | Zenodo could not be reached, refused the token, or did not answer as it documents, still after five tries where it said to ask again. |
-| `environment.service.unusable_response` | Zenodo holds what a share cannot take as its own: two drafts under the title it asked for one with (delete all but one); a draft of a new version there already, or one changed since it was begun (publish or delete it); or a `.zip` on the draft the study did not put there (delete it, or keep it in a record of its own); or an answer for the study's draft or record that is neither (share again later); or the draft deleted on Zenodo during the share (share again, and a new one is made). |
+| `environment.service.unusable_response` | Zenodo holds what a share cannot take as its own: two drafts under the title it asked for one with (delete all but one); a draft of a new version there already, or one changed since it was begun (publish or delete it); an edit saved on the published record and not published (publish or discard it); or a `.zip` on the draft the study did not put there (delete it, or keep it in a record of its own); or an answer for the study's draft or record that is neither (share again later); or the draft deleted on Zenodo during the share (share again, and a new one is made). |

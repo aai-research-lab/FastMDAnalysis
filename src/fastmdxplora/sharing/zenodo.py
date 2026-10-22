@@ -840,11 +840,15 @@ def _keep(study: Path, kept: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
         if exc.errno not in (errno.ENOSPC, errno.EDQUOT):
             raise
+        # A draft named or asked for already is found again then, not made twice.
+        there = any(isinstance(of, dict) and (of.get("id") or of.get("asked_as"))
+                    for of in kept.values())
         raise ShareRefused(
             f"{study / SHARED_TO}, where the study keeps the record it is shared as, could "
             f"not be written: the disk has no room ({exc.strerror}). Make room there and "
-            "share again.", code="environment.share.too_large",
-            path=str(study / SHARED_TO)) from exc
+            "share again" + (": a draft on Zenodo made for it is found and finished "
+                             "then, not made again." if there else "."),
+            code="environment.share.too_large", path=str(study / SHARED_TO)) from exc
 
 
 def draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[str, Any]],
@@ -1622,6 +1626,15 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
     try:
         newest = _latest_published(found, depositions, token, said)
         published = str(newest.get("id") or found["id"])
+        if newest.get("state") == "inprogress":
+            # An edit saved on the published record, not published: read in
+            # its place, so a new version begun would be told from it, not
+            # from the record.
+            raise ShareRefused(
+                f"Record {published} on Zenodo holds an edit saved there and not published: "
+                "publish or discard that edit there, then share again.",
+                code="environment.service.unusable_response",
+                url=str((newest.get("links") or {}).get("html") or ""))
         # The next of the latest version's own label; where it holds no
         # number, the study's own count: the version its deleted draft was
         # to be, or the one after the one it published.

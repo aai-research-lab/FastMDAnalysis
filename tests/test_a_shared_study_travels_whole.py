@@ -4135,3 +4135,53 @@ def test_an_earlier_release_s_draft_as_the_study_gives_it_is_not_said_otherwise(
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     said = capsys.readouterr().out
     assert "Change them there" not in said
+
+
+def test_a_record_holding_an_edit_not_published_begins_no_new_version(tmp_path, unsteady,
+                                                                      monkeypatch, capsys):
+    """Hands-on review of the forty-first commit: an edit saved on the
+    published record and not published (Zenodo reads it in the record's
+    place) had every share begin a new version and name it as the person's,
+    changed, to delete."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        **answer, "state": "inprogress",
+        "metadata": {**answer["metadata"], "keywords": ["mine"]}})
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "holds an edit saved there and not published: publish or discard that edit" in \
+        capsys.readouterr().err
+    assert not any(c[1].endswith("/actions/newversion") or c[0] == "PUT"
+                   for c in unsteady.calls)
+
+
+def test_a_full_disk_after_the_draft_is_made_says_it_is_found_again(tmp_path, unsteady,
+                                                                      monkeypatch, capsys):
+    """Hands-on review of the forty-first commit: a disk that filled once the
+    draft was made said only to make room, not that the draft is there."""
+    import errno
+
+    study = _study(tmp_path / "study")
+    real = Path.write_text
+    writes = []
+
+    def fills(self, *args, **kwargs):
+        if self.name.startswith(f".{zenodo.SHARED_TO}."):
+            writes.append(self)
+            if len(writes) > 1:
+                raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fills)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "a draft on Zenodo made for it is found and finished then" in \
+        capsys.readouterr().err
+    monkeypatch.setattr(Path, "write_text", real)
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert not any(c[0] == "POST" for c in unsteady.calls)
