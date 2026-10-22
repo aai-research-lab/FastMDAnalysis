@@ -787,6 +787,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   (an AI app's actions, which the Agent proposes on the page) is listed with
   why. See `docs/agent.md`, Looking before it answers, and `docs/mcp.md`.
 
+### Changed
+
+- Setup's default padding (`setup.solvent_padding_nm`) is 2.0 nm, about
+  1.0 nm of water between the solute and the box's wall, where it was 1.0 nm
+  (OpenMM's padding is the least distance from the solute to its image, so
+  1.0 nm was the cutoff itself, and chains that never unfolded came within
+  the cutoff of their own image). Every new study has more water, about
+  twice the atoms for a 10-residue peptide; the cost said before a run and
+  the GPU room read the new count. A study or defaults file that sets its
+  own padding keeps it, setup still grows a box too narrow for the cutoff,
+  and studies already run are unchanged.
+
 ### Fixed
 
 - A long value in an Agent Config version's change list (a "Prepared

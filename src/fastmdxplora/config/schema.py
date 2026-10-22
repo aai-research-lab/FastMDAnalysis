@@ -499,12 +499,14 @@ SETUP = PhaseSchema(
               "elsewhere. Needs `membrane_orientation_checked: true`. "
               "Unset, the centre is fitted, or taken from an OPM file.",
               example=0.0),
-        Field("solvent_padding_nm", float, 1.0,
+        Field("solvent_padding_nm", float, 2.0,
               "Least distance (nm) between the solute and its nearest periodic "
               "image, as OpenMM sizes a padded box: the box is the solute's "
               "bounding sphere plus this, so the water between the solute "
-              "and the box's wall is about half of it. Grown by setup where "
-              "the box would be too narrow for the cutoff.",
+              "and the box's wall is about half of it. The default, 2.0, is "
+              "about 1.0 nm of water between the solute and the box's wall, "
+              "as `gmx editconf -d 1.0` gives. Grown by setup where the box "
+              "would be too narrow for the cutoff.",
                     minimum=0.0),
         Field("box_shape", str, "dodecahedron",
               "Periodic box geometry: cube, dodecahedron, or octahedron. "

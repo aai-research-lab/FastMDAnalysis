@@ -75,7 +75,8 @@ reason, where the report, the Overview and the Agent read it, and an
 analysis with no mean says it in its findings. `end_to_end` reads it rather
 than checking the chain's two ends alone, which passed a chignolin chain
 that came to 0.261 nm of its own copy. A larger box, in a new study, is what
-changes it.
+changes it; setup's default padding is 2.0 nm for this reason (see
+[Config reference](config_reference.md)).
 
 ### The bilayer
 

@@ -113,7 +113,7 @@ refused, and the barostat that is chosen for you.
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `water_model` | str | from the force field | e.g. `tip3p`, `tip4pew` |
-| `solvent_padding_nm` | float | `1.0` | Minimum distance from solute to box wall |
+| `solvent_padding_nm` | float | `2.0` | Least distance from the solute to its nearest periodic image, as OpenMM sizes the box: about 1.0 nm of water between the solute and the box's wall |
 | `box_shape` | str | `dodecahedron` | `cube`, `dodecahedron` or `octahedron` |
 | `neutralize` | bool | `true` | Add ions to neutralise the net solute charge |
 | `ion_positive` | str | `Na+` | Counter-ion cation |

@@ -63,7 +63,7 @@ logger = get_logger("setup.prepare")
 # (The default force field now lives in setup/forcefields.py, the single
 # source of truth for the named force-field registry.)
 # ---------------------------------------------------------------------------
-DEFAULT_PADDING_NM = 1.0
+DEFAULT_PADDING_NM = 2.0
 DEFAULT_IONIC_STRENGTH_M = 0.15
 # DEFAULT_PH is deliberately absent. It existed here, unread by anything, and
 # stayed at 7.0 when the pH default became 7.4 -- an unused constant stating a
@@ -539,9 +539,10 @@ def prepare_system(
         Water model name (``"tip3p"``, ``"tip4pew"``, ``"spce"``, etc.)
         used by Modeller. When ``None`` (the default), Modeller picks the
         model that matches the supplied water-model XML.
-    solvent_padding_nm : float, default 1.0
-        Minimum distance in nm between any solute atom and the periodic
-        box wall.
+    solvent_padding_nm : float, default 2.0
+        Least distance in nm between the solute and its nearest periodic
+        image, as OpenMM's padding is: about 1.0 nm of water between the
+        solute and the box's wall by default.
     box_shape : {"cube", "dodecahedron", "octahedron"}, default "cube"
         Periodic box geometry. Not used with a membrane, whose box is
         rectangular and made of whole patches.

@@ -29,6 +29,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora.config.schema import SETUP
 from fastmdxplora.ligand_detection import ION_RESNAMES, WATER_RESNAMES
 
 #: Atoms (heavy and hydrogen) of each standard residue inside a chain, as the
@@ -88,6 +89,10 @@ WATERS_LOST_AT_THE_FACES = 2.6
 #: deposited heavy atoms, in nm, for the bounding sphere of a structure
 #: deposited without them: 0.045 to 0.11 on the same nine builds.
 HYDROGEN_REACH_NM = 0.07
+
+#: The padding setup uses where a config gives none: the schema's default,
+#: read from it, so the estimate builds the box setup builds.
+_DEFAULT_PADDING_NM = float(SETUP.defaults()["solvent_padding_nm"])
 
 #: Molar concentration of pure water, as OpenMM counts ion pairs from it.
 WATER_MOLARITY = 55.4
@@ -280,7 +285,7 @@ def estimate_system(structure: str | Path, setup: dict[str, Any] | None = None,
         radius += HYDROGEN_REACH_NM
 
     shape = str(setup.get("box_shape") or "dodecahedron").lower()
-    padding = float(setup.get("solvent_padding_nm") or 1.0)
+    padding = float(setup.get("solvent_padding_nm") or _DEFAULT_PADDING_NM)
     used, narrowest, width, grows, refuses = _box(radius, padding, shape, setup)
     volume = VOLUME_PER_WIDTH_CUBED.get(shape, 1.0) * width ** 3
 
