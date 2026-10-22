@@ -3518,3 +3518,41 @@ def test_a_folder_holding_only_a_moved_conversation_is_no_study_open(tmp_path):
     runtime.active_root = run
     assert runtime.snapshot().get("active_run") is None
     assert _active_view_error({"page": "agent", "study": ""}, runtime, None) is None
+
+
+def test_a_reload_during_a_builder_launch_says_where_the_words_are(tmp_path, monkeypatch):
+    """L19 L2: a Config Builder launch unanswered, words typed and Enter
+    (refused, Send waits); the GUI goes to the run's study (here `other`)
+    and the page is reloaded. The words were saved for the study they were
+    typed in, unsaid: only the panel's own launches were counted."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    words = "typed as the Builder starts"
+    asked = []
+    page, errors, close = _page_on(session, [])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        page.evaluate("() => window.FastMDXDashboard.studyChangeAsked()")
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        refused = _note(page)
+        _switch_elsewhere(session, other)
+        page.reload(wait_until="domcontentloaded")
+        _shows(page, study_key(other))
+        page.wait_for_function("() => /as a run started is saved for it/.test((document"
+                               ".getElementById('agent-unsent-note') || {}).textContent || '')",
+                               timeout=15000)
+        kept, box, note = _unsent(page), page.input_value("#agent-request"), _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert refused == _SEND_WAITS, refused
+    assert _requests(asked) == [], asked
+    assert kept.get(study_key(here)) == words and box == "", (kept, box)
+    assert note.startswith("The unsent message typed for here as a run started is saved for it"), note
+    assert errors == []

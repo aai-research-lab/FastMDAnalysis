@@ -2227,12 +2227,15 @@
    * its request, cut by the going, may fail between this page's own pagehide
    * listeners, and its failure then counts the launch as answered before
    * the words kept are marked as kept as a run started (CI-774 reviews L17,
-   * L18: the page that came back said nothing of where they were). */
+   * L18: the page that came back said nothing of where they were). A
+   * Config Builder's launch too, counted by the dashboard (review L19 L2). */
   var leftLaunching = false;
   window.addEventListener("pagehide", function (event) {
     if (!event.persisted) {
       leaving = true;
-      leftLaunching = launching > 0;
+      var dashboard = window.FastMDXDashboard;
+      leftLaunching = launching > 0
+        || Boolean(dashboard && dashboard.state && dashboard.state.launchesAsked > 0);
       /* A question whose answer is still being written: kept, with the
        * answer said as stopped, as pressing Stop says it (nineteenth
        * review, 10-08: the question was saved only with its answer, and a
