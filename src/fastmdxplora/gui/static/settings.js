@@ -159,10 +159,17 @@
     var auto = Math.round(display.auto() * 100);
     select.options[0].textContent = "Auto: " + auto + "%";
     select.value = display.chosen();
+    var wanted = Math.round(display.wanted() * 100);
+    var applied = Math.round(display.zoom() * 100);
     if (!display.works) {
       select.disabled = true;
       note.textContent = "This browser cannot size the page itself: use its own zoom, " +
         "Ctrl or ⌘ with + and −.";
+    } else if (applied < wanted) {
+      // Held back: the page is never made narrower than a phone's.
+      note.textContent = (display.chosen() === "auto" ? "Auto is " + wanted + "% on this screen"
+        : wanted + "% chosen") + "; " + applied + "% in a window this narrow, so the page is never " +
+        "under " + display.narrowest + " pixels wide.";
     } else if (display.chosen() === "auto") {
       note.textContent = "Everything at once, text included. Auto is " + auto +
         "% on this screen, and chosen again on another.";

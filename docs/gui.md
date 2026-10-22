@@ -397,10 +397,14 @@ The **Display size** sizes everything at once, text included: Auto, 90%,
 reports it, in its own pixels, so a system's own scaling is counted once:
 100% up to about 1920 by 1080, 125% at 2560 by 1440 (or an ultrawide 3440 by
 1440), 150% at 3840 by 2160. It chooses again when the window is moved to
-another screen, never as it is resized. Where the browser cannot size the
-page itself, Settings says to use the browser's own zoom. The page is laid
-out as a window of its own width is: at 150%, a window 1500 pixels wide is
-laid out as one 1000 wide is at 100%.
+another screen. Where the browser cannot size the page itself, Settings
+says to use the browser's own zoom. The page is laid out as a window of its
+own width is: at 150%, a window 1500 pixels wide is laid out as one 1000
+wide is at 100%. A Display size never makes the page narrower than a
+phone's 390 pixels: the size applied is the largest not above the one
+chosen that keeps it so, again as the window is resized (150% chosen is
+125% in a window 500 wide and 100% in one 390 wide), and Settings says so
+beside the select.
 
 **Back and Forward** move between the GUI's pages, the analysis shown and
 the Cite and Viewer help dialogs. The address names the open

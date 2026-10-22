@@ -33,9 +33,15 @@
  * is the largest of 100%, 110%, 125% and 150% that the screen holds as many
  * times over (100% to about 1920 by 1080, 125% at 2560 by 1440 or an
  * ultrawide 3440 by 1440, 150% at 3840 by 2160). It is chosen as the page
- * opens and again only when the window is moved to another screen, never
- * while it is resized. A size chosen in Settings (`fmx.displaySize`, 90 to
- * 150) is used as it is.
+ * opens and again only when the window is moved to another screen. A size
+ * chosen in Settings (`fmx.displaySize`, 90 to 150) is used as it is, but
+ * for one thing: a Display size never makes the page narrower than the
+ * 390 pixels of a phone, which the page is laid out for. At 150% a 390
+ * pixel window was a page 260 wide, and Analysis, All studies and Files
+ * scrolled sideways. The step applied is the largest not above the one
+ * chosen (or Auto's) that keeps the page at least 390 wide, as the window
+ * opens and each time it is resized, and Settings says so beside the
+ * select while the size chosen is held back.
  *
  * A page zoomed this way reports what is on the screen in zoomed pixels
  * (an element's box, where the pointer is, the window's width) while the
@@ -55,10 +61,16 @@
   var root = document.documentElement;
   var STEPS = [1, 1.1, 1.25, 1.5];
   var CHOICES = ["auto", "90", "100", "110", "125", "150"];
+  var NARROWEST = 390;
   var works = typeof Element !== "undefined" && "currentCSSZoom" in Element.prototype;
   var zoom = 1;
   var shimmed = false;
-  var screenWas = "";
+  // The window's own width, in screen pixels, read past the shim below.
+  var widthOf = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  function windowWidth() {
+    try { return widthOf && widthOf.get ? widthOf.get.call(window) : window.innerWidth; }
+    catch (e) { return 0; }
+  }
 
   function chosen() {
     var saved = null;
@@ -78,6 +90,17 @@
   function wanted() {
     var c = chosen();
     return c === "auto" ? auto() : Number(c) / 100;
+  }
+
+  /* The step applied for ``z``: the largest not above it that keeps the
+   * page at least 390 pixels wide. A size under 100% is never held back,
+   * nor 100% in a window under 390. */
+  function fitted(z) {
+    var width = windowWidth();
+    if (z <= 1 || !(width > 0)) return z;
+    var best = 1;
+    STEPS.forEach(function (s) { if (s <= z + 0.001 && width / s >= NARROWEST) best = s; });
+    return best;
   }
 
   function apply(z) {
@@ -295,17 +318,14 @@
     }
   }
 
-  apply(wanted());
-  try { screenWas = screen.width + "x" + screen.height; } catch (e) { /* none */ }
+  apply(fitted(wanted()));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", sizedByTheWindow);
   else sizedByTheWindow();
-  // Moved to another screen: Auto chooses again. Resized on one: nothing.
+  // Moved to another screen, Auto chooses again; resized, the size chosen
+  // is held back where the page would be under 390 wide, or given back.
   window.addEventListener("resize", function () {
-    var now = "";
-    try { now = screen.width + "x" + screen.height; } catch (e) { return; }
-    if (now === screenWas) return;
-    screenWas = now;
-    if (chosen() === "auto") apply(auto());
+    var z = fitted(wanted());
+    if ((works ? z : 1) !== zoom) apply(z);
   });
 
   window.FastMDXDisplay = {
@@ -314,11 +334,14 @@
     chosen: chosen,
     auto: auto,
     zoom: function () { return zoom; },
+    // The size chosen, or Auto's, before it is held back for a narrow window.
+    wanted: function () { return works ? wanted() : 1; },
+    narrowest: NARROWEST,
     /* "auto", or "90" to "150": saved, and applied at once. */
     choose: function (value) {
       if (CHOICES.indexOf(value) < 0) return;
       try { localStorage.setItem("fmx.displaySize", value); } catch (e) { /* this page only */ }
-      apply(wanted());
+      apply(fitted(wanted()));
     },
   };
 })();

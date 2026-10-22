@@ -591,6 +591,69 @@ def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width
     assert said["folder"]["narrowest"] >= 240, said["folder"]
 
 
+def test_a_display_size_never_makes_the_page_narrower_than_a_phone(browser, tmp_path):
+    """At 150% a 390 pixel phone was a page 260 wide: Analysis, All studies
+    and Files scrolled sideways, the sort select and the Files actions past
+    the edge. The size applied is the largest not above the one chosen that
+    keeps the page at least 390 wide, again as the window is resized, and
+    Settings says so beside the select."""
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    study = _study(tmp_path / "helical", system="2I9M",
+                   means={"rmsd": (0.213, 0.011), "radius_of_gyration": (1.104, 0.02)})
+    started = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        page = _at(browser, started.url, "150", (390, 844), "#studies")
+    except Exception:
+        started.server.shutdown()
+        raise
+    # What scrolls sideways, and what runs past the window's edge outside
+    # a part that scrolls sideways itself.
+    sideways = """() => {
+        const scrolled = [document.scrollingElement, document.querySelector('.main'),
+            document.querySelector('.page:not([hidden])')].filter(Boolean)
+            .filter((e) => e.scrollWidth > e.clientWidth + 1)
+            .map((e) => e.className || e.tagName);
+        const scrolls = (e) => { for (let a = e.parentElement; a; a = a.parentElement) {
+            const x = getComputedStyle(a).overflowX; if (x === 'auto' || x === 'scroll') return true; }
+            return false; };
+        const past = [...document.querySelectorAll('.page:not([hidden]) *')].filter((e) => {
+            const r = e.getBoundingClientRect();
+            return r.width > 1 && r.height > 1 && (r.right > innerWidth + 1 || r.left < -1)
+                && getComputedStyle(e).position !== 'fixed' && !scrolls(e); })
+            .map((e) => e.id || e.className || e.tagName);
+        return scrolled.concat(past.slice(0, 6)); }"""
+    try:
+        said = {}
+        for where in ("analysis", "studies", "files"):
+            page.evaluate(f"() => window.FastMDXDashboard.navigate('{where}')")
+            page.wait_for_selector(f'.page[data-page="{where}"]:not([hidden])')
+            page.wait_for_timeout(400)
+            said[where] = page.evaluate(f"() => [({sideways})(), window.FastMDXDisplay.zoom(), innerWidth]")
+        for where, (scrolled, zoom, width) in said.items():
+            assert scrolled == [] and zoom == 1 and width == 390, (where, scrolled, zoom, width)
+        page.evaluate("() => window.FastMDXDashboard.navigate('settings')")
+        page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
+        notes = [page.text_content("#setting-display-size-note")]
+        resized = []
+        for width, zoom in ((500, 1.25), (1200, 1.5), (390, 1)):
+            page.set_viewport_size({"width": width, "height": 844})
+            page.wait_for_function(f"() => window.FastMDXDisplay.zoom() === {zoom}")
+            resized.append(page.evaluate("() => innerWidth"))
+            notes.append(page.text_content("#setting-display-size-note"))
+        errors = page.errors
+    finally:
+        page.context.close()
+        started.server.shutdown()
+    assert errors == []
+    assert resized == [400, 800, 390]
+    held = "; 100% in a window this narrow, so the page is never under 390 pixels wide."
+    assert notes[0] == "150% chosen" + held, notes[0]
+    assert notes[1].startswith("150% chosen; 125% in a window this narrow"), notes[1]
+    assert notes[2] == "Everything at once, text included.", notes[2]
+    assert notes[3] == notes[0]
+
+
 def test_nothing_of_the_preferences_dialog_is_left(tmp_path):
     """The dialog is the Settings page: no address, rule, script or branch
     names it, and its addresses are the page's, not a dialog's."""
