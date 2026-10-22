@@ -677,7 +677,7 @@ class Analysis(ABC):
         ``findings.solute_image`` (counted over the frames its mean uses, or
         every frame it used where it has no mean), and on each mean record,
         its numbers counted over that mean's own frames. Every error bar is
-        kept: meeting its copy may bias a mean, it does not make its error
+        kept: seeing its copy may bias a mean, it does not make its error
         unknown. One function for every mean
         (:func:`fastmdxplora.analysis.image_check.note_on_frames`); said
         once, however often this is called. An analysis without a main mean

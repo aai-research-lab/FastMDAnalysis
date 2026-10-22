@@ -140,6 +140,21 @@ contact; past it, the mean over the frames clear of the image given beside
 it) waits for thresholds fixed in a registered check. A larger box, in a new study, is what
 changes it; setup's default padding is 2.0 nm for this reason (see
 [Config reference](config_reference.md)).
+Within the cutoff the solute sees its image (it interacts with its copy in
+direct space); it is in contact with it only under 0.5 nm, and the finding
+counts both. The report's Convergence part says how many frames were within
+the cutoff and in contact; where the solute was in contact with its image in
+every frame, it lists any claim about the solute's shape among what the run
+cannot support, since a longer run in the same box samples the same contact,
+and says that the longer run it asks for would determine the means without
+lifting that bias.
+Not done yet: the check is not said while the run goes; a ligand's approach
+to an image of the protein is not recorded apart from the complex's; the
+note is not graded by thresholds (above); the GUI's map of time against time
+draws its last block a full block wide where the figure draws it its own
+width; several workers clustering at once each plan on the same memory; and
+no frame cap is set by default (a cap is the person's choice); and fetching a
+study from another machine does not yet give its sizes by kind.
 
 ### The bilayer
 
@@ -212,8 +227,11 @@ the frames, the bytes needed and available, and the stride that fits;
 the other analyses still read every frame. On `features: coordinates`,
 k-means, Ward and DBSCAN make no matrix at all. `dimred`'s MDS makes the same
 matrix and is checked the same way (16 n^2 bytes, the matrix and its centred
-square), refused past it with the stride that fits under `analysis: {stride: k}`;
-PCA, t-SNE and UMAP make none.
+square), checked before any of its methods runs and refused past it with the
+stride that fits under `analysis: {stride: k}` ("every 2nd frame"); PCA,
+t-SNE and UMAP make none, and asked for beside a refused MDS they still run
+and are kept, the refusal recorded (`findings.mds_refused`) and said in the
+report.
 
 `dimred`, with PCA, writes the free-energy landscape on the first two
 components: G = -kT ln P, with P the histogram over `landscape_bins` bins

@@ -527,6 +527,49 @@ class TestMDSIsCheckedAsClusteringIs:
         assert mds_memory_needed(math.ceil(n / stride)) <= MEMORY_SHARE * available
         assert mds_memory_needed(math.ceil(n / (stride - 1))) > MEMORY_SHARE * available
 
+    def test_refused_before_pca_runs_and_pca_is_kept(self, tmp_path, monkeypatch):
+        """MDS refused inside the methods' loop lost the PCA computed before
+        it: checked first, PCA is run and kept, and the refusal recorded."""
+        import json
+
+        from fastmdxplora.analysis import dimred as module
+        from fastmdxplora.analysis.dimred import DimRed, mds_memory_needed
+
+        n = 600
+        monkeypatch.setattr(clustering, "memory_available",
+                            lambda: (mds_memory_needed(n) // 5, "mocked"))
+        order = []
+        real = module._refuse_mds_past_memory
+        monkeypatch.setattr(module, "_refuse_mds_past_memory",
+                            lambda self, frames: (order.append("checked"), real(self, frames)))
+        monkeypatch.setattr(module, "PCA", lambda **kw: (order.append("pca"),
+                                                        __import__("sklearn.decomposition",
+                                                                   fromlist=["PCA"]).PCA(**kw))[1])
+        result = DimRed(output_dir=tmp_path, methods=["pca", "mds"]).run(_chain(n))
+        assert order[:2] == ["checked", "pca"]
+        assert result.status == "ok", result.message
+        assert (result.output_dir / "dimred_pca.dat").is_file()
+        assert not (result.output_dir / "dimred_mds.dat").exists()
+        found = json.loads((result.output_dir / "options.json").read_text())["findings"]
+        assert found["mds_refused"]["code"] == "analysis.memory.matrix_too_large"
+        assert found["mds_refused"]["kept"] == ["pca"]
+        assert "MDS refused" in result.message
+        from fastmdxplora.report.document import _findings_notes
+
+        said = [note for note in _findings_notes(found) if note.startswith("MDS was not run")]
+        assert len(said) == 1 and said[0].endswith("PCA was run and kept.")
+
+    def test_the_stride_is_said_as_an_ordinal(self, monkeypatch):
+        from fastmdxplora.analysis.dimred import DimRed, mds_memory_needed
+        from fastmdxplora.refusals import StudyError
+
+        n = 600
+        monkeypatch.setattr(clustering, "memory_available",
+                            lambda: (int(mds_memory_needed(n) * 0.5), "mocked"))
+        with pytest.raises(StudyError) as raised:
+            DimRed(methods=["mds"]).compute(_chain(n))
+        assert "every 2nd frame" in str(raised.value), str(raised.value)
+
     def test_within_it_the_projection_is_classical_mds(self, monkeypatch):
         from fastmdxplora.analysis.dimred import _classical_mds, _pairwise_rmsd
 

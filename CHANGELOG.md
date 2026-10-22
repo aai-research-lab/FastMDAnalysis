@@ -27,7 +27,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   frames was killed by the kernel while clustering, a matrix of 131 GB and a
   copy of 66 GB. The matrix is made with no copies beside it where it was
   made with two, and k-means, Ward and DBSCAN on `features: coordinates`
-  make none. `dimred`'s MDS is checked and refused the same way, and makes
+  make none. `dimred`'s MDS is checked and refused the same way, before
+  any of its methods runs (PCA asked for beside it is run and kept, the
+  refusal recorded and said in the report; "every 2nd frame"), and makes
   its matrix as clustering does, without the five copies of it it made.
 - Clustering no longer writes the frame-by-frame matrix twice:
   `hierarchical_distance_matrix.npy` is gone (the dendrogram is the
@@ -532,7 +534,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   report say the solute was not checked, and `end_to_end` checks its own
   chain against the run's cutoff, said as its own check, the report then
   pointing to no Image check section; the report says end-to-end's image
-  sentence once. It is not yet said while the run goes.
+  sentence once. Within the cutoff the solute is said to see its image,
+  and in contact with it only under 0.5 nm; the cutoff is said as "The
+  cutoff is 0.9 nm, read from ..." (or "taken because ..."); the report's
+  exclusion paragraph keeps its setting as code; its Convergence part says
+  how many frames were within the cutoff and, for a run in contact with its
+  image in every frame, that no claim about the solute's shape is
+  supported and a longer run alone would not lift the bias; the check's
+  figure gives its time in ps under 1 ns. Not yet done: said while the run
+  goes; a ligand's approach to the protein's image recorded apart; grading
+  the note by thresholds (it waits for a registered check); the GUI map's
+  last block drawn its own width; several workers clustering at once; a
+  default frame cap (the person's choice); fetch sizes by kind.
 
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each

@@ -58,6 +58,9 @@ from fastmdxplora.analysis.plotting import (
 from fastmdxplora.analysis.starting_frame import first_frame, start_as_given
 from fastmdxplora.refusals import StudyError
 from fastmdxplora.refusals import BackendUnavailable
+from fastmdxplora.utils.logging import get_logger
+
+logger = get_logger("analysis.dimred")
 
 
 VALID_METHODS = ("pca", "mds", "tsne", "umap")
@@ -211,8 +214,26 @@ class DimRed(Analysis):
                 "trajectory that samples."
             , code="analysis.sampling.no_variance")
 
+        # MDS's matrix checked before any method runs: refused, the other
+        # methods asked for still run and are kept, the refusal recorded; a
+        # refusal of MDS alone refuses the analysis.
+        methods = list(self.methods)
+        if "mds" in methods:
+            try:
+                _refuse_mds_past_memory(self, traj.n_frames)
+            except StudyError as refused:
+                if len(methods) == 1:
+                    raise
+                methods.remove("mds")
+                self.findings["mds_refused"] = {
+                    "code": "analysis.memory.matrix_too_large", "said": str(refused),
+                    "kept": list(methods)}
+                logger.warning("%s The other methods asked for (%s) still run.",
+                               refused, ", ".join(methods))
+        self._methods_run = methods
+
         results: dict[str, np.ndarray] = {}
-        for method in self.methods:
+        for method in methods:
             if method == "pca":
                 model = PCA(n_components=self.n_components)
                 embedding = model.fit_transform(coords)
@@ -239,9 +260,7 @@ class DimRed(Analysis):
                 # possible -- and the distance between two frames is their
                 # RMSD, which is what a structural biologist means by how
                 # different two conformations are.
-                # Before anything of the frames' square is made, as
-                # clustering checks it.
-                _refuse_mds_past_memory(self, traj.n_frames)
+                # Its memory checked above, before any method ran.
                 distances = _pairwise_rmsd(traj, self.select_atoms(traj))
                 embedding = _classical_mds(distances, self.n_components)
                 del distances
@@ -336,7 +355,7 @@ class DimRed(Analysis):
                 # Once more, so the landscape's record is kept with the rest.
                 self._write_options_manifest()
             finished = datetime.now(timezone.utc).isoformat()
-            primary = self.methods[0]
+            primary = next(iter(self.result))
             return AnalysisResult(
                 name=self.name,
                 status="ok",
@@ -346,7 +365,9 @@ class DimRed(Analysis):
                 data_path=self.output_dir / f"dimred_{primary}.dat",
                 options_path=options_path,
                 artifacts=artifacts,
-                message=f"{self.name}: ok ({', '.join(self.methods)})",
+                message=f"{self.name}: ok ({', '.join(self.result)})" + (
+                    "; MDS refused for memory, the rest kept"
+                    if "mds_refused" in self.findings else ""),
                 started_at=started,
                 finished_at=finished,
             )
@@ -567,6 +588,7 @@ def _refuse_mds_past_memory(self: "DimRed", n: int) -> None:
     from fastmdxplora.analysis.cluster import (
         MEMORY_SHARE,
         _gigabytes,
+        _ordinal,
         memory_available,
         room_said,
     )
@@ -588,7 +610,7 @@ def _refuse_mds_past_memory(self: "DimRed", n: int) -> None:
         f"frame-by-frame RMSD matrix and its centred square, and "
         f"{room_said(available, read_from)} ({read_from}), of which an analysis "
         f"plans on {MEMORY_SHARE:.0%}. PCA, t-SNE and UMAP make no such matrix "
-        f"(`methods: [pca]`); or load every {stride}th frame for the analyses "
+        f"(`methods: [pca]`); or load every {_ordinal(stride)} frame for the analyses "
         f"(`analysis: {{stride: {stride}}}`, which every analysis then reads), "
         f"{-(-n // stride):,} frames, which fits.",
         code="analysis.memory.matrix_too_large", frames=n,

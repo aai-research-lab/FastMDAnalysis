@@ -262,8 +262,9 @@ class EndToEndDistance(Analysis):
             f"The chain reaches {longest:.3f} nm from end to end (the cell's "
             f"narrowest width is {narrowest:.3f} nm, and an end comes within "
             f"{nearest:.3f} nm of a periodic image of the other end). In the "
-            "frames it meets its own image it is interacting with its own copy, "
-            "and its extension describes the cell as much as the chain.")
+            "frames it sees its own image, within the cutoff, it interacts with "
+            "its own copy, and its extension describes the cell as much as the "
+            "chain.")
         reasons = []
         if longest_step > 0.5 * narrowest:
             reasons.append(
@@ -315,7 +316,7 @@ class EndToEndDistance(Analysis):
             said = f"{note['said']} {getattr(self, '_chain_said', '')}".strip()
             if said not in str((mean or {}).get("not_a_measurement") or ""):
                 self._withhold_the_error(traj, said,
-                                         because="chain meets its periodic image")
+                                         because="chain sees its periodic image")
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
         atom_idx = self.select_atoms(traj)

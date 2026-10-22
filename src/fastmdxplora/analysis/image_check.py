@@ -117,7 +117,7 @@ def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = N
     times, ``counted_over`` what the count is of (:data:`COUNTED_OVER`) and
     ``how`` how they were found, said after it. None where no frame
     used is within the cutoff, or the check's series is not there to count.
-    The error bar is kept: meeting its copy may bias a mean, it does not
+    The error bar is kept: seeing its copy may bias a mean, it does not
     make its statistical error unknown.
     """
     if not isinstance(finding, dict) or distances is None:
@@ -157,13 +157,19 @@ def note_on_frames(finding: dict[str, Any] | None, distances: Any, used: Any = N
         "counted_over": counted_over,
     }
     noun = COUNTED_OVER.get(counted_over, counted_over)
+    close = note["frames_under_close"]
+    # Within the cutoff the solute sees its image (it interacts with its copy
+    # in direct space); in contact only under 0.5 nm.
+    touching = (f", in contact with it (under {CLOSE_NM:g} nm) in {close:,}"
+                if close else "")
     note["said"] = (
         f"The solute came within {cutoff:g} nm of its own periodic image in "
-        f"{under:,} of {frames.size:,} {noun} ({share_said(under, frames.size)}){how}; "
-        f"the closest, {note['nearest_nm']:.3f} nm at {when}. "
-        + ("The solute's shape over such frames, and a mean of it, may be biased "
-           "by the solute meeting its copy." if shape else
-           "A mean over such frames may be biased by the solute meeting its copy."))
+        f"{under:,} of {frames.size:,} {noun} ({share_said(under, frames.size)}){how}"
+        f"{touching}; the closest, {note['nearest_nm']:.3f} nm at {when}. Within the "
+        "cutoff the solute sees its image, interacting with its copy in direct "
+        "space, so "
+        + ("its shape over such frames, and a mean of it, may be biased by it."
+           if shape else "a mean over such frames may be biased by it."))
     return note
 
 
@@ -706,11 +712,12 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
         record["said"] = (
             f"The solute came within {nearest:.3f} nm of its own periodic image, "
             f"inside the {cutoff_nm:g} nm cutoff in {under:,} of {n:,} frames "
-            f"({share_said(under, n)}) and under {CLOSE_NM:g} nm in {close:,} "
-            f"({share_said(close, n)}). The closest was at {when}, {pair}. The "
-            f"cutoff is {cutoff_nm:g} nm, {record['cutoff_from']}. In those frames "
-            "the solute meets its own copy, and a mean over them may be biased by "
-            "it. A larger "
+            f"({share_said(under, n)}) and in contact with it (under {CLOSE_NM:g} nm) "
+            + (f"in {close:,} ({share_said(close, n)})" if close else "in none")
+            + f". The closest was at {when}, {pair}. The "
+            f"cutoff is {cutoff_nm:g} nm, {record['cutoff_from']}. Within the cutoff "
+            "the solute sees its image, interacting with its copy in direct space, "
+            "and a mean over those frames may be biased by it. A larger "
             "box, in a new study (a box cannot grow mid-run), is what would "
             "change this.")
     else:
@@ -808,8 +815,16 @@ class SoluteImage(Analysis):
         figure the series with those two lines."""
         self.findings.pop("mean", None)
 
+    def _axis(self) -> tuple[np.ndarray, str]:
+        """The time axis, in ps while the whole run is under a nanosecond,
+        as every page says a time; else in ns, or by frame without a clock."""
+        x, label = self.frame_axis(self._traj_for_plot)
+        if label == "Time (ns)" and x.size and float(np.nanmax(np.abs(x))) < 1.0:
+            return np.asarray(x, dtype=float) * 1000.0, "Time (ps)"
+        return x, label
+
     def plot(self, result: np.ndarray, ax: plt.Axes) -> None:
-        x = (self.frame_axis(self._traj_for_plot)[0]
+        x = (self._axis()[0]
              if self._traj_for_plot is not None else np.arange(result.shape[0]))
         ax.plot(x, result, linewidth=1.2)
         ax.axhline(self.cutoff_nm, color=colour("GUIDE"), linestyle="--", linewidth=0.9,
@@ -822,7 +837,7 @@ class SoluteImage(Analysis):
     def default_xlabel(self) -> str | None:
         if self._traj_for_plot is None:
             return "Frame"
-        return self.frame_axis(self._traj_for_plot)[1]
+        return self._axis()[1]
 
     def default_ylabel(self) -> str | None:
         return "Closest approach to its image (nm)"

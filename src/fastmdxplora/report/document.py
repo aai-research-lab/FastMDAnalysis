@@ -60,6 +60,17 @@ def _code_text(value: object, *, limit: int = 1000) -> str:
     return _one_line(value, limit=limit).replace("`", "'")
 
 
+def _md_with_code(value: object, *, limit: int = 1000) -> str:
+    """``value`` as Markdown text whose code spans stay code: the rest
+    escaped as :func:`_md_text` escapes it. A setting named in backticks
+    read "\\`exclude: \\[image\\_check\\]\\`"."""
+    import re
+
+    parts = re.split(r"(`[^`]+`)", _one_line(value, limit=limit))
+    return "".join(f"`{_code_text(part[1:-1])}`" if part.startswith("`") and part.endswith("`")
+                   and len(part) > 1 else _md_text(part) for part in parts)
+
+
 def _link_target(path: str) -> str:
     return quote(path, safe="/._-")
 
@@ -619,7 +630,7 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
     lines.append("")
     if analysis_manifest.get("image_check_left_out"):
         # What is then not known of every mean below.
-        lines.append(_md_text(analysis_manifest["image_check_left_out"]))
+        lines.append(_md_with_code(analysis_manifest["image_check_left_out"]))
         lines.append("")
 
     # The corrected averages come before the analyses they correct. A reader
@@ -1006,6 +1017,7 @@ def _convergence_section(project_root: Path) -> str:
         "| equilibrated |"
     )
     lines.append("|---|---|---|---|---|---|---|")
+    from fastmdxplora.image_note import share_said
     from fastmdxplora.report.convergence import said_as
     from fastmdxplora.statistics import four_figures, with_its_error
 
@@ -1042,11 +1054,34 @@ def _convergence_section(project_root: Path) -> str:
                          f"| {check['detail']} |")
         lines.append("")
 
+    # How close the solute came to its own images: the means above over the
+    # frames where it did may be biased, and a run in contact with its image
+    # in every frame supports no claim about its shape, however long it runs.
+    image = _image_finding(project_root)
+    cannot = list(assessed["findings"])
+    if image:
+        under, close, n = image["under"], image["close"], image["frames"]
+        lines.append(
+            f"The solute came within the {image['cutoff']:g} nm cutoff of its own "
+            f"periodic image in {under:,} of {n:,} frames ({share_said(under, n)}), in "
+            f"contact with it (under 0.5 nm) in {close:,}: a mean above over those "
+            "frames may be biased by it (see Image check).")
+        lines.append("")
+        if close == n:
+            cannot.append(
+                "Any claim about the solute's shape: it was in contact with its own "
+                f"periodic image (under 0.5 nm) in every one of the {n:,} frames, so its "
+                "shape describes the box as much as the molecule, and a longer run in "
+                "the same box samples the same contact. A larger box, in a new study "
+                "(a box cannot grow mid-run), is what would support one.")
     asked = _what_more_sampling_needs(project_root)
-    if assessed["findings"]:
+    if asked and image and image["close"] == image["frames"]:
+        asked += ("\n\nThat longer run would determine the means; it would not lift the "
+                  "image's bias, which only a larger box does.")
+    if cannot:
         lines.append("### What this run cannot support")
         lines.append("")
-        for finding in assessed["findings"]:
+        for finding in cannot:
             lines.append(f"- {finding}")
         lines.append("")
         if asked:
@@ -1061,6 +1096,23 @@ def _convergence_section(project_root: Path) -> str:
         )
         lines.append("")
     return "\n".join(lines)
+
+
+def _image_finding(project_root: Path) -> dict[str, Any] | None:
+    """The image check's finding where the solute came within the cutoff of
+    its own image in some frame: its frames under the cutoff and under
+    0.5 nm, of how many, and the cutoff; None otherwise (read through
+    `record_access`, as every record of the report is)."""
+    record = _load_json_safely(project_root / "analysis" / "image_check" / "options.json")
+    found = ((record or {}).get("findings") or {}).get("solute_image")
+    if not isinstance(found, dict) or not found.get("reaches_its_image"):
+        return None
+    counts = [found.get(key) for key in ("frames_under_cutoff", "frames_under_close", "frames")]
+    if not all(isinstance(c, int) and not isinstance(c, bool) for c in counts) or not counts[2]:
+        return None
+    cutoff = found.get("cutoff_nm")
+    return {"under": counts[0], "close": counts[1], "frames": counts[2],
+            "cutoff": float(cutoff) if isinstance(cutoff, (int, float)) else 1.0}
 
 
 def _stopping_section(project_root: Path) -> str:
@@ -1178,6 +1230,12 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     shell = findings.get("shell")
     if isinstance(shell, dict) and shell.get("said"):
         notes.append(str(shell["said"]))
+    # MDS refused for memory, the projections asked for beside it kept.
+    mds = findings.get("mds_refused")
+    if isinstance(mds, dict) and mds.get("said"):
+        kept = ", ".join(str(m).upper() for m in mds.get("kept") or [])
+        notes.append(f"MDS was not run: {mds['said']}" + (f" {kept} was run and kept."
+                                                          if kept else ""))
 
     chemistry = findings.get("ligand_chemistry")
     if isinstance(chemistry, dict):

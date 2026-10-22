@@ -180,7 +180,8 @@ class TestAChainAcrossASmallBox:
         assert record["nearest_time_ns"] == pytest.approx(record["nearest_frame"] / 100)
         assert {record["nearest_atoms"][0].split()[0],
                 record["nearest_atoms"][1].split()[0]} == {"ALA1", "ALA10"}
-        assert "its own copy" in record["said"] and "10 of 40" in record["said"]
+        assert "sees its image, interacting with its copy" in record["said"]
+        assert "10 of 40" in record["said"] and "in contact with it (under 0.5 nm) in 3" in record["said"]
         assert np.all(distances[10:] > CUTOFF_NM)
 
     def test_a_chain_clear_of_its_image_says_so(self):
@@ -240,7 +241,7 @@ class TestTheEndToEndDistanceReadsIt:
         assert found["periodic"]["nearest_self_image_whole_chain_nm"] < 1.0
         assert "periodic image" in found["not_a_measurement"]
         assert not np.isfinite(found["mean"]["standard_error"])
-        assert found["mean"]["error_withheld_because"] == "chain meets its periodic image"
+        assert found["mean"]["error_withheld_because"] == "chain sees its periodic image"
 
     def test_handed_the_finding_it_reads_it_rather_than_its_own(self):
         from fastmdxplora.analysis.end_to_end import EndToEndDistance
@@ -298,14 +299,14 @@ class TestEveryAnalysisOfTheFramesReadsIt:
         folder, _ = analysed
         mean = self._found(folder, "end_to_end")["mean"]
         assert not np.isfinite(mean["standard_error"])
-        assert mean["error_withheld_because"] == "chain meets its periodic image"
+        assert mean["error_withheld_because"] == "chain sees its periodic image"
         assert self._found(folder, "end_to_end")["solute_image"]["said"] in mean["not_a_measurement"]
 
     def test_an_analysis_with_no_mean_says_it_too(self, analysed):
         folder, _ = analysed
         found = self._found(folder, "cluster")
         assert found["solute_image"]["frames_used"] == 200
-        assert "meeting its copy" in found["solute_image"]["said"]
+        assert "sees its image" in found["solute_image"]["said"]
 
     def test_the_report_says_it(self, analysed):
         from fastmdxplora.report.document import _findings_notes
@@ -415,6 +416,34 @@ class TestEveryImageWithinReachIsSearched:
                 if abs(found[0] - expected) > 1e-6:
                     wrong.append((factor, seed, float(found[0]), expected))
         assert not wrong, wrong
+
+
+class TestALongLatticeVectorIsSearched:
+    """A chain laid along the lattice vector 3a + b, its end 0.2 nm short of
+    its own image there: the closest image is three cells out along a, which
+    a fixed two cells either way never searched, in any cell shape."""
+
+    @pytest.mark.parametrize("shape,cell", [
+        ("cube", lambda d: np.diag([d, d, d])),
+        ("dodecahedron", _dodecahedron),
+        ("octahedron", _octahedron),
+    ])
+    def test_three_cells_out(self, shape, cell):
+        box = np.asarray(cell(2.0), dtype=np.float64)
+        vector = 3 * box[0] + box[1]
+        length = float(np.linalg.norm(vector))
+        steps = int(np.ceil((length - 0.2) / 0.3))
+        path = np.outer(np.linspace(0.0, length - 0.2, steps + 1), vector / length)
+        top = _chain(path, bonded=True)
+        traj = md.Trajectory(_positions(path)[None].astype(np.float32), top)
+        traj.unitcell_vectors = box[None].astype(np.float32)
+        found, record = solute_image_record(traj, np.arange(traj.n_atoms))
+        heavy = [a.index for a in top.atoms if a.element.symbol != "H"]
+        points = traj.xyz[0].astype(np.float64)[heavy]
+        cells = np.asarray(traj.unitcell_vectors[0], dtype=np.float64)
+        expected = _brute_far(points, cells, cells=4)
+        assert abs(found[0] - expected) < 1e-6, (shape, float(found[0]), expected)
+        assert record["most_cells_searched"] >= 3
 
 
 def _study_with_setup(folder, setup: dict | None, traj: md.Trajectory):
@@ -651,6 +680,8 @@ class TestItIsInEveryPlan:
         assert manifest["image_check_left_out"] == IMAGE_CHECK_EXCLUDED
         assert "not checked against its own periodic images" in IMAGE_CHECK_EXCLUDED
         assert "not checked against its own periodic images" in _results_section(study)
+        # The setting as code, not escaped into its characters.
+        assert "`exclude: [image_check]`" in _results_section(study)
 
     def test_the_setting_s_help_says_it(self):
         from fastmdxplora.config.schema import ANALYSIS
@@ -715,9 +746,19 @@ class TestANoteNotAWithheldError:
         plain = note_on_frames(finding, [0.5, 2.0], analysis="thermodynamics")
         shape = note_on_frames(finding, [0.5, 2.0], analysis="rmsf")
         assert plain["said"].endswith(
-            "A mean over such frames may be biased by the solute meeting its copy.")
+            "so a mean over such frames may be biased by it.")
         assert "shape" not in plain["said"] and plain["may_bias"] == "mean"
         assert "shape" in shape["said"] and shape["may_bias"] == "shape"
+
+    def test_within_the_cutoff_it_sees_its_image_and_touches_it_only_under_half_a_nm(self):
+        from fastmdxplora.analysis.image_check import note_on_frames
+
+        finding = {"reaches_its_image": True, "cutoff_nm": 1.0}
+        seen = note_on_frames(finding, [0.9, 0.8, 2.0], analysis="rg")
+        assert "sees its image" in seen["said"] and "contact" not in seen["said"]
+        assert "meet" not in seen["said"]
+        touching = note_on_frames(finding, [0.9, 0.4, 2.0], analysis="rg")
+        assert "in contact with it (under 0.5 nm) in 1;" in touching["said"]
 
     def test_every_mean_record_of_an_analysis_carries_it(self, tmp_path):
         """SASA's hydrophobic and polar means and the moments' shape
@@ -773,7 +814,7 @@ class TestANoteNotAWithheldError:
         item = record["quantities"][0]
         assert item["solute_image"]["frames_under_cutoff"] == 10
         assert item["solute_image"]["frames_used"] == n
-        assert "meeting its copy" in item["solute_image"]["said"]
+        assert "sees its image" in item["solute_image"]["said"]
 
 
 class TestTheReportPageSaysWhy:
@@ -793,9 +834,9 @@ class TestTheReportPageSaysWhy:
         said = self._found(tmp_path, "end_to_end", {"mean": {
             "n_frames": 100, "mean": 2.5, "standard_error": float("nan"),
             "not_a_measurement": "The chain ... meeting its copy.",
-            "error_withheld_because": "chain meets its periodic image"}})
+            "error_withheld_because": "chain sees its periodic image"}})
         assert "too short" not in said
-        assert said.startswith("mean 2.5") and "not determined: chain meets its periodic image" in said
+        assert said.startswith("mean 2.5") and "not determined: chain sees its periodic image" in said
 
     def test_a_noted_mean_keeps_its_error_and_says_it_may_be_biased(self, tmp_path):
         said = self._found(tmp_path, "rg", {
@@ -972,3 +1013,34 @@ class TestEndToEndWithTheCheckExcluded:
         found = json.loads((folder / "end_to_end" / "options.json").read_text())["findings"]
         notes = _findings_notes(found)
         assert sum("of its own periodic image in" in line for line in notes) == 1, notes
+
+
+class TestTheReportSaysWhatTheImageLeaves:
+    """The report's Convergence part listed RMSD, Rg and SASA as wanting
+    only a longer run, for a run under 0.5 nm of its image in every frame."""
+
+    def test_a_run_in_contact_in_every_frame_supports_no_shape_claim(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+        from fastmdxplora.report.document import _convergence_section
+
+        # Ends 0.18 nm from each other's image in every frame.
+        study = _study_with_setup(tmp_path, None, _ca_line(box=3.6, n_frames=200, reaching=200))
+        AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                             output_dir=study / "analysis").run(include=["rg"])
+        finding = json.loads((study / "analysis" / "image_check" / "options.json")
+                             .read_text())["findings"]["solute_image"]
+        assert finding["frames_under_close"] == finding["frames"] == 200
+        text = _convergence_section(study)
+        assert "in contact with it (under 0.5 nm) in 200: a mean above" in text
+        assert "(see Image check)" in text
+        assert "Any claim about the solute's shape" in text
+        assert "A larger box, in a new study" in text
+
+    def test_its_figure_s_time_is_in_ps_under_a_nanosecond(self):
+        traj = _hairpin_reaching_its_image()
+        traj.time = np.arange(traj.n_frames) * 1.0
+        check = SoluteImage()
+        check._traj_for_plot = traj
+        x, label = check._axis()
+        assert label == "Time (ps)"
+        assert x[-1] == pytest.approx(float(traj.time[-1]))
