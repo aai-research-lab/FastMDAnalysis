@@ -131,6 +131,10 @@ def _a_draft(answer: Any, identifier: str = "", doi: str = "") -> bool:
             or not answer["metadata"] or not isinstance(answer.get("submitted"), bool):
         # (Zenodo says of every draft or record whether it is published.)
         return False
+    if not isinstance(answer.get("links", {}), dict) \
+            or not isinstance(answer.get("files", []), list):
+        # Its links and files not in their forms: not as Zenodo gives a draft.
+        return False
     if identifier and str(answer.get("id") or "") != str(identifier):
         return False
     reserved = answer["metadata"].get("prereserve_doi")
@@ -675,8 +679,8 @@ def _not_the_last(record: Any) -> bool:
     """Whether a record's answer does not say it is its concept's last
     version (as Zenodo's records each say, in their relations): one that
     says nothing of it is not taken as the last."""
-    relations = ((record.get("metadata") or {}).get("relations") or {}) \
-        if isinstance(record, dict) else {}
+    metadata = record.get("metadata") if isinstance(record, dict) else None
+    relations = (metadata.get("relations") or {}) if isinstance(metadata, dict) else {}
     versions = relations.get("version") if isinstance(relations, dict) else None
     first = versions[0] if isinstance(versions, list) and versions else None
     return not (isinstance(first, dict) and first.get("is_last") is True)
@@ -963,7 +967,8 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
                 f"both name the draft or record {which} on {where}, and sharing this "
                 f"one would write over that one's. To share this study as one of its own, "
                 f"delete {study / SHARED_TO} and share again; to go on with that one, share "
-                "it from its own folder.", code="environment.share.not_finished",
+                "it from its own folder (or, for this one to carry on its record instead, "
+                f"delete {there / SHARED_TO}).", code="environment.share.not_finished",
                 path=str(study / SHARED_TO))
     kept["folder"] = here
 

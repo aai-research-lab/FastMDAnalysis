@@ -5005,3 +5005,35 @@ def test_one_byte_is_said_as_one():
     from fastmdxplora.sharing import said_size
 
     assert said_size(1) == "1 byte" and said_size(2) == "2 bytes"
+
+
+@pytest.mark.parametrize("field, odd", [("links", "x"), ("links", []), ("files", 3)])
+def test_a_draft_read_with_its_fields_in_other_forms_is_refused_not_raised(
+        tmp_path, unsteady, monkeypatch, capsys, field, odd):
+    """Review of the sixty-first commit: a draft read whose links or files
+    were not in their forms ended in a traceback."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7",
+                     lambda answer, sent: {**answer, field: odd})
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("odd", [[], "x"])
+def test_a_latest_version_s_metadata_in_another_form_is_not_the_last(odd):
+    assert zenodo._not_the_last({"id": 9, "metadata": odd})
+
+
+def test_the_copy_refusal_says_how_the_copy_may_carry_on_the_record(tmp_path, unsteady,
+                                                                    capsys):
+    import shutil
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    assert f"delete {study.resolve() / 'shared_to.json'})" in capsys.readouterr().err

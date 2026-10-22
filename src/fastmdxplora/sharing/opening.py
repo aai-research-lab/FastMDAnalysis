@@ -363,9 +363,11 @@ def _slug(text: str) -> str:
     # (Written plainly before and after the letters come apart: one comes
     # apart into another the table writes, as a slashed o with an accent.)
     # (A micro sign as u, before it reads as the Greek mu.)
+    # (So too a unit's sign holding it, as a micrometre's.)
+    text = re.sub("[\u3380-\u33df]", lambda unit: unicodedata.normalize(
+        "NFKC", unit.group()).replace("\u03bc", "u"), text.replace("\u00b5", "u"))
     plain = unicodedata.normalize(
-        "NFKD", unicodedata.normalize("NFKC", text.replace("\u00b5", "u"))
-        .translate(_LETTERS)).translate(_LETTERS)
+        "NFKD", unicodedata.normalize("NFKC", text).translate(_LETTERS)).translate(_LETTERS)
     slug = re.sub(r"[^A-Za-z0-9]+", "-", plain.encode("ascii", "ignore").decode()) \
         .strip("-").lower()
     return slug[:60].strip("-") or "shared-study"

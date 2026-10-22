@@ -291,3 +291,11 @@ def test_an_opened_folder_s_name_writes_capitals_and_more_plainly():
     from fastmdxplora.sharing.opening import _slug
 
     assert _slug("Ƒ Ɖx Ʉ ʃa ɸi") == "f-dx-u-sha-phi"
+
+
+def test_an_opened_folder_s_name_writes_a_unit_s_micro_as_u():
+    """Review of the sixty-first commit: a micrometre's sign was written as
+    millimetres."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("10 ㎛ beads, 5 ㎍") == "10-um-beads-5-ug"
