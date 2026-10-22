@@ -58,3 +58,5 @@ class TestTheHelpSaysTheImageCheck:
     def test_excluding_it_says_what_is_left_unchecked(self):
         said = self._help("exclude-analyses")
         assert "image_check" in said and "leaves the solute unchecked" in said
+        # Within the cutoff the solute sees its image; in contact only under 0.5 nm.
+        assert "where it saw its image" in said and "met its copy" not in said

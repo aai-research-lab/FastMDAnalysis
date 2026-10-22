@@ -443,12 +443,15 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
             means[key] = _said(entry, unit, _count(recorded.get("samples")))
             if means[key] is not None:
                 # Its image note beside its verdict, as every page says it.
-                from fastmdxplora.image_note import note_of, said_short
+                from fastmdxplora.image_note import note_of, paragraph_beside, said_short
 
                 short = said_short(note_of(entry))
                 means[key]["noted"] = short or None
-                means[key]["noted_why"] = (recorded.get("solute_image_said") or None
-                                           if short else None)
+                # The analysis's paragraph, said as its where it counts the
+                # union of the rows, not this mean's.
+                means[key]["noted_why"] = (paragraph_beside(note_of(entry), {
+                    "solute_image": recorded.get("solute_image_of_analysis")}) or None
+                    if short else None)
             if means[key] is None and entry.get("not_a_measurement"):
                 why = entry["not_a_measurement"]
                 if isinstance(why, dict):
@@ -587,7 +590,8 @@ def _recorded_thermodynamics(root: Path) -> dict[str, Any] | NotRead:
     from fastmdxplora.image_note import paragraph_of
 
     # The analysis's paragraph of its image note, said where a mean's is.
-    return {**record, "solute_image_said": paragraph_of(found) or None}
+    return {**record, "solute_image_said": paragraph_of(found) or None,
+            "solute_image_of_analysis": found.get("solute_image")}
 
 
 def _count(value: Any) -> int | None:

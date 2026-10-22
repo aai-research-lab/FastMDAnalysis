@@ -729,8 +729,12 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             "box, in a new study (a box cannot grow mid-run), is what would "
             "change this.")
     else:
+        # Of several complexes, each against its own images: not the solute
+        # taken together, whose copies may come closer to each other's.
+        who = ("No complex of the solute came closer" if len(groups or []) > 1
+               else "The solute came no closer")
         record["said"] = (
-            f"The solute came no closer than {nearest:.3f} nm to its own periodic "
+            f"{who} than {nearest:.3f} nm to its own periodic "
             f"image, outside the {cutoff_nm:g} nm cutoff in every one of {n:,} "
             f"frames. The closest was at {when}, {pair}. The cutoff is "
             f"{cutoff_nm:g} nm, {record['cutoff_from']}.")

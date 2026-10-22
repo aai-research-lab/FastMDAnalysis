@@ -175,7 +175,11 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
 
         image = findings.get("solute_image")
         row["finding"] = finding_said(image)
-        row["finding_why"] = paragraph_of(findings)
+        # The rest of its paragraph, one click away: the finding not again.
+        paragraph = " ".join(paragraph_of(findings).split())
+        row["finding_why"] = (paragraph[len(row["finding"]):].strip()
+                              if row["finding"] and paragraph.startswith(row["finding"])
+                              else paragraph)
         if isinstance(image, dict) and image.get("solute"):
             row["atoms_said"] = "heavy atoms of " + str(image["solute"]).split(";")[0]
     main = None
@@ -257,7 +261,9 @@ def _has_its_figure(root: Path, name: str) -> bool:
 def _said(name: str, message: Any) -> str:
     """A failure's message without the analysis's name the manifest puts
     before it, which the row already shows."""
-    text = str(message or "").strip()
+    # Read on the page as plain text: the code marks of a setting to give
+    # (`stride: 2`) are left out, as the record keeps them.
+    text = str(message or "").strip().replace("`", "")
     prefix = f"{name}: "
     return text[len(prefix):] if text.startswith(prefix) else text
 
@@ -269,18 +275,25 @@ def _is_a_mean_record(value: Any) -> bool:
             and ("mean" in value or "not_a_measurement" in value))
 
 
-def _noted(found: dict[str, Any] | None, findings: dict[str, Any] | None) -> dict[str, Any]:
+def _noted(found: dict[str, Any] | None, findings: dict[str, Any] | None, *,
+           why: str | None = None) -> dict[str, Any]:
     """A mean's image note, beside its verdict, which it does not change: the
     note in a line (``noted``) and the analysis's paragraph of it
     (``noted_why``), read from the record by the one reader every page and
     the Agent use (:mod:`fastmdxplora.image_note`); empty where the solute
     did not come within the cutoff of its image in the frames it uses."""
-    from fastmdxplora.image_note import note_of, paragraph_of, said_short
+    from fastmdxplora.image_note import note_of, paragraph_beside, said_short
 
-    short = said_short(note_of(found))
+    note = note_of(found)
+    short = said_short(note)
     if not short:
         return {"noted": None, "noted_why": None}
-    return {"noted": short, "noted_why": paragraph_of(findings) or None}
+    # Said as the analysis's where it counts other frames than this mean's;
+    # not again where the reason the mean was not determined says it.
+    paragraph = paragraph_beside(note if found is not findings else None, findings)
+    if paragraph and why and paragraph.split(". ")[0] in why:
+        paragraph = ""
+    return {"noted": short, "noted_why": paragraph or None}
 
 
 def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
@@ -349,7 +362,7 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
         # Determined by the rules of the version that analysed it, which
         # may have called a mean still drifting determined.
         "judged_earlier": determined and judged_by_earlier_rules(found),
-        **_noted(found, findings),
+        **_noted(found, findings, why=why),
     }
 
 

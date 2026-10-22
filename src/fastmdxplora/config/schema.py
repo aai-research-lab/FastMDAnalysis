@@ -1003,7 +1003,7 @@ ANALYSIS = PhaseSchema(
               "`image_check` runs with any plan, a listed one too, where "
               "there is a box and a solute. Excluding it leaves the solute "
               "unchecked against its own periodic images: no mean is noted "
-              "where it met its copy, and none says whether it did, which the "
+              "where it saw its image, and none says whether it did, which the "
               "log, the analysis manifest and the report then say.",
               choices=ANALYSIS_NAMES,
               example=["dimred"]),

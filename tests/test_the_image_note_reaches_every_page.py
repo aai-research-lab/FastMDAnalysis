@@ -94,7 +94,54 @@ class TestTheShortForm:
     def test_it_says_the_frames_the_cutoff_and_the_solute_s_own_image(self, study):
         said = _expected(study, "rmsd")
         assert said.startswith("may be biased: ")
-        assert "frames used" in said and "came within 1 nm of the solute's own image" in said
+        # The solute was within, in so many frames: frames do not come within.
+        assert said.startswith("may be biased: in ") and " frames used (" in said
+        assert said.endswith(") the solute was within 1 nm of its own image")
+
+
+class TestHowANoteReads:
+    """A sub-mean's paragraph gave the main mean's counts (polar SASA's line
+    293 of 2,693, its paragraph 344 of 2,744); the end-to-end tile said the
+    image three times, its reason and then its paragraph saying the same;
+    and the paragraphs showed the report's code marks raw on the pages."""
+
+    FINDINGS = {
+        "solute_image": {"frames_used": 2744, "frames_under_cutoff": 344, "cutoff_nm": 1.0,
+                         "counted_over": "frames",
+                         "said": ("The solute came within 1 nm of its own periodic image in "
+                                  "344 of 2,744 frames used (13%). The cutoff is 1 nm, read "
+                                  "from the run's `nonbonded_cutoff_nm`.")},
+        "mean": {"solute_image": {"frames_used": 2744, "frames_under_cutoff": 344,
+                                  "cutoff_nm": 1.0, "counted_over": "frames"}},
+        "polar_sasa": {"solute_image": {"frames_used": 2693, "frames_under_cutoff": 293,
+                                        "cutoff_nm": 1.0, "counted_over": "frames"}},
+    }
+
+    def test_a_sub_mean_s_paragraph_is_said_as_the_analysis_s(self):
+        from fastmdxplora.gui.analysis_overview import _noted
+
+        main = _noted(self.FINDINGS["mean"], self.FINDINGS)["noted_why"]
+        polar = _noted(self.FINDINGS["polar_sasa"], self.FINDINGS)["noted_why"]
+        assert main.startswith("The solute came within 1 nm")
+        assert polar == "Of the analysis as a whole, not this mean alone: " + main
+
+    def test_a_reason_that_says_it_is_not_followed_by_it_again(self):
+        from fastmdxplora.gui.analysis_overview import _noted
+
+        why = "Not determined. " + self.FINDINGS["solute_image"]["said"]
+        said = _noted(self.FINDINGS["mean"], self.FINDINGS, why=why)
+        assert said["noted"] and said["noted_why"] is None
+
+    def test_a_page_reads_it_without_code_marks(self):
+        from fastmdxplora.image_note import paragraph_of
+
+        from fastmdxplora.gui.analysis_overview import _said
+
+        assert "read from the run's nonbonded_cutoff_nm." in paragraph_of(self.FINDINGS)
+        # And a refusal's setting in its row.
+        assert _said("cluster", "cluster: Set `stride: 2` under the analysis's "
+                                "`options: {cluster: ...}` for it.") == (
+            "Set stride: 2 under the analysis's options: {cluster: ...} for it.")
 
 
 class TestTheAnalysisPage:
@@ -117,7 +164,9 @@ class TestTheAnalysisPage:
         assert row["finding"] == (f"The solute came within 0.420 nm of its own periodic image, "
                                   f"inside the 1 nm cutoff in {N // EVERY} of {N} frames (20%) "
                                   "and in contact with it (under 0.5 nm) in 1 (0.05%).")
-        assert row["finding_why"].startswith(row["finding"])
+        # The rest of the paragraph, one click away: not the finding again.
+        assert row["finding_why"] == ("The closest was at frame 35, between ALA1 CA and the "
+                                      "image of ALA10 CA (heavy atoms only).")
         assert row["atoms_said"] == "heavy atoms of the macromolecules (10 residues in 1 chain)"
         assert row["quantities"] == []
 

@@ -845,8 +845,8 @@ class TestTheReportPageSaysWhy:
             "solute_image": {"frames_used": 60, "frames_under_cutoff": 5,
                              "cutoff_nm": 1.0, "may_bias": "shape", "said": "..."}})
         assert "±" in said
-        assert said.endswith("; may be biased: 5 of 60 frames used (8%) came within 1 nm "
-                             "of the solute's own image")
+        assert said.endswith("; may be biased: in 5 of 60 frames used (8%) the solute was "
+                             "within 1 nm of its own image")
 
 
 class TestHowItIsSaid:
@@ -950,6 +950,9 @@ class TestSeparateCopiesAreNotOneComplex:
         assert np.allclose(series, 3.8, atol=1e-5)
         assert found["frames_under_cutoff"] == 0 and not found["reaches_its_image"]
         assert "8 complexes of 1 molecule each" in found["said"]
+        # Said of each complex, not of the eight taken together.
+        assert found["said"].startswith("No complex of the solute came closer than 3.800 nm "
+                                        "to its own periodic image, outside the 1 nm cutoff")
         # What the solute is, then how it was grouped, then what is left out.
         assert found["said"].endswith("not counted; water, ions and lipids left out.")
         assert "not a self-image" in found["said"]
@@ -973,23 +976,30 @@ class TestSeparateCopiesAreNotOneComplex:
         assert _grouping_said([[0]]) == "checked as one molecule against its own images"
 
     def test_a_dimer_in_contact_is_one_complex(self):
-        """Two chains 0.4 nm apart side by side: one complex, checked as the
-        union is, through each frame, though wrapped apart as stored."""
+        """Two 2.2 nm chains end to end, 0.1 nm apart, in a 5 nm cube: one
+        complex, checked as the union is, through each frame, though wrapped
+        apart as stored. The union comes 0.5 nm from its own image and
+        neither chain alone within 2.8 nm of its own, so only the union
+        checked gives the series."""
         from fastmdxplora.analysis.image_check import solute_atoms
 
-        starts = np.array([[1.0, 2.0, 2.0], [1.0, 2.4, 2.0]])
-        traj = _copies(starts, length=3.4, box=4.0, n_frames=4)
+        starts = np.array([[0.3, 2.0, 2.0], [2.6, 2.0, 2.0]])
+        traj = _copies(starts, length=2.2, box=5.0, n_frames=4)
         # Drift the dimer across the boundary, frame by frame, together.
         for f in range(4):
-            traj.xyz[f] = (traj.xyz[0] + [0.0, 0.9 * f, 0.0]) % 4.0
+            traj.xyz[f] = (traj.xyz[0] + [0.9 * f, 0.9 * f, 0.0]) % 5.0
         atoms, solute = solute_atoms(traj.topology, None)
         series, found = solute_image_record(traj, atoms, solute_said=solute)
         assert found["complexes"] == 1 and found["molecules"] == 2
         assert "one complex of 2 molecules" in found["said"]
-        whole = np.r_[np.c_[1.0 + 3.4 * np.arange(10) / 9, np.full(10, 2.0), np.full(10, 2.0)],
-                      np.c_[1.0 + 3.4 * np.arange(10) / 9, np.full(10, 2.4), np.full(10, 2.0)]]
-        expected = _brute(whole, np.diag([4.0] * 3), cells=1)
-        assert abs(expected - 0.6) < 1e-5
+        line = 2.2 * np.arange(10) / 9
+        chains = [np.c_[start + line, np.full(10, 2.0), np.full(10, 2.0)]
+                  for start in (0.3, 2.6)]
+        box = np.diag([5.0] * 3)
+        expected = _brute(np.r_[chains[0], chains[1]], box, cells=1)
+        assert abs(expected - 0.5) < 1e-5
+        # Each chain alone stays outside the cutoff of its own image.
+        assert all(abs(_brute(chain, box, cells=1) - 2.8) < 1e-5 for chain in chains)
         assert np.allclose(series, expected, atol=1e-5)
         assert found["frames_under_cutoff"] == 4
 

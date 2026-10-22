@@ -13,9 +13,9 @@ The report said the note and the Overview, the Analysis page's table and the
 Agent did not, so one mean read "may be biased" on one page and "Determined"
 alone on the next. Every reader now reads the note here, from the record:
 :func:`note_of` (the mean's numbers), :func:`said_short` (beside the
-verdict, "may be biased: 54 of 270 frames used came within 1 nm of the
-solute's own image"), :func:`paragraph_of` (the analysis's paragraph, one
-click or one look away), :func:`finding_said` (the image check's own
+verdict, "may be biased: in 54 of 270 frames used (20%) the solute was
+within 1 nm of its own image"), :func:`paragraph_of` (the analysis's
+paragraph, one click or one look away), :func:`finding_said` (the image check's own
 finding, in a sentence, for its row and its card) and :func:`longer_run_said`
 (beside the advice of a longer run, for a run in contact with its image in
 every frame).
@@ -68,9 +68,9 @@ def note_of(record: Any) -> dict[str, Any] | None:
 
 
 def said_short(note: dict[str, Any] | None) -> str:
-    """The note beside a mean's verdict, in a line: "may be biased: 54 of
-    270 frames used (20%) came within 1 nm of the solute's own image". An
-    empty string where there is no note."""
+    """The note beside a mean's verdict, in a line: "may be biased: in 54
+    of 270 frames used (20%) the solute was within 1 nm of its own image".
+    An empty string where there is no note."""
     if not note_of({"solute_image": note}):
         return ""
     assert note is not None
@@ -81,11 +81,9 @@ def said_short(note: dict[str, Any] | None) -> str:
     over = str(note.get("counted_over") or "frames")
     noun = COUNTED_OVER.get(over, "frames used")
     share = share_said(under, used)
-    if over == "energy rows":
-        return (f"may be biased: in {under:,} of {used:,} {noun} ({share}) the solute "
-                f"was {within} its own image")
-    return (f"may be biased: {under:,} of {used:,} {noun} ({share}) came {within} the "
-            "solute's own image")
+    # The solute was within, in so many frames: frames do not come within.
+    return (f"may be biased: in {under:,} of {used:,} {noun} ({share}) the solute "
+            f"was {within} its own image")
 
 
 def paragraph_of(findings: Any) -> str:
@@ -95,7 +93,8 @@ def paragraph_of(findings: Any) -> str:
     image = findings.get("solute_image") if isinstance(findings, dict) else None
     if not isinstance(image, dict):
         return ""
-    return str(image.get("said") or "")
+    # Read on a page as plain text: the report's code marks are left out.
+    return str(image.get("said") or "").replace("`", "")
 
 
 def longer_run_said(finding: Any) -> str:
@@ -134,6 +133,22 @@ def recorded_finding(root: Any) -> dict[str, Any] | None:
     return found if isinstance(found, dict) else None
 
 
+def paragraph_beside(note: dict[str, Any] | None, findings: Any) -> str:
+    """The analysis's paragraph (:func:`paragraph_of`) beside one of its
+    means' notes: as it is where it counts what the mean's note counts, else
+    said as the analysis's, its counts not this mean's (a sub-mean beside
+    the main mean, a thermodynamic mean beside the union of the rows). An
+    empty string where there is no paragraph."""
+    paragraph = paragraph_of(findings)
+    if not paragraph or not note:
+        return paragraph
+    own = note_of(findings)
+    counts = ("frames_used", "frames_under_cutoff", "counted_over")
+    if own is not None and all(own.get(key) == note.get(key) for key in counts):
+        return paragraph
+    return "Of the analysis as a whole, not this mean alone: " + paragraph
+
+
 def finding_said(finding: Any) -> str:
     """The image check's finding in a sentence, its first: how close the
     solute came to its own image, and in how many frames it was within the
@@ -142,6 +157,6 @@ def finding_said(finding: Any) -> str:
     and how it was grouped) is one click away."""
     if not isinstance(finding, dict) or "frames_used" in finding:
         return ""
-    said = " ".join(str(finding.get("said") or "").split())
+    said = " ".join(str(finding.get("said") or "").replace("`", "").split())
     cut = said.find(". ")
     return said[:cut + 1] if cut > 0 else said
