@@ -346,8 +346,7 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the words in the box goes once they are sent.
 
 - A page reloaded while the Agent's run starts, its request cut as the page
-  goes, says when it comes back where the words typed then are kept, in
-  every order the cut request fails in.
+  goes, says when it comes back where the words typed then are saved.
 
 - A message sent with no study shown names no study in its view, and the
   Agent refuses it, as it refuses a view of another study, where the GUI has
@@ -366,13 +365,40 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   stays.
 
 - Words typed for a study when the GUI goes to no study, or to a folder that
-  is not a study, are kept for that study and said, as for another study,
+  is not a study, are saved for that study and said, as for another study,
   and are in its box again when it is open; they stayed in the box and went
   into the workspace's chats. Words typed for a run the page started that
   ends at once stay in the box, to be sent.
 
-- A note of words kept for a study names it by its folder alone, so one
+- A note of words saved for a study names it by its folder alone, so one
   study is named one way in every note, also before its run's name is read.
+
+- A message refused as the study open changed as it was sent (another
+  window opened a study as Enter was pressed, from no study or from another
+  study) is put back in the box, for a chat of no study or the study the box
+  is for, or saved for the study it was written in, and said; it was left
+  in its conversation with the refusal, out of view.
+
+- A refused Edit saved for its study is saved with the message's files,
+  attached again when its words are put back; it came back without them.
+
+- At phone width a note of two lines or more above the Agent's box hides
+  the page beneath it; the page showed through its first line.
+
+- A message naming no study is refused only where the GUI shows a study: in
+  a folder holding only a conversation moved there, every one was refused.
+
+- A page reloaded while a Config Builder run starts says where the words
+  typed then are saved, as for the Agent's own run.
+
+- Words typed for a run the page started stay in the box when it ends at
+  once only within that run's own while after its launch, not a later
+  launch's.
+
+- A refused Edit put back in the box after a reload says why it is there.
+
+- A run's study is named by its folder alone in the note of words saved for
+  it, as in every other note.
 
 ### Added
 

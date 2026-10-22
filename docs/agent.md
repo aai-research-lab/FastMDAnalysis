@@ -800,8 +800,9 @@ prompt once in `receipts/systems/`), each text bounded to 64,000 characters
 with the cut marked, read only when the fold is opened and checked against
 its SHA-256 then. A message about a study that is no longer the one open, one
 sent with no study shown once a study is open, or a reply that comes back
-after another study was opened, is refused (`agent.view.changed`); what was
-sent is kept with the study it was about, or in the workspace's chats.
+after another study was opened, is refused (`agent.view.changed`); the page
+puts the message back in the box, or saves it for the study it was written
+in, and says so.
 
 #### Tools from outside
 
