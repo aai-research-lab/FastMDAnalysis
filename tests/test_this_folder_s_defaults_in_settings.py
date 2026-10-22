@@ -194,6 +194,39 @@ def test_a_file_with_comments_is_shown_and_not_written(browser, session):
     assert "comments" in said[0] and said[1] == "305" and said[2] == 0
 
 
+def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):
+    """The restraints take a selection or a list of blocks, and the
+    dispersion correction is on, off or as the force field is developed
+    (the Physics rounds): blocks the box cannot say are shown as the file
+    holds them, changed by hand, and unset is said as New study says it."""
+    started, where = session
+    where.write_text("simulation:\n  restrain:\n  - kind: position\n"
+                     "    selection: protein and name CA\n    force_constant: 500\n",
+                     encoding="utf-8")
+    restrain = '.settings-field[data-name="simulation.restrain"]'
+    dispersion = '.settings-field[data-name="setup.dispersion_correction"]'
+    page = _open(browser, started.url)
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{restrain} .settings-fixed")
+    held = (page.text_content(f"{restrain} .settings-fixed"),
+            page.locator(f"{restrain} .settings-control").count(),
+            page.text_content(f"{restrain} .settings-by-hand"))
+    theirs = page.text_content(f"{dispersion} .settings-theirs")
+    # Written as a selection, the restraints are a box again.
+    where.write_text("simulation:\n  restrain: protein and not element H\n", encoding="utf-8")
+    page.reload(wait_until="domcontentloaded")
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{restrain} input.settings-control")
+    words = page.input_value(f"{restrain} .settings-control")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert held[0] == '{"kind":"position","selection":"protein and name CA","force_constant":500}'
+    assert held[1] == 0 and held[2] == "Changed in the file by hand"
+    assert theirs.startswith("FastMDXplora's: as the force field was developed")
+    assert words == "protein and not element H"
+
+
 def test_the_agent_s_mode_and_ceiling_are_saved(browser, session):
     started, _ = session
     page = _open(browser, started.url, "#agent")

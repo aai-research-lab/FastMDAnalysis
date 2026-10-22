@@ -158,6 +158,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   leg runs the tests that drive no browser on every core and the browser
   tests one at a time after them; tests held to what the code now does.
 
+- Settings' This folder says the restraints and the dispersion correction
+  as they are now: restraints written as blocks are shown as the file holds
+  them and changed by hand (the box showed them as text, which a change
+  there would have written back as one selection), and the dispersion
+  correction left unset is as the force field was developed, not "none".
+
 - A defaults file that sets `simulation.resume_from`, `setup_from`,
   `prepared_from` or `resume_unsealed` is refused, as one that sets
   `systems` is: each names the study one study continues or is prepared

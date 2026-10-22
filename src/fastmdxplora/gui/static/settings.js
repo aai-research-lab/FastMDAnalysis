@@ -210,7 +210,21 @@
   function theirs(field) {
     if (field.default !== null && field.default !== undefined) return shownValue(field, field.default);
     if (field.unset) return String(field.unset);
+    // On, off or as the force field is developed: unset is the last, as
+    // New study says it (run-builder.js).
+    if (field.control === "tristate") return "as the force field was developed";
     return "none";
+  }
+
+  /* Whether the setting's control can say the file's value: a setting
+   * that takes words or a list of blocks (the restraints) holds blocks the
+   * box cannot, and is shown as the file holds it, changed by hand. */
+  function drawable(field, value) {
+    if (!field.control || value === undefined || value === null) return Boolean(field.control);
+    if (field.control === "list" || field.control === "multiselect") {
+      return Array.isArray(value) && value.every(function (v) { return v === null || typeof v !== "object"; });
+    }
+    return typeof value !== "object";
   }
 
   function isBool(field) {
@@ -250,7 +264,7 @@
     var id = "settings-folder-" + field.name.replace(/\./g, "-");
     var node;
     var here = value !== undefined;
-    if (!field.control || fixed) {
+    if (!drawable(field, value) || fixed) {
       node = make("code", "settings-fixed mono", here ? shownValue(field, value) : theirs(field));
       return node;
     }
@@ -323,7 +337,8 @@
     var side = make("div", "settings-side");
     var input = control(field, value, fixed);
     side.appendChild(input);
-    if (!fixed && field.control) {
+    var drawn = drawable(field, value);
+    if (!fixed && drawn) {
       if (value !== undefined) {
         var back = make("button", "link-btn settings-use-theirs", "Use FastMDXplora's");
         back.type = "button";
@@ -350,7 +365,7 @@
           if (e.key === "Enter" && input.tagName === "INPUT") { e.preventDefault(); commit(); }
         });
       }
-    } else if (!field.control && !fixed) {
+    } else if (!drawn && !fixed) {
       side.appendChild(make("small", "settings-by-hand", "Changed in the file by hand"));
     }
     item.appendChild(side);

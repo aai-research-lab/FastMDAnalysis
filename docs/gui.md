@@ -384,7 +384,8 @@ there. Two scopes:
   is left as it was. **Use FastMDXplora's** takes it out again, a reason
   given is saved with it in the file's `decisions` (a study's report says it
   under **Why these settings**), and **Undo** puts back what was there. A
-  setting no control draws (the RMSF figure's regions) is shown as the file
+  setting no control draws (the RMSF figure's regions), or a value its
+  control cannot say (restraints written as blocks), is shown as the file
   holds it, and a file with comments is shown and changed by hand, as writing
   it again would lose them. Not offered when the GUI is served to others.
 
