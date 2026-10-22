@@ -616,6 +616,49 @@ def test_a_mouse_wheel_moves_a_long_strip(browser, site):
         page.context.close()
 
 
+IN_VIEW = """() => {
+    const list = document.getElementById('study-tabs-list');
+    const current = list.querySelector('.study-tab.is-current').getBoundingClientRect();
+    const room = list.getBoundingClientRect();
+    return current.left >= room.left - 1 && current.right <= room.right + 1;
+}"""
+
+
+def test_a_tab_grown_before_the_open_one_keeps_it_in_view_unless_moved_away(browser, site):
+    """A tab before the open one that grows (a name drawn once the page's
+    font has come, a study's id read late) changes no size of the strip's
+    own, so the open tab was pushed out of view past the strip's right edge.
+    It is followed until the strip is moved away from it."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    key = "fmx.studyTabs:" + str(site["root"])
+    entries = {"tabs": [{"key": f"{n:016x}", "title": f"Study {n}", "page": "overview"} for n in range(10, 34)]
+               + [{"key": site["keys"][0], "title": "Alpha", "page": "overview"}]}
+    context.add_init_script("sessionStorage.setItem(" + json.dumps(key) + ", " + json.dumps(json.dumps(entries)) + ");")
+    page = _open(browser, site, context=context)
+    frames = "new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))"
+    grow = "px => { document.querySelector('#study-tabs-list .study-tab').style.minWidth = px + 'px'; }"
+    try:
+        page.wait_for_function(IN_VIEW)
+        page.evaluate(grow, 700)
+        page.evaluate(frames)
+        followed = page.evaluate(IN_VIEW)
+        # Moved away by a wheel, the strip stays where it was put.
+        box = page.locator("#study-tabs-list").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.wheel(0, -4000)
+        page.wait_for_function("() => document.getElementById('study-tabs-list').scrollLeft < 50")
+        page.evaluate(frames)
+        left = page.evaluate("document.getElementById('study-tabs-list').scrollLeft")
+        page.evaluate(grow, 900)
+        page.evaluate(frames)
+        stayed = page.evaluate("document.getElementById('study-tabs-list').scrollLeft")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert followed
+    assert abs(stayed - left) <= 1, (left, stayed)
+
+
 LAYOUT = """() => {
     const box = el => el && el.getClientRects().length ? el.getBoundingClientRect() : null;
     const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';

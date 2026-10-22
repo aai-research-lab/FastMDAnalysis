@@ -26,6 +26,8 @@
   // had been added was gone.
   var draft = null;
   var tagsUsed = [];
+  // Why a study did not open, by its folder, until it is asked again.
+  var notOpenedWhy = {};
   var TAG_LENGTH = 40;
   var NOTE_LENGTH = 200;
 
@@ -838,6 +840,8 @@
     }
     actions.append.apply(actions, [openButton(study), tagButton(study), openButton(study, "files"), pick]
       .filter(Boolean));
+    var opened = actions.querySelector(".study-open");
+    if (opened && notOpenedWhy[study.path]) sayNotOpened(opened, notOpenedWhy[study.path]);
     body.appendChild(actions);
     item.appendChild(body);
     return item;
@@ -1103,6 +1107,8 @@
     var acts = make("div", "studies-actions");
     acts.append.apply(acts, [openButton(study), tagButton(study), openButton(study, "files")]
       .filter(Boolean));
+    var opened = acts.querySelector(".study-open");
+    if (opened && notOpenedWhy[study.path]) sayNotOpened(opened, notOpenedWhy[study.path]);
     tr.appendChild(cell("studies-acts", acts));
     return tr;
   }
@@ -2171,8 +2177,9 @@
     // Work a switch would lose holds it: said beside what was pressed.
     // One that goes on is in flight until answered (the strip is busy).
     var dashboard = window.FastMDXDashboard;
+    delete notOpenedWhy[path];
     var held = switchBegun();
-    if (held) { notOpened(button, held); return; }
+    if (held) { notOpened(button, held, path); return; }
     button.disabled = true;
     fetch("/api/explore/switch", {
       method: "POST",
@@ -2184,12 +2191,12 @@
         dashboard.studyOpened(d, page);
       } else {
         switchEnded();
-        notOpened(button, (d && d.error) || "Could not open it.");
+        notOpened(button, (d && d.error) || "Could not open it.", path);
       }
     }).catch(function () {
       button.disabled = false;
       switchEnded();
-      notOpened(button, "The server did not answer.");
+      notOpened(button, "The server did not answer.", path);
     });
   }
 
@@ -2205,9 +2212,22 @@
 
   /* Why a study did not open, said beside its button, which is an icon (the
    * page's notice reads it out, so this is not a second one). */
-  function notOpened(button, why) {
+  function notOpened(button, why, path) {
+    // Kept by the study's folder: the list drawn again while the answer
+    // was on its way (the page shown again, a search typed) made a new
+    // card, and the reason went with the old one.
+    if (path) {
+      notOpenedWhy[path] = why;
+      if (!button.isConnected) button = liveOpenButton(path) || button;
+    }
     ICONS.flash(button, false, why);
+    sayNotOpened(button, why);
+  }
+
+  /* The reason beside a study's Open button, without a second flash. */
+  function sayNotOpened(button, why) {
     var host = button.parentNode;
+    if (!host) return;
     var said = host.querySelector(".study-open-said");
     if (!said) {
       said = make("span", "study-open-said muted small");
@@ -2240,6 +2260,13 @@
     head.textContent = where ? "Looked in " + where + "." : "";
     head.title = head.textContent;
     draw();
+  }
+
+  /* The Open button now shown for a study, on its card or its row. */
+  function liveOpenButton(path) {
+    var holders = document.querySelectorAll("#studies-grid .study-card, #studies-table-wrap .studies-row");
+    var holder = Array.prototype.find.call(holders, function (h) { return h.dataset.path === path; });
+    return holder ? holder.querySelector(".study-open") : null;
   }
 
   function load(where) {

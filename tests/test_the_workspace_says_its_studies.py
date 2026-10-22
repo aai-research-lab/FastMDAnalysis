@@ -366,3 +366,61 @@ def test_the_page(workspace) -> None:
     assert switched == [{"folder": str(workspace / "stopped")}]
     assert heard == ["Not in this test.", True]
     assert errors == []
+
+
+def test_why_a_study_did_not_open_outlasts_the_cards_drawn_again(workspace) -> None:
+    """The cards are drawn again while a switch's answer is on its way (the
+    page shown again on going back, a search typed). Why the study did not
+    open went beside the old card's button, gone with that card, so nothing
+    said it (CI, after Back from Compare). It is kept by the study's folder
+    and said on the card drawn again, until the study is asked again."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "ubiquitin"), host="127.0.0.1",
+                                      port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            # The studies as cards: All studies opens on its list.
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            # The switch's answer waits until the test lets it go.
+            page.add_init_script("""
+                const fetch = window.fetch;
+                let release;
+                window.__answer = new Promise(done => { release = done; });
+                window.__release = () => release();
+                window.fetch = (url, ...rest) => new URL(url, location.href).pathname === '/api/explore/switch'
+                    ? window.__answer.then(() => fetch(url, ...rest)) : fetch(url, ...rest);
+            """)
+            page.route("**/api/explore/switch",
+                       lambda route: route.fulfill(json={"ok": False, "error": "Not in this test."}))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            stopped = '.study-card[data-path$="stopped"]'
+            page.wait_for_selector(stopped + " .study-open")
+            old = page.query_selector(stopped)
+            page.click(stopped + " .study-open")
+            # Drawn again while the answer is on its way.
+            page.fill("#studies-search", "zzz-no-study")
+            page.fill("#studies-search", "")
+            page.wait_for_selector(stopped + " .study-open")
+            redrawn = not old.evaluate("card => card.isConnected")
+            page.evaluate("() => window.__release()")
+            said = page.locator(stopped + ' .study-open-said:has-text("Not in this test.")')
+            said.wait_for()
+            # Drawn once more, it is still said.
+            page.fill("#studies-search", "stopped")
+            kept = page.locator(stopped + " .study-open-said").text_content()
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert redrawn
+    assert kept == "Not in this test."
+    assert errors == []
