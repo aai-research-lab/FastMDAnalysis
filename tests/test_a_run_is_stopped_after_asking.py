@@ -77,6 +77,21 @@ def test_it_is_offered_to_run_again_not_from_a_checkpoint(tmp_path):
     assert remedy.fix == "Run it again from the start."
 
 
+def test_the_problems_list_says_once_that_a_stop_in_nvt_has_no_checkpoint(tmp_path):
+    """The Problems list's reason said the stop wrote no checkpoint, and its
+    fix said again "it wrote no checkpoint to carry on from": the fix was
+    read from the reason's first sentence only."""
+    from fastmdxplora.gui.problems_view import problems_payload
+
+    study = _going(tmp_path / "study", "nvt")
+    _runtime_running(study).stop()
+    [item] = [item for item in problems_payload(study)["items"]
+              if item["id"] in ("health:stopped", "simulation.run.stopped")]
+    assert "NVT equilibration" in item["reason"] and "no checkpoint" in item["reason"]
+    assert item["fix"] == "Run it again from the start."
+    assert f"{item['reason']} {item['fix']}".count("checkpoint") == 1
+
+
 def test_a_run_stopped_in_production_keeps_what_it_recorded(tmp_path):
     study = _going(tmp_path / "study", "production")
     runtime = _runtime_running(study)
