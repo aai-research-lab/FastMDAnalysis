@@ -462,6 +462,9 @@ def test_two_replicas_whose_spread_is_of_those_two_alone_are_not_said_to_differ(
         page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
         return page.evaluate("""() => ({
             note: document.querySelector('.compare-replicas').textContent,
+            rule: [...document.querySelectorAll('.page[data-page="compare"] p')]
+                .map((n) => n.textContent)
+                .find((t) => t.startsWith("The difference is the second's mean")),
             resolved: !!document.querySelector(
                 '.compare-means-table tr[data-analysis="rg"].is-resolved'),
             rg: [...document.querySelectorAll(
@@ -472,6 +475,10 @@ def test_two_replicas_whose_spread_is_of_those_two_alone_are_not_said_to_differ(
     assert shown["rg"][3].endswith(", their spread 35 times their own errors: those errors are "
                                    "too tight"), shown["rg"]
     assert "resolved" not in shown["rg"][3] and shown["resolved"] is False
+    # Neither the error the cell calls too tight, nor the rule for two
+    # measurements beside rows that are repeats of one, every one of them.
+    assert "\u00b1" not in shown["rg"][3], shown["rg"]
+    assert "resolved past" not in shown["rule"], shown["rule"]
     assert "only these two runs' means were read" not in shown["note"], shown["note"]
     assert ("the study has these two runs alone, and the spread of two means is their "
             "difference over the square root of 2") in shown["note"], shown["note"]

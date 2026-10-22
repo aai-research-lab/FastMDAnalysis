@@ -346,8 +346,11 @@
         // Two repeats of one measurement, the only two read: never said
         // to differ; their spread against their own errors, as the
         // study's replicas are aggregated (batch/aggregate.py).
-        difference.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
-          spreadSaid(m.versus.spread_against_own);
+        // Without the error the same cell calls too tight.
+        var check = m.versus.spread_against_own;
+        difference.textContent = withError(m.versus.difference,
+                                           check && check.too_tight ? null : m.versus.error, m.unit) +
+          spreadSaid(check);
         difference.dataset.errorOf = "alone";
       } else if (m.versus) {
         difference.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
@@ -380,10 +383,14 @@
         " a mean that may be biased by the solute's own image: " + (one ? "it" : "each") +
         " may be that bias and not the setting."));
     }
-    host.appendChild(make("p", "muted small",
-      "The difference is the second's mean less the first's. It is resolved past " +
-      data.resolved_at + " times the two's combined standard error. A mean an analysis " +
-      "did not stand behind is not compared."));
+    // Resolved or not is said of two measurements; of two replicas read
+    // alone no row is judged so, and the rule is not said beside them.
+    var judged = found.some(function (m) { return m.versus && m.versus.error_of !== "alone"; });
+    host.appendChild(make("p", "muted small compare-difference-said",
+      "The difference is the second's mean less the first's." + (judged || !found.some(
+        function (m) { return m.versus; }) ? " It is resolved past " + data.resolved_at +
+        " times the two's combined standard error." : "") +
+      " A mean an analysis did not stand behind is not compared."));
     if (data.replicas) {
       // Two repeats of one measurement (batch/aggregate.py): their spread
       // is its error, and each run's own estimate can understate it.
