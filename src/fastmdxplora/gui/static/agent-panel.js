@@ -1623,7 +1623,8 @@
     var now = Date.now();
     if (!validStudyKey(unsentKey) || launching || wordsFollowRun
         || runStudies.some(function (r) { return now < r.until; })
-        || (runFolders[unsentKey] && now < launchedUntil) || sendWaits() === "run") return;
+        || (runFolders[unsentKey] && now < (launchedUntil[unsentKey] || 0))
+        || sendWaits() === "run") return;
     if (!noStudyOpen() && state.studyIsOne !== false) return;
     var was = unsentKey;
     var forTitle = unsentTitle || "the study before";
@@ -1675,12 +1676,14 @@
    * started (`key`), is known, and a switch seen meanwhile is judged. */
   /* The folder each run this page started went to, by its study's key. */
   var runFolders = {};
-  /* Until when a run this page started may still end at once, leaving no
-   * study open: words typed for it then stay in the box (`leftForNoStudy`). */
-  var launchedUntil = 0;
+  /* Until when each run this page started may still end at once, leaving
+   * no study open, by its study's key: words typed for it then stay in the
+   * box (`leftForNoStudy`); each run its own time (CI-774 review L19 L4: one
+   * for all, a later launch's kept an earlier run's words in the box). */
+  var launchedUntil = {};
   function launchAnswered(key, follows, output) {
     if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
-    if (validStudyKey(key)) launchedUntil = Date.now() + 30000;
+    if (validStudyKey(key)) launchedUntil[key] = Date.now() + 30000;
     if (validStudyKey(key) && output) {
       runFolders[key] = String(output).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
     }

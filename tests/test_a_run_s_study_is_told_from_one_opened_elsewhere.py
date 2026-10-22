@@ -3556,3 +3556,56 @@ def test_a_reload_during_a_builder_launch_says_where_the_words_are(tmp_path, mon
     assert kept.get(study_key(here)) == words and box == "", (kept, box)
     assert note.startswith("The unsent message typed for here as a run started is saved for it"), note
     assert errors == []
+
+
+def test_words_for_an_earlier_run_s_study_are_saved_as_the_gui_leaves_it(tmp_path, monkeypatch):
+    """L19 L4: words typed for a run this page started stay in the box when
+    it ends at once, for a while after its launch answered; that while was
+    one for every run, the latest launch's. Words typed on run1's study,
+    opened again after a later launch (run2) and past run1's own while, then
+    the GUI going to no study: they stayed in the box. They are saved for
+    run1 and said."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=0.5)
+    words = "about run1"
+    run1, run2 = study_key(workspace / "run1"), study_key(workspace / "run2")
+    page, errors, close = _page_on(session, [dict(_CONFIG), dict(_CONFIG)])
+    try:
+        _shows(page, study_key(here))
+        _when_known(page)
+        # The page's clock, put on past run1's while once run1 has answered.
+        page.evaluate("() => { const real = Date.now; window.__ahead = 0;"
+                      " Date.now = () => real() + window.__ahead; }")
+        _say(page, "chignolin")
+        page.wait_for_selector(_RUN)
+        page.wait_for_timeout(800)
+        page.click(_RUN)
+        _shows(page, run1)
+        _when_known(page)
+        page.evaluate("() => { window.__ahead = 31000; }")
+        _say(page, "again")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#agent-thread .agent-study:not([hidden])').length === 2")
+        page.wait_for_timeout(800)
+        page.click(f"{_RUN}:visible >> nth=-1")
+        _shows(page, run2)
+        _when_known(page)
+        _switch_elsewhere(session, workspace / "run1")
+        _shows(page, run1)
+        _when_known(page)
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        session.runtime.data_stale = True
+        session.runtime.active_root = None
+        page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                               timeout=30000)
+        page.wait_for_timeout(2000)
+        out = {"box": page.input_value("#agent-request"), "kept": _unsent(page), "note": _note(page)}
+    finally:
+        close()
+        session.server.shutdown()
+    assert len(made) == 2, made
+    assert out["box"] == "" and out["kept"].get(run1) == words, out
+    assert "The unsent message typed for run1 is saved for it" in out["note"], out
+    assert errors == []
