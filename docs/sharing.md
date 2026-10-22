@@ -275,7 +275,8 @@ before you publish. Shared again after (analysed again, say), it is a draft
 of a new version of the same record, which Zenodo makes only for a token
 that also has the **deposit:actions** scope; the record's concept DOI
 always leads to its latest version. Its version is counted on from the
-latest one published (one you published by hand included), in that one's
+latest one published (one you published by hand included; only one Zenodo
+says is the last, else the share waits to be asked again), in that one's
 own form: 3 after 2, 1.3 after 1.2, v4 after v3. Zenodo keeps one draft
 of a new version at a time, and gives it to whoever asks: one there
 already, begun on its site or by a share whose answer was lost or named

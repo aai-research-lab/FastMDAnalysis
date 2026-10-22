@@ -245,7 +245,12 @@ class _Unsteady(_Zenodo):
         if self.path.startswith("/api/deposit/depositions?"):
             return self._list()
         if self.path == "/api/records/latest" and type(self).latest is not None:
-            return self._json(type(self).latest)
+            # As Zenodo's records say it: the last version (unless a test
+            # says otherwise).
+            answer = json.loads(json.dumps(type(self).latest))
+            answer.setdefault("metadata", {}).setdefault(
+                "relations", {"version": [{"index": 0, "is_last": True}]})
+            return self._json(answer)
         latest = type(self).latest
         if latest is not None and self.path == f"/api/deposit/depositions/{latest['id']}":
             made = self._deposition(7)
@@ -434,7 +439,7 @@ def test_a_large_transfer_says_how_far_it_has_gone(tmp_path, unsteady):
               size=len(unsteady.payload))
     assert (tmp_path / "got.zip").read_bytes() == unsteady.payload
     progress = [line for line in told if line.startswith("Downloaded ") and " of " in line]
-    assert 5 <= len(progress) <= 9 and progress[-1].endswith("of 13 MB.")
+    assert 5 <= len(progress) <= 9 and progress[-1].endswith("of 12.6 MB.")
     told.clear()
     big = tmp_path / "big.zip"
     big.write_bytes(unsteady.payload)
@@ -3998,10 +4003,14 @@ def test_a_version_answered_by_another_draft_is_not_said_given(tmp_path, unstead
     assert "did not say it was given" in capsys.readouterr().err
 
 
+#: A record's relations as Zenodo gives the last version's.
+_LAST = {"relations": {"version": [{"index": 1, "is_last": True}]}}
+
+
 @pytest.mark.parametrize("answer, opened", [
     ({"id": 1009, "conceptrecid": "1000"}, False),
-    ({"id": 1009, "conceptrecid": "1007"}, True),
-    ({"id": 1009, "parent": {"id": "1007"}}, True),
+    ({"id": 1009, "conceptrecid": "1007", "metadata": _LAST}, True),
+    ({"id": 1009, "parent": {"id": "1007"}, "metadata": _LAST}, True),
     ({"id": 1007, "conceptrecid": "1000"}, True)])
 def test_a_record_answered_as_another_is_not_opened(monkeypatch, answer, opened):
     """Hands-on review of the thirty-eighth commit: a record's answer naming
@@ -4812,3 +4821,47 @@ def test_a_concept_answered_with_a_version_before_its_last_is_not_opened(monkeyp
         "files": [{"key": "s.zip", "size": 1, "checksum": "md5:" + "0" * 32}]})
     with pytest.raises(ShareRefused, match="not the latest"):
         zenodo.archive_of("zenodo-sandbox", "1007")
+
+
+@pytest.mark.parametrize("answered", ["gone", "unsaid", "the study's own"])
+def test_a_latest_version_not_said_to_be_the_last_counts_nothing_on(tmp_path, unsteady,
+                                                                    monkeypatch, capsys,
+                                                                    answered):
+    """Hands-on review of the fifty-sixth commit: the latest version's read
+    answered with Zenodo's 404, or with a record not saying it is the last,
+    had the study's own record taken as the latest, and a new version Zenodo
+    began from a later one labelled as if from it."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"}, "files": []}
+    real = zenodo._call
+
+    def unconfirmed(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/latest"):
+            if answered == "gone":
+                return kwargs.get("gone")
+            return {"id": 9 if answered == "unsaid" else 7, "metadata": {"version": "2"}}
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", unconfirmed)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "share again once Zenodo answers" in capsys.readouterr().err
+    assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_a_concept_answered_without_saying_it_is_the_last_is_not_opened(monkeypatch):
+    monkeypatch.setattr(zenodo, "_call", lambda method, url, **kwargs: {
+        "id": 1009, "conceptrecid": "1007", "doi": "10.5072/zenodo.1009", "metadata": {},
+        "files": [{"key": "s.zip", "size": 1, "checksum": "md5:" + "0" * 32}]})
+    with pytest.raises(ShareRefused, match="not the latest"):
+        zenodo.archive_of("zenodo-sandbox", "1007")
+
+
+def test_a_tiny_size_is_said_in_bytes():
+    from fastmdxplora.sharing import said_size
+
+    assert said_size(20) == "20 bytes" and said_size(4900) == "4.9 kB"
+    assert said_size(12_500_000) == "12.5 MB"

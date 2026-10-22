@@ -37,5 +37,8 @@ class ShareRefused(CodedError, RuntimeError):
 
 
 def said_size(size: float) -> str:
-    """A file's size as said to the person: in MB, in kB under 0.1 MB."""
+    """A file's size as said to the person: in MB, in kB under 0.1 MB, in
+    bytes under 1 kB."""
+    if size < 1000:
+        return f"{int(size)} bytes"
     return f"{size / 1e6:.1f} MB" if size >= 100_000 else f"{size / 1e3:.1f} kB"

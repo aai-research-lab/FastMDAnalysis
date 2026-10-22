@@ -173,8 +173,8 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                             if said and size >= 10 << 20 and read * 10 // size > tenth:
                                 tenth = min(read * 10 // size, 9)
                                 if tenth and read < size:
-                                    said(f"Downloaded {read / 1e6:.0f} of "
-                                         f"{size / 1e6:.0f} MB.")
+                                    said(f"Downloaded {read / 1e6:.1f} of "
+                                         f"{size / 1e6:.1f} MB.")
                         if unwritten is not None or not size or read >= size:
                             break
                         # Ended before the file did: the connection was cut.

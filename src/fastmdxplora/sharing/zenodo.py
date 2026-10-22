@@ -112,7 +112,7 @@ class _Progress:
             tenth = self.sent * 10 // self.size
             if tenth > self.tenth and tenth < 10:
                 self.tenth = tenth
-                self.said(f"Uploaded {self.sent / 1e6:.0f} of {self.size / 1e6:.0f} MB.")
+                self.said(f"Uploaded {self.sent / 1e6:.1f} of {self.size / 1e6:.1f} MB.")
         return piece
 
     def close(self) -> None:
@@ -637,7 +637,8 @@ def _new_draft(depositions: str, token: str, title: str,
             # The new draft; or none named, refused as such by the caller.
             return made, True
         other = ShareRefused(f"Zenodo's answer to making the draft (titled {title!r}) named "
-                             "another.", code="environment.service.unreachable")
+                             "another, or another record's DOI.",
+                             code="environment.service.unreachable")
         other.unclear = other.later = True
         raise other
     except ShareRefused as exc:
@@ -669,13 +670,14 @@ _SET_BY_ZENODO = frozenset({"doi", "prereserve_doi", "publication_date", "versio
 
 
 def _not_the_last(record: Any) -> bool:
-    """Whether a record's answer says it is not its concept's last version
-    (as Zenodo's records say, in their relations)."""
+    """Whether a record's answer does not say it is its concept's last
+    version (as Zenodo's records each say, in their relations): one that
+    says nothing of it is not taken as the last."""
     relations = ((record.get("metadata") or {}).get("relations") or {}) \
         if isinstance(record, dict) else {}
     versions = relations.get("version") if isinstance(relations, dict) else None
     first = versions[0] if isinstance(versions, list) and versions else None
-    return isinstance(first, dict) and first.get("is_last") is False
+    return not (isinstance(first, dict) and first.get("is_last") is True)
 
 
 def _latest_published(found: dict[str, Any], depositions: str, token: str,
@@ -695,8 +697,15 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
     if not link:
         return found
     record = _call("GET", link, token=token, missing_ok=True, said=said, gone=_GONE)
-    if record is _GONE:
+    if record is _GONE and not found.get("submitted"):
+        # A draft's concept never published: no version of it yet.
         return found
+    if record is _GONE:
+        # A published record's latest version not found: not known.
+        unknown = ShareRefused(f"Zenodo found no latest version at {link}.",
+                               code="environment.service.unreachable")
+        unknown.later = True
+        raise unknown
     newest = str(record.get("id") or "") if isinstance(record, dict) else ""
     if not newest:
         # An answer naming no version: the latest is not known, and a new
