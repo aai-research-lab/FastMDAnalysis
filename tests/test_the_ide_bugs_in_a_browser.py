@@ -100,6 +100,9 @@ def test_the_analysis_of_a_study_of_runs_says_its_runs(finished_sweep):
     def look(page, url):
         page.goto(url + "#analysis", wait_until="domcontentloaded")
         page.wait_for_selector("#runs-compared:not([hidden]) #runs-compared-table tr")
+        # The table is the runs' own script's, and can be in before the page
+        # has read the study's results and said its analyses.
+        page.wait_for_function("() => document.getElementById('analysis-meta').textContent")
         page.wait_for_timeout(500)
         return page.text_content("#analysis-meta")
 
