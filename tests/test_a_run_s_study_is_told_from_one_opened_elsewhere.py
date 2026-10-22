@@ -3466,6 +3466,127 @@ def test_a_message_refused_as_a_study_opens_is_put_back_or_saved(tmp_path, monke
     assert errors == []
 
 
+def _from_no_study(page, session):
+    """The GUI shows no study, and "with none first" is answered there."""
+    session.runtime.data_stale = True
+    session.runtime.active_root = None
+    page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                           timeout=30000)
+    page.wait_for_function("() => window.FastMDXDashboard.studyKnown()"
+                           " && !window.FastMDXAgentPanel.waits", timeout=30000)
+    _say(page, "with none first")
+    page.wait_for_selector("#agent-thread .agent-answer:has-text('A: with none first')",
+                           timeout=15000)
+    page.wait_for_timeout(500)
+
+
+def _attach_notes(page, workspace):
+    page.evaluate("""(p) => { const i = document.getElementById('agent-attach-path');
+        i.value = p; i.dispatchEvent(new Event('change')); }""", str(workspace / "notes.txt"))
+    page.wait_for_selector("#agent-attachments :text('notes.txt')")
+
+
+@pytest.mark.parametrize("what", ["a message", "an edit", "a message of no study"])
+def test_a_refused_message_s_file_read_as_the_switch_is_seen_comes_back(tmp_path, monkeypatch,
+                                                                         what):
+    """L21 M1, L22 M1: a message (or an Edit) with a file, refused as
+    another window opens a study, the refusal coming before the page sees
+    the switch: put back in the box and its file read again. Seen while the
+    file was read, the switch saved the words without it, and the file read
+    after was dropped, unsaid. It comes back as a chip with the words, on
+    the study they were written in, and is sent with them."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    (workspace / "notes.txt").write_text("n\n", encoding="utf-8")
+    words = "with a file edited" if what == "an edit" else "pressed with a file"
+    asked, held, polls, reads, holding = [], [], [], [], []
+
+    def propose(route):
+        body = json.loads(route.request.post_data or "{}")
+        asked.append(body)
+        if body.get("request") == words and not held:
+            # Its file read again from here on is held.
+            holding.append(True)
+            held.append(route)
+        else:
+            request = body.get("request")
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(
+                _answer("First." if request == "with a file" else "A: " + request)))
+
+    def attachment(route):
+        if holding:
+            reads.append(route)
+        else:
+            route.continue_()
+
+    page, errors, close = _page_on(session, [])
+    try:
+        page.unroute("**/api/agent/propose*")
+        page.route("**/api/agent/propose*", propose)
+        page.route("**/api/agent/attachment*", attachment)
+        if what == "an edit":
+            msg = _a_message_with_a_file(page, session, workspace, here)
+            msg.hover()
+            msg.get_by_role("button", name="Edit").click()
+            page.keyboard.type(" edited")
+        else:
+            if what == "a message of no study":
+                _from_no_study(page, session)
+            else:
+                _shows(page, study_key(here))
+                _when_known(page)
+            _attach_notes(page, workspace)
+            page.fill("#agent-request", words)
+        _hold(page, polls)
+        page.keyboard.press("Enter")
+        while not held:
+            page.wait_for_timeout(50)
+        session.runtime.data_stale = False
+        _switch_elsewhere(session, other)
+        held[0].continue_()
+        page.wait_for_function("() => /Not sent, as the study open changed/.test((document"
+                               ".getElementById('agent-unsent-note') || {}).textContent || '')",
+                               timeout=15000)
+        while not reads:
+            page.wait_for_timeout(50)
+        refused = {"box": page.input_value("#agent-request"), "chips": page.locator(
+            "#agent-attachments").inner_text()}
+        _release(page, polls)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study", timeout=20000)
+        page.wait_for_timeout(1500)
+        del holding[:]
+        for route in list(reads):
+            route.continue_()
+        page.wait_for_timeout(1500)
+        on_other = {"note": _note(page), "box": page.input_value("#agent-request"),
+                    "kept": _unsent(page), "chips": page.locator("#agent-attachments").inner_text()}
+        if what != "a message of no study":
+            _switch_elsewhere(session, here)
+            _shows(page, study_key(here))
+            page.wait_for_function("(w) => document.getElementById('agent-request').value === w",
+                                   arg=words, timeout=20000)
+        page.wait_for_selector("#agent-attachments :text('notes.txt')", timeout=15000)
+        _send_when_offered(page)
+        page.wait_for_selector(f"#agent-thread .agent-answer:has-text('A: {words}')", timeout=15000)
+        page.wait_for_timeout(1000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert refused["box"] == words and "notes.txt" not in refused["chips"], refused
+    if what == "a message of no study":
+        assert on_other["box"] == words and "notes.txt" in on_other["chips"], on_other
+        assert "back in the box" in on_other["note"], on_other
+    else:
+        assert on_other["box"] == "" and on_other["kept"].get(study_key(here)) == words, on_other
+        assert "The unsent message typed for here is saved for it" in on_other["note"], on_other
+    first = {"an edit": ["with a file"], "a message of no study": ["with none first"]}.get(what, [])
+    assert _requests(asked) == [*first, words, words], _requests(asked)
+    assert [a["name"] for a in asked[-1].get("attachments", [])] == ["notes.txt"], asked[-1]
+    assert errors == []
+
+
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_at_390_a_note_of_two_lines_hides_the_page_beneath(tmp_path, monkeypatch, scheme):
     """L20: at 390, on a study's Agent page with its starters, a note of two

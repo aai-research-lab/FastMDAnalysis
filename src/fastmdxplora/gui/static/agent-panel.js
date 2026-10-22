@@ -1429,7 +1429,42 @@
     unsentSaid((said ? said + " " : "") + "The edit not sent is in the box, to send from there.",
                "moved", about);
     var mine = pendingFiles.map(function (f) { return f.path; });
-    readFilesAgain(edit.files.filter(function (f) { return mine.indexOf(f.path) < 0; }), unsentKey);
+    var again = edit.files.filter(function (f) { return mine.indexOf(f.path) < 0; });
+    savedWithFiles(again);
+    readFilesAgain(again, unsentKey);
+  }
+  /* The words in the box saved with the files about to be read again for
+   * them: a switch seen while they are read saves what is saved here
+   * (CI-774 reviews L21 M1, L22 M1: saved without them, the files read
+   * after the switch were dropped, unsaid). */
+  function savedWithFiles(files) {
+    if (!files.length || !validStudyKey(unsentKey)) return;
+    var entry = { words: boxNow(), files: withFiles(pendingFiles.map(fileKept), files) };
+    try {
+      sessionStorage.setItem(UNSENT_WORDS + unsentKey, JSON.stringify(entry));
+      delete heldInPage[unsentKey];
+    } catch (e) {
+      heldInPage[unsentKey] = { words: entry.words, files: entry.files, title: unsentTitle };
+    }
+  }
+  /* Files read again after their words went to another study: added to
+   * what is saved for the study the words are saved for. */
+  function filesSavedFor(key, got) {
+    if (!validStudyKey(key) || !got.length) return;
+    var kept = storedUnsent(key);
+    if (!kept) return;
+    var files = withFiles(kept.files, got.map(fileKept));
+    var held = heldInPage[key];
+    try {
+      /* What else is saved with them (`asRunStarted`, `editLeft`) stays. */
+      var raw = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + key) || "null");
+      if (!raw || typeof raw !== "object") throw new Error("held in this page");
+      raw.files = files;
+      sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify(raw));
+    } catch (e) {
+      if (held) held.files = files;
+      else heldInPage[key] = { words: kept.words, files: files, title: "" };
+    }
   }
   /* Files saved with words, and those of an edit or a message put with
    * them: each once, six at most. */
@@ -1446,28 +1481,42 @@
       left.forEach(function (e) { editKept(e.edit, e.words); });
     };
   }
+  /* The reads going on, each with the study its words are for: that
+   * study changes as the words go with the box to another (`readsFollow`). */
+  var reads = [];
+  function readsFollow(from, to) {
+    reads.forEach(function (r) { if (r.key === from) r.key = to; });
+  }
   /* Kept files read again: those that cannot be, or that changed since,
    * are said by name. */
   function readFilesAgain(files, key) {
     if (!files.length) return;
     var lost = [];
     var left = files.length;
+    var read = { key: key, got: [] };
+    reads.push(read);
     restoring += 1;
     files.forEach(function (f) {
       attaching += 1;
       post("/api/agent/attachment", { path: f.path }).then(function (d) {
         if (!d || !d.ok) { lost.push(f.name); return; }
-        if (f.sha256 && d.sha256 && d.sha256 !== f.sha256) { lost.push(f.name + " (changed since)"); }
-        if (unsentKey !== key) return;
+        if (f.sha256 && d.sha256 && d.sha256 !== f.sha256) {
+          lost.push(f.name + " (changed since)");
+          return;
+        }
+        read.got.push(d);
+        if (unsentKey !== read.key) return;
         if (pendingFiles.some(function (p) { return p.path === d.path; }) || pendingFiles.length >= 6) return;
-        if (f.sha256 && d.sha256 && d.sha256 !== f.sha256) return;
         pendingFiles.push(d);
       }).catch(function () { lost.push(f.name); }).then(function () {
         attaching -= 1;
         left -= 1;
         if (left) return;
         restoring -= 1;
-        if (unsentKey !== key) return;
+        reads = reads.filter(function (r) { return r !== read; });
+        /* Their words saved for another study as they were read: nothing
+         * read is dropped. */
+        if (unsentKey !== read.key) { filesSavedFor(read.key, read.got); return; }
         renderChips();
         if (lost.length) {
           unsentSaid("Could not attach again: " + lost.join(", ") + ". Attach " +
@@ -1548,6 +1597,7 @@
     if (follow && key !== follow && validStudyKey(unsentKey) && unsentKey !== follow) {
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+      readsFollow(unsentKey, follow);
       unsentKey = follow;
       /* Named by its folder alone, as every note names a study (CI-774
        * reviews L12, L20). */
@@ -1576,6 +1626,7 @@
     if (begunElsewhere && runsThere) {
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+      readsFollow(unsentKey, key);
       unsentKey = key;
       unsentTitle = title;
       putBack(key, typed);
@@ -1605,6 +1656,9 @@
       swappedAt = boxNow().trim() ? Date.now() : 0;
       return;
     }
+    /* Typed with no study known: the files being read again for them go
+     * with them. */
+    if (!begunElsewhere) readsFollow(unsentKey, key);
     unsentKey = key;
     unsentTitle = title;
     putBack(key, begunElsewhere ? "" : typed);
@@ -2026,6 +2080,7 @@
       }
       area.value = boxNow().trim() ? boxNow() + "\n\n" + text : text;
       area.dispatchEvent(new Event("input"));
+      savedWithFiles(files);
       if (files.length) readFilesAgain(files, key);
       unsentSaid("Not saved, as the GUI had opened another study: the message is back in the box, "
                  + "its answer not kept.", "moved", "");
@@ -2067,6 +2122,7 @@
       if (!area) return;
       area.value = boxNow().trim() ? boxNow() + "\n\n" + said.text : said.text;
       area.dispatchEvent(new Event("input"));
+      savedWithFiles(files);
       if (files.length) readFilesAgain(files, unsentKey);
       unsentSaid(NOT_SENT_VIEW + "the message is back in the box.", "moved", "");
       return;
