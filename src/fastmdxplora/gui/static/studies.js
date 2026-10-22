@@ -486,12 +486,20 @@
     if (m.replicas && m.of) {
       item.appendChild(make("span", "studies-mean-of muted", "from " + m.replicas + " of " + m.of + " replicas"));
     }
+    // Its image note beside its verdict, which it does not change
+    // (image_note.py): said on the item, not on hover only.
+    var noted = m.mean != null && m.noted ? m.noted.charAt(0).toUpperCase() + m.noted.slice(1) + "." : "";
+    if (noted) {
+      item.dataset.noted = "true";
+      item.appendChild(make("span", "studies-mean-noted muted", noted));
+    }
     var from = m.of ? "from " + m.replicas + " of the study's " + m.of + " replicas"
       : m.replicas ? "from its " + m.replicas + " replicas" : "";
-    item.title = m.withheld ? "Not determined: " + firstSentence(m.withheld) + (from ? " Its mean is " + from + "." : "") + " (M for why)"
+    item.title = (m.withheld ? "Not determined: " + firstSentence(m.withheld) + (from ? " Its mean is " + from + "." : "") + " (M for why)"
       : m.error != null && m.replicas ? "Determined: the mean of the means " + from
         + ", its error their spread over √" + m.replicas
-      : m.error != null ? "Determined, with its standard error" : "Recorded without an error";
+      : m.error != null ? "Determined, with its standard error" : "Recorded without an error")
+      + (noted ? ". " + noted : "");
     return item;
   }
 

@@ -676,3 +676,143 @@ def test_the_runs_compared_mark_it_and_say_it_under_the_table(two_runs) -> None:
     assert title == noted[:1].upper() + noted[1:] + "."
     assert under == [f"† temperature 310 K, RMSD: {noted}."]
     assert errors == []
+
+
+def test_all_studies_says_a_noted_mean_beside_its_verdict(tmp_path) -> None:
+    """In a browser: a single run's noted RMSD on its row and its card read
+    "RMSD 0.1046 ± 0.0013 nm" with the filled dot and the title "Determined,
+    with its standard error", and nothing of the note; the replicas' mean of
+    their means likewise."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_all_studies_is_a_table_first import _members
+    from tests.test_the_workspace_says_its_studies import _replicas
+    from tests.test_the_workspace_says_its_studies import _study as _a_study
+
+    space = tmp_path / "ws"
+    one = _a_study(space / "one", means={"rmsd": (0.1046, 0.0013)})
+    path = one / "analysis" / "rmsd" / "options.json"
+    record = json.loads(path.read_text())
+    record["findings"]["mean"]["solute_image"] = dict(_NOTE_09)
+    path.write_text(json.dumps(record))
+    reps = _replicas(space / "reps")
+    _members(reps, [0.10, 0.12, 0.14])
+    for run in ("seed1", "seed2"):
+        path = reps / "runs" / run / "analysis" / "rmsd" / "options.json"
+        record = json.loads(path.read_text())
+        record["findings"]["mean"]["solute_image"] = dict(_NOTE_09)
+        path.write_text(json.dumps(record))
+    single = said_short(_NOTE_09)
+    session = start_dashboard_session(output=str(one), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            found = {}
+            for width, scheme in ((1440, "light"), (390, "dark")):
+                page = browser.new_page(viewport={"width": width, "height": 900},
+                                        color_scheme=scheme)
+                page.set_default_timeout(60000)
+                errors: list[str] = []
+                page.on("pageerror", lambda error, seen=errors: seen.append(str(error)))
+                page.goto(session.url + "#studies", wait_until="domcontentloaded")
+                page.wait_for_selector("body.state-ready")
+                page.evaluate(f"() => window.FastMDXStudies.load({str(space)!r})")
+                shown = {}
+                for view, where in (("table", "#studies-table tr.studies-row"),
+                                    ("cards", ".study-card")):
+                    if view == "cards":
+                        page.click('[data-studies-view="cards"]')
+                    for name in ("one", "reps"):
+                        item = f'{where}[data-path$="/{name}"] .studies-mean-item'
+                        page.wait_for_selector(item)
+                        shown[(view, name)] = page.evaluate(
+                            "(sel) => { const n = document.querySelector(sel); return ["
+                            "(n.querySelector('.studies-mean-noted') || {}).textContent || '',"
+                            "n.title, n.dataset.determined]; }", item)
+                wide = page.evaluate("() => document.documentElement.scrollWidth "
+                                     "- document.documentElement.clientWidth")
+                found[(width, scheme)] = (shown, wide, errors)
+                page.close()
+            browser.close()
+    finally:
+        session.server.shutdown()
+    for (width, scheme), (shown, wide, errors) in found.items():
+        assert not errors and wide <= 0, (width, scheme, errors, wide)
+        for view in ("table", "cards"):
+            line, title, determined = shown[(view, "one")]
+            assert line == single[:1].upper() + single[1:] + ".", (width, view, line)
+            assert title == "Determined, with its standard error. " + line, title
+            assert determined == "true"
+            line, title, determined = shown[(view, "reps")]
+            assert line == _TWO_OF_THREE[:1].upper() + _TWO_OF_THREE[1:] + ".", (width, view, line)
+            assert title.endswith("over √3. " + line), title
+
+
+def test_compare_says_a_noted_mean_on_either_side(two_runs, tmp_path) -> None:
+    """In a browser: the two runs picked on the Overview, and two studies,
+    gave each side's mean with no note, and judged a difference "resolved"
+    between a mean noted and one not, saying nothing of it."""
+    pytest.importorskip("playwright.sync_api")
+    import urllib.parse
+
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_workspace_says_its_studies import _study as _a_study
+
+    for run, kelvin in (("t300", 300), ("t310", 310)):
+        (two_runs / "runs" / run / "resolved_config.yml").write_text(
+            f"simulation:\n  temperature_K: {kelvin}\n", encoding="utf-8")
+    first = _a_study(tmp_path / "ws" / "first", means={"rmsd": (0.1046, 0.0013)})
+    second = _a_study(tmp_path / "ws" / "second", means={"rmsd": (0.1200, 0.0013)})
+    path = second / "analysis" / "rmsd" / "options.json"
+    record = json.loads(path.read_text())
+    record["findings"]["mean"]["solute_image"] = dict(_NOTE_09)
+    path.write_text(json.dumps(record))
+    read = """() => ({
+        cells: [...document.querySelectorAll(
+            '.compare-means-table tr[data-analysis="rmsd"] td')].map((n) => n.textContent),
+        titles: [...document.querySelectorAll(
+            '.compare-means-table tr[data-analysis="rmsd"] td.is-noted')].map((n) => n.title),
+        lines: [...document.querySelectorAll('.compare-noted')].map((n) => n.textContent),
+    })"""
+    found = {}
+    for study, place in ((two_runs, None), (first, f"{first}|{second}")):
+        session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                page.set_default_timeout(60000)
+                errors: list[str] = []
+                page.on("pageerror", lambda error, seen=errors: seen.append(str(error)))
+                if place is None:
+                    page.goto(session.url + "#overview", wait_until="domcontentloaded")
+                    page.wait_for_selector("#overview-runs-table tbody tr")
+                    page.locator(".overview-runs-pick").nth(0).check()
+                    page.locator(".overview-runs-pick").nth(1).check()
+                    page.click("#overview-runs-compare")
+                else:
+                    page.goto(session.url + "#compare/" + "|".join(
+                        urllib.parse.quote(p, safe="") for p in place.split("|")),
+                        wait_until="domcontentloaded")
+                page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+                found[place is None] = (page.evaluate(read), errors)
+                browser.close()
+        finally:
+            session.server.shutdown()
+    single = said_short(_NOTE)
+    (runs, errors) = found[True]
+    assert errors == []
+    assert not runs["cells"][1].endswith("†") and runs["cells"][2].endswith(" nm †")
+    assert runs["titles"] == [single[:1].upper() + single[1:] + "."]
+    assert runs["lines"] == [
+        f"\u2020 sweep, temperature 310 K, RMSD: {single}.",
+        "One resolved difference has a mean that may be biased by the solute's own image: "
+        "it may be that bias and not the setting."]
+    (studies, errors) = found[False]
+    assert errors == []
+    assert studies["cells"][2].endswith(" nm †")
+    assert studies["lines"][0] == f"† second, RMSD: {said_short(_NOTE_09)}."

@@ -100,6 +100,12 @@ html[data-page="studies"] .page-shell { max-width: 1280px; }
 .studies-mean-item:has(.studies-mean-of) { flex-wrap: wrap; }
 .studies-mean-of { flex-basis: 100%; padding-left: 17px; font-size: var(--text-2xs); white-space: nowrap; }
 .studies-table-wrap.is-tight .studies-mean-of { grid-column: 2; padding-left: 0; }
+/* Its image note: its own lines under the value, wrapped at a measure
+ * that does not widen the column. */
+.studies-mean-item:has(.studies-mean-noted) { flex-wrap: wrap; }
+.studies-mean-noted { flex-basis: 100%; max-width: 30em; padding-left: 17px; font-size: var(--text-2xs);
+    white-space: normal; }
+.studies-table-wrap.is-tight .studies-mean-noted { grid-column: 2; padding-left: 0; }
 .studies-mean-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; transform: translateY(-1px);
     border: 1.5px solid var(--accent-orange); }
 .studies-mean-item[data-determined="true"] .studies-mean-dot { background: var(--status-completed); border-color: var(--status-completed); }

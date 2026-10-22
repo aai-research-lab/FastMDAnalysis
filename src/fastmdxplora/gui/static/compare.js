@@ -295,7 +295,7 @@
       top.appendChild(make("th", "", label));
     });
     table.appendChild(top);
-    var noMean = [];
+    var noMean = [], noted = [], notedResolved = [];
     found.forEach(function (m) {
       var row = make("tr");
       row.dataset.analysis = m.analysis;
@@ -306,6 +306,16 @@
         var node = cell("mono", meanSaid(side, used[i]), said);
         if (used[i] != null && side && side.error != null && used[i] !== side.error) {
           node.title = "Its own error: " + withError(side.error, null, m.unit);
+        }
+        if (side && side.mean != null && side.noted) {
+          // Its image note beside it (image_note.py), said in full under
+          // the table: a difference from it may be that bias.
+          var line = side.noted.charAt(0).toUpperCase() + side.noted.slice(1) + ".";
+          node.appendChild(document.createTextNode(" †"));
+          node.classList.add("is-noted");
+          node.title = (node.title ? node.title + ". " : "") + line;
+          noted.push("† " + said + ", " + (m.label || m.analysis) + ": " + side.noted + ".");
+          if (m.versus && m.versus.resolved && notedResolved.indexOf(m) < 0) notedResolved.push(m);
         }
         row.appendChild(node);
         if (side && side.mean == null && side.withheld) {
@@ -337,6 +347,17 @@
         "Not determined, no mean: " + noMean.map(function (e) {
           return e.said + ", " + e.what.join(", ") + ": " + e.why;
         }).join("; ") + "."));
+    }
+    noted.forEach(function (line) {
+      host.appendChild(make("p", "muted small compare-noted", line));
+    });
+    if (notedResolved.length) {
+      // As the runs compared say it (runs_compared.py).
+      var one = notedResolved.length === 1;
+      host.appendChild(make("p", "muted small compare-noted",
+        (one ? "One resolved difference has" : notedResolved.length + " resolved differences have") +
+        " a mean that may be biased by the solute's own image: " + (one ? "it" : "each") +
+        " may be that bias and not the setting."));
     }
     host.appendChild(make("p", "muted small",
       "The difference is the second's mean less the first's. It is resolved past " +
