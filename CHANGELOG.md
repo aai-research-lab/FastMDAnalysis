@@ -61,6 +61,30 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `left_out_of_bundle.txt` inside the bundle and in the report. A
   chignolin study's bundle was 7.3 GB.
 
+- An Analysis cell says no frame count until the analyses' records are read,
+  then the count its own analysis read: the thermodynamics cell said the
+  trajectory's 6 frames over a state log of 20.
+- Insertion codes are read afresh for each topology: a structure read after
+  one with an insertion code (GLY 184A) in the same process, as in a batch
+  run in process or from Python, had that code wherever an atom had the same
+  serial, name and number, and one with none read as having insertions.
+- A presenter made inside a batch run in process is set aside when the run
+  ends: a single run after a batch in one Python session said nothing.
+- An asparagine whose ND2 a LINK bonds to a sugar takes no second sugar by
+  distance: a second NAG near it was read as a second glycan on the same
+  asparagine. It is asked about as a free sugar.
+- An RDF whose r_max is less than one bin says there is no curve to plot.
+- A run stopped as asked is "To carry it on" in the status strip's link to
+  its card and in the Problems list, as on its card.
+- A printed page leaves out the "Skip to the page" link, which printed over
+  the foot of the first sheet.
+- All studies says why a study did not open only while it holds: a hold of
+  the page's own (unsent Agent words) is not said on the card drawn again,
+  and the server's answer is not said again once the page is left after it.
+- Tests: the Overview's line of a study opened after one with a live
+  record, All studies listed once, the study strip moved by the wheel
+  through a redraw; a job's processes are waited for in /proc.
+
 - A study just started no longer shows the last study's length, wall time
   and last update under its name on the Overview until its own first
   status arrives.
