@@ -161,22 +161,25 @@
       .replace(/[,;:]+$/, "");
   }
 
-  // When this page was loaded: a study opened from it loads it again.
-  var loadedAt = Date.now();
-
   /* A study opened elsewhere is one showing in every window that hears of
-   * it, whenever each hears (a window in the background hears late): the
-   * same study left for the same study, the latest of these saved, since
-   * this page was loaded. The server gives a switch no identity of its
-   * own. Another switch between two of the same studies was heard and
-   * saved in between, or was this window's own, which loaded it again. */
+   * it, whenever each hears and whichever switches each missed (a window
+   * in the background hears late, and may hear two switches as one): known
+   * by the study it opened. It is saved already where an opening of that
+   * study was saved since the last switch this window heard or saved, or
+   * since this page was loaded (a study opened from it loads it again). The
+   * server gives a switch no identity of its own, so a switch no window
+   * heard on its own (two within one read of every window) is not saved. */
+  var heardAt = Date.now();
+  function opened(id) { return String(id || "").split(">")[1] || ""; }
   function sameSwitch(id) {
-    var latest = null;
+    var seen = null;
     notices.some(function (n) {
-      if (n.id && n.id.indexOf("switch:") === 0) { latest = n; return true; }
-      return false;
+      if (n.at <= heardAt) return true;
+      if (n.id && n.id.indexOf("switch:") === 0 && opened(n.id) === opened(id)) seen = n;
+      return Boolean(seen);
     });
-    return Boolean(latest && latest.id === id && latest.at >= loadedAt);
+    if (seen) heardAt = seen.at;
+    return Boolean(seen);
   }
 
   /* A notice saved, unless it is saved already: one with the same identity
@@ -203,6 +206,7 @@
                    key: act === "overview" ? where.key || "" : "" };
     if (id) notice.id = id;
     notices.unshift(notice);
+    if (id && id.indexOf("switch:") === 0) heardAt = now;
     if (notices.length > MOST) notices.length = MOST;
     write();
     drawBell();

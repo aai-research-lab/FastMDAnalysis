@@ -665,3 +665,62 @@ def test_a_long_line_s_path_is_left_out_before_it_is_cut(tmp_path):
     text = json.dumps(saved)
     for private in ("/Users", "kunle", "lysozyme", "production_segment", "chk"):
         assert private not in text, private
+
+
+def test_a_window_that_hears_two_switches_as_one_saves_no_second_notice(tmp_path):
+    """Two studies opened elsewhere a second apart: a window reading the
+    server 3 s late hears one switch, from the first study to the last,
+    and saves nothing the other window saved; each study opened is saved
+    once."""
+    pytest.importorskip("playwright.sync_api")
+    import urllib.request
+
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.workspace import study_key
+    from tests.test_the_workspace_says_its_studies import _study
+
+    alpha, beta, serving = _session(tmp_path)
+    gamma = _study(alpha.parent / "gamma")
+
+    def switch(url, folder):
+        asked = urllib.request.Request(url + "/api/explore/switch", method="POST",
+                                       data=json.dumps({"folder": str(folder)}).encode(),
+                                       headers={"content-type": "application/json"})
+        assert json.loads(urllib.request.urlopen(asked, timeout=60).read())["ok"]
+
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        context.add_init_script("""window.__heard = [];
+            window.addEventListener('dashboard:study-changed-elsewhere',
+                (e) => { window.__heard.push(e.detail.from + '>' + e.detail.to); });""")
+        first = _page(browser, url, "#overview", context=context)
+        late = context.new_page()
+        late.set_default_timeout(60000)
+        late.errors = []
+        late.on("pageerror", lambda error: late.errors.append(str(error)))
+        late.add_init_script("""(() => { const fetched = window.fetch;
+            window.fetch = (what, ...rest) => /\\/api\\/(status|app-state)/.test(String(what))
+                ? new Promise((go) => setTimeout(go, 3000)).then(() => fetched(what, ...rest))
+                : fetched(what, ...rest); })();""")
+        late.goto(url + "#overview", wait_until="domcontentloaded")
+        late.wait_for_selector("body.state-ready")
+        late.wait_for_function("() => !!window.FastMDXNotices")
+        keys = [study_key(alpha), study_key(beta), study_key(gamma)]
+        switch(url, beta)
+        first.wait_for_function("(key) => window.FastMDXDashboard.state.studyShown === key", arg=keys[1])
+        switch(url, gamma)
+        shown = """(key) => window.FastMDXDashboard.state.studyShown === key && / was opened elsewhere, /.test(
+            (document.querySelector('#dashboard-toast.show .dashboard-toast-said') || {}).textContent || '')"""
+        first.wait_for_function(shown, arg=keys[2])
+        late.wait_for_function(shown, arg=keys[2])
+        late.wait_for_timeout(500)
+        heard = {"first": first.evaluate("window.__heard"), "late": late.evaluate("window.__heard")}
+        saved = [n["id"] for n in first.evaluate(SAVED) if " was opened elsewhere, " in n["said"]]
+        errors = first.errors + late.errors
+        browser.close()
+    assert errors == []
+    a, b, c = keys
+    assert heard == {"first": [f"{a}>{b}", f"{b}>{c}"], "late": [f"{a}>{c}"]}
+    assert sorted(saved) == sorted([f"switch:{a}>{b}", f"switch:{b}>{c}"])
