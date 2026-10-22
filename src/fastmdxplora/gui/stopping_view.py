@@ -26,9 +26,11 @@ from fastmdxplora import record_access as _records
 __all__ = ["stopping_payload"]
 
 
-def _record_of(root: Path) -> dict[str, Any] | None:
+def _record_of(root: Path, refused: list[Path] | None = None) -> dict[str, Any] | None:
     """The study's record: in its own folder, or, for one replica's folder
-    (`runs/<id>`), in the study's."""
+    (`runs/<id>`), in the study's. Each one linked out of the study, and so
+    not read (`record_access`), is added to ``refused``."""
+    from fastmdxplora.refusals import OutsideWorkspace
     from fastmdxplora.simulation.stopping import RECORD
 
     places = [root]
@@ -38,6 +40,10 @@ def _record_of(root: Path) -> dict[str, Any] | None:
         try:
             # Through `record_access`, held to the study where the read is.
             record = json.loads(_records.read_text(place / RECORD, encoding="utf-8"))
+        except OutsideWorkspace:
+            if refused is not None:
+                refused.append(place / RECORD)
+            continue
         except (OSError, ValueError):
             continue
         if isinstance(record, dict) and isinstance(record.get("targets"), list):
@@ -248,9 +254,13 @@ def stopping_payload(root: Path | str) -> dict[str, Any]:
     """What the Overview's "Running until it is determined" card draws."""
     from fastmdxplora.simulation.stopping import _OUTCOME, record_said, round_decided
 
-    found = _record_of(Path(root))
+    refused: list[Path] = []
+    found = _record_of(Path(root), refused)
     if found is None:
-        return {"ok": False, "reason": "this study runs for a fixed length"}
+        # A record linked out of the study is not read, and not said to be
+        # a study of a fixed length.
+        return {"ok": False, "reason": ("its record of its rounds was not read" if refused
+                                        else "this study runs for a fixed length")}
     record, where = found["record"], found["where"]
     rounds = [r for r in record.get("rounds") or [] if isinstance(r, dict)]
     outcome = str(record.get("outcome") or "running")

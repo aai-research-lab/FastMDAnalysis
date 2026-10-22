@@ -1506,7 +1506,9 @@ def make_handler(
             if path == "/api/stopping":
                 from fastmdxplora.gui.stopping_view import stopping_payload
 
-                self._send_json(stopping_payload(root))
+                # Read from the study's own records only (`_confined`): its
+                # record, batch manifest and process records.
+                self._send_json(_said_not_read(_confined(root, stopping_payload)))
                 return
             if path == "/api/again":
                 # What can be run again on the study on screen, and why not,

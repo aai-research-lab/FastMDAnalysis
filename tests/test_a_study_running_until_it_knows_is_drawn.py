@@ -295,6 +295,83 @@ def test_it_is_served_and_answered_beyond_loopback(finished):
     assert page["ok"] and page["outcome"] == "met"
 
 
+
+def _a_campaign_killed_in_its_first_piece(tmp_path: Path) -> Path:
+    from fastmdxplora.simulation.stopping import planned_record
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import (
+        _a_gone_process, _a_run_said_it_was_going, _its_process)
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    runs = sorted((root / "runs").iterdir())
+    (root / "stopping.json").write_text(json.dumps(planned_record(
+        targets_of(RULE), RULE, [run.name for run in runs])), encoding="utf-8")
+    for run in runs:
+        _a_run_said_it_was_going(run)
+        _its_process(run, _a_gone_process())
+    return root
+
+
+def _linked_out(root: Path, name: str, outside: Path, change) -> None:
+    """The study's ``name`` moved outside it, changed, and linked back."""
+    record = json.loads((root / name).read_text(encoding="utf-8"))
+    change(record)
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text(json.dumps(record), encoding="utf-8")
+    (root / name).unlink()
+    try:
+        (root / name).symlink_to(outside)
+    except OSError:
+        pytest.skip("this system cannot create symbolic links")
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+@pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
+def test_the_card_reads_only_the_study(tmp_path, public):
+    """`/api/stopping` alone of the study's routes was not held to the
+    study: its record and its batch manifest linked out of it were read and
+    shown, beyond loopback too, a run named by the outside manifest's
+    values."""
+    from tests.test_the_study_pages_read_only_the_study import _ask
+
+    root = _a_campaign_killed_in_its_first_piece(tmp_path / "a")
+    run = sorted((root / "runs").iterdir())[1]
+    # Nothing linked out: served as it reads.
+    for served in (root, run):
+        code, body = _ask(served, tmp_path, "/api/stopping", public=public)
+        page = json.loads(body)
+        assert code == 200 and "unavailable" not in page
+        assert page["said"] == stopping_payload(served)["said"]
+    assert "in seed 1 and seed 2" in page["said"], page["said"]
+
+    def outside_values(manifest):
+        for entry in manifest.get("planned") or manifest["runs"]:
+            entry["sweep_values"] = {"simulation.random_seed": "OUTSIDE-" + entry["run_id"][-1]}
+    _linked_out(root, "batch_manifest.json", tmp_path / "elsewhere" / "batch.json",
+                outside_values)
+    assert "OUTSIDE-1" in stopping_payload(root)["said"]
+    for served, named in ((root, "batch_manifest.json"), (run, "../../batch_manifest.json")):
+        code, body = _ask(served, tmp_path, "/api/stopping", public=public)
+        page = json.loads(body)
+        assert code == 200 and "OUTSIDE" not in body.decode(), page["said"]
+        assert page["ok"] and page["said"].startswith("Stopped without finishing in its first piece")
+        assert page["unavailable_why"] == {named: "outside"}, page.get("unavailable_why")
+        assert f"{named} was not read" in page["not_read"]
+
+    other = _a_campaign_killed_in_its_first_piece(tmp_path / "b")
+    run = sorted((other / "runs").iterdir())[1]
+    _linked_out(other, "stopping.json", tmp_path / "elsewhere" / "stopping.json",
+                lambda record: record.update({"said": "SECRET OUTSIDE SENTENCE",
+                                              "outcome": "stopped"}))
+    for served, named in ((other, "stopping.json"), (run, "../../stopping.json")):
+        code, body = _ask(served, tmp_path, "/api/stopping", public=public)
+        page = json.loads(body)
+        assert code == 200 and "SECRET" not in body.decode()
+        assert page["ok"] is False and page["reason"] == "its record of its rounds was not read"
+        assert page["unavailable_why"] == {named: "outside"}, page.get("unavailable_why")
+        assert f"{named} was not read" in page["not_read"]
+
+
 def test_the_overview_draws_it(finished, tmp_path) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
