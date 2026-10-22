@@ -238,10 +238,12 @@ the workspace (from this GUI at most one study runs at a time), opening
 it on the page shown (its Overview from a page of no study); each job on one of your machines as its last recorded status says it
 (nothing is asked of the machine); the open study's recorded problems,
 opening the Problems tab; **Notices**, with how many are new, opening every
-notice the page gave (each saved as it is shown), each run seen ending (with
-**Open its Overview**) and each refusal the Log reads while the page is open,
-the last 200 saved on this computer, shown as All, Runs, or Refusals and
-warnings, and **Clear the list** with Undo; the Agent's mode, opening its
+notice the page gave (each saved as it is shown, with no path in it), each
+run seen ending (with **Open its Overview**) and each refusal the Log reads
+while the page is open, the last 200 saved on this computer, one of each
+however many windows saw it, shown as All, Runs, or Refusals and warnings,
+and **Clear the list** with Undo (Tab stays in the list until
+<kbd>Esc</kbd> or a choice); the Agent's mode, opening its
 settings; and
 the page's own updates, paused (the run goes on) or refreshed now. The
 Agent's mode is said by its name and its two words: **Seeker: built-in,

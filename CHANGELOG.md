@@ -485,6 +485,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   clear the scratch stays while the page is read again. Conversations and
   Chats are one list in the sidebar, with New chat for a chat of no study
   while a study is open.
+- A notice is saved with no path in it: "Opened output folder: /Users/..."
+  was saved and listed behind the bell as said; any path a notice names
+  (from the root, the home, a drive or a share) is left out of what is
+  saved, and out of a list saved before. A study opened elsewhere is saved
+  once however late a second window hears of it, and again when it is
+  opened elsewhere again. Tab stays in the open Notices list until Escape
+  or a choice. The Problems tab says when the server did not answer, and
+  Try again on All studies reads the folder that could not be listed, not
+  the last one listed.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
