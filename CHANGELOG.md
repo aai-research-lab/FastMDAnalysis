@@ -503,7 +503,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   projections), the analysis carries a note of it,
   counted over those frames (for an analysis without a main mean, the
   moments' shape descriptors or the secondary structure's fractions, over
-  the frames its means use, said as the union where they differ), said once
+  the frames its means use, said as the union where they differ; for the
+  thermodynamics, over the energy rows each mean averages, after its
+  discard, each read at the trajectory frame nearest its time), said once
   in its findings and with its numbers
   on each mean record (sub-means and reweighted averages included): every
   mean keeps its error, since meeting its copy may bias a mean but does not

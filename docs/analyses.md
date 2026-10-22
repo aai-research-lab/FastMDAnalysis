@@ -99,7 +99,9 @@ and every analysis of those frames carries a note, counted over the frames it
 uses (after its mean's discarded equilibration, or from its `start` as its
 record of the frames read says it; for an analysis without a main mean, the
 moments' or the secondary structure's, over the frames its means use, said as
-the union where they differ), once in
+the union where they differ; for the thermodynamics, over the energy rows
+each mean averages, on the energy record's own interval, each read at the
+trajectory frame nearest its time), once in
 its `findings.solute_image` ("The solute came within 1 nm of its own periodic
 image in 105 of 280 frames used (38%); the closest, 0.580 nm at frame 299,
 2.99 ns. ..."), with its numbers on each mean record it holds (SASA's

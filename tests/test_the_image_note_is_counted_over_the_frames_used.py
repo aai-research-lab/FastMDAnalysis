@@ -98,6 +98,74 @@ class TestFromItsStart:
         assert note["frames_used"] == 240 and note["frames_under_cutoff"] == 40
 
 
+def _energy(folder, times_ps, columns=None):
+    """An OpenMM state record beside the study: its rows at ``times_ps``,
+    a temperature and potential energy that settle after the first rows."""
+    (folder / "simulation").mkdir(exist_ok=True)
+    rng = np.random.default_rng(5)
+    lines = ['#"Step","Time (ps)","Potential Energy (kJ/mole)","Temperature (K)"']
+    for i, t in enumerate(times_ps):
+        drift = 200.0 * np.exp(-i / 3.0)
+        lines.append(f"{i + 1},{t},{-1000.0 + drift + rng.normal(scale=5.0)},"
+                     f"{300.0 + drift / 10 + rng.normal(scale=2.0)}")
+    (folder / "simulation" / "energy.csv").write_text("\n".join(lines) + "\n")
+
+
+class TestTheThermodynamicsOverItsRows:
+    """Its means average the energy record's rows, on the record's own
+    interval: a run whose solute met its image only before the rows used
+    carries no note; one that did after counts the rows."""
+
+    def test_counted_over_the_rows_each_mean_averages(self, tmp_path):
+        traj = _beads()
+        # Every 25 ps, frames being 10 ps apart (frames 0 to 299 at 10 ps on).
+        times = np.asarray(traj.time, dtype=float)
+        _energy(tmp_path, np.arange(times[0], times[-1] + 1, 25.0))
+        folder = _orchestrated(tmp_path, traj, ["thermodynamics"])
+        found = _findings(folder, "thermodynamics")
+        thermo = found["thermodynamics"]
+        rows = thermo["samples"]
+        reaching = times[100]
+        for key in ("potential_energy", "temperature"):
+            entry = thermo[key]
+            used = np.arange(times[0], times[-1] + 1, 25.0)[entry["discard"]:]
+            expected = int(np.count_nonzero(used < reaching - 5.0))
+            note = entry.get("solute_image")
+            if expected:
+                assert note["frames_used"] == rows - entry["discard"]
+                assert note["frames_under_cutoff"] == expected
+                assert note["counted_over"] == "energy rows"
+            else:
+                assert note is None
+        if "solute_image" in found:
+            assert "energy rows used" in found["solute_image"]["said"]
+            assert found["solute_image"]["frames_used"] <= rows
+
+    def test_none_where_the_solute_met_it_only_before_the_rows_used(self, tmp_path):
+        traj = _beads(reaching=20)
+        times = np.asarray(traj.time, dtype=float)
+        # Its rows start after the frames that met the image.
+        _energy(tmp_path, np.arange(times[60], times[-1] + 1, 30.0))
+        folder = _orchestrated(tmp_path, traj, ["thermodynamics"])
+        found = _findings(folder, "thermodynamics")
+        assert _findings(folder, "image_check")["solute_image"]["frames_under_cutoff"] == 20
+        assert "solute_image" not in found
+        assert all("solute_image" not in entry for entry in found["thermodynamics"].values()
+                   if isinstance(entry, dict))
+
+    def test_without_a_clock_over_every_frame_and_said(self, tmp_path):
+        from fastmdxplora.analysis.image_check import solute_atoms, solute_image_record
+        from fastmdxplora.analysis.thermodynamics import Thermodynamics
+
+        traj = _beads()
+        series, finding = solute_image_record(traj, solute_atoms(traj.topology, None)[0])
+        analysis = Thermodynamics()
+        analysis.solute_image, analysis.solute_image_series = finding, series
+        analysis._row_times = None
+        note = analysis._image_note_for(traj, {"units": "K", "discard": 3, "mean": 1.0})
+        assert note["frames_used"] == 300 and "no time" in note["said"]
+
+
 class TestAnAnalysisWithoutAMainMean:
     """The moments of inertia and the secondary structure have no main mean:
     their note is over the frames their means use, never every frame. The
