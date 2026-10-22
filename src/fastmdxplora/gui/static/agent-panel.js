@@ -1504,7 +1504,7 @@
    * begun, and taken out of this study's box. */
   function restoreUnsent(study) {
     var key = study && study.key;
-    if (!validStudyKey(key)) return;
+    if (!validStudyKey(key)) { leftForNoStudy(); return; }
     var title = (study && study.title) || "";
     /* Named with its folder: a study is named from its manifest until its
      * results are read, and several studies may be of one system (CI-774
@@ -1598,6 +1598,40 @@
     putBack(key, begunElsewhere ? "" : typed);
     if (!begunElsewhere) saidWhereKeptAsARunStarted(key);
   }
+  /* The GUI went from a study to no study, or to a folder that is not one:
+   * the words typed for the study are saved for it and taken out of the
+   * box, and said, as for another study (CI-774 review L18: they stayed in
+   * the box and went into the workspace's chats). Not while a run this page
+   * started may still take them to its study, nor while a run starts in the
+   * folder shown, not yet a study (Send waits, and its study, once one, is
+   * judged as any), nor for a run it started that ended at once: they are
+   * the person's words about it, there to send. */
+  function leftForNoStudy() {
+    var dashboard = window.FastMDXDashboard;
+    var state = (dashboard && dashboard.state) || {};
+    var now = Date.now();
+    if (!validStudyKey(unsentKey) || launching || wordsFollowRun
+        || runStudies.some(function (r) { return now < r.until; })
+        || (runFolders[unsentKey] && now < launchedUntil) || sendWaits() === "run") return;
+    if (!noStudyOpen() && state.studyIsOne !== false) return;
+    var was = unsentKey;
+    var forTitle = unsentTitle || "the study before";
+    var typed = boxNow().trim() || pendingFiles.length || attaching;
+    if (typed) keepUnsent();
+    var onlyHere = Boolean(heldInPage[was]);
+    unsentKey = "";
+    unsentTitle = "";
+    if (!typed) return;
+    var area = el("agent-request");
+    restoring += 1;
+    if (area) { area.value = ""; area.dispatchEvent(new Event("input")); }
+    pendingFiles = [];
+    renderChips();
+    restoring -= 1;
+    var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
+    unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
+               + "it is in the box again when " + forTitle + " is open" + last, "moved", was);
+  }
   /* Words kept as the page before went while a run started: where they are
    * is said, once. */
   function saidWhereKeptAsARunStarted(shown) {
@@ -1630,8 +1664,12 @@
    * started (`key`), is known, and a switch seen meanwhile is judged. */
   /* The folder each run this page started went to, by its study's key. */
   var runFolders = {};
+  /* Until when a run this page started may still end at once, leaving no
+   * study open: words typed for it then stay in the box (`leftForNoStudy`). */
+  var launchedUntil = 0;
   function launchAnswered(key, follows, output) {
     if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
+    if (validStudyKey(key)) launchedUntil = Date.now() + 30000;
     if (validStudyKey(key) && output) {
       runFolders[key] = String(output).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
     }

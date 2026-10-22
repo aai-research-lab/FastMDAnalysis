@@ -365,6 +365,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   saying they were not sent; what it says of words saved for another study
   stays.
 
+- Words typed for a study when the GUI goes to no study, or to a folder that
+  is not a study, are kept for that study and said, as for another study,
+  and are in its box again when it is open; they stayed in the box and went
+  into the workspace's chats. Words typed for a run the page started that
+  ends at once stay in the box, to be sent.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is

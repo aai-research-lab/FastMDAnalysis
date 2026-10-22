@@ -2755,6 +2755,84 @@ def test_the_page_names_no_study_open_in_its_view(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("left", ["no study", "a folder not a study"])
+def test_words_typed_for_a_study_are_kept_for_it_as_the_gui_leaves_it_for_none(
+        tmp_path, monkeypatch, left):
+    """L18 3: words typed on `here`, then the GUI goes to no study (a run
+    that failed at once) or to a folder that is not a study. The words
+    stayed in the box, unsaid, and went into the workspace's chats; for
+    another study they are kept for theirs and said. So they are here, and
+    are in the box again when `here` is open."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    words = "typed on here"
+    page, errors, close = _page_on(session, [])
+    try:
+        _shows(page, study_key(here))
+        _when_known(page)
+        page.focus("#agent-request")
+        page.keyboard.type(words)
+        if left == "no study":
+            session.runtime.data_stale = True
+            session.runtime.active_root = None
+            page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                                   timeout=30000)
+        else:
+            session.runtime.active_root = _begun(workspace)
+            page.wait_for_function("() => window.FastMDXDashboard.state.studyIsOne === false",
+                                   timeout=30000)
+        page.wait_for_function("() => !document.getElementById('agent-request').value", timeout=15000)
+        out = {"note": _note(page), "kept": _unsent(page)}
+        session.runtime.data_stale = False
+        _switch_elsewhere(session, here)
+        page.wait_for_function("(w) => document.getElementById('agent-request').value === w",
+                               arg=words, timeout=20000)
+        out["back"] = _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert out["kept"].get(study_key(here)) == words, out
+    assert "The unsent message typed for here" in out["note"] and "kept for it" in out["note"], out
+    assert "typed for here" not in out["back"], out
+    assert errors == []
+
+
+def test_words_typed_as_a_run_starts_stay_in_the_box_when_it_ends_at_once(tmp_path, monkeypatch):
+    """L18's "dies at once": words typed and Enter pressed as a run this page
+    started starts; the run's study shown, then the run ends at once and no
+    study is open. The words are the person's about that run: they stay in
+    the box, not kept for a study that will not open, and go into the
+    workspace's chats when sent."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch, taking=2.0)
+    words = "why did it fail?"
+    asked = []
+    page, errors, close = _page_on(session, [dict(_CONFIG), _answer("Because.")])
+    try:
+        _asking(page, asked)
+        _typed_and_entered_during_a_launch(page, here, words)
+        _shows(page, study_key(workspace / "run1"))
+        _when_known(page)
+        session.runtime.data_stale = True
+        session.runtime.active_root = None
+        page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                               timeout=30000)
+        page.wait_for_timeout(2000)
+        box, note = page.input_value("#agent-request"), _note(page)
+        _send_when_offered(page)
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Because.')", timeout=15000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert box == words and "kept for it" not in note, (box, note)
+    assert _requests(asked) == ["chignolin", words], asked
+    where = _where(workspace, words)
+    assert where and all(w.startswith(".fastmdxplora_agent_conversations/") for w in where), where
+    assert errors == []
+
+
+@pytest.mark.parametrize("left", ["no study", "a folder not a study"])
 def test_a_study_opened_after_no_study_shows_its_own_thread(tmp_path, monkeypatch, left):
     """L15 2: no study open (or a folder that is not one), a question asked
     there; another window opens `other`. The chat of no study stayed on
