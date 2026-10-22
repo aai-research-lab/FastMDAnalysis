@@ -237,8 +237,14 @@
           said.textContent = (d && (d.reason || d.error)) || "The tags could not be saved.";
           return;
         }
-        study.tags = d.tags;
-        study.note = d.note;
+        // The card as listed now, as Undo does: a list answered while the
+        // tags were being kept was drawn from studies of its own, and the
+        // tags just kept went on the one it replaced, the card shown none.
+        studies.filter(function (one) { return one.path === study.path; })
+          .concat([study]).forEach(function (one) {
+            one.tags = d.tags;
+            one.note = d.note;
+          });
         edited += 1;
         editing = null;
         draft = null;
