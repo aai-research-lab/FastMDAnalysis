@@ -148,23 +148,27 @@ def memory_needed(n: int, methods: Sequence[str], features: str, linkage: str) -
     - k-means and Ward on ``rmsd``: the classical MDS embedding's doubly
       centred matrix (8 n^2; :func:`_classical_mds` finds the leading
       eigenvectors in it, in place).
-    - an average, complete or single linkage: scikit-learn's condensed copy
-      in float64 and the index pairs it is read with, two int64 arrays of
-      n^2/2, and the mask they are found with: 13 n^2. The dendrogram's
-      linkage, made again after it, makes 8 n^2 of it.
+    - an average or complete linkage: scikit-learn's condensed copy in
+      float64 and the index pairs it is read with, two int64 arrays of
+      n^2/2, and the mask they are found with (13 n^2), and SciPy's own
+      working copy of the condensed distances, made in compiled code where
+      tracemalloc does not see it (4 n^2): 17 n^2. Single linkage's minimum
+      spanning tree makes no such copy: 13 n^2. The dendrogram's linkage,
+      made again after it, makes 8 n^2 of it.
     - Ward's linkage, on points: SciPy's condensed distances, 4 n^2 (after
       the MDS on ``rmsd``).
     - DBSCAN: the neighbours of every frame within ``eps``, int64, n^2 at
       most, where every frame is within it of every other (8 n^2); on the
       matrix, scikit-learn's block of its rows and the masks it reads them
       with as well (at most 1 GiB, its working memory, and 9 n^2) and its
-      lists of neighbours, read again (8 n^2).
+      lists of neighbours, read again and copied (13 n^2, as measured).
 
     Terms in n alone (the trajectory's frames, labels, a few rows of
     distances at a time) and the figures are left to the share of memory not
     planned on (:data:`MEMORY_SHARE`). Measured on SciPy 1.17 and
-    scikit-learn 1.9, the peak a clustering traced came within 1 n^2 of this
-    (``tests/test_a_clustering_fits_the_machine.py``).
+    scikit-learn 1.9 as the peak resident memory of a process clustering
+    (``tests/test_a_clustering_fits_the_machine.py``), which counts what
+    compiled code takes as well.
     """
     n2 = float(n) * float(n)
     matrix = 8 * n2 if builds_matrix(methods, features, linkage) else 0.0
@@ -173,29 +177,25 @@ def memory_needed(n: int, methods: Sequence[str], features: str, linkage: str) -
         if method == "kmeans" and features != "coordinates":
             each.append(8 * n2)
         elif method == "hierarchical":
-            if linkage != "ward":
+            if linkage in ("average", "complete"):
+                each.append(17 * n2)
+            elif linkage != "ward":
                 each.append(13 * n2)
             else:
                 each.append(8 * n2 if features != "coordinates" else 4 * n2)
         elif method == "dbscan":
             each.append(8 * n2 if features == "coordinates"
-                        else 16 * n2 + min(2**30, 9 * n2))
+                        else 21 * n2 + min(2**30, 9 * n2))
     return int(matrix + max(each))
 
 
-def memory_available() -> tuple[int | None, str]:
-    """The memory this machine can give a new allocation now, in bytes, and
-    where that was read.
-
-    ``psutil`` where it is installed (it is not a dependency); else
+def _machine_available() -> tuple[int | None, str]:
+    """The memory this machine can give a new allocation now, and where that
+    was read: ``psutil`` where it is installed (it is not a dependency); else
     ``MemAvailable`` in ``/proc/meminfo`` (Linux: free memory and the caches
     the kernel can give back); else free pages from ``os.sysconf``, which
-    leave the caches out and so read low; else, where no available memory
-    can be read (macOS without psutil), the machine's total physical memory
-    from ``os.sysconf``, said as such: a matrix past it cannot fit whatever
-    else is running, and one within it may still not. None where nothing
-    answers, and the check is then not made, which the record says.
-    """
+    leave the caches out and so read low; else the machine's total physical
+    memory from ``os.sysconf`` (macOS without psutil), said as such."""
     try:
         import psutil  # type: ignore[import-not-found]
 
@@ -211,7 +211,125 @@ def memory_available() -> tuple[int | None, str]:
         found = _sysconf_bytes(name)
         if found:
             return found, said
-    return None, "not read: no psutil, /proc/meminfo or os.sysconf on this machine"
+    return None, "no psutil, /proc/meminfo or os.sysconf on this machine"
+
+
+def _read_number(path: Path) -> int | None:
+    """A cgroup file's one number; None where it is absent, unreadable or
+    ``max`` (no limit)."""
+    try:
+        text = path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return int(text) if text.isdigit() else None
+
+
+def _cgroup_room(proc: Path = Path("/proc/self/cgroup"),
+                 root: Path = Path("/sys/fs/cgroup")) -> tuple[int | None, str]:
+    """What this process's control group (a SLURM job's, a container's) still
+    lets it take: its limit less its usage, the least over the group and the
+    groups above it (a limit holds for every group under it):
+    ``memory.max`` and ``memory.current`` under cgroup v2,
+    ``memory.limit_in_bytes`` and ``memory.usage_in_bytes`` under v1. None
+    where no limit is set or none can be read."""
+    try:
+        lines = proc.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None, ""
+    best: tuple[int | None, str] = (None, "")
+    for line in lines:
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        hierarchy, controllers, where = parts
+        if hierarchy == "0" and controllers == "":
+            base, names, version = root, ("memory.max", "memory.current"), "cgroup v2"
+        elif "memory" in controllers.split(","):
+            base = root / "memory"
+            names, version = ("memory.limit_in_bytes", "memory.usage_in_bytes"), "cgroup v1"
+        else:
+            continue
+        folder = base.joinpath(*[part for part in where.strip().split("/") if part])
+        while True:
+            limit = _read_number(folder / names[0])
+            usage = _read_number(folder / names[1])
+            # v1 writes an unlimited group as a number near 2^63.
+            if limit is not None and usage is not None and limit < 2**60:
+                room = max(limit - usage, 0)
+                if best[0] is None or room < best[0]:
+                    best = (room, f"the {version} limit less its usage "
+                                  f"({folder / names[0]})")
+            if folder == base or base not in folder.parents:
+                break
+            folder = folder.parent
+    return best
+
+
+def _rlimit_room() -> tuple[int | None, str]:
+    """What ``ulimit -v`` (``RLIMIT_AS``) or ``RLIMIT_DATA`` still lets this
+    process take: the limit less what it holds (``VmSize``, ``VmData`` in
+    ``/proc/self/status``). None where neither is set."""
+    try:
+        import resource
+    except ImportError:  # not on Windows
+        return None, ""
+    held = _process_status()
+    best: tuple[int | None, str] = (None, "")
+    for name, field in (("RLIMIT_AS", "VmSize"), ("RLIMIT_DATA", "VmData")):
+        which = getattr(resource, name, None)
+        if which is None:
+            continue
+        try:
+            soft, _hard = resource.getrlimit(which)
+        except (OSError, ValueError):
+            continue
+        if soft in (resource.RLIM_INFINITY, -1) or soft <= 0:
+            continue
+        room = max(int(soft) - held.get(field, 0), 0)
+        if best[0] is None or room < best[0]:
+            best = (room, f"{name} less what this process holds ({field})")
+    return best
+
+
+def _process_status() -> dict[str, int]:
+    """This process's ``Vm*`` sizes from ``/proc/self/status``, in bytes."""
+    found: dict[str, int] = {}
+    try:
+        with open("/proc/self/status", encoding="ascii") as status:
+            for line in status:
+                name, _, value = line.partition(":")
+                words = value.split()
+                if name.startswith("Vm") and len(words) == 2 and words[1] == "kB":
+                    found[name] = int(words[0]) * 1024
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def memory_available() -> tuple[int | None, str]:
+    """The memory a clustering can take now, in bytes, and where that was
+    read: the least of what the machine has available
+    (:func:`_machine_available`), what this process's control group still
+    allows (:func:`_cgroup_room`: a SLURM job's or a container's limit, past
+    which the kernel kills the worker), and what its address-space or data
+    limit still allows (:func:`_rlimit_room`: ``ulimit -v``, past which the
+    allocation fails). The record says which was least and what each read.
+    None where none answers, and the check is then not made, which the
+    record says.
+
+    Several workers clustering at once each read the same memory: one's
+    matrix is not seen until its pages are written. Planning for that is
+    not done here.
+    """
+    readings = [_machine_available(), _cgroup_room(), _rlimit_room()]
+    found = [(size, said) for size, said in readings if size is not None]
+    if not found:
+        return None, f"not read: {readings[0][1]}"
+    least, said = min(found, key=lambda reading: reading[0])
+    others = [other for size, other in found if other != said]
+    if others:
+        said += ", the least of that and " + " and ".join(others)
+    return least, said
 
 
 def _proc_meminfo_available() -> int | None:

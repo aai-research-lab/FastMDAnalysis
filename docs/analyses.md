@@ -170,12 +170,25 @@ The matrix grows with the square of the frames clustered: 31,000 frames make
 7.7 GB of it in float64 and 128,000 frames 131 GB, before the copies a
 method makes. So before it is made, its peak (the matrix and the largest copy
 the methods asked for make, `findings.memory`) is checked against the memory
-this machine has available, of which clustering plans on three quarters.
+this process can take, of which clustering plans on three quarters: the least
+of the machine's available memory, its control group's limit less its usage
+(`memory.max` less `memory.current` under cgroup v2, `memory.limit_in_bytes`
+less `memory.usage_in_bytes` under v1, the tightest of the group and those
+above it: a SLURM job's, a container's), and its address-space or data limit
+(`ulimit -v`) less what it holds, the record saying which was least. The
+peak is counted as resident memory measured it, compiled code's copies
+included (17 n^2 bytes beside the matrix for an average or complete
+linkage). Several workers clustering at once each read the same memory, and
+one's matrix is not seen by another until it is written: that is not planned
+for yet.
 Past it, clustering is refused (`analysis.memory.matrix_too_large`), naming
 the frames, the bytes needed and available, and the stride that fits;
 `stride: k` under `options: {cluster: ...}` clusters every k-th frame, and
 the other analyses still read every frame. On `features: coordinates`,
-k-means, Ward and DBSCAN make no matrix at all.
+k-means, Ward and DBSCAN make no matrix at all. `dimred`'s MDS makes the same
+matrix and is checked the same way (16 n^2 bytes, the matrix and its centred
+square), refused past it with the stride that fits under `analysis: {stride: k}`;
+PCA, t-SNE and UMAP make none.
 
 `dimred`, with PCA, writes the free-energy landscape on the first two
 components: G = -kT ln P, with P the histogram over `landscape_bins` bins

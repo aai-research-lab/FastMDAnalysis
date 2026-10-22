@@ -239,8 +239,12 @@ class DimRed(Analysis):
                 # possible -- and the distance between two frames is their
                 # RMSD, which is what a structural biologist means by how
                 # different two conformations are.
+                # Before anything of the frames' square is made, as
+                # clustering checks it.
+                _refuse_mds_past_memory(self, traj.n_frames)
                 distances = _pairwise_rmsd(traj, self.select_atoms(traj))
                 embedding = _classical_mds(distances, self.n_components)
+                del distances
                 # PCA's variance shares stay where PCA put them: MDS has
                 # none of its own, and clearing the one attribute both
                 # shared took "(98.5%)" off the PCA axes whenever MDS ran
@@ -548,6 +552,45 @@ def _plot_dimred_scatter(
 register_analysis(DimRed.name, DimRed)
 
 
+def mds_memory_needed(n: int) -> int:
+    """The peak bytes, of order n squared, MDS of ``n`` frames makes: the
+    pairwise RMSD matrix in float64 (8 n^2) and its doubly centred square,
+    whose leading eigenvectors are found in place (8 n^2), as clustering's
+    k-means makes them (:func:`fastmdxplora.analysis.cluster.memory_needed`)."""
+    return int(16 * float(n) * float(n))
+
+
+def _refuse_mds_past_memory(self: "DimRed", n: int) -> None:
+    """Refuse MDS of ``n`` frames where its matrix would not fit in the
+    memory this process can take (:func:`fastmdxplora.analysis.cluster.memory_available`),
+    with the stride that fits; record the check either way."""
+    from fastmdxplora.analysis.cluster import MEMORY_SHARE, _gigabytes, memory_available
+
+    needed = mds_memory_needed(n)
+    available, read_from = memory_available()
+    check: dict[str, Any] = {"frames": n, "bytes_needed": needed,
+                             "bytes_available": available, "available_read_from": read_from,
+                             "share_usable": MEMORY_SHARE, "method": "mds"}
+    self.findings["memory"] = check
+    if available is None or needed <= MEMORY_SHARE * available:
+        return
+    stride = 2
+    while stride < n and mds_memory_needed(-(-n // stride)) > MEMORY_SHARE * available:
+        stride += 1
+    check["stride_that_fits"] = stride
+    raise StudyError(
+        f"MDS of {n:,} frames needs about {_gigabytes(needed)} for their "
+        f"frame-by-frame RMSD matrix and its centred square, and this process "
+        f"can take {_gigabytes(available)} ({read_from}), of which an analysis "
+        f"plans on {MEMORY_SHARE:.0%}. PCA, t-SNE and UMAP make no such matrix "
+        f"(`methods: [pca]`); or load every {stride}th frame for the analyses "
+        f"(`analysis: {{stride: {stride}}}`, which every analysis then reads), "
+        f"{-(-n // stride):,} frames, which fits.",
+        code="analysis.memory.matrix_too_large", frames=n,
+        bytes_needed=needed, bytes_available=available, stride=stride)
+
+
+
 def _pairwise_rmsd(traj: Any, atom_indices: Any = None) -> np.ndarray:
     """RMSD between every pair of frames, each pair superposed optimally.
 
@@ -566,16 +609,12 @@ def _pairwise_rmsd(traj: Any, atom_indices: Any = None) -> np.ndarray:
     on this analysis's behalf, and because the test that covers MDS uses a
     solvent-free peptide, where every atom *is* the selection.
     """
-    import mdtraj as md
+    # Clustering's, which symmetrises in place: `0.5 * (d + d.T)` made two
+    # more matrices.
+    from fastmdxplora.analysis.cluster import _pairwise_rmsd as rows_in_place
 
-    n = traj.n_frames
-    distances = np.zeros((n, n), dtype=np.float64)
-    for index in range(n):
-        distances[index] = md.rmsd(traj, traj, index,
-                                   atom_indices=atom_indices)
-    # md.rmsd is not exactly symmetric to floating point, and an asymmetric
-    # matrix would give MDS a slightly complex eigenspectrum.
-    return 0.5 * (distances + distances.T)
+    atoms = np.arange(traj.n_atoms) if atom_indices is None else np.asarray(atom_indices)
+    return rows_in_place(traj, atoms)
 
 
 def _classical_mds(distances: np.ndarray, n_components: int) -> np.ndarray:
@@ -586,13 +625,10 @@ def _classical_mds(distances: np.ndarray, n_components: int) -> np.ndarray:
     kept separate because that one embeds for k-means and this one is the
     result being reported.
     """
-    squared = np.asarray(distances, dtype=np.float64) ** 2
-    n = squared.shape[0]
-    centring = np.eye(n) - np.ones((n, n)) / n
-    gram = -0.5 * centring @ squared @ centring
-    values, vectors = np.linalg.eigh(gram)
-    order = np.argsort(values)[::-1][:n_components]
-    # Negative eigenvalues mean the distances are not exactly Euclidean,
-    # which pairwise RMSD need not be. Clipping is the standard remedy.
-    kept = np.clip(values[order], 0.0, None)
-    return vectors[:, order] * np.sqrt(kept)
+    # Clustering's, which centres in place and finds only the leading
+    # eigenpairs: the centring matrix written out, its two products and a
+    # full eigendecomposition made five more matrices. Negative eigenvalues
+    # (pairwise RMSD need not be exactly Euclidean) are clipped there too.
+    from fastmdxplora.analysis.cluster import _classical_mds as in_place
+
+    return in_place(np.asarray(distances, dtype=np.float64), n_components)

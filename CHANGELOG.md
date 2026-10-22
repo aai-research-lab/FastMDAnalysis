@@ -10,23 +10,30 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 
 - Clustering checks its frame-by-frame RMSD matrix against the memory this
-  machine has available before it makes it (psutil where installed, else
-  `/proc/meminfo` or `os.sysconf`; on a Mac without psutil, the machine's
-  total memory, said as such), and past it is refused
+  process can take before it makes it: the least of the machine's available
+  memory (psutil where installed, else `/proc/meminfo` or `os.sysconf`; on a
+  Mac without psutil, the machine's total memory, said as such), its
+  control group's limit less its usage (cgroup v2 or v1, a SLURM job's or a
+  container's) and its `ulimit -v` or data limit less what it holds, the
+  peak counted as resident memory measures it (17 n^2 bytes beside the
+  matrix for an average or complete linkage, SciPy's own copy included).
+  Past it, clustering is refused
   (`analysis.memory.matrix_too_large`) with the frames, the bytes needed and
   available, and the stride that fits (`options: {cluster: {stride: k}}`,
   new); the other analyses still run. A chignolin study extended to 128,000
   frames was killed by the kernel while clustering, a matrix of 131 GB and a
   copy of 66 GB. The matrix is made with no copies beside it where it was
   made with two, and k-means, Ward and DBSCAN on `features: coordinates`
-  make none.
+  make none. `dimred`'s MDS is checked and refused the same way, and makes
+  its matrix as clustering does, without the five copies of it it made.
 - Clustering no longer writes the frame-by-frame matrix twice:
   `hierarchical_distance_matrix.npy` is gone (the dendrogram is the
   linkage's), and `cluster_rmsd_matrix.npz` holds the map of time against
   time at most 1,000 cells across, its rows and columns averaged in blocks
   of frames, the block said in the figure's title and the report's caption.
   The figure, the GUI and the report read that one file; a study clustered
-  before is read as it was. The whole matrix is written only with
+  before is read as it was, its whole matrix averaged as the GUI reads it, a
+  few rows at a time, never held whole. The whole matrix is written only with
   `save_full_matrix: true`, its size said in the log first.
 - The project bundle holds results and records, not working matrices: the
   clustering's whole matrix, and any matrix the analyses saved past 100 MB,

@@ -235,6 +235,8 @@ class TestTheMemoryCheck:
         import sys
 
         monkeypatch.setitem(sys.modules, "psutil", None)
+        monkeypatch.setattr(clustering, "_cgroup_room", lambda: (None, ""))
+        monkeypatch.setattr(clustering, "_rlimit_room", lambda: (None, ""))
         monkeypatch.setattr(clustering, "_proc_meminfo_available", lambda: None)
         monkeypatch.setattr(clustering, "_sysconf_bytes",
                             lambda name: 16 * 10**9 if name == "SC_PHYS_PAGES" else None)
@@ -275,3 +277,229 @@ class TestTheEstimateIsWhatTheMethodsMake:
         analysis.compute(_chain(300))
         assert analysis._distances is None
         assert memory_needed(10**6, ["kmeans"], "coordinates", "average") == 0
+
+
+
+class TestTheBudgetIsTheProcesss:
+    """A SLURM job's cgroup, a container's, or `ulimit -v` gives a process
+    less than the machine has: under `ulimit -v` 1.3 GB the check read 5.5 GB
+    available and the clustering failed allocating instead of being refused
+    with a stride, and under a cgroup the kernel kills the worker."""
+
+    def _cgroup(self, tmp_path, *, v2: bool, limit: str, usage: int,
+                parent_limit: str | None = None):
+        root = tmp_path / "sys"
+        if v2:
+            (tmp_path / "cgroup").write_text("0::/job/step\n")
+            group, names = root / "job" / "step", ("memory.max", "memory.current")
+            parent = root / "job"
+        else:
+            (tmp_path / "cgroup").write_text("4:memory:/job/step\n1:cpu:/\n")
+            group = root / "memory" / "job" / "step"
+            names = ("memory.limit_in_bytes", "memory.usage_in_bytes")
+            parent = root / "memory" / "job"
+        group.mkdir(parents=True)
+        (group / names[0]).write_text(limit + "\n")
+        (group / names[1]).write_text(f"{usage}\n")
+        if parent_limit is not None:
+            (parent / names[0]).write_text(parent_limit + "\n")
+            (parent / names[1]).write_text(f"{usage}\n")
+        return clustering._cgroup_room(tmp_path / "cgroup", root)
+
+    def test_a_v2_limit_less_its_usage(self, tmp_path):
+        room, said = self._cgroup(tmp_path, v2=True, limit=str(4 * 10**9), usage=10**9)
+        assert room == 3 * 10**9 and "cgroup v2" in said and "memory.max" in said
+
+    def test_a_v1_limit_less_its_usage(self, tmp_path):
+        room, said = self._cgroup(tmp_path, v2=False, limit=str(2 * 10**9), usage=5 * 10**8)
+        assert room == 15 * 10**8 and "cgroup v1" in said
+
+    def test_a_tighter_limit_above_the_group_holds(self, tmp_path):
+        room, _ = self._cgroup(tmp_path, v2=True, limit="max", usage=10**9,
+                               parent_limit=str(3 * 10**9))
+        assert room == 2 * 10**9
+
+    def test_no_limit_is_no_room_to_plan_on(self, tmp_path):
+        assert self._cgroup(tmp_path, v2=True, limit="max", usage=10**9)[0] is None
+        (tmp_path / "v1").mkdir()
+        # v1 writes an unlimited group as a number near 2^63.
+        assert self._cgroup(tmp_path / "v1", v2=False, limit=str(9223372036854771712),
+                            usage=10**9)[0] is None
+
+    def test_an_address_space_limit_is_read(self, tmp_path):
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = (
+            "import resource, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "from fastmdxplora.analysis import cluster\n"
+            "held = cluster._process_status().get('VmSize', 0)\n"
+            "resource.setrlimit(resource.RLIMIT_AS, (held + 300 * 2**20, resource.RLIM_INFINITY))\n"
+            "room, said = cluster.memory_available()\n"
+            "print(room, said)\n")
+        src = str(Path(clustering.__file__).resolve().parents[2])
+        done = subprocess.run([sys.executable, "-c", script, src], capture_output=True,
+                              text=True, timeout=300, cwd=tmp_path)
+        assert done.returncode == 0, done.stderr[-2000:]
+        room, said = done.stdout.split(" ", 1)
+        assert int(room) <= 300 * 2**20
+        assert said.startswith("RLIMIT_AS")
+
+    def test_the_least_is_planned_on_and_each_said(self, monkeypatch):
+        monkeypatch.setattr(clustering, "_machine_available", lambda: (8 * 10**9, "machine"))
+        monkeypatch.setattr(clustering, "_cgroup_room", lambda: (2 * 10**9, "the group"))
+        monkeypatch.setattr(clustering, "_rlimit_room", lambda: (None, ""))
+        available, said = clustering.memory_available()
+        assert available == 2 * 10**9
+        assert said.startswith("the group") and "machine" in said
+
+    def test_average_and_complete_linkage_count_scipy_s_copy(self):
+        n = 1000
+        assert memory_needed(n, ["hierarchical"], "rmsd", "average") == 25 * n * n
+        assert memory_needed(n, ["hierarchical"], "rmsd", "complete") == 25 * n * n
+        assert memory_needed(n, ["hierarchical"], "rmsd", "single") == 21 * n * n
+
+
+_PEAK_SCRIPT = r"""
+import json, sys
+import numpy as np
+import mdtraj as md
+sys.path.insert(0, sys.argv[1])
+import fastmdxplora.analysis  # noqa: F401
+from fastmdxplora.analysis.cluster import Cluster
+
+def status(name):
+    for line in open("/proc/self/status"):
+        if line.startswith(name + ":"):
+            return int(line.split()[1]) * 1024
+    raise SystemExit("no " + name)
+
+n, options = int(sys.argv[2]), json.loads(sys.argv[3])
+rng = np.random.default_rng(0)
+top = md.Topology()
+chain = top.add_chain()
+for i in range(4):
+    top.add_atom("CA", md.element.carbon, top.add_residue("ALA", chain, resSeq=i + 1))
+xyz = rng.normal(0.0, 0.4, (4, 3))[None] + np.cumsum(rng.normal(0.0, 0.01, (n, 4, 3)), axis=0)
+traj = md.Trajectory(xyz.astype(np.float32), top)
+analysis = Cluster(**options)
+analysis.compute(traj[:50])  # every library loaded before the baseline
+with open("/proc/self/clear_refs", "w") as refs:  # the peak counted from here
+    refs.write("5")
+before = status("VmRSS")
+analysis.compute(traj)
+print(json.dumps({"peak": status("VmHWM") - before, "methods": analysis.methods,
+                  "features": analysis.features, "linkage": analysis.linkage}))
+"""
+
+
+class TestThePeakIsMeasuredAsResidentMemory:
+    """tracemalloc does not see what compiled code takes with malloc (SciPy's
+    working copy of the condensed distances): the peak measured as resident
+    memory of a process, the estimate never under it by more than terms in
+    n alone."""
+
+    @pytest.mark.parametrize("options", [
+        {},
+        {"methods": ["hierarchical"], "linkage": "complete"},
+        {"methods": ["hierarchical"], "linkage": "single"},
+        {"methods": ["kmeans"]},
+        {"methods": ["dbscan"], "eps": 5.0},
+    ], ids=["default", "complete", "single", "kmeans", "dbscan"])
+    def test_the_estimate_is_not_under_the_resident_peak(self, options, tmp_path):
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        if not Path("/proc/self/clear_refs").exists():
+            pytest.skip("the peak resident memory is read from Linux's /proc")
+        n = 2500
+        src = str(Path(clustering.__file__).resolve().parents[2])
+        done = subprocess.run([sys.executable, "-c", _PEAK_SCRIPT, src, str(n),
+                               json.dumps(options)], capture_output=True, text=True,
+                              timeout=600, cwd=tmp_path)
+        assert done.returncode == 0, done.stderr[-2000:]
+        found = json.loads(done.stdout.strip().splitlines()[-1])
+        estimate = memory_needed(n, found["methods"], found["features"], found["linkage"])
+        # Terms in n alone, and the allocator's own pages: 20 MB.
+        assert found["peak"] <= estimate + 20 * 2**20, (found["peak"] / n**2, estimate / n**2)
+        assert estimate <= 1.5 * found["peak"] + 20 * 2**20, (found["peak"] / n**2,
+                                                             estimate / n**2)
+
+
+class TestAnOlderStudysWholeMatrixIsReadInBlocks:
+    """An older study kept the whole matrix in `cluster_rmsd_matrix.npz`; the
+    GUI's read of it peaked at three times its size (a weights array for
+    weights all one, and two products), 11.5 GB for a 31,000-frame study."""
+
+    def test_its_map_is_the_block_means_read_a_few_rows_at_a_time(self, tmp_path):
+        from fastmdxplora.gui.figure_data import MOST_CELLS, _rmsd_matrix
+
+        n = 2400
+        rng = np.random.default_rng(1)
+        half = rng.uniform(0.0, 1.0, (n, n)).astype(np.float32)
+        matrix = (half + half.T) / 2
+        folder = tmp_path / "analysis" / "cluster"
+        folder.mkdir(parents=True)
+        np.savez_compressed(folder / "cluster_rmsd_matrix.npz", rmsd_nm=matrix,
+                            frames=np.arange(n, dtype=np.int64),
+                            time_ns=np.arange(1, n + 1) * 0.01,
+                            distance=np.array("RMSD after superposing each pair"))
+        block = math.ceil(n / MOST_CELLS)
+        starts = np.arange(0, n, block)
+        expected = np.add.reduceat(np.add.reduceat(matrix.astype(np.float64), starts, axis=0),
+                                   starts, axis=1)
+        sizes = np.diff(np.append(starts, n))
+        expected /= np.outer(sizes, sizes)
+        del half
+
+        tracemalloc.start()
+        try:
+            payload = _rmsd_matrix(tmp_path)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        assert payload is not None and payload["block"] == block
+        assert np.allclose(np.asarray(payload["values"], dtype=float), expected, atol=1e-4)
+        # Not the matrix, nor a copy of it: a few rows and the map.
+        assert peak < 0.5 * matrix.nbytes, peak / matrix.nbytes
+
+
+class TestMDSIsCheckedAsClusteringIs:
+    """Dimensionality reduction's MDS made the same n by n matrix with no
+    check, and five more of its size."""
+
+    def test_past_the_memory_it_is_refused_with_the_stride_that_fits(self, tmp_path, monkeypatch):
+        from fastmdxplora.analysis.dimred import DimRed, mds_memory_needed
+
+        n = 600
+        available = mds_memory_needed(n) // 5
+        monkeypatch.setattr(clustering, "memory_available", lambda: (available, "mocked"))
+        result = DimRed(output_dir=tmp_path, methods=["mds"]).run(_chain(n))
+        assert result.status == "error"
+        assert "matrix" in result.message and "stride:" in result.message
+        from fastmdxplora.refusals import StudyError, refusal_of
+
+        with pytest.raises(StudyError) as raised:
+            DimRed(methods=["mds"]).compute(_chain(n))
+        refusal = refusal_of(raised.value)
+        assert refusal.code == "analysis.memory.matrix_too_large"
+        stride = refusal.details["stride"]
+        assert mds_memory_needed(math.ceil(n / stride)) <= MEMORY_SHARE * available
+        assert mds_memory_needed(math.ceil(n / (stride - 1))) > MEMORY_SHARE * available
+
+    def test_within_it_the_projection_is_classical_mds(self, monkeypatch):
+        from fastmdxplora.analysis.dimred import _classical_mds, _pairwise_rmsd
+
+        traj = _chain(120)
+        distances = _pairwise_rmsd(traj, traj.topology.select("name CA"))
+        embedded = _classical_mds(distances, 2)
+        # Classical MDS by its textbook formula, the centring matrix written out.
+        n = distances.shape[0]
+        centring = np.eye(n) - np.ones((n, n)) / n
+        values, vectors = np.linalg.eigh(-0.5 * centring @ distances ** 2 @ centring)
+        top = vectors[:, ::-1][:, :2] * np.sqrt(np.clip(values[::-1][:2], 0, None))
+        for k in range(2):
+            assert np.allclose(np.abs(embedded[:, k]), np.abs(top[:, k]), atol=1e-6)

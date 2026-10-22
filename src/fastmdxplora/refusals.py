@@ -782,8 +782,8 @@ CODES: tuple[Code, ...] = (
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("analysis", "needs")),
     Code("analysis.memory.matrix_too_large",
-         "The frames' pairwise matrix, and the copies the clustering makes of "
-         "it, would not fit in the memory this machine has available.",
+         "The frames' pairwise matrix, and the copies clustering or MDS makes "
+         "of it, would not fit in the memory this process can take.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION, since="2.7",
          detail_keys=("frames", "bytes_needed", "bytes_available", "stride")),
     Code("analysis.data.not_this_system",
