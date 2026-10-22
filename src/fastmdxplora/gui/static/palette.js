@@ -105,7 +105,8 @@
                    hint: "Another study, or another run of this one, on the Compare page",
                    run: function () { open("compare"); } });
     }
-    found.push({ group: "Action", label: "Preferences", run: dialog("prefs-dialog") });
+    found.push({ group: "Action", label: "Settings", hint: "Every setting, in one place",
+                 run: function () { if (window.FastMDXSettings) window.FastMDXSettings.show(); } });
     found.push({ group: "Action", label: "Cite FastMDXplora", run: dialog("cite-dialog") });
     found.push({ group: "Action", label: "Every key", run: dialog("viewer-help"), keys: keysOf("keys") });
     found.push({ group: "Action", label: "Fold or show the sidebar", keys: keysOf("sidebar"),
@@ -206,18 +207,20 @@
     });
   }
 
-  /* Each setting of Preferences by its words, opening it there. */
+  /* Each setting of this computer's by its words (Settings' You),
+   * opening the Settings page at it. */
   function settingsOf() {
-    var rows = document.querySelectorAll("#prefs-dialog .pref-row");
+    var rows = document.querySelectorAll("#settings-you .pref-row");
     var found = [];
     Array.prototype.forEach.call(rows, function (row) {
-      var words = row.querySelector("span");
-      var label = words ? words.textContent.trim() : "";
+      var words = row.querySelector(":scope > span");
+      var label = words ? (words.firstChild && words.firstChild.nodeType === 3
+        ? words.firstChild.textContent : words.textContent).trim() : "";
       var group = row.closest(".pref-group");
       var title = group ? ((group.querySelector(".pref-group-title") || {}).textContent || "").trim() : "";
       if (!label) return;
       found.push({ group: "Setting", label: label, hint: title, run: function () {
-        dialog("prefs-dialog")();
+        if (window.FastMDXSettings) window.FastMDXSettings.show();
         setTimeout(function () {
           var field = row.querySelector("input, select, textarea, button");
           if (field) { field.focus(); row.scrollIntoView({ block: "nearest" }); }

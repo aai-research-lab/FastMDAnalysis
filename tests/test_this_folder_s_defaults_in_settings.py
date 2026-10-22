@@ -217,3 +217,23 @@ def test_the_agent_s_mode_and_ceiling_are_saved(browser, session):
     assert said[:2] == ["autonomous", "12"]
     assert said[2] == said[3] == "Ranger: built-in, autonomous"
     assert "Ranger" in said[4]
+
+
+def test_k_finds_a_setting_and_opens_settings_at_it(browser, session):
+    """⌘K found each setting of Preferences in its dialog; it finds those of
+    Settings' You, and opens the page at the one chosen."""
+    started, _ = session
+    page = _open(browser, started.url, "#overview")
+    page.keyboard.press("Control+k")
+    page.wait_for_selector("#palette:not([hidden])")
+    page.fill("#palette-input", "display size")
+    page.wait_for_timeout(200)
+    lines = page.evaluate("""() => [...document.querySelectorAll('#palette-list li')]
+        .map((li) => li.textContent.replace(/\\s+/g, ' ').trim())""")
+    page.keyboard.press("Enter")
+    page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
+    page.wait_for_function("() => document.activeElement.id === 'setting-display-size'")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert lines[0] == "Setting" and lines[1].startswith("Display size")
