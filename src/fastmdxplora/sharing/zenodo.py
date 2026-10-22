@@ -139,41 +139,74 @@ def _a_draft(answer: Any, identifier: str = "", doi: str = "") -> bool:
 
 
 #: Quotes Zenodo straightens in what it is sent (as it fixes text it keeps).
-_QUOTES = str.maketrans({"\u02bc": "'", "\u2018": "'", "\u2019": "'", "\u201a": "'",
-                         "\u201b": "'", "\u201c": '"', "\u201d": '"', "\u201e": '"',
-                         "\u201f": '"', "\u2028": "\n", "\u2029": "\n", "\u0085": "\n"})
+#: What Zenodo changes in text it keeps (as ftfy fixes text, run on every
+#: title, description and version it is sent): Latin ligatures written out,
+#: then quotes straightened and lines broken at line and paragraph
+#: separators.
+_LIGATURES = str.maketrans({
+    "\u0132": "IJ", "\u0133": "ij", "\u0149": "\u02bcn", "\u01f1": "DZ", "\u01f2": "Dz",
+    "\u01f3": "dz", "\u01c4": "D\u017d", "\u01c5": "D\u017e", "\u01c6": "d\u017e",
+    "\u01c7": "LJ", "\u01c8": "Lj", "\u01c9": "lj", "\u01ca": "NJ", "\u01cb": "Nj",
+    "\u01cc": "nj", "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi",
+    "\ufb04": "ffl", "\ufb05": "\u017ft", "\ufb06": "st", "\u3000": " "})
+_QUOTES = str.maketrans({
+    "\u02bc": "'", "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
+    "\u2028": "\n", "\u2029": "\n"})
+
+#: What Zenodo takes out of text it keeps: control characters (but tabs,
+#: line breaks and form feeds), those no XML may hold, byte-order marks,
+#: deprecated format controls, zero-width spaces.
+_TAKEN_OUT = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b\u206a-\u206f\ufeff\ufff9-\ufffc"
+    "\ufffe\uffff\ud800-\udfff\U000e0000-\U000e007f]")
+
+
+def _c1(found: re.Match[str]) -> str:
+    """A C1 control character as the Windows-1252 one Zenodo reads it as."""
+    try:
+        return bytes([ord(found.group())]).decode("cp1252")
+    except UnicodeDecodeError:
+        return found.group()
 
 
 def _plain(value: Any) -> Any:
-    """Text as Zenodo keeps what it is sent, for comparing the two: it
-    fixes what it takes (its forms of characters, quotes straightened,
-    no ligatures, control or zero-width characters, nothing around it), so
-    a title or description sent and read back differ in these alone."""
+    """Text as Zenodo keeps what it is sent, for comparing the two: as ftfy
+    fixes it (its composed form, C1 controls read as Windows-1252, quotes
+    straightened, ligatures and full-width letters written plainly, some
+    control characters taken out, entities read in text holding no markup,
+    nothing around it), and nothing else: what it keeps apart (a
+    superscript, a soft hyphen) is kept apart here too."""
     if isinstance(value, dict):
         return {k: _plain(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_plain(v) for v in value]
     if not isinstance(value, str):
         return value
-    # (Its entities read as what they stand for in text holding no markup.)
-    fixed = value if "<" in value else html.unescape(value)
-    fixed = unicodedata.normalize("NFKC", fixed.replace("\r\n", "\n").replace("\r", "\n"))
-    return "".join(c for c in fixed.translate(_QUOTES)
-                   if c in "\n\t" or unicodedata.category(c) not in ("Cc", "Cf")).strip()
+    # (In ftfy's order, on the text with nothing around it.)
+    fixed = value.strip()
+    fixed = fixed if "<" in fixed else html.unescape(fixed)
+    fixed = re.sub("[\x80-\x9f]", _c1, fixed).translate(_LIGATURES)
+    fixed = re.sub("[\uff01-\uffee]", lambda c: unicodedata.normalize("NFKC", c.group()),
+                   fixed)
+    fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
+    return unicodedata.normalize("NFC", _TAKEN_OUT.sub("", fixed))
 
 
-#: Zenodo's earlier ids for licences, where they are not its ids now: one
-#: sent in either form may come back in the other.
+#: Licences by the ids Zenodo takes them as, where these are not the ids it
+#: is given (its aliases, then its earlier ids), as its own code maps them:
+#: one sent in one form may come back in another.
 _LICENCES_ONCE = {
-    "agpl-1.0": "agpl-1.0-only", "apache": "apache-1.0", "apache2.0": "apache-2.0",
-    "apgl-v3": "agpl-3.0-only", "apl1.0": "apl-1.0", "artistic-license-2.0": "artistic-2.0",
-    "attribution": "aal", "bsd-2-clause-freebsd": "bsd-2-clause-views",
-    "bsd-2-clause-netbsd": "bsd-2-clause", "bsd-license": "bsd-1-clause", "bsl1.0": "bsl-1.0",
-    "ca-tosl1.1": "catosl-1.1", "canada-crown": "ogl-canada-2.0", "cc-by": "cc-by-1.0",
-    "cc-by-sa": "cc-by-sa-1.0", "cc-nc": "cc-by-nc-2.0", "cc-zero": "cc0-1.0",
-    "cddl1": "cddl-1.0", "cpal_1.0": "cpal-1.0", "cuaoffice": "cua-opl-1.0", "ecl2": "ecl-2.0",
-    "eclipse-1.0": "epl-1.0", "eiffel": "efl-1.0", "fal": "lal-1.2",
-    "frameworx": "frameworx-1.0", "gfdl": "gfdl-1.1-only", "gfdl-1.1": "gfdl-1.1-only",
+    "agpl-1.0": "agpl-1.0-only", "agpl-3.0": "agpl-3.0-only", "agpl-v3": "agpl-3.0-only",
+    "apache": "apache-2.0", "apache2.0": "apache-2.0", "apgl-v3": "agpl-3.0-only",
+    "apl1.0": "apl-1.0", "artistic-license-2.0": "artistic-2.0", "attribution": "aal",
+    "bsd-2-clause-freebsd": "bsd-2-clause-views", "bsd-2-clause-netbsd": "bsd-2-clause",
+    "bsd-license": "bsd-1-clause", "bsl1.0": "bsl-1.0", "ca-tosl1.1": "catosl-1.1",
+    "canada-crown": "ogl-canada-2.0", "cc-by": "cc-by-4.0", "cc-by-sa": "cc-by-sa-4.0",
+    "cc-nc": "cc-by-nc-2.0", "cc-zero": "cc0-1.0", "cddl1": "cddl-1.0", "cpal_1.0": "cpal-1.0",
+    "cuaoffice": "cua-opl-1.0", "ecl2": "ecl-2.0", "eclipse-1.0": "epl-1.0",
+    "eiffel": "efl-2.0", "fal": "fal-1.3", "frameworx": "frameworx-1.0",
+    "gfdl": "gfdl-1.3-no-cover-texts-no-invariant-sections", "gfdl-1.1": "gfdl-1.1-only",
     "gfdl-1.2": "gfdl-1.2-only", "gfdl-1.3": "gfdl-1.3-only", "gpl-1.0": "gpl-1.0-only",
     "gpl-1.0+": "gpl-1.0-or-later", "gpl-2.0": "gpl-2.0-only", "gpl-2.0+": "gpl-2.0-or-later",
     "gpl-3.0": "gpl-3.0-only", "gpl-3.0+": "gpl-3.0-or-later", "ibmpl": "ipl-1.0",
@@ -183,17 +216,17 @@ _LICENCES_ONCE = {
     "lgpl-3.0+": "lgpl-3.0-or-later", "lucent1.02": "lpl-1.02", "mit-license": "mit",
     "mozilla": "mpl-1.0", "mozilla1.1": "mpl-1.1", "nasa1.3": "nasa-1.3", "nethack": "ngpl",
     "nosl3.0": "nposl-3.0", "ntp-license": "ntp", "oclc2": "oclc-2.0", "odc-by": "odc-by-1.0",
-    "odc-odbl": "odbl-1.0", "odc-pddl": "pddl-1.0", "openfont": "ofl-1.0", "opengroup": "ogtsl",
-    "php": "php-3.0", "pythonpl": "python-2.0", "pythonsoftfoundation": "psf-2.0",
-    "real": "rpsl-1.0", "ricohpl": "rscpl", "rpl1.5": "rpl-1.5", "standardml-nj": "smlnj",
-    "sun-issl": "sissl", "sunpublic": "spl-1.0", "sybase": "watcom-1.0", "uk-ogl": "ogl-uk-1.0",
-    "uoi-ncsa": "ncsa", "ver2_eiffel": "efl-2.0", "vovidapl": "vsl-1.0", "zlib-license": "zlib",
-    "zpl": "zpl-1.1"
+    "odc-odbl": "odbl-1.0", "odc-pddl": "pddl-1.0", "odc-pddl-1.0": "pddl-1.0",
+    "openfont": "ofl-1.1", "opengroup": "ogtsl", "php": "php-3.0", "pythonpl": "cnri-python",
+    "pythonsoftfoundation": "python-2.0", "qtpl": "qpl-1.0", "real": "rpsl-1.0",
+    "ricohpl": "rscpl", "rpl1.5": "rpl-1.5", "standardml-nj": "smlnj", "sun-issl": "sissl",
+    "sunpublic": "spl-1.0", "sybase": "watcom-1.0", "uk-ogl": "ogl-uk-1.0", "uoi-ncsa": "ncsa",
+    "ver2_eiffel": "efl-2.0", "vovidapl": "vsl-1.0", "zlib-license": "zlib", "zpl": "zpl-2.0"
 }
 
 
 def _licence(given: Any) -> str:
-    """A licence's id in Zenodo's form now, whichever form it was given in."""
+    """A licence's id as Zenodo takes it, whichever form it was given in."""
     named = str((given.get("id") if isinstance(given, dict) else given) or "").strip().lower()
     return _LICENCES_ONCE.get(named, named)
 

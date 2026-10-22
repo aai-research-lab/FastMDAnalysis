@@ -4026,10 +4026,34 @@ def test_a_draft_s_title_asked_for_is_in_plain_letters(tmp_path, unsteady):
 
 def test_text_is_compared_as_zenodo_keeps_it():
     """Review of the fortieth commit: Zenodo straightens a modifier
-    apostrophe, breaks lines at line and paragraph separators, and reads
-    entities in text holding no markup."""
-    assert zenodo._plain(" Ainaʼs &amp; B x y\u0085z ") == "Aina's & B\nx\ny\nz"
+    apostrophe, breaks lines at line and paragraph separators, reads
+    entities in text holding no markup, and a C1 control as Windows-1252
+    reads it; review of the forty-first commit: and keeps apart what it
+    keeps apart."""
+    assert zenodo._plain(" Ainaʼs &amp; B x y\u0085z ") == "Aina's & B\nx\ny…z"
     assert zenodo._plain("<p>&amp;</p>") == "<p>&amp;</p>"
+    assert zenodo._plain("ŉ ﬁ Ａ") == "'n fi A"
+    for apart in ("Ca²⁺", "H₂O", "µs", "™", "½", "a­b",
+                  "a‍b", "…"):
+        assert zenodo._plain(apart) == apart
+
+
+def test_the_person_s_edit_of_a_superscript_alone_is_kept(tmp_path, unsteady, capsys):
+    """Review of the forty-first commit: a description the person changed
+    only in its superscripts and subscripts was taken as the study's, and
+    written over."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    _analysed_again(study, "Ca2+ binds in H2O.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    theirs = unsteady.meta[7]["description"].replace(
+        "Ca2+ binds in H2O.", "Ca²⁺ binds in H₂O.")
+    unsteady.edited = {7: {"description": theirs}}
+    _analysed_again_from(study, "Ca2+ binds in H2O.", "Ca2+ binds in H2O at 300 K.")
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "it is kept as it is, and only the archive is new" in capsys.readouterr().out
+    assert "at 300 K" not in unsteady.stored["metadata"]["description"]
 
 
 def _in_zenodo_s_forms(value):
@@ -4040,15 +4064,15 @@ def _in_zenodo_s_forms(value):
         if "name" in out and "affiliation" not in out:
             out["affiliation"] = None
         if isinstance(out.get("license"), str):
-            out["license"] = {"cc0-1.0": "cc-zero", "mit": "mit-license"}.get(
-                out["license"], out["license"])
+            out["license"] = {"cc0-1.0": "cc-zero", "mit": "mit-license", "cc-by": "cc-by-4.0",
+                              "apache": "apache2.0"}.get(out["license"], out["license"])
         return out
     if isinstance(value, list):
         return [_in_zenodo_s_forms(v) for v in value]
     return value
 
 
-@pytest.mark.parametrize("licence", ["CC0-1.0", "MIT", "CC-BY-4.0"])
+@pytest.mark.parametrize("licence", ["CC0-1.0", "MIT", "CC-BY-4.0", "cc-by", "apache"])
 def test_a_description_whose_answer_was_lost_follows_the_study_in_zenodo_s_forms(
         tmp_path, unsteady, monkeypatch, capsys, licence):
     """Hands-on review of the fortieth commit: Zenodo gives creators back with
