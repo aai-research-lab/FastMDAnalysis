@@ -226,12 +226,16 @@ jobs:
         # skip where it is absent, which was every job here, so they had only
         # ever run on machines that happened to have it. One job holds them,
         # the one coverage is measured on. A test tool, not a dependency:
-        # nobody installing FastMDXplora gets it.
+        # nobody installing FastMDXplora gets it. poppler-utils gives
+        # pdftotext, which reads back the Report printed to a PDF; without it
+        # that test skipped.
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         shell: bash
         run: |
           python -m pip install playwright pytest-xdist
           python -m playwright install --with-deps chromium
+          sudo apt-get install -y -qq poppler-utils
+          command -v pdftotext
 
       - name: Run tests
         # Coverage is measured where it is uploaded and nowhere else. The

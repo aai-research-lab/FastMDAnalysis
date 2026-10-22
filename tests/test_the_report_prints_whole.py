@@ -153,6 +153,8 @@ def test_printed_to_a_pdf_it_is_the_report_to_its_last_line_and_nothing_over_it(
     out of sight on the screen, was printed there over the report."""
     import subprocess
 
+    # CI installs poppler-utils on the leg that runs the browser tests; on
+    # macOS no leg installs Playwright, so this file skips there whole.
     if shutil.which("pdftotext") is None:
         pytest.skip("pdftotext reads the PDF's text")
     page = _report(browser, sessions["without"])
