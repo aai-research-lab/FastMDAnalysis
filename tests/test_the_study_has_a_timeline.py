@@ -603,7 +603,7 @@ def test_the_side_panel_says_a_round_s_length_in_ps_and_its_time_not_recorded(in
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
-            page = browser.new_page(viewport={"width": 1600, "height": 900})
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.set_default_timeout(60000)
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
@@ -671,6 +671,8 @@ def test_a_run_silent_for_a_day_is_said_stopped_without_finishing(tmp_path):
 
 
 def test_a_run_going_or_finished_is_not_said_stopped(tmp_path):
+    """The guard of the two above: a run going, or one that finished, is
+    said neither way. It passes before the change as after it."""
     from fastmdxplora.gui.study_timeline import timeline_of
     from tests.test_a_run_that_ended_unsaid_is_interrupted import _a_run_said_it_was_going
 
@@ -779,3 +781,35 @@ def test_a_round_still_extending_is_said_extending_never_done(tmp_path, runs, wh
     assert "still running" not in methods
     assert "Its record does not say it finished: after 1 round, at 1 ns of production" in methods
     assert "the last round asked for 250 ps more" in methods
+
+
+
+def test_rounds_placed_at_one_time_are_newest_first(tmp_path):
+    """Rounds whose pieces recorded no time are all placed after the last
+    step before them: they were listed Round 1, 2, 3 down a list that is
+    newest first."""
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    root = tmp_path / "study"
+    root.mkdir()
+    (root / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04"), _phase("simulation", "07:00:04", "07:30:04")]}),
+        encoding="utf-8")
+    _stopping(root, ["study"], [_round("extend", 0.5, 0.2), _round("extend", 0.7, 0.1),
+                                _round("met", 0.8)], "met", "After 800 ps of production.")
+    rounds = [e["round"] for e in timeline_of(root)["events"] if e["kind"] == "round"]
+    assert rounds == [3, 2, 1]
+
+
+def test_a_run_killed_in_a_piece_says_the_piece_by_its_number(tmp_path, monkeypatch):
+    from fastmdxplora.gui import telemetry
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    root = tmp_path / "study"
+    root.mkdir()
+    monkeypatch.setattr(telemetry, "status_as_it_stands", lambda base, **_: {
+        "status": "interrupted", "stage": "production", "current_step": 650,
+        "total_planned_steps": 800, "piece": "segment-001", "ended_by": "process",
+        "last_update_timestamp": "2026-10-18T07:40:00+00:00"})
+    [ended] = timeline_of(root)["events"]
+    assert ended["said"] == "Stopped without finishing, in piece 1's production, at step 650 of 800"

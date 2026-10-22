@@ -92,7 +92,7 @@ def _newest_first(event: dict[str, Any]) -> tuple:
     return (0, "", event.get("_order", 0))
 
 
-def _when(event: dict[str, Any]) -> tuple[str, int] | None:
+def _when(event: dict[str, Any]) -> tuple[Any, ...] | None:
     """Where a step falls in time: by the time its record gives it; a round,
     whose record gives none, by the recorded times of the steps it came
     between, just before the pieces it began or just after the last step
@@ -101,7 +101,8 @@ def _when(event: dict[str, Any]) -> tuple[str, int] | None:
         return (str(event["at"]), 1)
     placed = event.get("placed")
     if placed:
-        return (str(placed["at"]), 0 if placed.get("before") else 2)
+        # Rounds placed at one time are in the order they were judged.
+        return (str(placed["at"]), 0 if placed.get("before") else 2, event.get("round") or 0)
     return None
 
 
@@ -335,8 +336,13 @@ def _ended(base: Path) -> dict[str, Any] | None:
         return None
     stage = str(status.get("stage") or "")
     step, total = status.get("current_step"), status.get("total_planned_steps")
+    import re
+
     piece = status.get("piece") if isinstance(status.get("piece"), str) else ""
-    where = (f"in {piece}'s " if piece.startswith("segment-") else "in ") + stage if stage else ""
+    # A piece as every other step says it: "piece 1", not its folder's name.
+    number = re.fullmatch(r"segment-(\d+)", piece)
+    where = ((f"in piece {int(number.group(1))}'s " if number else "in ") + stage
+             if stage else "")
     if (where and isinstance(step, (int, float)) and isinstance(total, (int, float))
             and not isinstance(step, bool) and total > 0):
         where += f", at step {int(step):,} of {int(total):,}"
