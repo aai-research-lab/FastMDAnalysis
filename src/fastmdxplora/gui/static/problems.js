@@ -199,9 +199,20 @@
       home.insertBefore(panel, next);
       phone.focus();
     });
-    window.matchMedia("(max-width: 800px)").addEventListener("change", function (event) {
-      if (!event.matches && dialog.open) dialog.close();
-    });
+    /* Closed as the window widens past a phone's. The list is made again
+     * when the Display size changes: one made before kept the lengths of
+     * the size it was made at (theme-first.js), and at 125% loaded, then
+     * 100% chosen, the dialog stayed open from 801 to 1000 pixels. */
+    var phoneWide = null;
+    var widened = function (event) { if (!event.matches && dialog.open) dialog.close(); };
+    var watchWidth = function () {
+      if (phoneWide) phoneWide.removeEventListener("change", widened);
+      phoneWide = window.matchMedia("(max-width: 800px)");
+      phoneWide.addEventListener("change", widened);
+      widened(phoneWide);
+    };
+    watchWidth();
+    window.addEventListener("fmx:display-size", watchWidth);
     byId("problems-refresh").addEventListener("click", load);
     /* Shown, however it was (its tab clicked or chosen by the keys, the
      * status bar's count, a phone's button): read again. */

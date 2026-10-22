@@ -567,6 +567,28 @@ def test_a_pair_of_media_queries_meets_at_every_display_size(browser, session):
         assert said[key] == wide, (key, said[key], wide)
 
 
+def test_a_query_a_script_made_follows_a_display_size_chosen(browser, session):
+    """The phone's Problems dialog closes as the window widens past a
+    phone's. Its query was made once, as the page loaded: loaded at 125%,
+    then 100% chosen, it still said 1000 pixels, and the dialog stayed
+    open in a window 900 wide."""
+    page = _at(browser, session.url, "125", (700, 900))
+    try:
+        page.click("#problems-phone")
+        page.wait_for_function("() => document.getElementById('problems-mobile').open")
+        page.evaluate("() => window.FastMDXDisplay.choose('100')")
+        page.wait_for_function("() => window.FastMDXDisplay.zoom() === 1")
+        # Still a phone's width at 100%: open.
+        still = page.evaluate("() => document.getElementById('problems-mobile').open")
+        page.set_viewport_size({"width": 900, "height": 900})
+        page.wait_for_function("() => !document.getElementById('problems-mobile').open", timeout=10000)
+        errors = page.errors
+    finally:
+        page.context.close()
+    assert errors == []
+    assert still
+
+
 @pytest.mark.parametrize("width", [900, 1250])
 def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width):
     """At 150% a 900 pixel window is a page 600 wide, and beside the Agent
