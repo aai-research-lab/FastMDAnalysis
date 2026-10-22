@@ -333,3 +333,12 @@ def test_a_display_size_chosen_sizes_everything_and_is_saved(browser, session):
     assert sized["fits"] and sized["told"] == 1440 / 1.25 and sized["box"]
     assert again == [1.25, "125"]
     assert restored == ["auto", "auto"]
+
+
+def test_the_docs_say_the_settings_page(tmp_path):
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / "docs" / "gui.md").read_text(encoding="utf-8")
+    said = text[text.index("**Settings**"):]
+    assert "This folder" in said and "fastmdx-defaults.yml" in said
+    assert "Display size" in said and "Auto" in said
