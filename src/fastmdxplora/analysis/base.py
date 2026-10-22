@@ -579,17 +579,26 @@ class Analysis(ABC):
 
     def _frames_used_by_all(self, n: int) -> "np.ndarray | None":
         """The frames, of the ``n`` analysed, that an analysis uses where it
-        has no mean of its own: from its ``start``, at its ``stride``, where
-        it took them so (clustering, the projections); every frame where
-        None."""
-        first = getattr(self, "_first_frame", None)
-        first = first if isinstance(first, int) and not isinstance(first, bool) else 0
-        stride = getattr(self, "stride", 1)
-        stride = stride if isinstance(stride, int) and not isinstance(stride, bool) \
-            and stride > 0 else 1
-        if first == 0 and stride == 1:
+        has no mean over the frames of its own: from its ``start``, at its
+        ``stride``, as the record of which frames it read says
+        (``findings.frames``, written by
+        :func:`fastmdxplora.analysis.starting_frame.first_frame` where the
+        frames are set: RMSF, ``ligand_rmsf``, ``bfactor_comparison``,
+        clustering, the projections); every frame where None."""
+        frames = self.findings.get("frames")
+        frames = frames if isinstance(frames, dict) else {}
+
+        def whole(value: Any) -> int | None:
+            return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+        first = whole(frames.get("first_frame"))
+        if first is None:
+            first = whole(getattr(self, "_first_frame", None)) or 0
+        stride = whole(frames.get("stride")) or whole(getattr(self, "stride", 1)) or 1
+        stride = stride if stride > 0 else 1
+        if first <= 0 and stride == 1:
             return None
-        return np.arange(first, n, stride)
+        return np.arange(max(first, 0), n, stride)
 
     def _image_note_for(self, traj: md.Trajectory,
                         record: dict[str, Any] | None) -> dict[str, Any] | None:

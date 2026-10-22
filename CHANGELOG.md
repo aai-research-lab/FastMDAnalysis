@@ -498,7 +498,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   included; else its force field's; else 1.0 nm, said which and why) and
   under 0.5 nm counted. Where the solute
   met its image in the frames an analysis uses (after its mean's discarded
-  equilibration, or from its `start`), the analysis carries a note of it,
+  equilibration, or from its `start` as its record of the frames read says
+  it: RMSF, `ligand_rmsf`, `bfactor_comparison`, clustering and the
+  projections), the analysis carries a note of it,
   counted over those frames, said once in its findings and with its numbers
   on each mean record (sub-means and reweighted averages included): every
   mean keeps its error, since meeting its copy may bias a mean but does not
