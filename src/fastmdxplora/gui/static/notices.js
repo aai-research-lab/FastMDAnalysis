@@ -49,18 +49,28 @@
         if (n.act !== "overview") n.key = "";
         // Saved before a path was left out: left out now, and saved so.
         var said = withoutPaths(n.said);
-        if (said === n.said) return;
-        // A refusal is known by its words too.
-        if (typeof n.id === "string" && n.id.slice(-n.said.length) === n.said) {
-          n.id = n.id.slice(0, n.id.length - n.said.length) + said;
-        }
+        var id = typeof n.id === "string" ? idWithoutPaths(n.id, said) : n.id;
+        if (said === n.said && id === n.id) return;
         n.said = said;
+        n.id = id;
         scrubbed = true;
       });
       list = list.filter(function (n) { return n.said; });
       return { list: list.sort(newestFirst), seen: Number(localStorage.getItem(SEEN)) || 0,
                scrubbed: scrubbed };
     } catch (e) { return null; }
+  }
+
+  /* A refusal is known by its words too ("event:<study>:<time>:<line>"),
+   * saved before as its Log line was, spaces and all: its line is put as
+   * its words are now. */
+  function idWithoutPaths(id, said) {
+    if (withoutPaths(id) === id) return id;
+    for (var at = id.indexOf(":"); at >= 0; at = id.indexOf(":", at + 1)) {
+      var line = id.slice(at + 1).replace(/\s+/g, " ").trim();
+      if (withoutPaths(line) === said) return id.slice(0, at + 1) + said;
+    }
+    return withoutPaths(id);
   }
 
   function read() {
@@ -112,7 +122,9 @@
    * (ns/day, and/or) and a web address are not paths. */
   var START = /(?:file:\/\/|\/(?=[^\s\/])|~[\w.-]*[\\\/]|[A-Za-z]:[\\\/]|\\\\(?=[^\s\\]))/.source;
   var MARK = "\u0000";
-  var QUOTED = new RegExp("[\"'`\u2018\u201c]" + START + "[^\"'`\u2019\u201d\\n]*[\"'`\u2019\u201d]", "g");
+  // To its closing quote, or to the end of the words where a line cut
+  // short left it open.
+  var QUOTED = new RegExp("[\"'`\u2018\u201c]" + START + "[^\"'`\u2019\u201d\\n]*(?:[\"'`\u2019\u201d]|$)", "g");
   var AFTER_COLON = new RegExp(":[ \\t]+(?:" + MARK + "|" + START + "(?:(?![.;!?]\\s)[^\\n])*)", "g");
   var IN_WORDS = new RegExp("(^|[\\s(\\[{=,])" + START +
     "[^\\s'\"`<>|]*(?: [^\\s'\"`<>|]*[\\\\/][^\\s'\"`<>|]*)*", "g");
@@ -256,11 +268,11 @@
         "run:" + (d.study || "") + ":" + (d.started || "") + ":" + ended);
   });
 
-  /* A refusal as a notice says it: its first line, at most 200
-   * characters; what follows (a traceback, the paths in it) stays in the
-   * Log. */
+  /* A refusal as a notice says it: its first line with no path in it,
+   * then at most 200 characters (a path cut first would leave what was cut
+   * of it); what follows (a traceback, the paths in it) stays in the Log. */
   function firstLine(text) {
-    var line = String(text || "").split(/\r?\n/)[0].trim();
+    var line = withoutPaths(String(text || "").split(/\r?\n/)[0].trim());
     return line.length > 200 ? line.slice(0, 199) + "\u2026" : line;
   }
 
@@ -279,7 +291,7 @@
       var at = Date.parse(e.timestamp || "");
       if (!isFinite(at) || at <= from || typeof d.refused !== "function" || !d.refused(e)) return;
       // Its words with no path, in what it is saved as and known by.
-      var line = withoutPaths(firstLine(e.message));
+      var line = firstLine(e.message);
       add("refused", line, where, "", "event:" + where.key + ":" + e.timestamp + ":" + line);
     });
     since[where.key] = Math.max(from, newest);

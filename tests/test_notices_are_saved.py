@@ -617,3 +617,51 @@ def test_tab_stays_in_the_open_list_until_escape_or_a_choice(tmp_path):
         browser.close()
     assert stops >= 4 and all(went), went
     assert chose and closed == [True, "sb-notices"]
+
+
+def test_a_long_line_s_path_is_left_out_before_it_is_cut(tmp_path):
+    """A Log line of 300 characters whose quoted path crosses the 200th, a
+    toast whose quote is never closed, and a list saved before with such a
+    line cut and its id spaced as the Log wrote it: no path is saved."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    where = ("/Users/kunle/Research/FastMDXplora studies/lysozyme T4 mutants/L99A and L99A-M102Q/"
+             "simulation/production/checkpoints/segments/of the second campaign/"
+             "replicas of the third week/production_segment_0003.chk")
+    line = f"FileNotFoundError: [Errno 2] No such file or directory: '{where}'"
+    assert len(line) >= 250 and line.index("/Users") < 200
+    cut = line[:199] + "\u2026"
+    seeded = json.dumps([{"at": 0, "kind": "refused", "said": cut, "name": "old", "act": "",
+                          "id": "event::2026-10-21T10:00:00Z:" + cut.replace("[Errno 2] ", "[Errno 2]\t")}])
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        context.add_init_script(f"""if (!sessionStorage.getItem('seeded')) {{
+            sessionStorage.setItem('seeded', '1');
+            localStorage.setItem('fmx.notices', JSON.stringify({seeded}.map((n) => ({{...n, at: Date.now() - 60000}}))));
+        }}""")
+        page = _page(browser, url, "#overview", context=context)
+        before = page.evaluate(SAVED)
+        page.evaluate("() => window.FastMDXDashboard.toast('Could not open \"/Users/kunle/x.pdb', 'warning')")
+        page.evaluate("""() => window.dispatchEvent(new CustomEvent('fmx:events', {
+            detail: {events: [], refused: () => true}}))""")
+        page.evaluate("""([at, line]) => window.dispatchEvent(new CustomEvent('fmx:events', {
+            detail: {events: [{timestamp: at, message: line + '\\nTraceback (most recent call last):'}],
+                     refused: () => true}}))""", [later, line])
+        page.wait_for_function("() => window.FastMDXNotices.all.length === 3")
+        saved = page.evaluate(SAVED)
+        errors = page.errors
+        browser.close()
+    assert errors == []
+    assert [n["said"] for n in before] == ["FileNotFoundError: [Errno 2] No such file or directory"]
+    assert [n["said"] for n in reversed(saved)] == [
+        "FileNotFoundError: [Errno 2] No such file or directory",
+        "Could not open",
+        "FileNotFoundError: [Errno 2] No such file or directory",
+    ]
+    text = json.dumps(saved)
+    for private in ("/Users", "kunle", "lysozyme", "production_segment", "chk"):
+        assert private not in text, private
