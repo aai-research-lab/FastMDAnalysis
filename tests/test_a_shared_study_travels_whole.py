@@ -5231,3 +5231,46 @@ def test_a_latest_answer_older_than_the_record_leaves_a_waiting_label_as_it_is(
     monkeypatch.setattr(zenodo, "_call", by_concept)
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert unsteady.meta[8]["version"] == "1.2"
+
+
+def test_a_copy_made_while_only_the_draft_asked_for_is_named_is_refused_after_a_version(
+        tmp_path, unsteady, capsys):
+    """Hands-on review of the sixty-fifth commit: the title the first draft
+    was asked for under was dropped at a new version, so a copy made while
+    nothing else was named made a second record of the study."""
+    import shutil
+
+    unsteady.meta = {}
+    unsteady.faults = {"POST": ["made late"]}
+    study = _study(tmp_path / "study")
+    zenodo._LOOKS_S, looks = (1.0,), zenodo._LOOKS_S
+    try:
+        assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    finally:
+        zenodo._LOOKS_S = looks
+    asked = json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["asked_as"]
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    unsteady.drafts[0]["hidden"] = 0
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    # Published by hand, then shared again: a draft of a new version.
+    unsteady.meta[7]["version"] = "1"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": {"version": "1"}, "files": [{"key": "a.zip"}]}
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    kept = json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]
+    assert kept["id"] == "8" and "asked_as" not in kept and kept["asked_first"] == asked
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    assert f'the draft asked for as "{asked}"' in capsys.readouterr().err
+    assert not any(c[0] in ("PUT", "POST", "DELETE") for c in unsteady.calls)
+
+
+def test_a_download_just_begun_is_said_in_bytes():
+    """Hands-on review of the sixty-fifth commit: one byte of 4.9 kB was
+    said as "0.0 of 4.9 kB"."""
+    from fastmdxplora.sharing.opening import _got
+
+    assert _got(1, 4900, "at") == " at 1 of 4900 bytes"
+    assert _got(600, 4900, "at") == " at 0.6 of 4.9 kB"

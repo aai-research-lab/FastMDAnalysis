@@ -1003,13 +1003,16 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
 
 
 # What a `shared_to.json` names a draft or record by: its id, its record's,
-# the title a draft was asked for under (its answer lost), its concept's.
-_NAMED = ("id", "record", "asked_as", "concept")
+# the title a draft was asked for under (its answer lost), the title its
+# first draft was asked for under (kept through every version), its concept's.
+_NAMED = ("id", "record", "asked_as", "asked_first", "concept")
 
 
 def _named_in(kept: dict[str, Any]) -> set[str]:
     """Every draft and record a `shared_to.json` names, on whichever site."""
-    return {f"{site}:{key}:{entry.get(key)}" for site, entry in kept.items()
+    # (A title asked for is one, kept as the last asked or as the first.)
+    return {f"{site}:{'asked_as' if key == 'asked_first' else key}:{entry.get(key)}"
+            for site, entry in kept.items()
             if isinstance(entry, dict) for key in _NAMED if entry.get(key)}
 
 
@@ -1136,7 +1139,9 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         title = title or f"FastMDXplora: sharing {plain_name} ({secrets.token_hex(4)})"
         # Kept before it is asked for, so a draft made whose answer is lost
         # is found again at the next share.
-        kept[site] = {"asked_as": title, "version": version}
+        kept[site] = {"asked_as": title, "version": version,
+                      "asked_first": str(earlier.get("asked_first") or earlier.get("asked_as")
+                                         or title)}
         _keep(study, kept, found_again=False)
         (deposition, answered), made_here = _new_draft(depositions, token, title, said), True
     if not isinstance(deposition, dict) or not deposition.get("id"):
@@ -1160,6 +1165,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     concept = str(deposition.get("conceptrecid") or earlier.get("concept") or "")
     if concept:
         kept[site]["concept"] = concept
+    # So is the title its first draft was asked for under: a copy made while
+    # nothing else was known of it is told by it, whatever the study did since.
+    first = str(earlier.get("asked_first") or earlier.get("asked_as") or title or "")
+    if first:
+        kept[site]["asked_first"] = first
     if versioned:
         kept[site]["record"] = published
         if earlier.get("by_earlier"):
@@ -1220,7 +1230,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     by_earlier = bool(kept[site].get("by_earlier")) or (
         (same or versioned) and bool(earlier.get("id")) and not any(
             earlier.get(key) for key in (
-                "written", "sending", "asked_as", "archive", "sums", "record_written",
+                "written", "sending", "asked_as", "asked_first", "archive", "sums",
+                "record_written",
                 "record_sending", "record_archive", "stale", "uploading", "made_as",
                 "record")))
     if by_earlier:
