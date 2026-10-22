@@ -164,11 +164,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   there would have written back as one selection), and the dispersion
   correction left unset is as the force field was developed, not "none".
 
-- A defaults file that sets `simulation.resume_from`, `setup_from`,
-  `prepared_from` or `resume_unsealed` is refused, as one that sets
-  `systems` is: each names the study one study continues or is prepared
-  from, and in the file every new study made in the folder would have
-  continued it.
+- A defaults file that sets a setting of one study is refused, as one that
+  sets `systems` is: a folder's defaults say how studies are run, never
+  what is simulated or which study's files are read. The study one
+  continues or is prepared from (`simulation.resume_from`,
+  `resume_unsealed`, `extra_ns`, `setup_from`, `prepared_from`), the files
+  it analyses (`analysis.trajectory`, `analysis.topology`) and its
+  structure, ligand, mutations, chains and model (`setup.fixed_pdb`,
+  `ligand`, `ligand_pose`, `mutations`, `chains`, `model`) were taken by
+  every new study made in the folder: `mutations: [L99A]` mutated every
+  protein.
 
 - The Agent's mode and GPU-hour ceiling are saved as they are chosen: a
   reload put the Agent back in Seeker with no ceiling, whatever was set.
@@ -715,13 +720,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   is the workspace's `fastmdx-defaults.yml`, which the GUI could only read:
   each setting it may hold beside FastMDXplora's own, set, given a reason
   or taken out there, the file checked as any defaults file is and left as
-  it was when refused. The gear's Settings… and the Agent's dialog lead to
-  it, and `#preferences` is its address too.
+  it was when refused, one change at a time; a setting of several values
+  (a stopping rule, a biasing block) is shown as the file holds it. The
+  gear's Settings… and the Agent's dialog lead to it, Cmd+K finds it by
+  "preferences" too, and `#preferences` is its address.
 - A Display size, in Settings: the whole page at once, text included, from
   90% to 150%. Auto, the default, chooses from the screen (125% at 2560 by
-  1440, 150% at 3840 by 2160), so the GUI is not small on a large screen;
-  the Viewer's picking, tooltips and menus stay where they belong at every
-  size, and the columns end where the status bar begins.
+  1440, 150% at 3840 by 2160), so the GUI is not small on a large screen.
+  It is one zoom for every rule and script: the page is laid out as a
+  window of its own width is (at 150% a 1500 pixel window as a 1000 pixel
+  one), the Viewer's picking, tooltips and menus stay where they belong at
+  every size, and the columns end where the status bar begins.
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's
