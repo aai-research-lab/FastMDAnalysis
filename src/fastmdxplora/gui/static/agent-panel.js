@@ -1408,10 +1408,11 @@
     if (validStudyKey(edit.key) && edit.key !== unsentKey) {
       var kept = storedUnsent(edit.key) || { words: "", files: [] };
       var all = kept.words.trim() ? kept.words + "\n\n" + words : words;
+      var files = withFiles(kept.files, edit.files);
       try {
-        sessionStorage.setItem(UNSENT_WORDS + edit.key, JSON.stringify({ words: all, files: kept.files }));
+        sessionStorage.setItem(UNSENT_WORDS + edit.key, JSON.stringify({ words: all, files: files }));
       } catch (e) {
-        heldInPage[edit.key] = { words: all, files: kept.files, title: edit.title };
+        heldInPage[edit.key] = { words: all, files: files, title: edit.title };
       }
       var title = edit.title || "the study it was written in";
       unsentSaid((said ? said + " " : "") + "The edit not sent is saved for " + title
@@ -1427,6 +1428,15 @@
     keepUnsent();
     unsentSaid((said ? said + " " : "") + "The edit not sent is in the box, to send from there.",
                "moved", about);
+    var mine = pendingFiles.map(function (f) { return f.path; });
+    readFilesAgain(edit.files.filter(function (f) { return mine.indexOf(f.path) < 0; }), unsentKey);
+  }
+  /* Files saved with words, and those of an edit or a message put with
+   * them: each once, six at most. */
+  function withFiles(kept, more) {
+    return kept.concat((more || []).filter(function (f) {
+      return !kept.some(function (k) { return k.path === f.path; });
+    })).slice(0, 6);
   }
   /* The thread on screen is replaced: each edit left is kept so. */
   function keepEditsLeft() {
@@ -2414,7 +2424,7 @@
           var clip = body.querySelector(".attached");
           /* The study of the thread it is in ("" for a chat of no study). */
           var forKey = conv.study ? conv.page || convFor || "" : "";
-          var edit = { before: before, key: forKey,
+          var edit = { before: before, key: forKey, files: (attached || []).map(fileKept),
                        title: forKey && forKey === unsentKey ? unsentTitle : "",
                        words: function () { return body.isContentEditable ? body.textContent.trim() : ""; } };
           function begin(words) {
@@ -5436,7 +5446,8 @@
         var words = e.words();
         try {
           sessionStorage.setItem(UNSENT_WORDS + e.key, JSON.stringify({
-            words: kept.words.trim() ? kept.words + "\n\n" + words : words, files: kept.files }));
+            words: kept.words.trim() ? kept.words + "\n\n" + words : words,
+            files: withFiles(kept.files, e.files) }));
         } catch (err) { /* this browser keeps nothing */ }
       });
     });

@@ -3079,12 +3079,13 @@ def test_an_edit_refused_as_its_file_is_read_again_is_kept(tmp_path, monkeypatch
     """L18 4: Edit of a message with a file, Enter, and another window opens
     a study while the file is read again: "Not sent: another conversation is
     shown now.", and the edited words were nowhere. They are saved for the
-    study they were written for, and said."""
+    study they were written for, and said; with the message's file (L20: the
+    words came back without it, and went without it)."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
     asked = []
-    page, errors, close = _page_on(session, [_answer("First.")])
+    page, errors, close = _page_on(session, [_answer("First."), _answer("Edited.")])
     try:
         _asking(page, asked)
         msg = _a_message_with_a_file(page, session, workspace, here)
@@ -3102,13 +3103,23 @@ def test_an_edit_refused_as_its_file_is_read_again_is_kept(tmp_path, monkeypatch
         page.wait_for_function("() => /The edit not sent/.test((document.getElementById("
                                "'agent-unsent-note') || {}).textContent || '')", timeout=15000)
         out = {"note": _note(page), "box": page.input_value("#agent-request"), "kept": _unsent(page)}
+        _switch_elsewhere(session, here)
+        _shows(page, study_key(here))
+        page.wait_for_function("(w) => document.getElementById('agent-request').value === w",
+                               arg="with a file edited", timeout=20000)
+        page.wait_for_timeout(1000)
+        out["chips"] = page.locator("#agent-attachments").inner_text()
+        _send_when_offered(page)
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Edited.')", timeout=15000)
     finally:
         close()
         session.server.shutdown()
-    assert _requests(asked) == ["with a file"], asked
+    assert _requests(asked) == ["with a file", "with a file edited"], asked
     assert out["box"] == "" and out["kept"].get(study_key(here)) == "with a file edited", out
     assert out["note"].startswith("Not sent: another conversation is shown now."), out
     assert "The edit not sent is saved for here" in out["note"], out
+    assert "notes.txt" in out["chips"], out
+    assert [a["name"] for a in asked[1].get("attachments", [])] == ["notes.txt"], asked[1]
     assert errors == []
 
 
