@@ -331,11 +331,6 @@ def test_the_popup_the_agent_s_dialog_and_the_palette_lead_here(browser, session
     page.click("#settings-page-agent")
     page.wait_for_selector("#agent-settings:not([hidden])")
     page.keyboard.press("Escape")
-    # What still opens Preferences by the dialog's name (the palette's
-    # Preferences) is taken here.
-    page.evaluate("() => window.FastMDXDashboard.navigate('overview')")
-    page.evaluate("() => window.FastMDXDialog.open('prefs-dialog')")
-    page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
     errors = page.errors
     page.context.close()
     assert errors == []
@@ -571,6 +566,21 @@ def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width
         assert not layout["over"] and layout["broken"] == [] and not layout["cut"], (scope, layout)
         assert not layout["sideways"], (scope, layout)
     assert said["folder"]["narrowest"] >= 240, said["folder"]
+
+
+def test_nothing_of_the_preferences_dialog_is_left(tmp_path):
+    """The dialog is the Settings page: no address, rule, script or branch
+    names it, and its addresses are the page's, not a dialog's."""
+    import re
+    from pathlib import Path
+
+    gui = Path(__file__).resolve().parent.parent / "src" / "fastmdxplora" / "gui"
+    named = [path.name for folder in ("static", "templates") for path in sorted((gui / folder).glob("*"))
+             if path.suffix in {".js", ".css", ".html"}
+             and "prefs-dialog" in path.read_text(encoding="utf-8")]
+    assert named == []
+    dashboard = (gui / "static" / "dashboard.js").read_text(encoding="utf-8")
+    assert re.search(r"const DIALOG_OF = \{cite: \"cite-dialog\"\};", dashboard)
 
 
 def test_the_docs_say_the_settings_page(tmp_path):

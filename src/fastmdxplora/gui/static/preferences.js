@@ -108,12 +108,6 @@
   });
 
   function openDialog(id, opener, step) {
-    // Preferences were a dialog and are the Settings page: what still
-    // opens them by the dialog's name (the palette) is taken there.
-    if (id === "prefs-dialog" && !el(id)) {
-      if (window.FastMDXSettings) window.FastMDXSettings.show();
-      return null;
-    }
     var dialog = el(id);
     if (!dialog) return null;
     openers[id] = opener || document.activeElement;
