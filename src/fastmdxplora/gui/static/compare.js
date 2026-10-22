@@ -90,7 +90,11 @@
     return cell;
   }
 
-  function settingSaid(value) {
+  /* A setting's value; a length in ns as the pages say one, in ps under
+   * 1 ns, where the server said it so (compare_view.py). */
+  function settingSaid(d, side) {
+    if (d[side + "_said"]) return d[side + "_said"];
+    var value = d[side];
     return value == null ? "not set" : JSON.stringify(value);
   }
 
@@ -255,8 +259,8 @@
         var row = make("tr");
         if (i >= SHOWN_FIRST) row.hidden = true;
         row.appendChild(settingName(d.setting));
-        row.appendChild(cell("mono", settingSaid(d.first), data.first.said));
-        row.appendChild(cell("mono", settingSaid(d.second), data.second.said));
+        row.appendChild(cell("mono", settingSaid(d, "first"), data.first.said));
+        row.appendChild(cell("mono", settingSaid(d, "second"), data.second.said));
         table.appendChild(row);
       });
       host.appendChild(table);

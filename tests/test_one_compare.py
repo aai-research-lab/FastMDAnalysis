@@ -973,3 +973,28 @@ def test_beyond_loopback_neither_compare_nor_the_timeline_is_offered(variants, p
         assert "Timeline" in tabs and pane == ["timeline"]
         assert "Compare with…" in listed
         assert compare_link is True
+
+
+def test_a_length_under_one_nanosecond_is_said_in_ps(variants):
+    """Settings that differ said a 250 ps production "0.25" beside "1.0",
+    where every page says a length under 1 ns in ps."""
+    from fastmdxplora.gui.compare_view import compared
+
+    first, second = _runs(variants)
+    config = second / "resolved_config.yml"
+    config.write_text(config.read_text(encoding="utf-8").replace(
+        "duration_ns: 1.0", "duration_ns: 0.25"), encoding="utf-8")
+    said = compared(first, second)
+    length = next(d for d in said["settings"] if d["setting"] == "simulation.duration_ns")
+    assert (length["first_said"], length["second_said"]) == ("1 ns", "250 ps")
+
+    def look(page, url):
+        place = (urllib.parse.quote(str(first), safe="") + "|"
+                 + urllib.parse.quote(str(second), safe=""))
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("""() => [...document.querySelectorAll(
+            '.compare-settings-table tr')].map((r) => [...r.children].map((c) => c.textContent))
+            .find((cells) => cells[0] === 'simulation.duration_ns')""")
+
+    assert _browse(variants, look) == ["simulation.duration_ns", "1 ns", "250 ps"]

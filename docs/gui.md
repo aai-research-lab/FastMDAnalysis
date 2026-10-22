@@ -299,7 +299,8 @@ Ctrl in place of ⌘ off a Mac.
 **Compare** puts two studies, or two runs, side by side on one page:
 each named (a run by its study and by what sets it apart, "chignolin,
 seed 2") with its system and state and a way to open it, the settings in
-which they differ, defaults filled in as `fastmdx diff` says them, the
+which they differ, defaults filled in as `fastmdx diff` says them (a length
+in ps under 1 ns), the
 means each recorded (its analyses', then the thermodynamic means as the
 run's Overview gives them) with the second's less the first's, marked
 resolved only past twice their combined standard error, and each series
