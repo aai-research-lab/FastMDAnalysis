@@ -69,8 +69,10 @@
   }
 
   /* Through the place's way to another study, which asks first whether
-   * the switch would lose work here (place.js). */
+   * the switch would lose work here (place.js). Beyond loopback a switch
+   * is a post the server refuses: none is made. */
   function open(run) {
+    if (beyondLoopback()) return;
     if (window.FastMDXPlace) window.FastMDXPlace.open(run.path, "overview");
   }
 
@@ -101,17 +103,26 @@
       row.dataset.state = run.state;
       var name = el("th", "overview-runs-name");
       name.scope = "row";
-      var link = el("button", "overview-runs-open");
-      link.type = "button";
+      // Beyond loopback opening a run is a switch of study, a post the
+      // server refuses, and Compare is not answered (/api/compared):
+      // the run is named as text, and nothing that posts is offered.
+      var outside = beyondLoopback();
+      var link = el(outside ? "span" : "button", outside ? "overview-runs-named" : "overview-runs-open");
       var dot = el("span", "status-dot " + (DOT[run.state] || "status-dot-stale"));
       dot.setAttribute("aria-hidden", "true");
       link.appendChild(dot);
       link.appendChild(el("span", "", run.label || run.run_id));
-      link.title = "Open " + (run.label || run.run_id) + "\n" + run.run_id;
-      link.addEventListener("click", function () { open(run); });
-      // Beyond loopback Compare is not answered (/api/compared): nothing
-      // that leads to it is offered.
-      if (!beyondLoopback()) {
+      if (outside) {
+        // Laid out as the button is (dashboard.css), without its pointer.
+        link.style.cssText = "display: inline-flex; align-items: center; gap: 8px;";
+        dot.style.cssText = "width: 7px; height: 7px; margin: 0;";
+        link.title = (run.label || run.run_id) + "\n" + run.run_id;
+      } else {
+        link.type = "button";
+        link.title = "Open " + (run.label || run.run_id) + "\n" + run.run_id;
+        link.addEventListener("click", function () { open(run); });
+      }
+      if (!outside) {
         var pick = el("input", "overview-runs-pick");
         pick.type = "checkbox";
         pick.checked = picked.indexOf(run.path) >= 0;
@@ -213,7 +224,8 @@
     if (focusRun) {
       Array.prototype.some.call(table.querySelectorAll(".overview-runs-row"), function (row) {
         if (row.dataset.run !== focusRun) return false;
-        row.querySelector(".overview-runs-open").focus();
+        var again = row.querySelector(".overview-runs-open");
+        if (again) again.focus();
         return true;
       });
     }

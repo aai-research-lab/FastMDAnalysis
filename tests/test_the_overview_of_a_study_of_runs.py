@@ -186,7 +186,10 @@ def test_a_run_going_is_said_as_it_goes(variants):
 @pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
 def test_beyond_loopback_no_run_is_offered_to_compare(variants, public):
     """Bound beyond loopback, Compare is not answered (/api/compared), yet
-    each run's row offered a box to choose it to compare."""
+    each run's row offered a box to choose it to compare; and each run's
+    name was a button that switched study, a post the server refused. The
+    loopback case is the guard that both are still offered there: it
+    passes before the change as after it."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -207,16 +210,33 @@ def test_beyond_loopback_no_run_is_offered_to_compare(variants, public):
             bound: document.body.dataset.beyondLoopback,
             boxes: document.querySelectorAll('.overview-runs-pick').length,
             open: document.querySelectorAll('.overview-runs-open').length,
+            named: [...document.querySelectorAll('.overview-runs-row th')].map(
+                (n) => n.textContent.trim()),
         })""")
-        if not public:
+        if public:
+            # What the runs list sends once drawn, a row clicked and its
+            # keys pressed: nothing but reads.
+            posted: list[str] = []
+            page.on("request", lambda r: posted.append(f"{r.method} {r.url}")
+                    if r.method != "GET" else None)
+            for nth in (0, 1):
+                page.click(f".overview-runs-row >> nth={nth} >> th")
+                page.keyboard.press("Enter")
+                page.keyboard.press("Space")
+            page.wait_for_timeout(1500)
+            shown["posted"] = posted
+            shown["page"] = page.evaluate("() => location.hash")
+        else:
             page.click('.overview-runs-pick >> nth=0')
             page.click('.overview-runs-pick >> nth=1')
             shown["compare"] = page.is_visible("#overview-runs-compare")
         browser.close()
     assert errors == []
     assert shown["bound"] == ("true" if public else "false")
-    assert shown["open"] == 2
+    assert shown["named"] == ["temperature 300 K", "temperature 310 K"], shown
     if public:
-        assert shown["boxes"] == 0
+        assert shown["boxes"] == 0 and shown["open"] == 0, shown
+        assert shown["posted"] == [] and shown["page"] == "#overview", shown
     else:
+        assert shown["open"] == 2
         assert shown["boxes"] == 2 and shown["compare"] is True
