@@ -834,6 +834,53 @@ def test_a_window_whose_studies_go_in_home_says_why_before_the_click(session) ->
     assert errors == []
 
 
+def test_an_older_machines_answer_cannot_remove_a_newer_home_restriction() -> None:
+    from pathlib import Path
+
+    from playwright.sync_api import sync_playwright
+
+    why = "Studies built in the form would be saved in your home folder."
+    script = Path(__file__).resolve().parents[1] / "src/fastmdxplora/gui/static/remote.js"
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.set_content("""<section class="page" data-page="run">
+          <div id="run-config-field"><div class="builder-actions-row"></div></div>
+          <div id="run-actions-card"><button id="run-start-button">Run</button>
+            <div id="run-remote" hidden></div></div></section>""")
+        page.evaluate("""() => {
+          window.__machinesAnswers = [];
+          window.fetch = () => new Promise(resolve => window.__machinesAnswers.push(resolve));
+          window.FastMDXDashboard = {on() {}};
+          window.FastMDXRun = {state: {start: 'structure'}, currentState: () => ({})};
+          window.__answerMachines = async (index, why) => {
+            window.__machinesAnswers[index]({ok: true, json: async () => ({ok: true,
+              machines: [{name: 'box', ready: true}], jobs: [], not_built_here: why})});
+            // A rendering frame follows the answer's entire promise chain.
+            await new Promise(requestAnimationFrame);
+          };
+        }""")
+        page.add_script_tag(path=str(script))
+        page.evaluate("() => window.__answerMachines(0, '')")
+        page.evaluate("""() => {
+          window.FastMDXRemote.refresh('run');
+          window.FastMDXRemote.refresh('run');
+        }""")
+        page.evaluate("why => window.__answerMachines(2, why)", why)
+        page.focus("#run-remote-machine")
+        page.evaluate("() => window.__answerMachines(1, '')")
+        kept = (page.is_disabled("#run-remote-plan"),
+                page.is_hidden("#run-remote-why"), page.text_content("#run-remote-why"),
+                page.get_attribute("#run-remote-plan", "aria-describedby"))
+        focused = page.evaluate("() => document.activeElement.id")
+        browser.close()
+    assert kept == (True, False, why, "run-remote-why")
+    assert focused == "run-remote-machine"
+    assert errors == []
+
+
 def test_the_results_name_written_in_the_form_is_the_bare_name(session) -> None:
     """Round 1 of the next round: the empty Results box was filled with the
     results folder's full path."""

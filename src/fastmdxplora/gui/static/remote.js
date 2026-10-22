@@ -61,9 +61,13 @@
   // Why a study built in the form cannot be sent from this window (its
   // studies go in the home folder), said before Plan the send is pressed.
   var notBuiltHere = "";
+  var machinesRead = 0;
 
   function machinesKnown() {
+    var read = ++machinesRead;
     return ask("GET", "/api/remote/machines").then(function (said) {
+      // An older answer must not replace a newer refresh's machines or refusal.
+      if (read !== machinesRead) return null;
       machines = said.ok ? (said.machines || []) : [];
       notBuiltHere = said.ok ? (said.not_built_here || "") : "";
       jobs = said.ok ? (said.jobs || []) : [];
@@ -576,7 +580,8 @@
           say(lastSent.text);
         }
         if (syncNow) syncNow();
-        machinesKnown().then(function () {
+        machinesKnown().then(function (said) {
+          if (!said) return;
           if (sayKnownNow) sayKnownNow();
           var studies = document.querySelector('section.page[data-page="studies"]');
           if (studies && !studies.hidden && !busy.studies && !askedIn(".remote-job-said button")) {
@@ -865,7 +870,8 @@
 
   function refresh(page) {
     if (page !== "run" && page !== "studies") return;
-    machinesKnown().then(function () {
+    machinesKnown().then(function (said) {
+      if (!said) return;
       if (page === "run") staleTakenAway();
       if (page === "run" && !busy.run && !askedIn("#run-remote-planned:not([hidden])")) {
         renderRunOn();
