@@ -124,13 +124,15 @@ def _plan_of_one(config: dict[str, Any]) -> list[dict[str, Any]]:
         if len(names) > 1:
             lines[-1]["settings"] = ["systems"]
     sweep = config.get("sweep") if isinstance(config.get("sweep"), dict) else {}
+    from fastmdxplora.batch.aggregate import how_replicas_differ
+
     for axis, values in sweep.items():
         values = values if isinstance(values, list) else [values]
         if str(axis).endswith("random_seed"):
-            line("Replicas", f"{len(values)}, differing only by random seed")
+            line("Replicas", f"{len(values)}, "
+                             + how_replicas_differ({axis}, as_participle=True))
         elif str(axis) == "setup.model":
-            line("Replicas", f"{len(values)}, from models "
-                             + ", ".join(str(v) for v in values) + " of the ensemble")
+            line("Replicas", f"{len(values)}, " + how_replicas_differ({axis}, models=values))
         else:
             line("Varied", f"{axis}: " + ", ".join(str(v) for v in values))
 

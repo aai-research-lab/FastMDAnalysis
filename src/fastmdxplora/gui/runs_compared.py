@@ -7,7 +7,8 @@ table, the settings that differ between them beside the means each recorded
 (with its error, or marked where the analysis said it is not a measurement),
 and marks a difference only where the code judges it resolved: more than
 twice the two runs' combined standard error, the rule the written comparison
-uses for a trend. Replicas, which differ only by seed, are not compared run
+uses for a trend. Replicas, which differ only by seed or by the model of an
+ensemble they start from, are not compared run
 against run; their spread is set against the error each run estimated for
 itself.
 """
@@ -49,7 +50,7 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
         return {"ok": False, "reason": "not a study of several runs"}
 
     axes = axes_that_differ(runs)
-    from fastmdxplora.batch.aggregate import SEED_AXES
+    from fastmdxplora.batch.aggregate import SEED_AXES, how_replicas_differ
 
     replicas = bool(axes) and set(axes) <= SEED_AXES
     # With the runs a study still extends in rounds, as their pieces so far
@@ -83,6 +84,8 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
         # Each setting by its name as a run's is said ("seed", "temperature (K)").
         "axes": [{"axis": axis, "label": setting_said(axis)} for axis in axes],
         "replicas": replicas,
+        # How they differ, as every page says it (`batch.aggregate`).
+        "replicas_said": how_replicas_differ(axes, as_participle=True) if replicas else "",
         "completed": sum(1 for run in completed if run["state"] == "completed"),
         # Read as far as their pieces go, their study extending them in rounds.
         "so_far": sum(1 for run in completed if run["state"] != "completed"),

@@ -251,7 +251,8 @@
     var waiting = runs.filter(function (r) { return r.state === "waiting"; }).length;
     if (waiting) parts.push(waiting + " waiting");
     var axes = (data.axes || []).map(function (a) { return a.label.replace(/^random_/, ""); });
-    parts.push(data.replicas ? "replicas, differing by " + axes.join(" and ")
+    // Replicas as every page says how they differ (batch/aggregate.py).
+    parts.push(data.replicas ? "replicas, " + data.replicas_said
       : axes.length ? "differing by " + axes.join(" and ") + ": compared, not averaged" : "");
     byId("overview-runs-said").textContent = parts.filter(Boolean).join("; ") + ".";
     var more = (data.measures || []).length - shownMeasures().length;

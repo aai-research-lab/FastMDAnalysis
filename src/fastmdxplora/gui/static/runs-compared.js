@@ -63,7 +63,8 @@
       data.completed + " of " + data.runs.length + " runs completed" +
       (data.so_far ? "; " + data.so_far + " read as far as their finished pieces go, between rounds"
         : "") +
-      (data.replicas ? "; replicas, differing only by seed" : "");
+      // How they differ, as every page says it (batch/aggregate.py).
+      (data.replicas ? "; replicas, " + data.replicas_said : "");
 
     var table = document.getElementById("runs-compared-table");
     table.innerHTML = "";

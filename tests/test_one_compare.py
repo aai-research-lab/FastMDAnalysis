@@ -1044,3 +1044,48 @@ def test_a_length_under_one_nanosecond_is_said_in_ps(variants):
             .find((cells) => cells[0] === 'simulation.duration_ns')""")
 
     assert _browse(variants, look) == ["simulation.duration_ns", "1 ns", "250 ps"]
+
+
+def test_two_replicas_from_models_of_an_ensemble_are_said_so(tmp_path):
+    """Two runs of a study swept over the models of an ensemble are
+    replicas, set against the replicas' spread as `batch/aggregate.py` sets
+    them, and the page said they "differ only by random seed"."""
+    from fastmdxplora.batch.aggregate import aggregate_members
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "setup.model", [1, 5, 12])
+    first, second, _ = _runs(study)
+    said = compared(first, second)
+    assert said["replicas"]["differ"] == "started from different models of the ensemble"
+    rmsd = next(m for m in said["measures"] if m["analysis"] == "rmsd")["versus"]
+    entry = aggregate_members(study)["analyses"]["rmsd"]
+    errors = [row["error_as_a_replica"] for row in entry["members"][:2]]
+    assert rmsd["error_of"] == "replicas" and rmsd["errors"] == pytest.approx(errors)
+
+    def look(page, url):
+        place = (urllib.parse.quote(str(first), safe="") + "|"
+                 + urllib.parse.quote(str(second), safe=""))
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("() => document.querySelector('.compare-replicas').textContent")
+
+    note = _browse(study, look)
+    assert note.startswith("These are two of 3 runs started from different models of the "
+                           "ensemble: repeats of one measurement."), note
+    assert "random seed" not in note
+
+
+def test_two_replicas_from_two_models_read_alone_are_not_said_to_differ(tmp_path):
+    """Two runs from two models of an ensemble, the only two: their spread
+    against their own errors (`spread_against_own`), never "resolved"."""
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "setup.model", [1, 5])
+    first, second = _runs(study)
+    _mean_of(first, "rg", 1.20, 0.001)
+    _mean_of(second, "rg", 1.25, 0.001)
+    rg = next(m for m in compared(first, second)["measures"] if m["analysis"] == "rg")["versus"]
+    assert rg["error_of"] == "alone" and rg["resolved"] is None
+    assert rg["spread_against_own"]["too_tight"] is True

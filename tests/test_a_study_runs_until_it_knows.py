@@ -380,6 +380,8 @@ RULE = {"measures": [{"analysis": "rmsd", "standard_error": 0.01}], "max_duratio
 class TestTheLoop:
     def test_extends_until_known_and_records_each_round(self, tmp_path, replicas):
         made = replicas([0.20, 0.201, 0.199], 0.04)
+        (tmp_path / "batch_manifest.json").write_text(json.dumps(
+            {"sweep": {"simulation.random_seed": [1, 2, 3]}}), encoding="utf-8")
         said = []
         record = run_until_known(made.runs, targets_of(RULE), RULE, record_in=tmp_path,
                                  extend_all=made.extend_all, say=said.append)
@@ -393,7 +395,7 @@ class TestTheLoop:
         assert final["error"] <= 0.01 and final["agree"] is True
         written = json.loads((tmp_path / "stopping.json").read_text(encoding="utf-8"))
         assert written == record
-        assert "differ by seed" in record["said"]
+        assert "started from one structure, differing only by random seed" in record["said"]
         assert any("Extending every run" in line for line in said)
 
     def test_stops_at_the_ceiling_and_says_it_is_not_known(self, tmp_path, replicas):

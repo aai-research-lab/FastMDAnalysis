@@ -103,7 +103,8 @@ def _primary_sweep_axis(manifest: dict[str, Any]) -> str | None:
 
     Uses the first axis in the sweep definition that is not a random seed.
     Returns None if there is no such axis (a multi-system batch with no
-    parameter axes, or replicas that differ only by seed): a "trend" of a
+    parameter axes, or replicas, which differ only by seed or by the model
+    of an ensemble they start from): a "trend" of a
     mean against the seed that drew the velocities is noise read as a
     relationship, and replicas are compared in their own section instead.
     """
@@ -722,7 +723,7 @@ def _over(mean: dict[str, Any]) -> str:
 
 
 def _across_the_replicas(root: Path) -> list[str]:
-    """For replicas, which differ only by seed: the spread of their means
+    """For replicas (`batch.aggregate.how_replicas_differ`): the spread of their means
     against the error each run estimated for itself, which is the only check
     a single run's error gets (`fastmdxplora.batch.aggregate`)."""
     from fastmdxplora.batch.aggregate import aggregate_members

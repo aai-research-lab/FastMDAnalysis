@@ -678,7 +678,8 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
         if all(v.met for v in verdicts):
             entry["decision"] = "met"
             record["outcome"] = "met"
-            record["said"] = _said_met(verdicts, production, len(runs), independent)
+            record["said"] = _said_met(verdicts, production, len(runs), independent,
+                                       axes=_swept(record_in))
             write()
             say(record["said"])
             return record
@@ -737,7 +738,24 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
     return record
 
 
-def _said_met(verdicts: list[Verdict], production: float, runs: int, independent: str) -> str:
+def _swept(study: Path) -> list[str] | None:
+    """The axes the study's runs were swept over, from its batch manifest;
+    None where it was not read."""
+    try:
+        sweep = json.loads((study / "batch_manifest.json").read_text(encoding="utf-8"))["sweep"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return [str(axis) for axis in sweep] if isinstance(sweep, dict) else None
+
+
+def _said_met(verdicts: list[Verdict], production: float, runs: int, independent: str,
+              *, axes: list[str] | None = None) -> str:
+    """What a study determined as asked says, its replicas said as they
+    differ (`batch.aggregate.how_replicas_differ`): from one structure by
+    seed, or from different models of an ensemble; neither where the axes
+    were not read."""
+    from fastmdxplora.batch.aggregate import how_replicas_differ
+
     known = "; ".join(v.said for v in verdicts)
     each = " in each run" if runs > 1 else ""
     text = f"After {production:g} ns of production{each}: {known}."
@@ -745,11 +763,18 @@ def _said_met(verdicts: list[Verdict], production: float, runs: int, independent
         text += (" One run: precise within itself, and not checked against independent "
                  "starts, so a run trapped in one state, or still relaxing more slowly "
                  "than it ran, would look the same (independent_starts: not_required).")
+    elif axes is not None and "setup.model" in axes:
+        text += (f" The {runs} replicas {how_replicas_differ(axes)}, so they check trapping "
+                 "as far as those structures and their dynamics carried them apart; a "
+                 "relaxation slower than the runs that every model shares they cannot check.")
+    elif axes:
+        text += (f" The {runs} replicas started from one structure, "
+                 f"{how_replicas_differ(axes, as_participle=True)}, so they check trapping "
+                 "as far as their dynamics carried them apart; a relaxation slower than the "
+                 "runs, shared from that structure, they cannot check.")
     else:
-        text += (f" The {runs} replicas started from one structure and differ by seed, so "
-                 "they check trapping as far as their dynamics carried them apart; a "
-                 "relaxation slower than the runs, shared from that structure, they "
-                 "cannot check.")
+        text += (f" The {runs} replicas check trapping as far as they were carried apart; a "
+                 "relaxation slower than the runs that they all share they cannot check.")
     return text
 
 

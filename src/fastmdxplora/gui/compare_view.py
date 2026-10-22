@@ -50,9 +50,9 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
         names = " and ".join(places[i]["where"]["said"] for i in replicas["unfinished"])
         also = _also_differ(said)
         said["replicas_not_used"] = (
-            (f"The study ran these as runs that differ only by random seed, and these two "
+            (f"The study ran these as runs {replicas['differ']}, and these two "
              f"also differ in {', '.join(also)}" if also
-             else "These are runs that differ only by random seed")
+             else f"These are runs {replicas['differ']}")
             + f", but {names} did not finish: the "
             "spread of the finished runs' means is the error of a run that went its full "
             "length, not of one that ended early. Each difference is set against the errors "
@@ -92,8 +92,9 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
 
 def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
                  sides: list[dict[str, Any]]) -> dict[str, Any]:
-    """Two runs of one study whose runs are replicas (they differ only by
-    seed, `batch.aggregate`): the error of each one's mean, by quantity,
+    """Two runs of one study whose runs are replicas (`batch.aggregate`:
+    they differ only by seed, or start from different models of an
+    ensemble): the error of each one's mean, by quantity,
     as the replicas give it (`batch.aggregate.replica_error`: the spread of
     the means of the study's finished runs, or the run's own error where
     that is larger), read held to the study. Two repeats of one
@@ -118,19 +119,24 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
 
     def read(inside: Path) -> dict[str, Any]:
         from fastmdxplora.batch.aggregate import (
-            _finished, finished_members, replica_error, spread_against_own)
+            _finished, finished_members, how_replicas_differ, replica_error,
+            spread_against_own)
         from fastmdxplora.gui.workspace import means_of
 
         try:
             members, replicas, why = finished_members(inside)
             # How many runs the study has, finished or not: "only these two
             # runs' means were read" said only where it has more.
-            planned = len(_finished(inside)[0].get("runs") or [])
+            manifest = _finished(inside)[0]
+            planned = len(manifest.get("runs") or [])
         except (OSError, ValueError):
             # Whether they are repeats of one measurement is not known.
             return {"unknown": True}
         if not replicas:
             return {}
+        # How they differ, as every page says it.
+        differ = how_replicas_differ(manifest.get("sweep") or {})
+        participle = how_replicas_differ(manifest.get("sweep") or {}, as_participle=True)
         # Each finished run by its place in the study, without following a
         # link or looking outside it: one its manifest places elsewhere is
         # named, and left out.
@@ -146,7 +152,7 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
         if unfinished:
             # A run that stopped or failed is a shorter measurement than
             # those the spread is taken over: their spread is not its error.
-            return {"unfinished": unfinished, "outside": outside}
+            return {"unfinished": unfinished, "outside": outside, "differ": differ}
         means = [means_of(inside / place) for place in kept]
         errors: dict[str, tuple[float, float]] = {}
         kinds: dict[str, tuple[str, str]] = {}
@@ -174,7 +180,8 @@ def _as_replicas(a: Path, b: Path, places: list[dict[str, Any]],
                                     for i in (0, 1))
                 counts[name] = len(values)
         return {"errors": errors, "kinds": kinds, "counts": counts, "alone": alone,
-                "runs": len(members), "of": planned, "why": why, "outside": outside}
+                "runs": len(members), "of": planned, "why": why, "outside": outside,
+                "differ": differ, "differing": participle}
 
     from fastmdxplora.gui.server import _confined
 
@@ -208,13 +215,17 @@ def _the_replicas_said(said: dict[str, Any], replicas: dict[str, Any]) -> None:
                               else "own" if mine == ["own", "own"] else "mixed")
         versus["from_runs"] = counts.get(name)
     said["replicas"] = {"runs": replicas["runs"], "of": replicas.get("of"),
-                        "why": replicas["why"], "also_differ": _also_differ(said)}
+                        "why": replicas["why"], "differ": replicas.get("differ"),
+                        "differing": replicas.get("differing"),
+                        "also_differ": _also_differ(said)}
 
 
 def _also_differ(said: dict[str, Any]) -> list[str]:
     """The settings in which two runs the study ran as replicas differ
-    besides their seed, from the Settings diff the page shows: the page says
-    them, never "only by random seed" beside a table that lists more."""
+    besides what makes them replicas (their seed, or the model of an
+    ensemble they start from), from the Settings diff the page shows: the
+    page says them, never "only by random seed" beside a table that lists
+    more."""
     from fastmdxplora.batch.aggregate import SEED_AXES
 
     return [str(d.get("setting")) for d in said.get("settings") or ()

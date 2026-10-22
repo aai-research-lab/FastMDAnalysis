@@ -5,7 +5,8 @@ Reading them is arithmetic; knowing what the spread across them measures is
 not, and it is the whole of why this exists.
 
 **Replicas and variants are opposites, and they look identical on disk.**
-Members that differ only by random seed are repeats of one measurement, so
+Members that differ only by random seed, or that start from different
+models of one ensemble, are repeats of one measurement, so
 the spread of their means is the error on it. Members that differ by
 system, mutation or parameter are different measurements, so the spread
 between them is the result. Averaging the second kind reports a mutant
@@ -36,6 +37,7 @@ __all__ = [
     "SEED_AXES",
     "aggregate_members",
     "finished_members",
+    "how_replicas_differ",
     "member_directory",
     "read_member_findings",
     "replica_error",
@@ -138,7 +140,7 @@ def finished_members(batch_dir: str | Path) -> tuple[list[tuple[str, Path]], boo
 def replica_error(means: Any, own: float | None) -> float | None:
     """The standard error of one replica's mean: the spread of the
     replicas' means (sample standard deviation, ``spread_of_means``), since
-    members that differ only by seed are repeats of one measurement and
+    replicas are repeats of one measurement and
     their spread is its error; or the run's own error where that is the
     larger, since a spread of few replicas can fall short of it by chance
     and a run's error is never narrowed by its repeats. None where fewer
@@ -174,6 +176,26 @@ def spread_against_own(means: Any, errors: Any) -> dict[str, Any] | None:
             "factor": CALIBRATION_FACTOR}
 
 
+def how_replicas_differ(axes: Any, *, models: Any = None,
+                        as_participle: bool = False) -> str:
+    """How a study's replicas differ, as every page and record says it,
+    from the axes they were swept over: "that differ only by random seed"
+    ("differing only by random seed" as a participle), or, where they were
+    prepared from different models of an ensemble (`setup.model`),
+    "started from different models of the ensemble" (the models named where
+    ``models`` gives them), with a seed of its own each where a seed was
+    swept too. Read after "runs" or "replicas"."""
+    axes = {str(axis) for axis in axes or ()}
+    if "setup.model" in axes:
+        said = "started from " + (
+            "models " + ", ".join(str(m) for m in models) + " of the ensemble" if models
+            else "different models of the ensemble")
+        if axes & (SEED_AXES - {"setup.model"}):
+            said += ", each with a seed of its own"
+        return said
+    return "differing only by random seed" if as_participle else "that differ only by random seed"
+
+
 def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     """Whether the campaign repeated one study or compared several."""
     sweep = manifest.get("sweep") or {}
@@ -196,8 +218,8 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
         )
     if axes <= SEED_AXES:
         return True, (
-            "the members differ only by random seed, so they are repeats of "
-            "one estimate, and the spread of their means is its error once each "
+            f"the members are replicas {how_replicas_differ(axes)}, so they are "
+            "repeats of one estimate, and the spread of their means is its error once each "
             "run has determined its own mean"
         )
     return False, (
@@ -207,7 +229,8 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
-def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0) -> str:
+def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0, *,
+                         one_structure: bool = True) -> str:
     """Why replicas' spread is not yet their error: ``unbacked`` of the
     ``runs`` did not determine their own mean, ``said_so`` of them by saying
     their mean is not a measurement (an error of their own given or not),
@@ -224,8 +247,9 @@ def _spread_not_an_error(unbacked: int, runs: int, said_so: int = 0) -> str:
     else:
         how = (f": {said_so} said {'its' if said_so == 1 else 'their'} mean is not "
                f"determined, and {plain} gave no error of {'its' if plain == 1 else 'their'} own")
+    begun = "begun from one structure, " if one_structure else ""
     return (f"{which}{how}, so their spread is not yet an "
-            "error: begun from one structure, runs too short to resolve their "
+            f"error: {begun}runs too short to resolve their "
             "correlation time are not yet independent samples.")
 
 
@@ -346,8 +370,9 @@ def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str,
         said_so = [r["member"] for r in rows if r["not_a_measurement"]]
         if replicas and unbacked:
             entry["qualified_by_their_own_runs"] = unbacked
-            entry["spread_not_an_error"] = _spread_not_an_error(len(unbacked), len(rows),
-                                                                len(said_so))
+            entry["spread_not_an_error"] = _spread_not_an_error(
+                len(unbacked), len(rows), len(said_so),
+                one_structure="setup.model" not in (manifest.get("sweep") or {}))
         if replicas and not errors:
             observed = float(np.std(means, ddof=1))
             entry["predicted_standard_error"] = None

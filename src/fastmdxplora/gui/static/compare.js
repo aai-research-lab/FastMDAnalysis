@@ -411,12 +411,14 @@
       if (k === n) every = true;
     });
     var also = data.replicas.also_differ || [];
+    // How the study's replicas differ, as every page says it
+    // (batch/aggregate.py, how_replicas_differ).
+    var differ = data.replicas.differ, differing = data.replicas.differing;
     var said = also.length
       ? "These are two of " + n + " runs the study ran as repeats of one measurement, " +
-        "differing only by random seed; these two also differ in " + also.join(", ") +
+        differing + "; these two also differ in " + also.join(", ") +
         " (Settings that differ, above)."
-      : "These are two of " + n + " runs that differ only by random seed: repeats of one " +
-        "measurement.";
+      : "These are two of " + n + " runs " + differ + ": repeats of one measurement.";
     if (spread) {
       var counts = Object.keys(fewer).map(Number).sort(function (a, b) { return b - a; });
       var of = counts.length
