@@ -5133,7 +5133,7 @@ def test_the_copy_refusal_names_the_draft_not_its_concept(tmp_path, unsteady, ca
     capsys.readouterr()
     assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
     said = capsys.readouterr().err
-    assert "both name the draft 7 on zenodo-sandbox" in said and "c7" not in said
+    assert "both name the draft or record 7 on zenodo-sandbox" in said and "c7" not in said
 
 
 def test_a_tiny_or_nearly_whole_download_s_amount_is_said_as_it_is():
@@ -5149,7 +5149,8 @@ def test_a_tiny_or_nearly_whole_download_s_amount_is_said_as_it_is():
 
 
 @pytest.mark.parametrize("by_hand, expected", [("2.0", "2.1"), ("1.2", "1.3"),
-                                               ("v2 (final)", "v3 (final)")])
+                                               ("v2 (final)", "v3 (final)"),
+                                               ("final", "1.1")])
 def test_a_waiting_new_version_is_counted_on_from_any_version_published_since(
         tmp_path, unsteady, monkeypatch, by_hand, expected):
     """Hands-on review of the sixty-third commit: a waiting draft of a new
@@ -5199,3 +5200,34 @@ def test_a_waiting_new_version_keeps_its_label_while_none_was_published_since(
     monkeypatch.setattr(zenodo, "_call", by_concept)
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert unsteady.meta[8]["version"] == "1.1"
+
+
+def test_a_latest_answer_older_than_the_record_leaves_a_waiting_label_as_it_is(
+        tmp_path, unsteady, monkeypatch):
+    """Code review of the sixty-fifth commit: a concept's answer naming a
+    version older than the study's record (kept from before) counted the
+    waiting draft on from it, down to a label already published."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["version"] = "1.0"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": {"version": "1.0"}, "files": [{"key": "shared.zip"}]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.1"
+    # Counted from record 9 (1.1), as 1.2.
+    kept = json.loads((study / "shared_to.json").read_text())
+    kept["zenodo-sandbox"].update(record="9", version="1.2")
+    (study / "shared_to.json").write_text(json.dumps(kept))
+    unsteady.meta[8]["version"] = "1.2"
+    # Zenodo's answer for the concept is one older than record 9.
+    real = zenodo._call
+
+    def by_concept(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/c7"):
+            return real(method, url.replace("/c7", "/latest"), **kwargs)
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", by_concept)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.2"

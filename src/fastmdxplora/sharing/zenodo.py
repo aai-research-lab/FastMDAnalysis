@@ -755,9 +755,14 @@ def _counted_past(draft: dict[str, Any], depositions: str, token: str,
         newest = _latest_published(asked, depositions, token, said)
     except ShareRefused:
         return version
-    if not newest.get("submitted") or str(newest.get("id")) in (str(draft.get("id")),
-                                                                 str(record)):
+    newest_id = str(newest.get("id"))
+    if not newest.get("submitted") or newest_id in (str(draft.get("id")), str(record)):
         return version
+    if newest_id.isdigit() and str(record).isdigit() and int(newest_id) < int(record):
+        # Older than the record it was counted from (an answer kept from
+        # before): no version published since.
+        return version
+    # Where its label holds no number, the draft's own, as a new version's.
     return _bumped(str((newest.get("metadata") or {}).get("version") or "")) or version
 
 
@@ -983,7 +988,7 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
             # The draft or record itself where both name it, before its concept.
             where, key, which = min((b.split(":", 2) for b in both),
                                     key=lambda b: _NAMED.index(b[1]))
-            named_as = {"id": f"the draft {which}", "record": f"the record {which}",
+            named_as = {"id": f"the draft or record {which}", "record": f"the record {which}",
                         "asked_as": f'the draft asked for as "{which}"',
                         "concept": f"versions of the record {which}"}[key]
             raise ShareRefused(
