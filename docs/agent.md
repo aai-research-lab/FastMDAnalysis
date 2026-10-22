@@ -477,7 +477,10 @@ itself, then the Config as a version of the study, or an answer, or a
 question. Newest at the bottom, where the message box is. Enter sends;
 Shift+Enter breaks a line. Every message can be copied, edited or retried,
 and an edit or a retry cuts the thread from that message on, so the
-conversation continues from there rather than with a fork in it.
+conversation continues from there rather than with a fork in it. An edit
+changes the words alone, and an edit or a retry sends the message's files
+with it again, read as they are now: one gone or changed since is said, and
+nothing is sent.
 
 **The page speaks as the Agent.** The AI model it thinks with is its own and
 is named only in its settings (and by `fastmdx agent model`): the page and

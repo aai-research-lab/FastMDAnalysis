@@ -331,6 +331,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   its folder, and a study opened elsewhere is named from the status that
   showed it.
 
+- With no study open, or a folder open that is not a study, the Agent page
+  takes that as where the GUI is: after a reload, or a read refused as the
+  GUI moved on, Send no longer waits for good, and what is sent is saved in
+  the workspace's chats. A study opened there later, in another window or
+  by an AI app, shows its own conversation, and a message written on it goes
+  into it, not into the chat of no study shown before. An Edit refused (Send
+  waits, or a review holds it) keeps its words through a click elsewhere,
+  Escape alone putting the old ones back, and the review's note goes once
+  the review is chosen. Edit and Retry send the message's files with it,
+  read again (one gone or changed since is said, and nothing sent), and Edit
+  changes the words alone. An Enter pressed just as a study opened elsewhere
+  put its own saved words in the box sends nothing and says so. A note about
+  the words in the box goes once they are sent.
+
 ### Added
 
 - A study of several runs (seeds, arms, mutants, umbrella windows) is
