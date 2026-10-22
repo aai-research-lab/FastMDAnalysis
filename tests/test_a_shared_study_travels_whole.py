@@ -5036,7 +5036,8 @@ def test_the_copy_refusal_says_how_the_copy_may_carry_on_the_record(tmp_path, un
     shutil.copytree(study, copy)
     capsys.readouterr()
     assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
-    assert f"delete {study.resolve() / 'shared_to.json'})" in capsys.readouterr().err
+    assert (f"move {study.resolve() / 'shared_to.json'} over {copy / 'shared_to.json'})"
+            in capsys.readouterr().err)
 
 
 def test_a_copy_is_told_by_its_record_s_concept_after_the_original_went_on(tmp_path,
@@ -5144,7 +5145,7 @@ def test_a_tiny_or_nearly_whole_download_s_amount_is_said_as_it_is():
     assert _got(1, 0) == ", with 1 byte downloaded"
     assert _got(0, 1, "at") == " at 0 of 1 byte"
     assert _got(999, 1000, "at") == " at 999 of 1000 bytes"
-    assert _got(500, 1000, "at") == " at 0.5 of 1.0 kB"
+    assert _got(500, 1000, "at") == " at 500 bytes of 1.0 kB"
     assert _got(0, 0, "at") == " at 0 bytes"
 
 
@@ -5272,5 +5273,38 @@ def test_a_download_just_begun_is_said_in_bytes():
     said as "0.0 of 4.9 kB"."""
     from fastmdxplora.sharing.opening import _got
 
-    assert _got(1, 4900, "at") == " at 1 of 4900 bytes"
-    assert _got(600, 4900, "at") == " at 0.6 of 4.9 kB"
+    assert _got(1, 4900, "at") == " at 1 byte of 4.9 kB"
+    assert _got(600, 4900, "at") == " at 600 bytes of 4.9 kB"
+    assert _got(1200, 4900, "at") == " at 1.2 of 4.9 kB"
+    assert _got(50_000, 5_000_000_000, "at") == " at 50.0 kB of 5000.0 MB"
+    assert _got(50_000, 5_000_000_000) == ", with 50.0 kB of 5000.0 MB downloaded"
+
+
+def test_the_copy_refusal_s_remedy_to_carry_on_the_record_followed_makes_no_second(
+        tmp_path, unsteady, capsys):
+    """Code review of the sixty-seventh commit: the remedy said, deleting the
+    original's shared_to.json, left a copy that named only the title its
+    draft was asked for under to make a second draft."""
+    import shutil
+
+    unsteady.faults = {"POST": ["made late"]}
+    study = _study(tmp_path / "study")
+    zenodo._LOOKS_S, looks = (1.0,), zenodo._LOOKS_S
+    try:
+        assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    finally:
+        zenodo._LOOKS_S = looks
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    unsteady.drafts[0]["hidden"] = 0
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    assert "move " in capsys.readouterr().err
+    # As said: the original's shared_to.json moved over the copy's.
+    (study / "shared_to.json").replace(copy / "shared_to.json")
+    unsteady.calls.clear()
+    assert _share_to_zenodo(copy, tmp_path / "a.zip") == 0
+    assert json.loads((copy / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
+    assert not any(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+                   for c in unsteady.calls)

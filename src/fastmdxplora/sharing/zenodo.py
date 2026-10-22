@@ -996,8 +996,8 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
                 f"both name {named_as} on {where}, and sharing this "
                 f"one would write over that one's. To share this study as one of its own, "
                 f"delete {study / SHARED_TO} and share again; to go on with that one, share "
-                "it from its own folder (or, for this one to carry on its record instead, "
-                f"delete {there / SHARED_TO}).", code="environment.share.not_finished",
+                "it from its own folder (or, for this one to carry on its draft or record instead, "
+                f"move {there / SHARED_TO} over {study / SHARED_TO}).", code="environment.share.not_finished",
                 path=str(study / SHARED_TO))
     kept["folder"] = here
 
