@@ -265,7 +265,9 @@ def _not_analysed(base: Path) -> str:
     if status in ("stopped", "failed", "interrupted"):
         # What to do is the fix card's: carried on where a checkpoint was
         # written, run again or changed where none was or the run failed.
-        said += (" It ended before it finished: What would fix it, on the Overview, "
+        # For a stop asked for, the card is titled "To carry it on".
+        card = "To carry it on" if status == "stopped" else "What would fix it"
+        said += (f" It ended before it finished: {card}, on the Overview, "
                  "says what to do first.")
     return said
 
