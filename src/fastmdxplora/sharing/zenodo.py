@@ -167,6 +167,35 @@ _TERMINAL = re.compile("\x1b\\[((?:\\d|;)*)([a-zA-Z])")
 _ENTITY = re.compile("&#?[0-9A-Za-z]{1,24};")
 
 
+def _entities() -> dict[str, str]:
+    """The entities Zenodo reads (as ftfy does): each HTML5 one ended by
+    ";", and those of lower-case names written in capitals where that reads
+    as no other."""
+    import html.entities
+
+    found = {}
+    for name, char in html.entities.html5.items():
+        if name.endswith(";"):
+            found["&" + name] = char
+            if name == name.lower() and html.unescape("&" + name.upper()) == "&" + name.upper():
+                found["&" + name.upper()] = char.upper()
+    return found
+
+
+_ENTITIES = _entities()
+
+
+def _entity(found: re.Match[str]) -> str:
+    """An entity as Zenodo reads it: whole, or not at all."""
+    named = found.group()
+    if named in _ENTITIES:
+        return _ENTITIES[named]
+    if named.startswith("&#"):
+        read = html.unescape(named)
+        return named if ";" in read else read
+    return named
+
+
 def _c1(found: re.Match[str]) -> str:
     """A C1 control character as the Windows-1252 one Zenodo reads it as."""
     try:
@@ -191,21 +220,26 @@ def _plain(value: Any) -> Any:
     # (In ftfy's order, on the text with nothing around it, until nothing
     # more changes; with nothing around what it gives either, so text and
     # what Zenodo kept of it compare alike.)
-    fixed = value.strip()
-    for _ in range(8):
-        was = fixed
-        if "<" not in fixed:
-            fixed = _ENTITY.sub(lambda e: html.unescape(e.group()), fixed)
-        fixed = _TERMINAL.sub("", fixed)
-        fixed = re.sub("[\x80-\x9f]", _c1, fixed).translate(_LIGATURES)
-        fixed = re.sub("[\uff01-\uffee]", lambda c: unicodedata.normalize("NFKC", c.group()),
-                       fixed)
-        fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
-        fixed = fixed.replace("\u2028", "\n").replace("\u2029", "\n")
-        fixed = unicodedata.normalize("NFC", _TAKEN_OUT.sub("", fixed))
-        if fixed == was:
-            break
-    return fixed.strip()
+    # (Line by line, as ftfy reads it: entities read until the first line,
+    # as given, holding markup, and never after.)
+    lines, reading = [], True
+    for fixed in re.split("(?<=\n)", value.strip()):
+        reading = reading and "<" not in fixed
+        for _ in range(8):
+            was = fixed
+            if reading:
+                fixed = _ENTITY.sub(_entity, fixed)
+            fixed = _TERMINAL.sub("", fixed)
+            fixed = re.sub("[\x80-\x9f]", _c1, fixed).translate(_LIGATURES)
+            fixed = re.sub("[\uff01-\uffee]",
+                           lambda c: unicodedata.normalize("NFKC", c.group()), fixed)
+            fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
+            fixed = fixed.replace("\u2028", "\n").replace("\u2029", "\n")
+            fixed = unicodedata.normalize("NFC", fixed)
+            if fixed == was:
+                break
+        lines.append(fixed)
+    return unicodedata.normalize("NFC", _TAKEN_OUT.sub("", "".join(lines))).strip()
 
 
 #: Licences by the ids Zenodo takes them as, where these are not the ids it
@@ -825,7 +859,9 @@ def _metadata(crate: dict[str, Any], *, authors: list[tuple[str, str]], license_
               system: str, version: str) -> dict[str, Any]:
     root = next(e for e in crate["@graph"] if e.get("@id") == "./")
     software = next((e for e in crate["@graph"] if e.get("@id") == "#fastmdxplora"), {})
-    description = (f"<p>{html.escape(str(root.get('description', '')))}</p>"
+    # The summary in the form Zenodo keeps it, then made safe as markup: its
+    # fixing then makes no markup of it (a full-width "<" before a letter).
+    description = (f"<p>{html.escape(_plain(str(root.get('description', ''))))}</p>"
                    f"<p>A molecular dynamics study packed by FastMDXplora "
                    f"{software.get('version', '')} as an RO-Crate (ro-crate-metadata.json "
                    "lists every file with its SHA-256). Open it with "
@@ -1610,11 +1646,6 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
             # The draft of a new version deleted: begun again from its record.
             found = _call("GET", f"{depositions}/{published}", token=token, missing_ok=True,
                           said=said, gone=_GONE)
-            if isinstance(found, dict) and found.get("submitted") and said \
-                    and found.get("state") != "inprogress":
-                said(f"The draft {earlier['id']} of a new version is gone from {site}; "
-                     f"beginning a new version again, from the latest version of record "
-                     f"{published}.")
         if found is not _GONE and (not isinstance(found, dict) or not found.get("id")):
             odd = ShareRefused(
                 f"Zenodo's answer for the draft or record {earlier['id']} this study was "
@@ -1664,6 +1695,10 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                 "publish or discard that edit there, then share again.",
                 code="environment.service.unusable_response",
                 url=str((newest.get("links") or {}).get("html") or ""))
+        if again_from and said:
+            said(f"The draft {earlier['id']} of a new version is gone from {site}; "
+                 f"beginning a new version again, from the latest version of record "
+                 f"{published}.")
         # The next of the latest version's own label; where it holds no
         # number, the study's own count: the version its deleted draft was
         # to be, or the one after the one it published.

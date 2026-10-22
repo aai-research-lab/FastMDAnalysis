@@ -223,20 +223,21 @@ class _Unsteady(_Zenodo):
             type(self).uploaded_to[int(bucket.lstrip("b"))] = name
             # A file of that name a test lists as the upload begins holds what
             # was uploaded (one a test lists once it is answered is the test's).
-            listed = [*(type(self).files or []),
-                      *type(self).files_of.get(int(bucket.lstrip("b")), [])]
-            super().do_PUT()
-            sent = hashlib.md5(type(self).stored["archive"]).hexdigest()  # noqa: S324
-            for entry in listed:
-                if entry.get("filename") == name and "checksum" in entry:
-                    entry["checksum"] = sent
-            # And one a test lists the draft's files by now holds it.
-            for holding in (type(self).files, type(self).files_of.get(
-                    int(bucket.lstrip("b")))):
-                if holding is not None and name not in {f.get("filename") for f in holding}:
-                    holding.append({"id": f"up-{name}", "filename": name})
-            return None
+            self._listed = [*(type(self).files or []),
+                            *type(self).files_of.get(int(bucket.lstrip("b")), [])]
+            return super().do_PUT()
         return super().do_PUT()
+
+    def _uploaded(self):
+        bucket, name = self.path.split("/")[2:4]
+        sent = hashlib.md5(type(self).stored["archive"]).hexdigest()  # noqa: S324
+        for entry in getattr(self, "_listed", []):
+            if entry.get("filename") == name and "checksum" in entry:
+                entry["checksum"] = sent
+        # And one a test lists the draft's files by now holds it.
+        for holding in (type(self).files, type(self).files_of.get(int(bucket.lstrip("b")))):
+            if holding is not None and name not in {f.get("filename") for f in holding}:
+                holding.append({"id": f"up-{name}", "filename": name})
 
     def do_GET(self):  # noqa: N802
         archive = type(self).payload or type(self).stored.get("archive", b"")
@@ -3892,7 +3893,7 @@ def test_a_study_whose_words_zenodo_fixes_is_shared_once(tmp_path, unsteady, mon
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert sum(c[0] == "POST" and c[1] == "/api/deposit/depositions"
                for c in unsteady.calls) == 1
-    assert "Its 'second' look." in unsteady.meta[7]["description"]
+    assert "Its 'second' look." in zenodo._text(unsteady.meta[7]["description"])
 
 
 def _analysed_again_from(study: Path, was: str, words: str) -> None:
@@ -4343,3 +4344,75 @@ def test_a_draft_answered_with_no_bucket_says_to_share_again(tmp_path, unsteady,
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert "named no bucket to upload into. The draft is kept as it is: share again" in \
         capsys.readouterr().err
+
+
+def _as_bleach_strips(value):
+    """A description as Zenodo keeps it: full-width letters made plain, then
+    what reads as a tag it does not allow taken out (as bleach takes it)."""
+    import re
+    import unicodedata
+
+    if isinstance(value, dict):
+        return {k: (re.sub(r"<(?!/?(?:p|code)>)[A-Za-z][^>]*>?", "", re.sub(
+                    "[！-￮]", lambda c: unicodedata.normalize("NFKC", c.group()), v))
+                    if k == "description" and isinstance(v, str) else _as_bleach_strips(v))
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [_as_bleach_strips(v) for v in value]
+    return value
+
+
+def test_a_summary_zenodo_would_read_as_markup_is_sent_as_text(tmp_path, unsteady,
+                                                               monkeypatch):
+    """Review of the forty-fifth commit: a summary holding a full-width "<"
+    before a letter (made plain there, then taken out as a tag) was cut
+    short on Zenodo, and taken for the person's at every later share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    _analysed_again(study, "Kd＜Ki at 300 K, so binding holds.")
+    real = zenodo._call
+
+    def as_zenodo(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        for number, held in unsteady.meta.items():
+            unsteady.meta[number] = _as_bleach_strips(held)
+        return _as_bleach_strips(answer)
+
+    monkeypatch.setattr(zenodo, "_call", as_zenodo)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Kd&lt;Ki at 300 K, so binding holds." in unsteady.meta[7]["description"]
+    _analysed_again_from(study, "Kd＜Ki at 300 K, so binding holds.", "Words of the next.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert "Words of the next." in unsteady.meta[7]["description"]
+
+
+def test_entities_are_read_as_zenodo_reads_them():
+    """Review of the forty-fifth commit: an entity read inside a longer one,
+    one in capitals, and lines read after one holding markup."""
+    assert zenodo._plain("&notit;") == "&notit;"
+    assert zenodo._plain("&NTILDE;") == "Ñ"
+    assert zenodo._plain("é &amp;lt;&lt;a") == "é <<a"
+    assert zenodo._plain("a &amp; b\nc < d &amp; e") == "a & b\nc < d &amp; e"
+    assert zenodo._plain("&#xZZ;") == "&#xZZ;"
+
+
+def test_a_new_version_begun_again_from_a_newer_version_is_said_begun(tmp_path, unsteady,
+                                                                     monkeypatch, capsys):
+    """Review of the forty-fifth commit: the new version's draft deleted,
+    the record it was of holding an edit not published but a newer version
+    published since, a new version was begun from that one unsaid."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    unsteady.faults = {}
+    unsteady.gone = {8}
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"}, "files": []}
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        **answer, "state": "inprogress"})
+    capsys.readouterr()
+    _share_to_zenodo(study, tmp_path / "shared.zip")
+    said = capsys.readouterr()
+    assert "beginning a new version again, from the latest version of record 9" in said.out

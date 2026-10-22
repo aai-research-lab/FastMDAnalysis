@@ -74,6 +74,8 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
         if self.path.startswith("/files/"):
             type(self).stored["archive"] = body
             type(self).stored["name"] = self.path.rsplit("/", 1)[1]
+            # Held before it is answered, as Zenodo holds it.
+            self._uploaded()
             return self._json({"key": self.path.rsplit("/", 1)[1]})
         type(self).stored["metadata"] = json.loads(body)["metadata"]
         # Answered, as Zenodo answers, with the draft holding what was sent.
@@ -81,6 +83,9 @@ class _Zenodo(http.server.BaseHTTPRequestHandler):
         answer["metadata"].update({k: v for k, v in type(self).stored["metadata"].items()
                                    if k != "prereserve_doi"})
         self._json(answer)
+
+    def _uploaded(self):
+        """What a stand-in records of an upload, before it is answered."""
 
     def do_DELETE(self):  # noqa: N802
         type(self).calls.append(("DELETE", self.path, self.headers.get("Authorization")))
