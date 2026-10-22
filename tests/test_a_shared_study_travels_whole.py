@@ -280,11 +280,12 @@ class _Unsteady(_Zenodo):
                 fault = None
             if isinstance(fault, int):
                 return self._status(fault)
-            if fault == "page":
+            if fault in ("page", "plain page"):
                 # A gateway's page in place of the file.
                 page = b"<html><body>Bad gateway</body></html>"
                 self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Type", "text/html; charset=utf-8" if fault == "page"
+                                 else "text/plain")
                 self.send_header("Content-Length", str(len(page)))
                 self.end_headers()
                 self.wfile.write(page)
@@ -4583,16 +4584,17 @@ def test_a_terminal_s_escape_goes_once_the_rest_is_fixed():
     assert zenodo._plain("\x1b[ﬁ") == "i"
 
 
-def test_a_gateway_s_page_in_place_of_the_archive_is_asked_again(tmp_path, unsteady):
+@pytest.mark.parametrize("page", ["page", "plain page"])
+def test_a_gateway_s_page_in_place_of_the_archive_is_asked_again(tmp_path, unsteady, page):
     """Hands-on review of the thirty-sixth commit: a gateway's web page in
     place of the archive was read as the archive, and refused as another
-    file by its MD5."""
+    file by its MD5; of the fifty-second: one sent as plain text too."""
     _shared(tmp_path, unsteady)
-    unsteady.faults = {"GET file": ["page"]}
+    unsteady.faults = {"GET file": [page]}
     told: list[str] = []
     opened = open_shared("10.5072/zenodo.7", workspace=tmp_path / "w", said=told.append)
     assert (opened / "shared_from.json").is_file()
-    assert any("a web page, not the archive" in line for line in told)
+    assert any("a page of text, not the archive" in line for line in told)
 
 
 def test_a_record_s_size_larger_than_its_file_opens_by_its_md5(tmp_path, unsteady,
@@ -4625,7 +4627,9 @@ def test_what_an_open_killed_part_way_left_is_taken_away_by_the_next(tmp_path, u
     _shared(tmp_path, unsteady)
     into = tmp_path / "w"
     into.mkdir()
-    host = re.sub(r"[^A-Za-z0-9.]+", "_", socket.gethostname()) or "host"
+    from fastmdxplora.sharing.opening import _host
+
+    host = _host(socket.gethostname())
     left = into / f".fastmdx-opening-{host}-x1"
     (left / "part").mkdir(parents=True)
     (left / "part" / "archive.zip").write_bytes(b"half")
@@ -4682,7 +4686,9 @@ def test_where_no_locks_are_kept_nothing_left_is_taken_away(tmp_path, unsteady, 
     _shared(tmp_path, unsteady)
     into = tmp_path / "w"
     into.mkdir()
-    host = re.sub(r"[^A-Za-z0-9.]+", "_", socket.gethostname()) or "host"
+    from fastmdxplora.sharing.opening import _host
+
+    host = _host(socket.gethostname())
     left = into / f".fastmdx-opening-{host}-x1"
     left.mkdir()
     (left / ".open.lock").write_text("")
@@ -4700,3 +4706,19 @@ def test_a_small_archive_s_size_is_said_in_kb_both_ways(tmp_path, unsteady, caps
     told: list[str] = []
     open_shared("10.5072/zenodo.7", workspace=tmp_path / "w", said=told.append)
     assert any("kB)..." in line for line in told) and not any("0.0 MB" in line for line in told)
+
+
+def test_computers_named_alike_but_for_punctuation_are_told_apart():
+    """Hands-on review of the fifty-second commit: "lab-1" and "lab_1" named
+    their opens' working folders alike, and one took the other's away."""
+    from fastmdxplora.sharing.opening import _host
+
+    assert _host("lab-1") != _host("lab_1") != _host("lab--1")
+    assert _host("lab-1") == _host("lab-1") and _host("lab-1").startswith("lab_1.")
+
+
+def test_a_name_given_as_zenodo_writes_one_is_taken_as_it_is():
+    """Hands-on review of the fifty-second commit: "Aina, Adekunle" was sent
+    as "Adekunle, Aina,"."""
+    assert zenodo._creators([("Aina, Adekunle", "")]) == [{"name": "Aina, Adekunle"}]
+    assert zenodo._creators([("Adekunle Aina", "")]) == [{"name": "Aina, Adekunle"}]

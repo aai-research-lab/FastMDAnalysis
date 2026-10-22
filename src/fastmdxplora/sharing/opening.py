@@ -124,7 +124,8 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
                                             timeout=STALLED_S) as answer:
                     # A gateway's page in place of the file: a try that failed.
-                    page = "text/html" in str(answer.headers.get("Content-Type") or "").lower()
+                    page = str(answer.headers.get("Content-Type") or "").lower().startswith(
+                        "text/")
                     start = _range_start(answer) if answer.status == 206 else 0
                     if not size and not page:
                         size = _whole_size(answer, start or 0)
@@ -138,7 +139,7 @@ def _download(url: str, to: Path, *, most: int, md5: str,
                         # what is here only where that was asked for.
                         start = read
                     if page:
-                        why = "it answered with a web page, not the archive"
+                        why = "it answered with a page of text, not the archive"
                     elif start != read and start:
                         # The file from somewhere else: no part of it is
                         # known to follow what is here.
@@ -326,13 +327,21 @@ _LETTERS = str.maketrans({"\u00df": "ss", "\u00c6": "AE", "\u00e6": "ae", "\u00d
                           "\u0142": "l", "\u0110": "D", "\u0111": "d", "\u00de": "Th",
                           "\u00fe": "th", "\u00d0": "D", "\u00f0": "d", "\u0131": "i",
                           "\u0126": "H", "\u0127": "h", "\u0166": "T", "\u0167": "t",
-                          "\u014a": "NG", "\u014b": "ng", "\u0138": "k"})
+                          "\u014a": "NG", "\u014b": "ng", "\u0138": "k", "\u1e9e": "SS",
+                          "\u018f": "E", "\u0259": "e", "\u0181": "B", "\u0253": "b",
+                          "\u018a": "D", "\u0257": "d", "\u0198": "K", "\u0199": "k",
+                          "\u0197": "I", "\u0268": "i", "\u01b5": "Z", "\u01b6": "z",
+                          "\u01e4": "G", "\u01e5": "g", "\u023b": "C", "\u023c": "c",
+                          "\u0246": "E", "\u0247": "e"})
 
 
 def _slug(text: str) -> str:
     # Letters kept in their plain forms: a ligature, a full-width letter or
     # an accented one is not dropped.
-    plain = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text).translate(_LETTERS))
+    # (Written plainly before and after the letters come apart: one comes
+    # apart into another the table writes, as a slashed o with an accent.)
+    plain = unicodedata.normalize(
+        "NFKD", unicodedata.normalize("NFKC", text).translate(_LETTERS)).translate(_LETTERS)
     slug = re.sub(r"[^A-Za-z0-9]+", "-", plain.encode("ascii", "ignore").decode()) \
         .strip("-").lower()
     return slug[:60].strip("-") or "shared-study"
@@ -541,7 +550,10 @@ def _left_by_the_killed(parent: Path) -> None:
 
 
 def _host(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9.]+", "_", name) or "host"
+    """This computer's name in a folder's, with a digest of it whole: two
+    computers whose names differ only in their punctuation are told apart."""
+    digest = hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return f"{re.sub(r'[^A-Za-z0-9.]+', '_', name) or 'host'}.{digest}"
 
 
 def _opened(source: str, given: Path, parent: Path, most_bytes: int,

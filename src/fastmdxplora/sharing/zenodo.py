@@ -852,7 +852,9 @@ def _creators(authors: list[tuple[str, str]]) -> list[dict[str, str]]:
     out = []
     for name, orcid in authors:
         parts = name.split()
-        said = f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
+        # Given as Zenodo writes a name ("Family, Given"): taken as it is.
+        said = name.strip() if "," in name else \
+            f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
         creator = {"name": said}
         if orcid:
             creator["orcid"] = orcid

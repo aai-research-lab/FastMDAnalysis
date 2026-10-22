@@ -40,7 +40,7 @@ once every one of its runs has finished (below).
 | `--share FILE` | Writes the archive to `FILE`. |
 | `--share-all` | Packs every file of the study, not only what its pages read (below). |
 | `--share-license ID` | The licence the archive is shared under, as an SPDX identifier; `CC-BY-4.0` unless given. |
-| `--share-author NAME` | An author of the archive, given once for each; `"NAME;ORCID"` adds an ORCID iD (`"Adekunle Aina;0000-0002-8215-7452"`). The report's `--author` unless given; one is needed. |
+| `--share-author NAME` | An author of the archive, given once for each; `"NAME;ORCID"` adds an ORCID iD (`"Adekunle Aina;0000-0002-8215-7452"`). On Zenodo a name is given family name first; one written so already (`"Aina, Adekunle"`) is taken as it is. The report's `--author` unless given; one is needed. |
 | `--share-to zenodo` | Also makes a draft of the archive on Zenodo (below); `zenodo-sandbox` on Zenodo's sandbox, for trying it out. |
 
 The same study packed twice with the same flags on the same day gives the same
@@ -327,8 +327,8 @@ FastMDXplora:
    never taken for a connection lost or a damaged archive. A server that
    will not send the rest of the file (416) is asked for the whole of it,
    unless it says the file ends where the download has got to (a size
-   recorded larger than the file): then its MD5 decides. A web page in
-   place of the file (a gateway's) is a try that failed, asked again.
+   recorded larger than the file): then its MD5 decides. A page of
+   text in place of the file (a gateway's) is a try that failed, asked again.
    A download that has had nothing for 30 seconds counts as stalled, and is
    asked for again from where it stopped. A folder made to open into is not
    left behind when the study is refused, and what an open killed part way

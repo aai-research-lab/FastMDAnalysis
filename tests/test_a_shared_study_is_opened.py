@@ -254,3 +254,14 @@ def test_an_opened_folder_s_name_writes_more_letters_plainly():
     from fastmdxplora.sharing.opening import _slug
 
     assert _slug("Ħal Far ŋga Ŧree ĸ") == "hal-far-ngga-tree-k"
+
+
+def test_an_opened_folder_s_name_writes_still_more_letters_plainly():
+    """Hands-on review of the fifty-second commit: a capital sharp s alone,
+    a slashed o with an accent, schwa and hooked letters were dropped."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("\u1e9e") == "ss"
+    assert _slug("\u01fere") == "ore"
+    assert _slug("\u018fliyev \u0259razi") == "eliyev-erazi"
+    assert _slug("\u0181ello \u0257an \u0199asa") == "bello-dan-kasa"
