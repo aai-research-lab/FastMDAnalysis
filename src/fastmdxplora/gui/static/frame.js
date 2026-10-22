@@ -1398,6 +1398,13 @@
       version.title = version.textContent;
     }
 
+    /* "Settings…" leads to the Settings page (settings.js), every setting
+     * there; the popup closes as it goes, as it does for the Agent's. */
+    var settingsLink = el("settings-page-link");
+    if (settingsLink) {
+      settingsLink.addEventListener("click", function () { setPopup(false); });
+    }
+
     /* "Agent settings…" opens the Agent's own dialog. Landing on the page
      * and leaving somebody to find the button was the same as not
      * linking it. */

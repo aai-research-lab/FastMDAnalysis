@@ -151,10 +151,10 @@ def test_a_page_left_in_the_frame_it_opened_is_the_one_gone_back_to(browser, ses
 
 def test_a_dialog_keeps_the_keyboard_and_closing_keeps_the_focus(browser, session) -> None:
     tab = _open(browser, session, "#overview")
-    tab.evaluate("() => window.FastMDXDialog.open('prefs-dialog')")
+    tab.evaluate("() => window.FastMDXDialog.open('cite-dialog')")
     tab.keyboard.press("Control+j")
     behind = tab.evaluate("() => !document.getElementById('agent-drawer').hidden")
-    tab.evaluate("() => window.FastMDXDialog.close('prefs-dialog')")
+    tab.evaluate("() => window.FastMDXDialog.close('cite-dialog')")
     tab.keyboard.press("Control+j")
     tab.wait_for_function("() => document.activeElement.id === 'agent-request'")
     # Escape in the drawer closes it, and the focus goes back to its button.
