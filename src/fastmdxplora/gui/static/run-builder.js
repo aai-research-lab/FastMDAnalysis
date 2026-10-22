@@ -1744,7 +1744,7 @@
         event.preventDefault();
         state.values[phase] = state.values[phase] || {};
         state.values[phase][field.name] = said.suggestion;
-        state.refused = null;
+        clearRefusal();
         redrawField(phase, field.name);
         afterChange();
       });
