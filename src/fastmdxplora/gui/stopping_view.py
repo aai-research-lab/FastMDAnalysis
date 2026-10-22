@@ -179,8 +179,10 @@ def _ended_without_finishing(record: dict[str, Any], where: Path) -> dict[str, A
     """A study whose record still says it is running, though the run it was
     extending ended without writing its end (its process gone, or a day of
     silence: `telemetry.status_as_it_stands`, as its header and Timeline
-    read it): said stopped without finishing, never still running."""
-    from fastmdxplora.gui.study_timeline import ENDED_HOW
+    read it): said stopped without finishing, never still running. Every
+    run of it that ended so is named, as every page names a run
+    (`exploration.run_label`, through the Timeline's list of its runs)."""
+    from fastmdxplora.gui.study_timeline import ENDED_HOW, _runs_of
     from fastmdxplora.gui.telemetry import status_as_it_stands
 
     if str(record.get("outcome") or "running") != "running":
@@ -188,15 +190,23 @@ def _ended_without_finishing(record: dict[str, Any], where: Path) -> dict[str, A
     runs = [str(r) for r in record.get("runs") or []]
     places = [where] + [f for f in (_run_folder(where, r, alone=len(runs) == 1) for r in runs)
                         if f is not None and f != where]
+    ended = []
     for place in places:
         try:
             status = status_as_it_stands(place, include_campaign=False)
         except Exception:  # noqa: BLE001 - said as the record says it
             continue
         if isinstance(status, dict) and str(status.get("status") or "") == "interrupted":
-            return {"run": "" if place == where else place.name,
-                    "how": ENDED_HOW.get(str(status.get("ended_by") or ""), "")}
-    return None
+            ended.append((place, ENDED_HOW.get(str(status.get("ended_by") or ""), "")))
+    if not ended:
+        return None
+    labels = {run["run_id"]: run["label"] for run in _runs_of(where) or []}
+    named = [labels.get(place.name, place.name) for place, _how in ended if place != where]
+    return {"runs": named, "how": ended[0][1]}
+
+
+def _listed(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def stopping_payload(root: Path | str) -> dict[str, Any]:
@@ -215,11 +225,14 @@ def stopping_payload(root: Path | str) -> dict[str, Any]:
     if ended is not None:
         # Its record was written while it ran: said as it stands.
         shown = "interrupted"
-        going = (round_decided(rounds[-1], last=True, record=record)["said"]
-                 if rounds else "running its first piece")
-        said = ("Stopped without finishing" + (f", in {ended['run']}" if ended["run"] else "")
-                + (f", in round {len(rounds)}" if rounds else "") + f": {going}"
-                + (f"; {ended['how']}" if ended["how"] else "") + ".")
+        runs = f", in {_listed(ended['runs'])}" if ended["runs"] else ""
+        if rounds:
+            going = round_decided(rounds[-1], last=True, record=record)["said"]
+            said = f"Stopped without finishing{runs}, in round {len(rounds)}: {going}"
+        else:
+            # Killed before any round was judged: in its first piece.
+            said = f"Stopped without finishing in its first piece{runs}"
+        said += (f"; {ended['how']}" if ended["how"] else "") + "."
     production = _finite(rounds[-1].get("production_ns")) if rounds else 0.0
     ceiling = _finite(record.get("max_duration_ns"))
     return {

@@ -201,6 +201,51 @@ def test_a_study_killed_in_its_round_is_not_said_still_running(finished, tmp_pat
     assert stopping_payload(killed)["outcome"] == "running"
 
 
+@pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+def test_a_study_killed_in_its_first_piece_is_not_said_running(tmp_path):
+    """Killed before any round was judged, the card said "Stopped without
+    finishing: running its first piece"."""
+    from fastmdxplora.simulation.stopping import planned_record
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import (
+        _a_gone_process, _a_run_said_it_was_going, _its_process)
+
+    root = tmp_path / "study"
+    root.mkdir()
+    rule = {**RULE, "independent_starts": "not_required"}
+    (root / "stopping.json").write_text(json.dumps(planned_record(
+        targets_of(rule), rule, ["study"])), encoding="utf-8")
+    _a_run_said_it_was_going(root)
+    _its_process(root, _a_gone_process())
+    page = stopping_payload(root)
+    assert page["outcome"] == "interrupted" and page["rounds"] == []
+    assert page["said"] == ("Stopped without finishing in its first piece; its process is "
+                            "gone, and it wrote no end."), page["said"]
+    assert "running" not in page["said"].lower() and "running" not in page["outcome_label"].lower()
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
+def test_every_run_killed_is_named_as_every_page_names_it(tmp_path):
+    """The card named a killed run by its folder, and only the first of
+    them: "in s1__random-seed-1" where the runs list and the Timeline say
+    "seed 1", with seed 2 killed too."""
+    from fastmdxplora.simulation.stopping import planned_record
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import (
+        _a_gone_process, _a_run_said_it_was_going, _its_process)
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    root = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    runs = sorted((root / "runs").iterdir())
+    (root / "stopping.json").write_text(json.dumps(planned_record(
+        targets_of(RULE), RULE, [run.name for run in runs])), encoding="utf-8")
+    for run in runs:
+        _a_run_said_it_was_going(run)
+        _its_process(run, _a_gone_process())
+    page = stopping_payload(root)
+    assert page["said"] == ("Stopped without finishing in its first piece, in seed 1 and seed 2; "
+                            "its process is gone, and it wrote no end."), page["said"]
+    assert stopping_payload(runs[1])["said"] == page["said"]
+
+
 def test_its_lengths_are_said_in_ps_under_1_ns(finished, tmp_path):
     root, mid = finished
     small = tmp_path / "small"
