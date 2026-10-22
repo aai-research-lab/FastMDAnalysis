@@ -470,8 +470,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   Runs, Refusals and warnings; Clear the list with Undo). A notice saves
   what it said and its study's name (a refusal its first line); a run's end
   opens its study's Overview as every way to another study does, asked first
-  whether the switch would lose work here. Bound beyond this computer, the
-  page offers no Stop and no way to another study.
+  whether the switch would lose work here, by the server's key for the
+  study, and names the study by its folder; a run that failed with no record
+  of its own is saved as failed, as the browser's notice says it. A toast on
+  a page of no study is filed under none; one notice seen in two windows is
+  saved once; keys pressed in the list stay in it. Bound beyond this
+  computer, the page offers no Stop and no way to another study.
 - One confirmation for what cannot be undone (stopping a run, a job on one
   of your machines, clearing the scratch), beside the button pressed; a
   selection forgotten asks nothing and offers Undo. One empty, loading and
@@ -479,7 +483,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the Files page says when its files could not be read, with Try again,
   where it said "Reading the study's files..." for ever; the question to
   clear the scratch stays while the page is read again. Conversations and
-  Chats are one list in the sidebar.
+  Chats are one list in the sidebar, with New chat for a chat of no study
+  while a study is open.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
