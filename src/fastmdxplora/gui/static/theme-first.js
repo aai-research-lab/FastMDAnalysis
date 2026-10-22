@@ -196,18 +196,19 @@
         if (VIEWPORT.test(rule.style.getPropertyValue(name))) sized[name] = true;
       });
     });
+    /* Every grouping rule (`@media`, `@supports`, `@container`, `@layer`)
+     * copied with its own prelude, so a copy holds where its rule holds:
+     * copied bare, a rule within `@container` held at every width. */
+    function prelude(rule) {
+      var text = rule.cssText;
+      return text.slice(0, text.indexOf("{")).trim();
+    }
     function walk(rules, into) {
       Array.prototype.forEach.call(rules, function (rule) {
-        if (rule.cssRules && rule.media) {
+        if (rule.cssRules && !(rule.style && rule.selectorText)) {
           var inner = [];
           walk(rule.cssRules, inner);
-          if (inner.length) into.push("@media " + rule.media.mediaText + " {\n" + inner.join("\n") + "\n}");
-          return;
-        }
-        if (rule.cssRules && rule.conditionText !== undefined && rule.constructor.name === "CSSSupportsRule") {
-          var held = [];
-          walk(rule.cssRules, held);
-          if (held.length) into.push("@supports " + rule.conditionText + " {\n" + held.join("\n") + "\n}");
+          if (inner.length) into.push(prelude(rule) + " {\n" + inner.join("\n") + "\n}");
           return;
         }
         if (!rule.style || !rule.selectorText) return;

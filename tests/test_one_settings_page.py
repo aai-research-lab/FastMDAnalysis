@@ -474,6 +474,29 @@ def test_at_every_display_size_tips_and_menus_land_where_they_are_seen(browser, 
     assert gear[1] - 12 < menu[3] <= gear[3] + 12, (menu, gear)
 
 
+def test_a_rule_within_container_holds_where_it_holds_at_100(browser, session):
+    """The rules sized by the window are copied for the Display size; those
+    within `@container` were copied bare, so held at every width: at 125%
+    the Run page's one-column summary was capped as the wide one is, and
+    the Report's outline ran past the window's foot."""
+    page = _at(browser, session.url, "125", (1063, 1125), "#run")
+    page.wait_for_selector('.page[data-page="run"] .builder-summary')
+    summary = page.evaluate("""() => { const c = getComputedStyle(
+        document.querySelector('.page[data-page="run"] .builder-summary'));
+        return [c.position, c.maxHeight, c.overflow]; }""")
+    page.context.close()
+    page = _at(browser, session.url, "125", (1920, 1080), "#report")
+    page.wait_for_selector(".report-outline", state="attached")
+    outline = page.evaluate("""() => { const c = getComputedStyle(document.querySelector('.report-outline'));
+        return [c.position, parseFloat(c.maxHeight), innerHeight]; }""")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    # One column, as an 850 by 900 window has at 100%: the summary under the form.
+    assert summary == ["static", "none", "visible"], summary
+    assert outline[0] == "sticky" and outline[1] <= outline[2] - 96 + 0.5, outline
+
+
 def test_the_docs_say_the_settings_page(tmp_path):
     from pathlib import Path
 
