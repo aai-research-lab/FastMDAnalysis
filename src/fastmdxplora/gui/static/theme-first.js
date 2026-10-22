@@ -148,11 +148,15 @@
   /* Rules sized by the window (vh, vw) sized by the page's own window:
    * zoomed, 100vh is the window's height in screen pixels and would run
    * a quarter past its foot at 125%. Copied, after the page's own rules,
-   * divided by the zoom, for while it is zoomed. */
+   * divided by the zoom, for while it is zoomed. A property sized so
+   * anywhere is copied from every rule that sets it, in the page's order,
+   * so a later rule's own value still wins over an earlier one sized by
+   * the window: copied alone, `.app-shell`'s first `min-height: 100vh` came
+   * after its later `min-height: 0`, and the shell ran under the status
+   * bar. */
   var VIEWPORT = /(-?\d*\.?\d+)(dvh|svh|lvh|vh|dvw|svw|lvw|vw|vmin|vmax)\b/g;
   function sizedByTheWindow() {
     if (document.getElementById("fmx-display-size-rules")) return;
-    var out = [];
     function scope(selector) {
       return selector.split(",").map(function (one) {
         var s = one.trim();
@@ -161,6 +165,24 @@
         return ":where(html[data-display-size]) " + s;
       }).join(", ");
     }
+    function each(rules, one) {
+      Array.prototype.forEach.call(rules, function (rule) {
+        if (rule.style && rule.selectorText) {
+          for (var i = 0; i < rule.style.length; i += 1) one(rule, rule.style[i]);
+        } else if (rule.cssRules) each(rule.cssRules, one);
+      });
+    }
+    var sheets = [];
+    Array.prototype.forEach.call(document.styleSheets, function (sheet) {
+      try { sheets.push(sheet.cssRules); } catch (e) { /* another origin's sheet: none here */ }
+    });
+    var sized = {};
+    sheets.forEach(function (rules) {
+      each(rules, function (rule, name) {
+        VIEWPORT.lastIndex = 0;
+        if (VIEWPORT.test(rule.style.getPropertyValue(name))) sized[name] = true;
+      });
+    });
     function walk(rules, into) {
       Array.prototype.forEach.call(rules, function (rule) {
         if (rule.cssRules && rule.media) {
@@ -180,8 +202,7 @@
         for (var i = 0; i < rule.style.length; i += 1) {
           var name = rule.style[i];
           var value = rule.style.getPropertyValue(name);
-          if (!VIEWPORT.test(value)) continue;
-          VIEWPORT.lastIndex = 0;
+          if (!sized[name] || !value) continue;
           var priority = rule.style.getPropertyPriority(name);
           props.push(name + ": " + value.replace(VIEWPORT, "calc($1$2 / var(--fmx-zoom, 1))") +
                      (priority ? " !" + priority : "") + ";");
@@ -189,9 +210,8 @@
         if (props.length) into.push(scope(rule.selectorText) + " { " + props.join(" ") + " }");
       });
     }
-    Array.prototype.forEach.call(document.styleSheets, function (sheet) {
-      try { walk(sheet.cssRules, out); } catch (e) { /* another origin's sheet: none here */ }
-    });
+    var out = [];
+    sheets.forEach(function (rules) { walk(rules, out); });
     var style = document.createElement("style");
     style.id = "fmx-display-size-rules";
     style.textContent = out.join("\n");

@@ -721,7 +721,7 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   90% to 150%. Auto, the default, chooses from the screen (125% at 2560 by
   1440, 150% at 3840 by 2160), so the GUI is not small on a large screen;
   the Viewer's picking, tooltips and menus stay where they belong at every
-  size.
+  size, and the columns end where the status bar begins.
 - Every page of a study says where it is at its head: the study, the run
   of a study of several (a menu of its runs and the study as a whole, each
   with its state, opening on the page shown), then the page. The sidebar's

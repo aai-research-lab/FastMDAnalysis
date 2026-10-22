@@ -310,9 +310,13 @@ def test_a_display_size_chosen_sizes_everything_and_is_saved(browser, session):
             zoom: getComputedStyle(document.documentElement).zoom,
             saved: localStorage.getItem('fmx.displaySize'),
             // The page is told of the screen in its own pixels: the
-            // shell fills the window it is told of, and a box is where
-            // the page put it.
-            fits: Math.abs(shell.getBoundingClientRect().height - innerHeight) < 2,
+            // shell fills the window it is told of down to the status
+            // bar, which ends at its foot, and a box is where the page
+            // put it.
+            fits: Math.abs(shell.getBoundingClientRect().bottom
+                           - document.querySelector('.status-bar').getBoundingClientRect().top) < 2
+                && Math.abs(document.querySelector('.status-bar').getBoundingClientRect().bottom
+                            - innerHeight) < 2,
             told: innerWidth,
             box: Math.abs(box.width - title.offsetWidth) < 1.5,
         };
