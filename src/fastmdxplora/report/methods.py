@@ -899,8 +899,9 @@ def _discard_sentence(means: dict[str, dict[str, Any]]) -> str:
 
 def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list[str]:
     """Why the production is as long as it is, for a study run until it knew."""
+    from fastmdxplora.simulation.sampling_ask import length_said
     from fastmdxplora.simulation.stopping import (AGREE_WITHIN, JUDGED_ALONE, ONE_ERROR,
-                                                  StopTarget)
+                                                  StopTarget, round_decided)
 
     rounds = [r for r in stopping.get("rounds") or [] if isinstance(r, dict)]
     try:
@@ -918,7 +919,7 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
         "extended by what its analyses said was still needed, until "
         + asked + (" was" if len(targets) == 1 else " were") + " determined"
         + (f" in {len(runs)} replicas that agree within their errors" if replicas else "")
-        + (f", with at most {ceiling:g} ns of production" + (" per run" if replicas else "")
+        + (f", with at most {length_said(ceiling)} of production" + (" per run" if replicas else "")
            if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) else "")
         + ".",
         "Each error was judged widened by Student's t at its own degrees of freedom, so "
@@ -934,16 +935,30 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
     ]
     last = rounds[-1]
     produced = last.get("production_ns")
-    at = (f", at {produced:g} ns of production" + (" per run" if replicas else "")
-          if isinstance(produced, (int, float)) else "")
+    at = (f", at {length_said(produced)} of production" + (" per run" if replicas else "")
+          if isinstance(produced, (int, float)) and not isinstance(produced, bool) else "")
     count = f"{len(rounds)} round" + ("s" if len(rounds) != 1 else "")
     outcome = stopping.get("outcome")
+    # What stopped it, as the report's table and the Timeline say it.
+    decided = round_decided(last, last=True, record=stopping)
+    were = "the runs were" if replicas else "the run was"
+    more = last.get("more_ns")
     said.append({
         "met": f"It stopped after {count}{at}, with each determined as asked.",
         "ceiling": f"It stopped at the ceiling after {count}{at}, before each was "
                    "determined as asked.",
-        "stopped": f"It stopped after {count}{at}, when an extension did not complete.",
-    }.get(outcome, f"It was still running when this was written, after {count}{at}."))
+        "stopped": f"It stopped after {count}{at}" + {
+            "no mean": ", because " + decided["said"].removeprefix("stopped: ") + ".",
+            "asked": f", when it was asked to stop (Ctrl+C or a signal) while {were} "
+                     "extended.",
+            "error": ", when an error stopped the extension of "
+                     + ("the runs." if replicas else "the run."),
+        }.get(decided["stopped_by"], "; what stopped it is not recorded."),
+    }.get(outcome, (
+        f"Its record does not say it finished: after {count}{at}, the last round asked "
+        f"for {length_said(more)} more" + (" per run" if replicas else "") + "."
+        if decided["going"] and isinstance(more, (int, float)) else
+        f"Its record does not say it finished, after {count}{at}.")))
     return said
 
 

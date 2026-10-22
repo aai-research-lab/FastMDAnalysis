@@ -450,6 +450,7 @@ class TestTheLoop:
         assert record["outcome"] == "stopped" and made.calls == []
         assert "rmsd recorded no mean in seed1" in record["said"]
         assert record["rounds"][0]["verdicts"][0]["unrecorded"] is True
+        assert record["rounds"][0]["stopped_by"] == "no mean"
 
     def test_no_whole_frame_left_below_the_ceiling(self, tmp_path, replicas, monkeypatch):
         made = replicas([0.20, 0.201], 0.5)
@@ -476,12 +477,16 @@ class TestTheLoop:
                                  extend_all=made.extend_all, say=lambda _: None)
         assert record["outcome"] == "stopped"
         assert "seed0 failed at simulation: the card fell over" in record["said"]
+        # What stopped the round, kept with it: a resumed study writes the
+        # record's sentence over.
+        assert record["rounds"][-1]["stopped_by"] == "error"
 
     def test_asked_to_stop_says_how_to_go_on(self, tmp_path, replicas):
         made = replicas([0.20, 0.201], 0.04, fail_at=1, stopped=True)
         record = run_until_known(made.runs, targets_of(RULE), RULE, record_in=tmp_path,
                                  extend_all=made.extend_all, say=lambda _: None)
         assert record["outcome"] == "stopped" and "Resuming the study" in record["said"]
+        assert record["rounds"][-1]["stopped_by"] == "asked"
 
 
 class TestTheReport:
@@ -493,7 +498,7 @@ class TestTheReport:
         assert "## How long it ran, and why" in text
         assert "rmsd to ±0.01 nm" in text
         assert "| 1 | 2 | " in text and "extended by 6 ns" in text
-        assert "stopped: determined as asked" in text
+        assert "| determined as asked, so stopped |" in text
         assert "**Determined as asked.**" in text
         assert "A state none of the runs left is not in the error" in text
         # Nor a relaxation slower than the runs: only other structures show it.

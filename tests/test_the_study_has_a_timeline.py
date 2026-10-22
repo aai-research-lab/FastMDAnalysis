@@ -561,7 +561,7 @@ ROUND_STOPPED = pytest.mark.parametrize("rounds, outcome, said, last, by", [
      "Round 1: stopped: rmsd recorded no mean", "no mean"),
     ([_round("stopped", 1.0, 0.5)], "stopped",
      "Stopped: extending study failed at simulation: CUDA_ERROR_OUT_OF_MEMORY",
-     "Round 1: stopped by an error while the runs were extended", "error"),
+     "Round 1: stopped by an error while the run was extended", "error"),
     # Stopped, then resumed: the record's sentence is the last round's, so
     # what stopped the first is not in it.
     ([_round("stopped", 1.0, 0.5), _round("met", 1.0)], "met",
@@ -710,3 +710,72 @@ def test_a_one_run_study_s_rounds_are_placed_under_another_folder_name(tmp_path)
     rounds = {e["round"]: e["placed"] for e in events if e["kind"] == "round"}
     assert rounds == {1: {"at": "2026-10-18T08:00:00+00:00", "before": True},
                       2: {"at": "2026-10-18T08:10:00+00:00", "before": False}}
+
+
+
+@ROUND_STOPPED
+def test_the_report_says_what_stopped_a_round_as_the_timeline_does(tmp_path, rounds, outcome,
+                                                                  said, last, by):
+    """The report's table said "stopped: an extension failed" of every
+    stopped round, and its methods "when an extension did not complete",
+    while the Timeline said what stopped it."""
+    from fastmdxplora.report.methods import _stopping_sentences
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = tmp_path / "study"
+    root.mkdir()
+    _stopping(root, ["study"], rounds, outcome, said)
+    table = [line for line in stopping_section(root) if line.startswith("| 1 |")]
+    assert table and table[0].endswith(f" | {last.removeprefix('Round 1: ')} |"), table
+    record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))
+    methods = " ".join(_stopping_sentences(record, {}))
+    assert "extension failed" not in methods and "did not complete" not in methods
+    if outcome == "stopped":
+        assert {"no mean": "because rmsd recorded no mean.",
+                "error": "when an error stopped the extension of the run."}[by] in methods
+
+
+def test_what_stopped_an_earlier_round_is_read_from_the_round(tmp_path):
+    """Resumed since, the record's sentence is the last round's: what
+    stopped an earlier one is read from the round, where it was written."""
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = tmp_path / "study"
+    root.mkdir()
+    stopped = {**_round("stopped", 1.0, 0.5), "stopped_by": "asked"}
+    _stopping(root, ["study"], [stopped, _round("met", 1.0)], "met",
+              "After 1 ns of production: rmsd 0.150 ± 0.001 nm, within the ±0.002 asked.")
+    first = next(e for e in timeline_of(root)["events"] if e.get("round") == 1)
+    assert (first["said"], first["stopped_by"]) == (
+        "Round 1: stopped when asked (Ctrl+C or a signal) while the run was extended", "asked")
+    assert "| stopped when asked (Ctrl+C or a signal) while the run was extended |" in (
+        "\n".join(stopping_section(root)))
+
+
+@pytest.mark.parametrize("runs, whom", [(["study"], "the run"), (["seed0", "seed1"], "each run")])
+def test_a_round_still_extending_is_said_extending_never_done(tmp_path, runs, whom):
+    """`run_until_known` writes a round's decision to extend before it
+    extends: with the study still said running, the last round is still
+    extending, or was killed while it extended (the record cannot tell
+    which). It was said "the run extended by 250 ps", as though done."""
+    from fastmdxplora.gui.study_timeline import timeline_of
+    from fastmdxplora.report.methods import _stopping_sentences
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = tmp_path / "study"
+    root.mkdir()
+    for name in runs if len(runs) > 1 else ():
+        (root / "runs" / name).mkdir(parents=True)
+    _stopping(root, runs, [_round("extend", 1.0, 0.25)], "running",
+              "Extending by 0.25 ns, to 1.25 ns of the 5 allowed: rmsd 0.150 ± 0.004 nm.")
+    words = f"extending {whom} by 250 ps; the record does not say it finished"
+    if len(runs) == 1:
+        event = next(e for e in timeline_of(root)["events"] if e["kind"] == "round")
+        assert event["said"] == f"Round 1: {words}" and event["going"] is True
+    assert f"| {words} |" in "\n".join(stopping_section(root))
+    record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))
+    methods = " ".join(_stopping_sentences(record, {}))
+    assert "still running" not in methods
+    assert "Its record does not say it finished: after 1 round, at 1 ns of production" in methods
+    assert "the last round asked for 250 ps more" in methods

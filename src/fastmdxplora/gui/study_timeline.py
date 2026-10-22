@@ -345,15 +345,6 @@ def _ended(base: Path) -> dict[str, Any] | None:
             "detail": how + ("; the time is when it last wrote" if how else "")}
 
 
-#: How `stopping.run_until_known` begins the record's sentence for a round
-#: stopped while it extended the runs: asked to stop (Ctrl+C, or a signal
-#: such as a scheduler's or the GUI's Stop), or an extension that failed.
-#: The sentence is the last round's only: an earlier round's, in a study
-#: resumed since, was written over.
-_STOPPED_WHEN_ASKED = "Stopped when asked"
-_EXTENDING_FAILED = "Stopped: extending "
-
-
 def _rounds(base: Path) -> list[dict[str, Any]]:
     """Each round of a study run until what it asks is determined
     (`simulation.stop_when`), as its record (`stopping.json`) gives it:
@@ -365,7 +356,7 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     piece of the length the round asked for, the next in the run's order),
     or, where it began none, just after the last step before it."""
     from fastmdxplora.simulation.sampling_ask import length_said
-    from fastmdxplora.simulation.stopping import RECORD
+    from fastmdxplora.simulation.stopping import _STOPPED_WHEN_ASKED, RECORD
 
     record = _json(base / RECORD)
     if not isinstance(record, dict) or not isinstance(record.get("targets"), list):
@@ -374,7 +365,6 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     runs = [str(name) for name in record.get("runs") or [] if isinstance(name, (str, int))]
     folders = [folder for folder in (_run_folder(base, name, alone=len(runs) == 1)
                                      for name in runs) if folder]
-    several = len(runs) > 1
     # Each run's production before the rounds, and its pieces in order.
     latest = max((t for t in (_simulated_until(folder) for folder in folders) if t),
                  default=None)
@@ -406,7 +396,7 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
             for time in (piece["started"], piece["finished"]):
                 if time and (latest is None or str(time) > str(latest)):
                     latest = time
-        event = _round(number, entry, more, several, last=last, outcome=outcome, said=said)
+        event = _round(number, entry, record, last=last)
         event["placed"] = placed
         production = _finite(entry.get("production_ns"))
         event["production_said"] = length_said(production) if production is not None else ""
@@ -424,47 +414,23 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     return events
 
 
-def _round(number: int, entry: dict[str, Any], more: float | None, several: bool, *,
-           last: bool, outcome: str, said: str) -> dict[str, Any]:
-    """A round said by what was decided on it, and a stopped one by what
-    stopped it: an analysis that recorded no mean, a request to stop, or
-    an extension that failed; where the record holds none of these, said
-    not recorded, never guessed."""
-    from fastmdxplora.simulation.sampling_ask import length_said
+def _round(number: int, entry: dict[str, Any], record: dict[str, Any], *,
+           last: bool) -> dict[str, Any]:
+    """A round said by what was decided on it, as the report says it
+    (`stopping.round_decided`): a stopped one by what stopped it, an
+    analysis that recorded no mean, a request to stop, or an extension that
+    failed, and "not recorded" where the record holds none of these; the
+    last, still said running, as extending, never as done."""
+    from fastmdxplora.simulation.stopping import round_decided
 
-    decision = str(entry.get("decision") or "")
     verdicts = [v for v in entry.get("verdicts") or [] if isinstance(v, dict)]
     detail = "; ".join(str(v.get("said")) for v in verdicts if v.get("said"))
-    stopped_by = ""
-    if decision == "extend" and more is not None:
-        what = f"{'each run' if several else 'the run'} extended by {length_said(more)}"
-        if last and outcome == "rounds":
-            what += ", the last of the rounds allowed"
-            detail = said or detail
-    elif decision == "met":
-        what = "determined as asked, so stopped"
-    elif decision == "ceiling":
-        what = "stopped at the ceiling, not determined as asked"
-    elif decision == "stopped":
-        unrecorded = [str(v.get("said")) for v in verdicts if v.get("unrecorded") and v.get("said")]
-        if unrecorded:
-            stopped_by = "no mean"
-            what = "stopped: " + "; ".join(unrecorded)
-        elif last and outcome == "stopped" and said.startswith(_STOPPED_WHEN_ASKED):
-            stopped_by = "asked"
-            what = "stopped when asked (Ctrl+C or a signal) while the runs were extended"
-            detail = said
-        elif last and outcome == "stopped" and said.startswith(_EXTENDING_FAILED):
-            stopped_by = "error"
-            what = "stopped by an error while the runs were extended"
-            detail = said
-        else:
-            stopped_by = "not recorded"
-            what = "stopped; what stopped it is not recorded"
-    else:
-        what = "judged; what was decided is not recorded"
-    return {**_step("round", "stopping", decision), "said": f"Round {number}: {what}",
-            "detail": detail, "stopped_by": stopped_by, "round": number}
+    decided = round_decided(entry, last=last, record=record)
+    if decided["theirs"] and not decided["going"]:
+        detail = str(record.get("said") or "") or detail
+    return {**_step("round", "stopping", str(entry.get("decision") or "")),
+            "said": f"Round {number}: {decided['said']}", "detail": detail,
+            "stopped_by": decided["stopped_by"], "going": decided["going"], "round": number}
 
 
 def _step(kind: str, phase: str, status: str) -> dict[str, Any]:

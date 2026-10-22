@@ -667,6 +667,7 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
         unrecorded = [v for v in verdicts if v.unrecorded]
         if unrecorded:
             entry["decision"] = "stopped"
+            entry["stopped_by"] = "no mean"
             record["outcome"] = "stopped"
             record["said"] = (
                 "Stopped: " + "; ".join(v.said for v in unrecorded)
@@ -718,6 +719,7 @@ def run_until_known(runs: list[Path], targets: list[StopTarget], stop_when: dict
         if failed or len(answers) < len(runs):
             run, answer = failed[0] if failed else (runs[len(answers)], {})
             entry["decision"] = "stopped"
+            entry["stopped_by"] = "asked" if answer.get("stopped") else "error"
             record["outcome"] = "stopped"
             if answer.get("stopped"):
                 record["said"] = (f"Stopped when asked, while extending {run.name}. "
@@ -783,7 +785,76 @@ def _said_met(verdicts: list[Verdict], production: float, runs: int, independent
 # ---------------------------------------------------------------------------
 
 _DECIDED = {"met": "stopped: determined as asked", "extend": "extended by {more:g} ns",
-            "ceiling": "stopped at the ceiling", "stopped": "stopped: an extension failed"}
+            "ceiling": "stopped at the ceiling", "stopped": "stopped"}
+
+#: How `run_until_known` begins the record's sentence for a round stopped
+#: while it extended the runs: asked to stop (Ctrl+C, or a signal such as
+#: a scheduler's or the GUI's Stop), or an extension that failed. Read for
+#: a record written before a round recorded what stopped it
+#: (``stopped_by``); the sentence is the last round's only, since an
+#: earlier round's, in a study resumed since, was written over.
+_STOPPED_WHEN_ASKED = "Stopped when asked"
+_EXTENDING_FAILED = "Stopped: extending "
+
+
+def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) -> dict[str, Any]:
+    """What was decided on one round of a study's record, and what stopped
+    a stopped one, as every page and the report say it: ``said``, the words
+    after "Round N: "; ``stopped_by``, "no mean", "asked" (Ctrl+C or a
+    signal), "error", or "not recorded" where the record does not say;
+    ``going``, a round whose extension the record does not say finished
+    (the last, with the study still said running: still extending, or
+    killed while it extended, which the record cannot tell apart); and
+    ``theirs``, whether the record's own sentence (``said``) is this
+    round's. From what the record holds: the round's own ``stopped_by``,
+    written since, or, in an older record, its verdicts and the record's
+    last sentence."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    decision = str(entry.get("decision") or "")
+    outcome = str(record.get("outcome") or "")
+    sentence = str(record.get("said") or "")
+    names = record.get("runs") if isinstance(record.get("runs"), list) else []
+    several = len(names) > 1
+    verdicts = [v for v in entry.get("verdicts") or [] if isinstance(v, dict)]
+    more = entry.get("more_ns")
+    more = (float(more) if isinstance(more, (int, float)) and not isinstance(more, bool)
+            and math.isfinite(more) else None)
+    whom = "each run" if several else "the run"
+    were = "the runs were" if several else "the run was"
+    stopped_by, going, theirs = "", False, False
+    if decision == "extend" and more is not None:
+        if last and outcome == "running":
+            going, theirs = True, True
+            said = (f"extending {whom} by {length_said(more)}; the record does not say "
+                    "it finished")
+        else:
+            said = f"{whom} extended by {length_said(more)}"
+            if last and outcome == "rounds":
+                said += ", the last of the rounds allowed"
+                theirs = True
+    elif decision == "met":
+        said = "determined as asked, so stopped"
+    elif decision == "ceiling":
+        said = "stopped at the ceiling, not determined as asked"
+    elif decision == "stopped":
+        unrecorded = [str(v.get("said")) for v in verdicts if v.get("unrecorded") and v.get("said")]
+        mine = sentence if last and outcome == "stopped" else ""
+        stopped_by = str(entry.get("stopped_by") or "")
+        if stopped_by not in ("no mean", "asked", "error"):
+            stopped_by = ("no mean" if unrecorded
+                          else "asked" if mine.startswith(_STOPPED_WHEN_ASKED)
+                          else "error" if mine.startswith(_EXTENDING_FAILED)
+                          else "not recorded")
+        theirs = bool(mine) and stopped_by in ("asked", "error")
+        said = {
+            "no mean": "stopped: " + ("; ".join(unrecorded) or "an analysis recorded no mean"),
+            "asked": f"stopped when asked (Ctrl+C or a signal) while {were} extended",
+            "error": f"stopped by an error while {were} extended",
+        }.get(stopped_by, "stopped; what stopped it is not recorded")
+    else:
+        said = "judged; what was decided is not recorded"
+    return {"said": said, "stopped_by": stopped_by, "going": going, "theirs": theirs}
 
 
 def stopping_section(root: str | Path) -> list[str]:
@@ -823,8 +894,8 @@ def stopping_section(root: str | Path) -> list[str]:
             if v.get("agree") is False:
                 cell += ", replicas disagree"
             cells.append(cell)
-        decided = _DECIDED.get(entry.get("decision"), str(entry.get("decision") or ""))
-        decided = decided.format(more=entry.get("more_ns") or 0.0)
+        decided = round_decided(entry, last=number == len(record["rounds"]),
+                                record=record)["said"]
         lines.append(f"| {number} | {entry.get('production_ns', 0):g} | "
                      + " | ".join(cells) + f" | {decided} |")
     lines.append("")
