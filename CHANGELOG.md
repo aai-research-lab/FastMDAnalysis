@@ -308,6 +308,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   record written before says its lengths so where it is quoted.
 - A round that began no piece is placed in the Timeline after the analyses
   and report it judged.
+- The stopping card reads only the study's own records, beyond loopback
+  too: its record or batch manifest linked out of the study is not read,
+  and said not read.
+- A resumed study stopped when asked before its rule was applied again is
+  said so on the stopping card and in the Report, as in the Timeline and
+  the methods, and its record is written so.
+- A process begun after a run's process record was written is not taken
+  for the run, whatever its command line says, so a reused PID is not said
+  live.
+- The stopping card says how each killed run ended where they ended
+  differently.
 
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
