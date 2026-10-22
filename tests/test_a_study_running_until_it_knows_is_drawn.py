@@ -133,6 +133,8 @@ class TestWhatThePageIsGiven:
         (root / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
         page = stopping_payload(root)
         assert page["outcome"] == "running" and page["live"] is False
+        assert page["outcome_label"] == "Not finished when this was written"
+        assert page["next"] is not None
 
     @pytest.mark.skipif(not Path("/proc/self/stat").is_file(), reason="reads /proc")
     def test_a_process_given_its_number_since_is_not_its_run(self, finished):
@@ -342,7 +344,6 @@ def test_it_is_served_and_answered_beyond_loopback(finished):
     finally:
         session.server.shutdown()
     assert page["ok"] and page["outcome"] == "met"
-
 
 
 def _a_campaign_killed_in_its_first_piece(tmp_path: Path) -> Path:
