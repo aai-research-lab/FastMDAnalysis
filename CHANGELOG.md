@@ -314,11 +314,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - A resumed study stopped when asked before its rule was applied again is
   said so on the stopping card and in the Report, as in the Timeline and
   the methods, and its record is written so.
-- A process begun after a run's process record was written is not taken
-  for the run, whatever its command line says, so a reused PID is not said
-  live.
+- A run's process record says when its process began, in ticks since the
+  machine booted, and a process is the run only where its number and start
+  match: a live run stays running when the clock is stepped, and a number
+  given to another process since is not said live, adopted, counted as
+  going in the workspace or signalled by Stop, which says why. A record
+  written before is judged by its arguments, and by when the process began
+  only where it has none.
 - The stopping card says how each killed run ended where they ended
   differently.
+- `/api/runs-compared`, the app state's runs and the run's study, and the
+  GUI's adoption of a run read only the study's own records: a batch
+  manifest linked out of the study is not read, its runs named by their
+  folders, and a process record linked out names no run of it.
+- The stopping card says a record it did not read: its own record as "Not
+  read", and a batch manifest or process record in a note under it.
 
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
