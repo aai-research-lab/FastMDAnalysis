@@ -248,6 +248,7 @@ def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str,
     and says why the spread is not yet an error (``spread_not_an_error``).
     """
     from fastmdxplora import record_access
+    from fastmdxplora.image_note import note_of
 
     root = Path(batch_dir)
     manifest_path = root / "batch_manifest.json"
@@ -287,6 +288,9 @@ def aggregate_members(batch_dir: str | Path, *, share: bool = True) -> dict[str,
                 # said its own number was not a measurement must not be
                 # averaged into one silently.
                 "not_a_measurement": mean.get("not_a_measurement"),
+                # Its image note (`image_note`), for the mean of the means
+                # to say how many of the replicas' means carry one.
+                "solute_image": note_of(mean),
             })
 
     table: dict[str, Any] = {}

@@ -1133,7 +1133,7 @@ def _ensemble_means(base: Path, of: int | None = None) -> list[dict[str, Any]]:
                     "error": together["error"], "spread": together["spread"],
                     "replicas": together["runs"],
                     "unit": unit_of(name, members[0]) if members else "",
-                    "withheld": together["withheld"],
+                    "withheld": together["withheld"], "noted": together["noted"],
                     **({"of": together["of"]} if "of" in together else {})})
     return out
 

@@ -98,7 +98,8 @@ class TestTheCards:
         assert (card["system"], card["kind"], card["state"]) == ("1UBQ", "one run", "completed")
         assert card["production_ns"] == 10 and card["forcefield"] == "amber14"
         assert card["means"][0] == {"analysis": "rmsd", "label": "RMSD", "mean": 0.1234,
-                                    "error": 0.0056, "unit": "nm", "withheld": None}
+                                    "error": 0.0056, "unit": "nm", "withheld": None,
+                                    "noted": None}
         # Its figure is the thumbnail route's, no longer read for each card.
         assert "thumbnail" not in card and thumbnail_of(workspace / "ubiquitin")
 

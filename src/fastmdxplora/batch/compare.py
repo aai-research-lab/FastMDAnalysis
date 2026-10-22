@@ -735,15 +735,25 @@ def _across_the_replicas(root: Path) -> list[str]:
              "here against the error each run estimated for itself.", "",
              "| Analysis | mean of the means | spread of the means | error each run estimated |",
              "|---|---|---|---|"]
-    said = []
+    from fastmdxplora.image_note import replicas_said
+
+    said, noted = [], []
     for name, entry in summary.get("analyses", {}).items():
         predicted = entry.get("predicted_standard_error")
+        # Replicas share the box: a mean of means whose replicas' means may
+        # be biased by the solute's own image is marked, and said below.
+        note = replicas_said([row.get("solute_image") for row in entry.get("members") or []
+                              if isinstance(row, dict)])
+        mark = " \u2020" if note else ""
         lines.append(
-            f"| {name} | {entry['mean_of_means']:.4g} | {entry['spread_of_means']:.2g} | "
+            f"| {name} | {entry['mean_of_means']:.4g}{mark} | "
+            f"{entry['spread_of_means']:.2g} | "
             + ("" if predicted is None else f"{predicted:.2g}") + " |")
+        if note:
+            noted.append(f"\u2020 {name}: {note}.")
         if entry.get("calibration"):
             said.append(f"**{name}.** {entry['calibration']}")
     lines.append("")
-    for sentence in said:
+    for sentence in noted + said:
         lines += [sentence, ""]
     return lines

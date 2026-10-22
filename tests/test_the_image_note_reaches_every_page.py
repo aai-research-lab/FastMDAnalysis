@@ -458,6 +458,82 @@ class TestALongerRunAlone:
         assert self._said() in _convergence_section(in_contact)
 
 
+#: A replica's mean noted at the run's cutoff of 0.9 nm, as the analysis
+#: code notes it (`note_numbers`): in contact with its image in every frame.
+_NOTE_09 = {"frames_used": 100, "frames_under_cutoff": 100, "fraction_under_cutoff": 1.0,
+            "frames_under_close": 100, "nearest_nm": 0.3, "cutoff_nm": 0.9,
+            "counted_over": "frames"}
+
+#: Beside the mean of the means of three replicas, two of them noted.
+_TWO_OF_THREE = ("may be biased: in 2 of the 3 replicas the solute was within 0.9 nm of its "
+                 "own image, in frames their means use")
+
+
+def _noted_replicas(root: Path, noted: tuple[str, ...] = ("seed1", "seed2")) -> Path:
+    """Three replicas whose RMSDs are each determined; those in ``noted``
+    noted at a cutoff of 0.9 nm."""
+    from tests.test_the_runs_of_a_study_are_compared_on_one_page import _study
+
+    _study(root, {f"seed{n}": {"value": n, "rmsd": (0.160 + 0.004 * n, 0.001, None)}
+                  for n in (1, 2, 3)}, axis="simulation.random_seed")
+    for run in noted:
+        path = root / "runs" / run / "analysis" / "rmsd" / "options.json"
+        record = json.loads(path.read_text())
+        record["findings"]["mean"]["solute_image"] = dict(_NOTE_09)
+        path.write_text(json.dumps(record))
+    return root
+
+
+class TestTheReplicasTogether:
+    """Three replicas, each RMSD noted, gave their mean of means
+    "0.165 ± 0.00291" with no note on the Overview, the All studies card and
+    the written comparison, though replicas share the box and the bias is
+    in the mean of them; and the runs compared lost "3 may be biased ...",
+    replaced by the calibration."""
+
+    def test_the_mean_of_their_means_says_how_many_are_noted(self, tmp_path):
+        from fastmdxplora.gui.runs_compared import runs_compared
+
+        (rmsd,) = runs_compared(_noted_replicas(tmp_path / "replicas"))["measures"]
+        assert rmsd["ensemble"]["noted"] == _TWO_OF_THREE
+        assert rmsd["ensemble"]["error"] is not None
+        # The calibration and the cells' note, both.
+        assert rmsd["said"].startswith("The replicas spread ")
+        assert rmsd["said"].endswith(
+            " 2 may be biased by the solute's own image, as said beside each value.")
+        (plain,) = runs_compared(_noted_replicas(tmp_path / "plain", ()))["measures"]
+        assert plain["ensemble"]["noted"] is None
+
+    def test_each_and_one_of_them_said(self):
+        from fastmdxplora.gui.runs_compared import mean_of_replicas
+
+        def entry(*notes):
+            return {"members": [{"solute_image": note} for note in notes],
+                    "mean_of_means": 0.168, "spread_of_means": 0.004}
+
+        every = mean_of_replicas(entry(_NOTE_09, _NOTE_09))
+        assert every["noted"] == ("may be biased: in each of the 2 replicas the solute was "
+                                  "within 0.9 nm of its own image, in frames their means use")
+        one = mean_of_replicas(entry(None, {**_NOTE_09, "cutoff_nm": 1.2}, None))
+        assert one["noted"] == ("may be biased: in 1 of the 3 replicas the solute was within "
+                                "1.2 nm of its own image, in frames its mean uses")
+        # Two cutoffs: neither said as the replicas'.
+        two = mean_of_replicas(entry({**_NOTE_09, "cutoff_nm": 1.2}, _NOTE_09))
+        assert "within the cutoff of its own image" in two["noted"]
+        assert mean_of_replicas(entry(None, None))["noted"] is None
+
+    def test_the_study_card_and_the_written_comparison_say_it(self, tmp_path):
+        from fastmdxplora.batch.compare import _across_the_replicas
+        from fastmdxplora.gui.workspace import card_of
+
+        root = _noted_replicas(tmp_path / "replicas")
+        (rmsd,) = card_of(root)["means"]
+        assert rmsd["noted"] == _TWO_OF_THREE
+        written = _across_the_replicas(root)
+        assert any(line.startswith("| rmsd | 0.168 † | ") for line in written), written
+        assert f"† rmsd: {_TWO_OF_THREE}." in written
+
+
 # --------------------------------------------------------------------------
 # In a browser: the Overview tile, the Analysis page's table and the cell
 # over its card give the same note for one mean.

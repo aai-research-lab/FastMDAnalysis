@@ -15,7 +15,8 @@ alone on the next. Every reader now reads the note here, from the record:
 :func:`note_of` (the mean's numbers), :func:`said_short` (beside the
 verdict, "may be biased: in 54 of 270 frames used (20%) the solute was
 within 1 nm of its own image"), :func:`paragraph_of` (the analysis's
-paragraph, one click or one look away), :func:`finding_said` (the image check's own
+paragraph, one click or one look away), :func:`replicas_said` (beside the
+replicas' mean of their means), :func:`finding_said` (the image check's own
 finding, in a sentence, for its row and its card) and :func:`longer_run_said`
 (beside the advice of a longer run, for a run in contact with its image in
 every frame).
@@ -84,6 +85,31 @@ def said_short(note: dict[str, Any] | None) -> str:
     # The solute was within, in so many frames: frames do not come within.
     return (f"may be biased: in {under:,} of {used:,} {noun} ({share}) the solute "
             f"was {within} its own image")
+
+
+def replicas_said(notes: Any) -> str:
+    """The note beside the replicas' mean of their means, from its members'
+    notes (one per replica whose mean it averages, None where a replica's
+    mean has none): how many of them may be biased, said short ("may be
+    biased: in 2 of the 3 replicas the solute was within 1 nm of its own
+    image, in frames their means use"). Replicas share the box, so a bias in
+    their means is in the mean of them. An empty string where none is
+    noted."""
+    members = list(notes or [])
+    found = [note for note in members if note_of({"solute_image": note})]
+    if not found:
+        return ""
+    # The cutoff where every noted replica says the same one.
+    cutoffs = {float(note["cutoff_nm"])
+               if isinstance(note.get("cutoff_nm"), (int, float))
+               and not isinstance(note.get("cutoff_nm"), bool) else None for note in found}
+    within = (f"within {next(iter(cutoffs)):g} nm of" if len(cutoffs) == 1 and None not in cutoffs
+              else "within the cutoff of")
+    which = (f"each of the {len(members)} replicas" if len(found) == len(members)
+             else f"{len(found)} of the {len(members)} replicas")
+    uses = "its mean uses" if len(found) == 1 else "their means use"
+    return (f"may be biased: in {which} the solute was {within} its own image, "
+            f"in frames {uses}")
 
 
 def paragraph_of(findings: Any) -> str:

@@ -24,6 +24,9 @@ __all__ = ["runs_compared", "run_folder", "mean_of_replicas"]
 #: written comparison marks a trend (`fastmdxplora.batch.compare`).
 RESOLVED_AT = 2.0
 
+#: The line a measure of replicas leads with, until their calibration is read.
+REPLICAS_SAID = "Replicas: compared by their spread, not run against run."
+
 
 def run_folder(root: Path | str, run_id: str) -> Path | None:
     """A run's folder, if ``run_id`` names one of this study's runs."""
@@ -166,7 +169,7 @@ def _said(cells: list[dict[str, Any]], reference: str | None, resolved: int,
     missing = sum(1 for c in cells if c.get("mean") is None)
     parts: list[str] = []
     if replicas:
-        parts.append("Replicas: compared by their spread, not run against run.")
+        parts.append(REPLICAS_SAID)
     elif reference is None:
         parts.append("No run has a mean with an error to compare against.")
     elif measured < 2:
@@ -237,7 +240,11 @@ def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, A
     for measure in measures:
         entry = analyses.get(measure["analysis"])
         if isinstance(entry, dict) and entry.get("calibration"):
-            measure["said"] = str(entry["calibration"])
+            # The calibration leads, in place of the line it says more
+            # fully; what the cells say (their image notes, the means not
+            # determined or not yet recorded) is kept after it.
+            rest = measure["said"].removeprefix(REPLICAS_SAID).strip()
+            measure["said"] = " ".join(part for part in (str(entry["calibration"]), rest) if part)
         if not isinstance(entry, dict):
             continue
         together = mean_of_replicas(entry, of=of)
@@ -256,7 +263,9 @@ def mean_of_replicas(entry: dict[str, Any], *, of: int | None = None) -> dict[st
     derivation of it, which the runs' table, the written comparison and All
     studies all give. Given how many runs the study has (``of``), more than
     gave this mean (a run not read, not ended, or without it), ``of`` is
-    kept beside ``runs``, for the mean to say it is of some of them."""
+    kept beside ``runs``, for the mean to say it is of some of them. Its
+    ``noted`` says how many of the replicas' means carry an image note
+    (`image_note.replicas_said`), None where none does."""
     members = len(entry.get("members") or [])
     mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
     if mean is None or spread is None or members < 2:
@@ -266,8 +275,14 @@ def mean_of_replicas(entry: dict[str, Any], *, of: int | None = None) -> dict[st
         # A comparison written before the reason was: the runs it names.
         withheld = (f"{len(entry['qualified_by_their_own_runs'])} of the {members} replicas did "
                     "not determine their own mean, so their spread is not yet an error.")
+    from fastmdxplora.image_note import replicas_said
+
     together = {"mean": mean, "error": None if withheld else spread / math.sqrt(members),
-                "spread": spread, "runs": members, "withheld": withheld}
+                "spread": spread, "runs": members, "withheld": withheld,
+                # Replicas share the box: a bias of the solute's own image in
+                # their means is in the mean of them, said beside it.
+                "noted": replicas_said([row.get("solute_image") for row in entry["members"]
+                                        if isinstance(row, dict)]) or None}
     if isinstance(of, int) and of > members:
         together["of"] = of
     return together
