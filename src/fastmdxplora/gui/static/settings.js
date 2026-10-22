@@ -33,6 +33,15 @@
     if (text !== undefined && text !== null) node.textContent = text;
     return node;
   }
+  /* Words from the server, a setting's name in them (`simulation.ph`) as
+   * code, not between backticks. */
+  function sayInto(node, text) {
+    node.textContent = "";
+    String(text).split("`").forEach(function (part, i) {
+      if (part) node.appendChild(i % 2 ? make("code", "mono", part) : document.createTextNode(part));
+    });
+    return node;
+  }
   function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
   function write(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* this page only */ } }
 
@@ -406,7 +415,7 @@
     var item = rowOf(name);
     if (!item) return;
     var status = item.querySelector(".settings-status");
-    status.textContent = reason;
+    sayInto(status, reason);
     status.className = "settings-status small is-refused";
     var input = item.querySelector(".settings-control");
     if (input) input.setAttribute("aria-invalid", "true");
@@ -497,10 +506,9 @@
     }
     if (said.refused || said.comments) {
       var note = make("p", "settings-cannot");
-      note.textContent = said.refused
-        ? "The file cannot be read, so nothing here can be changed until it is put right by hand: " + said.refused
-        : "The file has comments, which writing it would lose: change it by hand, or take the comments out " +
-          "and change it here.";
+      if (said.refused) sayInto(note, "Nothing here can be changed until the file is put right by hand. " + said.refused);
+      else note.textContent = "The file has comments, which writing it would lose: change it by hand, or take " +
+        "the comments out and change it here.";
       body.appendChild(note);
       if (said.refused) { found(); return; }
     }

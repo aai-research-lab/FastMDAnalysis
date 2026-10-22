@@ -68,26 +68,63 @@ def test_the_file_is_checked_as_part_of_a_config(tmp_path):
 
 
 @pytest.mark.parametrize("setting, value", [
-    ("resume_from", "runs/old"), ("resume_unsealed", True),
-    ("setup_from", "runs/old"), ("prepared_from", "runs/old"),
+    ("simulation.resume_from", "runs/old"), ("simulation.resume_unsealed", True),
+    ("simulation.setup_from", "runs/old"), ("simulation.prepared_from", "runs/old"),
+    ("simulation.extra_ns", 5.0), ("analysis.trajectory", "/data/old/production.dcd"),
+    ("analysis.topology", "/data/old/topology.pdb"), ("setup.fixed_pdb", "prepared.pdb"),
+    ("setup.ligand", "ligand.sdf"), ("setup.ligand_pose", "file"),
+    ("setup.mutations", ["L99A"]), ("setup.chains", ["A"]), ("setup.model", 2),
 ])
 def test_a_setting_of_one_study_is_refused_in_the_file(tmp_path, setting, value):
-    """The study one study continues or is prepared from is that study's:
-    in the file, every new study made in the folder would continue it."""
+    """A folder's defaults say how studies are run, never what is simulated
+    or which study's files are read: the study one study continues or is
+    prepared from, the files it analyses, its structure, ligand, mutations,
+    chains and model are that study's. In the file, every new study made in
+    the folder would take them (`L99A` would mutate every protein)."""
     from fastmdxplora.config.defaults_file import write_defaults
 
+    block, _, key = setting.partition(".")
+    data = {"simulation": {"temperature_K": 310}}
+    data.setdefault(block, {})[key] = value
     with pytest.raises(ConfigError) as caught:
-        read_defaults(_write(tmp_path, {"simulation": {"temperature_K": 310, setting: value}}))
+        read_defaults(_write(tmp_path, data))
     assert caught.value.code == "config.option.inapplicable"
-    assert caught.value.refusal.details["option"] == f"simulation.{setting}"
-    assert DEFAULTS_FILE in str(caught.value) and f"simulation.{setting}" in str(caught.value)
+    assert caught.value.refusal.details["option"] == setting
+    said = str(caught.value)
+    assert DEFAULTS_FILE in said and f"`{setting}`" in said
+    assert "never what is simulated or which study's files are read" in said
     # Nor written into one (Settings' This folder), the file left as it was.
     where = _write(tmp_path / "written")
     before = where.read_text()
     with pytest.raises(ConfigError) as caught:
-        write_defaults(where, given={f"simulation.{setting}": value})
+        write_defaults(where, given={setting: value})
     assert caught.value.code == "config.option.inapplicable"
     assert where.read_text() == before
+
+
+def test_each_refusal_of_one_study_s_setting_says_what_it_is():
+    """`resume_unsealed` names no study, and `setup_from` prepares a study
+    rather than continuing one: each is said as what it is."""
+    from fastmdxplora.config.defaults_file import _ONE_STUDY_SAID
+
+    assert "continues" in _ONE_STUDY_SAID["simulation.resume_from"]
+    assert "names" not in _ONE_STUDY_SAID["simulation.resume_unsealed"]
+    for prepared in ("simulation.setup_from", "simulation.prepared_from"):
+        assert "prepared from" in _ONE_STUDY_SAID[prepared]
+        assert "continue" not in _ONE_STUDY_SAID[prepared]
+    assert "files" in _ONE_STUDY_SAID["analysis.trajectory"]
+    assert "simulates" in _ONE_STUDY_SAID["setup.mutations"]
+
+
+def test_the_rule_is_said_in_the_docs():
+    from pathlib import Path
+
+    docs = Path(__file__).resolve().parent.parent / "docs"
+    refusals = (docs / "refusals.md").read_text(encoding="utf-8")
+    row = [line for line in refusals.splitlines() if line.startswith("| `config.option.inapplicable`")]
+    assert row and "never what is simulated or which study's files are read" in row[0]
+    config = (docs / "config.md").read_text(encoding="utf-8")
+    assert "never what is simulated or which study's files are read" in config
 
 
 # ---------------------------------------------------------------------------

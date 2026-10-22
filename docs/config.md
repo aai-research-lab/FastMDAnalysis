@@ -143,9 +143,16 @@ decisions:
 
 The file holds the blocks that say how a study is simulated (`setup`,
 `simulation`, `analysis`, `report`, `execution`), each setting checked as
-a Config's is, and a `why` for any of them. It never says what is
-simulated: `systems`, `output`, `sweep` and the study's own keys are
-refused in it.
+a Config's is, and a `why` for any of them. A folder's defaults say how
+studies are run, never what is simulated or which study's files are read:
+`systems`, `output`, `sweep` and the study's own keys are refused in it,
+and so are the settings of one study, since every new study made in the
+folder would take them: the study it continues or is prepared from
+(`simulation.resume_from`, `resume_unsealed`, `extra_ns`, `setup_from`,
+`prepared_from`), the files it analyses (`analysis.trajectory`,
+`analysis.topology`), and its structure, ligand, mutations, chains and
+model (`setup.fixed_pdb`, `ligand`, `ligand_pose`, `mutations`, `chains`,
+`model`).
 
 **Which file.** The nearest `fastmdx-defaults.yml` in the study's folder or
 a folder above it, as git finds its repository, stopping at your home

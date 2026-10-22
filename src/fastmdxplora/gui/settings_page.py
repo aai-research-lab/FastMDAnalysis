@@ -15,8 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-# The settings that name another study, which a defaults file refuses:
-# not offered.
+# The settings of one study, which a defaults file refuses: not offered.
 from fastmdxplora.config.defaults_file import _ONE_STUDY_S
 
 __all__ = ["defaults_changed", "defaults_said", "has_comments"]
@@ -102,6 +101,15 @@ def _fields() -> list[dict[str, Any]]:
     return out
 
 
+def _of_the_file(reason: str, path: Path) -> str:
+    """A refusal said beside the file's own name: not its path again."""
+    if reason.startswith(f"{path}: "):
+        reason = reason[len(f"{path}: "):]
+    elif reason.startswith(f"{path} "):
+        reason = "It " + reason[len(f"{path} "):]
+    return reason[:1].upper() + reason[1:]
+
+
 def defaults_said(root: str | Path) -> dict[str, Any]:
     """The defaults file for studies put in ``root``: where it is, whether it
     is there and can be written by Settings, the settings it gives with
@@ -119,7 +127,7 @@ def defaults_said(root: str | Path) -> dict[str, Any]:
         said["comments"] = has_comments(path.read_text(encoding="utf-8"))
         found = read_defaults(path)
     except (OSError, ConfigError) as exc:
-        said["refused"] = str(exc)
+        said["refused"] = _of_the_file(str(exc), path)
         return said
     said["values"] = dict(found.settings())
     said["whys"] = dict(found.whys)
@@ -146,12 +154,9 @@ def defaults_changed(root: str | Path, body: Any) -> dict[str, Any]:
             return said
         write_defaults(path, given=given, unset=unset, whys=whys)
     except ConfigError as exc:
-        # Said beside the setting, under the file's own name: not the path again.
-        reason = str(exc)
-        if reason.startswith(f"{path}: "):
-            reason = reason[len(f"{path}: "):]
+        # Said beside the setting, under the file's own name.
         said = defaults_said(root)
-        said.update({"ok": False, "reason": reason[:1].upper() + reason[1:]})
+        said.update({"ok": False, "reason": _of_the_file(str(exc), path)})
         return said
     except OSError as exc:
         said = defaults_said(root)

@@ -123,13 +123,40 @@ def test_this_folder_says_every_setting_with_fastmdxplora_s_own(tmp_path):
     # A list of numbers is written from numbers between commas; one of
     # mappings is not drawn, and is changed in the file by hand.
     assert fields["simulation.restraint_release"]["items"] == "number"
-    assert fields["setup.chains"]["items"] == "text"
+    assert fields["setup.force_field"]["items"] == "text"
     assert fields["report.region_highlights"]["control"] == ""
-    # Who chose a phase's settings is the study's record, and the study a
-    # study continues or is prepared from is one study's: no default.
+    # Who chose a phase's settings is the study's record, and a setting of
+    # one study (what it continues or is prepared from, the files it
+    # analyses, what it simulates) is never a folder's: not offered.
     for one_study_s in ("setup.agent", "simulation.resume_from", "simulation.resume_unsealed",
-                        "simulation.setup_from", "simulation.prepared_from"):
+                        "simulation.setup_from", "simulation.prepared_from",
+                        "simulation.extra_ns", "analysis.trajectory", "analysis.topology",
+                        "setup.fixed_pdb", "setup.ligand", "setup.ligand_pose",
+                        "setup.mutations", "setup.chains", "setup.model"):
         assert one_study_s not in fields, one_study_s
+
+
+def test_a_file_setting_what_is_simulated_is_refused_and_said(tmp_path):
+    """`L99A` in the folder's file would mutate every new study's protein."""
+    from fastmdxplora.gui.settings_page import defaults_changed, defaults_said
+
+    where = tmp_path / "fastmdx-defaults.yml"
+    where.write_text("setup:\n  mutations: [L99A]\n", encoding="utf-8")
+    said = defaults_said(tmp_path)
+    # Said once, under the file's own name: not its path again.
+    assert said["refused"].startswith("It sets `setup.mutations`, which says what one study "
+                                      "simulates"), said["refused"]
+    assert str(where) not in said["refused"] and said["values"] == {}
+    refused = defaults_changed(tmp_path, {"set": {"setup.ph": 7.0}})
+    assert refused["ok"] is False and str(where) not in refused["reason"]
+    assert where.read_text(encoding="utf-8") == "setup:\n  mutations: [L99A]\n"
+    # Asked of a file that is right, it is refused the same, the file as it was.
+    where.write_text("setup:\n  ph: 7.0\n", encoding="utf-8")
+    refused = defaults_changed(tmp_path, {"set": {"simulation.resume_from": "runs/old"}})
+    assert refused["ok"] is False
+    assert refused["reason"].startswith("It sets `simulation.resume_from`, which names the study")
+    assert str(where) not in refused["reason"]
+    assert where.read_text(encoding="utf-8") == "setup:\n  ph: 7.0\n"
 
 
 def test_the_nearest_file_above_is_the_one_shown_and_changed(tmp_path):

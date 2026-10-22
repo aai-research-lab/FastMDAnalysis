@@ -12,13 +12,15 @@ The rules, each for a reason:
 - **It fills only what a study leaves unset.** A value the config gives,
   even `null` (FastMDXplora's default, chosen), is the study's. A setting
   absent from the config is the only one filled.
-- **It never decides what is simulated.** `systems`, `output`, `sweep` and
-  the study-level keys are refused in it: the file holds how a lab
-  simulates, not what.
+- **It says how studies are run, never what is simulated or which study's
+  files are read.** `systems`, `output`, `sweep` and the study-level keys
+  are refused in it, and so are the settings of one study (`_ONE_STUDY_S`):
+  the study it continues or is prepared from, the files it analyses, and
+  the structure, ligand, mutations, chains and model it simulates. In the
+  file, every new study made in the folder would take them.
 - **A continuation is left alone.** A study that continues another
   (`simulation.resume_from`) keeps that study's settings, and one prepared
-  from another (`simulation.setup_from`) keeps its setup. Those settings
-  are refused in the file: they are one study's, never a folder's.
+  from another (`simulation.setup_from`) keeps its setup.
 - **Each value it fills is said.** It is recorded in the study's
   `decisions` with `source: fastmdx-defaults.yml` and the file's `why`, so
   the report's **Why these settings** says which values were the lab's,
@@ -44,11 +46,34 @@ DEFAULTS_FILE = "fastmdx-defaults.yml"
 #: What the file may set: how a study is simulated, never what.
 _BLOCKS = ("setup", "simulation", "analysis", "report", "execution")
 
-#: Settings that name the study one study continues or is prepared from:
-#: one study's, never a folder's, or every new study made there would
-#: continue that one.
-_ONE_STUDY_S = ("simulation.resume_from", "simulation.resume_unsealed",
-                "simulation.setup_from", "simulation.prepared_from")
+#: The settings of one study, never a folder's, each with what it says of
+#: that study.
+_CONTINUES = "says how one study continues another, with `simulation.resume_from`"
+_SIMULATES = "says what one study simulates, so every new study made here would simulate it"
+_ONE_STUDY_SAID = {
+    "simulation.resume_from": ("names the study one study continues, so every new study "
+                               "made here would continue it"),
+    "simulation.resume_unsealed": _CONTINUES,
+    "simulation.extra_ns": _CONTINUES,
+    "simulation.setup_from": ("names the study one study is prepared from, so every new "
+                              "study made here would be prepared from it"),
+    "simulation.prepared_from": ("names the study one study is prepared from, so every new "
+                                 "study made here would be prepared from it"),
+    "analysis.trajectory": ("names one study's own files, so every new study made here "
+                            "would analyse them under its own name"),
+    "analysis.topology": ("names one study's own files, so every new study made here "
+                          "would analyse them under its own name"),
+    "setup.fixed_pdb": _SIMULATES,
+    "setup.ligand": _SIMULATES,
+    "setup.ligand_pose": _SIMULATES,
+    "setup.mutations": _SIMULATES,
+    "setup.chains": _SIMULATES,
+    "setup.model": _SIMULATES,
+}
+_ONE_STUDY_S = tuple(_ONE_STUDY_SAID)
+#: The rule, as a refusal says it.
+_THE_RULE = ("A folder's defaults say how studies are run, never what is simulated or "
+             "which study's files are read")
 
 def _one_of() -> tuple[frozenset[str], ...]:
     """Settings that answer one question between them: a config that gives
@@ -166,11 +191,10 @@ def read_defaults(path: str | Path) -> YourDefaults:
                 expected_type="mapping", found_type=type(data[key]).__name__)
         for setting in data[key]:
             name = f"{key}.{setting}"
-            if name in _ONE_STUDY_S:
+            if name in _ONE_STUDY_SAID:
                 raise ConfigError(
-                    f"{where} sets `{name}`, which names the study one study continues "
-                    "or is prepared from: every new study made here would continue it. "
-                    "It belongs to that study's config.",
+                    f"{where} sets `{name}`, which {_ONE_STUDY_SAID[name]}. {_THE_RULE}: "
+                    "it belongs in that study's config.",
                     code="config.option.inapplicable", option=name, context=DEFAULTS_FILE)
     try:
         # Checked as part of a config: every setting known, every value one
