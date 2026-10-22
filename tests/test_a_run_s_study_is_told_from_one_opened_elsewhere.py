@@ -513,7 +513,7 @@ def test_words_typed_for_the_run_s_thread_follow_it_past_another_study(tmp_path,
     assert kept.get(run) == words, kept
     assert words not in kept.get(study_key(here), ""), kept
     assert words not in box
-    assert "kept for it, not put here" in note, note
+    assert "saved for it, not put here" in note, note
     assert errors == []
 
 
@@ -775,7 +775,7 @@ def test_words_kept_for_a_study_are_put_back_when_it_is_opened_again(tmp_path, m
     assert kept.get(study_key(other)) == "for other", kept
     # Named by its folder alone, never by its title as the switch is seen,
     # which may be its system's before its run's name is read (L16).
-    assert "The unsent message typed for here is kept for it" in note, note
+    assert "The unsent message typed for here is saved for it" in note, note
     assert "tri-ala" not in note.lower(), note
     assert errors == []
 
@@ -1222,7 +1222,7 @@ def test_reloading_during_a_launch_asks_nothing_and_sends_nothing(tmp_path, monk
     assert _requests(asked) == ["chignolin"], asked
     assert words in json.dumps(kept) or words in box, (kept, box)
     # L12 F9: the page that comes back says where they are.
-    assert words in box or "as a run started is kept for it" in note, (box, note)
+    assert words in box or "as a run started is saved for it" in note, (box, note)
     assert errors == []
 
 
@@ -1267,7 +1267,7 @@ def test_a_launch_failed_amid_the_reload_still_says_where_the_words_are(tmp_path
         _shows(page, study_key(workspace / "run1"))
         page.wait_for_function("(w) => document.getElementById('agent-request').value.includes(w)"
                                " || ((document.getElementById('agent-unsent-note') || {}).textContent"
-                               " || '').includes('as a run started is kept for it')",
+                               " || '').includes('as a run started is saved for it')",
                                arg=words, timeout=15000)
         kept, box, note = _unsent(page), page.input_value("#agent-request"), _note(page)
     finally:
@@ -1275,7 +1275,7 @@ def test_a_launch_failed_amid_the_reload_still_says_where_the_words_are(tmp_path
         session.server.shutdown()
     assert _requests(asked) == ["chignolin"], asked
     assert kept.get(study_key(here)) == words, kept
-    assert words not in box and "as a run started is kept for it" in note, (box, note)
+    assert words not in box and "as a run started is saved for it" in note, (box, note)
     assert errors == []
 
 
@@ -2795,7 +2795,7 @@ def test_words_typed_for_a_study_are_kept_for_it_as_the_gui_leaves_it_for_none(
         close()
         session.server.shutdown()
     assert out["kept"].get(study_key(here)) == words, out
-    assert "The unsent message typed for here" in out["note"] and "kept for it" in out["note"], out
+    assert "The unsent message typed for here" in out["note"] and "saved for it" in out["note"], out
     assert "typed for here" not in out["back"], out
     assert errors == []
 
@@ -2828,7 +2828,7 @@ def test_words_typed_as_a_run_starts_stay_in_the_box_when_it_ends_at_once(tmp_pa
     finally:
         close()
         session.server.shutdown()
-    assert box == words and "kept for it" not in note, (box, note)
+    assert box == words and "saved for it" not in note, (box, note)
     assert _requests(asked) == ["chignolin", words], asked
     where = _where(workspace, words)
     assert where and all(w.startswith(".fastmdxplora_agent_conversations/") for w in where), where
@@ -3203,7 +3203,7 @@ def test_enter_just_after_a_switch_put_words_back_sends_nothing(tmp_path, monkey
     # L17 A, L18: once they are sent, the note no longer says they were not;
     # what it says of the words saved for `other` stays.
     assert "Not sent" not in after and "Press Enter again" not in after, after
-    assert "typed for other is kept for it" in after, after
+    assert "typed for other is saved for it" in after, after
     assert errors == []
 
 

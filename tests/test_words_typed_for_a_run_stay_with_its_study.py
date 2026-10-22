@@ -119,7 +119,7 @@ def test_words_typed_once_a_first_run_started_stay_with_it(tmp_path, monkeypatch
     assert kept.get(run) == words, kept
     assert words not in box
     assert words not in kept.get(study_key(other), "")
-    assert "is kept for it, not put here" in said, said
+    assert "is saved for it, not put here" in said, said
     assert errors == []
 
 
@@ -161,7 +161,7 @@ def test_words_typed_once_a_run_from_a_study_started_stay_with_it(tmp_path, monk
     assert kept.get(run) == words, kept
     assert words not in box
     assert words not in kept.get(study_key(other), "")
-    assert "is kept for it, not put here" in said, said
+    assert "is saved for it, not put here" in said, said
     assert errors == []
 
 
@@ -212,6 +212,6 @@ def test_a_study_another_window_opens_during_a_launch_takes_no_words(tmp_path, m
     assert words not in kept.get(left, ""), kept
     assert kept.get(run) == words, kept
     # Named with its folder (L12 F8).
-    assert "The unsent message typed for the run's study (run2) is kept for it, not put here" \
+    assert "The unsent message typed for the run's study (run2) is saved for it, not put here" \
         in said, said
     assert errors == []

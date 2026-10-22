@@ -1395,7 +1395,7 @@ def test_a_window_whose_study_changed_under_it_says_so_and_keeps_its_words_for_t
         second.wait_for_function("key => window.FastMDXDashboard.state.studyShown === key", arg=site["keys"][2])
         expect(second.locator("#dashboard-toast")).to_contain_text("was opened elsewhere")
         expect(second.locator("#agent-request")).to_have_value("")
-        expect(second.locator("#agent-unsent-note")).to_contain_text("is kept for it")
+        expect(second.locator("#agent-unsent-note")).to_contain_text("is saved for it")
         assert dict(_kept_words(second))[site["keys"][1]]["words"] == "A question about the second study."
         assert site["keys"][2] not in dict(_kept_words(second))
         # Back in the second study, the words are there again.

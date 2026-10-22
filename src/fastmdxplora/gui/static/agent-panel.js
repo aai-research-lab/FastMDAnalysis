@@ -1586,7 +1586,7 @@
       renderChips();
       restoring -= 1;
       var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
-      unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
+      unsentSaid("The unsent message typed for " + forTitle + " is saved for it, not put here: "
                  + "it is in the box again when " + forTitle + " is open" + last, "moved", was);
       putBack(key, "");
       /* Words of this study's own put in place of those being typed: an
@@ -1630,7 +1630,7 @@
     renderChips();
     restoring -= 1;
     var last = onlyHere ? " in this page, which this browser cannot keep it past." : ".";
-    unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
+    unsentSaid("The unsent message typed for " + forTitle + " is saved for it, not put here: "
                + "it is in the box again when " + forTitle + " is open" + last, "moved", was);
   }
   /* Words kept as the page before went while a run started: where they are
@@ -1647,7 +1647,7 @@
         delete kept.asRunStarted;
         sessionStorage.setItem(name, JSON.stringify(kept));
         if (key === shown || !validStudyKey(key)) continue;
-        unsentSaid("The unsent message typed for " + title + " as a run started is kept for it, "
+        unsentSaid("The unsent message typed for " + title + " as a run started is saved for it, "
                    + "not put here: it is in the box again when " + title + " is open.", "moved", key);
       }
     } catch (e) { /* nothing kept */ }
