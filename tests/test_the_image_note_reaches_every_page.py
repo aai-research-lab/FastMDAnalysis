@@ -162,6 +162,17 @@ class TestTheCardsAndTheReportPage:
         summary = _dashboard_summaries(study)["Image check"].summary
         assert summary.startswith("The solute came within 0.420 nm") and summary.endswith("%).")
 
+    def test_the_image_check_s_card_on_the_analysis_page_carries_it(self, study):
+        """Its caption reaches the card: the panel is found by its title."""
+        from fastmdxplora.gui.report_dashboard import _analysis_sections, _dashboard_summaries
+
+        (study / "analysis" / "image_check" / "image_check.png").write_bytes(b"\x89PNG")
+        panels = [panel for section in _analysis_sections(study, study / "report",
+                                                          _dashboard_summaries(study))
+                  for panel in section.panels if panel.title == "Image check"]
+        assert len(panels) == 1
+        assert panels[0].summary.startswith("The solute came within 0.420 nm")
+
     def test_the_report_page_s_table_says_it_beside_the_verdict(self, study):
         from fastmdxplora.gui.report_dashboard import _metric_rows, _render_metric_row
 

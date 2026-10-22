@@ -950,6 +950,8 @@ class TestSeparateCopiesAreNotOneComplex:
         assert np.allclose(series, 3.8, atol=1e-5)
         assert found["frames_under_cutoff"] == 0 and not found["reaches_its_image"]
         assert "8 complexes of 1 molecule each" in found["said"]
+        # What the solute is, then how it was grouped, then what is left out.
+        assert found["said"].endswith("not counted; water, ions and lipids left out.")
         assert "not a self-image" in found["said"]
         # Taken together, they would have come 0.80 nm to their images.
         union = traj.xyz[0].astype(np.float64)

@@ -205,6 +205,8 @@ class TestAnAnalysisWithoutAMainMean:
         assert note["frames_used"] == 220 and note["frames_under_cutoff"] == 20
         assert note["counted_over"] == "means' frames"
         assert "frames its means use" in note["said"] and "union" in note["said"]
+        # One bracket, the share's: the union said after it.
+        assert "(9%), the union of their frames, which differ" in note["said"]
         assert "solute_image" not in analysis.findings["helix_fraction"]
         assert analysis.findings["strand_fraction"]["solute_image"]["frames_used"] == 220
 

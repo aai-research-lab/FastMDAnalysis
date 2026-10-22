@@ -629,7 +629,7 @@ class Analysis(ABC):
         if all(np.array_equal(array, arrays[0]) for array in arrays[1:]):
             return arrays[0], found[0][1], found[0][2]
         return (np.unique(np.concatenate(arrays)), "means' frames",
-                " (the union of their frames, which differ)")
+                ", the union of their frames, which differ")
 
     def _image_note_for(self, traj: md.Trajectory,
                         record: dict[str, Any] | None, *,

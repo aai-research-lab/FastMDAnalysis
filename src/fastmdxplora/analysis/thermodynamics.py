@@ -520,7 +520,7 @@ class Thermodynamics(Analysis):
             return super()._union_of_means(traj, records)
         used, over, how = self._rows_at_frames(traj, discards[0])
         if len(discards) > 1 and over == "energy rows":
-            how = " (the union of the rows its means average, which differ)" + how
+            how = ", the union of the rows its means average, which differ" + how
         return used, over, how
 
     def save_data(self, result: np.ndarray, path: Path) -> Path:

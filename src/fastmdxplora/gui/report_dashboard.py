@@ -132,6 +132,7 @@ DASHBOARD_ASSET_TITLE_ALIASES: dict[str, tuple[str, ...]] = {
     "Secondary structure": ("Secondary structure", "SS heatmap"),
     "Fraction of native contacts": ("Fraction of native contacts", "Q-value"),
     "Dihedrals": ("Dihedrals",),
+    "Image check": ("Image check",),
 }
 
 # Title, data file, and how to summarise it. The report used to redraw

@@ -727,7 +727,9 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
             f"frames. The closest was at {when}, {pair}. The cutoff is "
             f"{cutoff_nm:g} nm, {record['cutoff_from']}.")
     if solute_said:
-        record["said"] += f" The solute is {solute_said}, {record['grouped']}."
+        solute, _, left_out = solute_said.partition("; ")
+        record["said"] += (f" The solute is {solute}, {record['grouped']}"
+                           + (f"; {left_out}." if left_out else "."))
     return distances, record
 
 
