@@ -1203,7 +1203,8 @@ def make_handler(
                 # shows it (settings_page.py). Not a service's guests': the
                 # workspace and its defaults are the service's.
                 if hosting is not None:
-                    self._send_json({"ok": False, "reason": "Not changed here when the GUI is served."},
+                    self._send_json({"ok": False,
+                                     "reason": "Not shown or changed here when the GUI is served."},
                                     status=403)
                     return
                 from fastmdxplora.gui.settings_page import defaults_said

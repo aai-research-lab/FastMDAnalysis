@@ -80,6 +80,8 @@ def test_a_service_s_guests_neither_read_nor_write_it(tmp_path):
     read = _ask(study, hosting)
     written = _ask(study, hosting, "POST", {"set": {"setup.ph": 6.0}})
     assert read[0] == 403 and read[1]["ok"] is False and "values" not in read[1]
+    # A read is refused as one: neither shown nor changed.
+    assert read[1]["reason"] == "Not shown or changed here when the GUI is served."
     assert written[0] == 403 and written[1]["ok"] is False
     assert where.read_text(encoding="utf-8") == "setup:\n  ph: 7.0\n"
 
