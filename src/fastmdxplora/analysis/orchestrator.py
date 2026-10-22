@@ -337,6 +337,11 @@ class AnalysisOrchestrator:
                 )
                 continue
 
+            if name == _IMAGE_CHECK:
+                # Against the run's own cutoff, from the study's setup record
+                # beside this analysis folder, unless one was set for it.
+                analysis.use_the_run_s_cutoff(self.output_dir.parent)
+
             logger.debug("--> running analysis '%s'", name)
             # The one finding of how close the solute came to its own images,
             # read by every analysis of these frames.

@@ -67,9 +67,15 @@ protein and any ligand) to any heavy atom of its images, every image the
 solute could reach searched (the shifts enumerated from the closest approach
 plus the solute's diameter, however many cells that is), in a cell of any
 shape, found with a k-d tree; kept as a series
-(`image_check.dat`), with the frames under the cutoff (`cutoff_nm`, 1.0 nm,
-the cutoff setup uses by default) and under 0.5 nm counted, and the closest
+(`image_check.dat`), with the frames under the cutoff and under 0.5 nm
+counted, and the closest
 approach with its frame, its time and its two atoms (`findings.solute_image`).
+The cutoff is the run's own real-space cutoff: its `nonbonded_cutoff_nm` as
+set or as setup resolved it, read from the study's `setup/setup_parameters.json`;
+else the cutoff of the force field that record names (1.2 nm for CHARMM36,
+1.0 nm for AMBER); else 1.0 nm. The finding says which and from where
+(`cutoff_from`), and `cutoff_nm` under `options: {image_check: ...}` sets
+another.
 Where the solute comes within the cutoff of its image, it is interacting with
 its own copy in those frames, and that is one finding every other analysis
 of the frames reads: each mean is given without its error bar and with the

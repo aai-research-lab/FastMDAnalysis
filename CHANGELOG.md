@@ -470,7 +470,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   atom to any heavy atom of every image it could reach (searched as far as
   the solute spans, not a fixed two cells), each frame made whole along its
   bonds, in a cell of any shape, kept as a series with the
-  frames under the 1.0 nm cutoff and under 0.5 nm counted. Where the solute
+  frames under the run's own real-space cutoff (its `nonbonded_cutoff_nm`
+  from the study's setup record, else its force field's, else 1.0 nm, said
+  which) and under 0.5 nm counted. Where the solute
   reaches its image, every analysis of those frames reads that one finding:
   each mean is given without its error bar and with the reason, where the
   report, the Overview and the Agent read it, and an analysis with no mean

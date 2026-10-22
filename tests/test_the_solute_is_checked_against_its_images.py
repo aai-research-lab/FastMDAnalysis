@@ -391,3 +391,86 @@ class TestEveryImageWithinReachIsSearched:
                 if abs(found[0] - expected) > 1e-6:
                     wrong.append((factor, seed, float(found[0]), expected))
         assert not wrong, wrong
+
+
+def _study_with_setup(folder, setup: dict | None, traj: md.Trajectory):
+    """A study folder: its trajectory, and setup's record where given."""
+    if setup is not None:
+        (folder / "setup").mkdir()
+        (folder / "setup" / "setup_parameters.json").write_text(json.dumps(setup))
+    traj[0].save_pdb(str(folder / "top.pdb"))
+    traj.save_dcd(str(folder / "traj.dcd"))
+    return folder
+
+
+def _ca_line(box: float = 4.52, n_frames: int = 40, reaching: int = 10) -> md.Trajectory:
+    """Ten alpha carbons 0.38 nm apart (as a PDB without bonds reads back,
+    walked in order): straight along x in ``reaching`` frames, the ends
+    then ``box - 3.42`` nm from each other's image, folded back otherwise."""
+    straight = np.c_[0.38 * np.arange(10), np.zeros(10), np.zeros(10)]
+    hairpin = np.r_[straight[:5], straight[:5][::-1] + [0.0, 0.5, 0.0]]
+    top = md.Topology()
+    chain = top.add_chain()
+    for i in range(10):
+        top.add_atom("CA", md.element.carbon, top.add_residue("ALA", chain, resSeq=i + 1))
+    xyz = np.asarray([straight if f < reaching else hairpin for f in range(n_frames)]) + 0.3
+    traj = md.Trajectory(xyz.astype(np.float32), top)
+    traj.unitcell_lengths = np.full((n_frames, 3), box, dtype=np.float32)
+    traj.unitcell_angles = np.full((n_frames, 3), 90.0, dtype=np.float32)
+    traj.time = np.arange(n_frames) * 10.0
+    return traj
+
+
+class TestTheRunsOwnCutoff:
+    """A CHARMM36 run is cut off at 1.2 nm: a solute 1.1 nm from its image
+    is within it, which a check at 1.0 nm called outside."""
+
+    def _checked(self, folder, setup):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+
+        # Stretched, the chain's ends come 1.1 nm from each other's image.
+        study = _study_with_setup(folder, setup, _ca_line())
+        AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                             output_dir=study / "analysis").run(include=["image_check"])
+        return json.loads((study / "analysis" / "image_check" / "options.json")
+                          .read_text())["findings"]["solute_image"]
+
+    def test_as_the_run_set_it(self, tmp_path):
+        found = self._checked(tmp_path, {"parameters": {"nonbonded_cutoff_nm": 1.2}})
+        assert found["cutoff_nm"] == 1.2
+        assert found["frames_under_cutoff"] == 10
+        assert "setup/setup_parameters.json" in found["cutoff_from"]
+        assert "as set" in found["cutoff_from"]
+
+    def test_as_setup_resolved_it(self, tmp_path):
+        found = self._checked(tmp_path, {"parameters": {"nonbonded_cutoff_nm": None},
+                                         "resolved": {"nonbonded_cutoff_nm": 1.2}})
+        assert found["cutoff_nm"] == 1.2 and found["frames_under_cutoff"] == 10
+        assert "resolved" in found["cutoff_from"]
+
+    def test_from_the_force_field_where_no_cutoff_is_recorded(self, tmp_path):
+        found = self._checked(tmp_path, {"parameters": {"forcefield": "charmm36"}})
+        assert found["cutoff_nm"] == 1.2
+        assert "force field" in found["cutoff_from"]
+
+    def test_a_shorter_cutoff_counts_fewer(self, tmp_path):
+        found = self._checked(tmp_path, {"parameters": {"nonbonded_cutoff_nm": 0.9}})
+        assert found["cutoff_nm"] == 0.9 and found["frames_under_cutoff"] == 0
+
+    def test_without_a_record_one_nanometre_said_as_taken(self, tmp_path):
+        found = self._checked(tmp_path, None)
+        assert found["cutoff_nm"] == 1.0 and found["frames_under_cutoff"] == 0
+        assert "taken" in found["cutoff_from"]
+        assert found["cutoff_from"] in found["said"]
+
+    def test_one_set_for_the_check_wins(self, tmp_path):
+        from fastmdxplora.analysis import AnalysisOrchestrator
+
+        study = _study_with_setup(tmp_path, {"parameters": {"nonbonded_cutoff_nm": 1.2}},
+                                  _ca_line())
+        AnalysisOrchestrator(str(study / "traj.dcd"), str(study / "top.pdb"),
+                             output_dir=study / "analysis").run(
+            include=["image_check"], options={"image_check": {"cutoff_nm": 1.05}})
+        found = json.loads((study / "analysis" / "image_check" / "options.json")
+                           .read_text())["findings"]["solute_image"]
+        assert found["cutoff_nm"] == 1.05 and "set for this check" in found["cutoff_from"]

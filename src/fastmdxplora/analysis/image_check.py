@@ -46,6 +46,7 @@ the end-to-end distance reads it rather than checking the ends alone.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -57,9 +58,13 @@ from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.analysis.plotting import colour
 from fastmdxplora.refusals import StudyError
 
-#: The nonbonded cutoff a solute's image is checked against: the cutoff setup
-#: uses unless a force field or the person sets another.
+#: The cutoff a solute's image is checked against where neither the run's
+#: record nor its force field gives one (:func:`run_cutoff`): OpenMM's own
+#: default, which setup takes for a list of files that names no family.
 CUTOFF_NM = 1.0
+
+#: Where the run's resolved settings are recorded, in the study.
+SETUP_RECORD = "setup/setup_parameters.json"
 
 #: Closer than this, the solute is in contact with its own copy, not merely
 #: within the cutoff of it.
@@ -197,6 +202,49 @@ def nearest_image(points: np.ndarray, box: np.ndarray) -> tuple[float, int, int,
     return best, near[0], near[1], max(furthest, 1)
 
 
+def run_cutoff(study: Path | None) -> tuple[float, str]:
+    """The real-space cutoff the run used, in nm, and where it was read: the
+    run's ``nonbonded_cutoff_nm`` as set, or as setup resolved it, from the
+    study's own setup record (read through :mod:`fastmdxplora.record_access`);
+    else the cutoff of the force field the record names (its scheme, as setup
+    takes it); else :data:`CUTOFF_NM`, said as taken for want of a record."""
+    import json
+
+    from fastmdxplora import record_access
+
+    fallback = (CUTOFF_NM, f"{CUTOFF_NM:g} nm taken: no cutoff of this run is recorded "
+                           f"where the check could read it ({SETUP_RECORD})")
+    if study is None:
+        return fallback
+    path = Path(study) / SETUP_RECORD
+    try:
+        if not record_access.is_file(path):
+            return fallback
+        record = json.loads(record_access.read_text(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return fallback
+    if not isinstance(record, dict):
+        return fallback
+    asked = record.get("parameters") if isinstance(record.get("parameters"), dict) else {}
+    resolved = record.get("resolved") if isinstance(record.get("resolved"), dict) else {}
+    for where, said in ((asked, "as set"), (resolved, "as setup resolved it")):
+        value = where.get("nonbonded_cutoff_nm")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value), f"the run's `nonbonded_cutoff_nm`, {said} ({SETUP_RECORD})"
+    named = asked.get("force_field") or resolved.get("force_field") or asked.get("forcefield")
+    if named:
+        try:
+            from fastmdxplora.setup.forcefields import nonbonded_scheme
+
+            value = float(nonbonded_scheme(
+                list(named) if isinstance(named, (list, tuple)) else str(named),
+                cutoff_nm=None, use_switching_function=None, switch_distance_nm=None)[0])
+            return value, f"the cutoff of the run's force field, by its scheme ({SETUP_RECORD})"
+        except Exception:  # noqa: BLE001 - a name this version no longer knows
+            pass
+    return fallback
+
+
 def _atom_said(topology, index: int) -> str:
     atom = topology.atom(index)
     residue = atom.residue
@@ -208,7 +256,8 @@ def _atom_said(topology, index: int) -> str:
 
 
 def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
-                        cutoff_nm: float = CUTOFF_NM) -> tuple[np.ndarray, dict[str, Any]]:
+                        cutoff_nm: float = CUTOFF_NM,
+                        cutoff_from: str | None = None) -> tuple[np.ndarray, dict[str, Any]]:
     """Per frame, the closest approach of the heavy atoms among ``atoms`` to
     the heavy atoms of their periodic images, in nm, and the finding.
 
@@ -253,6 +302,7 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
     widths = narrowest_width(traj)
     record: dict[str, Any] = {
         "cutoff_nm": float(cutoff_nm),
+        "cutoff_from": cutoff_from or f"{float(cutoff_nm):g} nm, given to the check",
         "close_nm": CLOSE_NM,
         "frames": n,
         "nearest_nm": nearest,
@@ -279,8 +329,8 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
     if under:
         record["said"] = (
             f"The solute comes within {nearest:.3f} nm of its own periodic image "
-            f"({when}: {atoms_said}), inside the {cutoff_nm:g} nm cutoff in "
-            f"{under:,} of {n:,} frames ({100.0 * under / n:.2f}%) and under "
+            f"({when}: {atoms_said}), inside the {cutoff_nm:g} nm cutoff "
+            f"({record['cutoff_from']}) in {under:,} of {n:,} frames ({100.0 * under / n:.2f}%) and under "
             f"{CLOSE_NM:g} nm in {close:,} ({100.0 * close / n:.2f}%). In those "
             "frames it is interacting with its own copy, and what is measured of "
             "it describes the cell as much as the molecule. A larger box, in a "
@@ -288,8 +338,8 @@ def solute_image_record(traj: md.Trajectory, atoms: np.ndarray, *,
     else:
         record["said"] = (
             f"The solute comes no closer than {nearest:.3f} nm to its own periodic "
-            f"image ({when}: {atoms_said}), outside the {cutoff_nm:g} nm cutoff in "
-            f"every one of {n:,} frames.")
+            f"image ({when}: {atoms_said}), outside the {cutoff_nm:g} nm cutoff "
+            f"({record['cutoff_from']}) in every one of {n:,} frames.")
     return distances, record
 
 
@@ -298,9 +348,11 @@ class SoluteImage(Analysis):
 
     Parameters
     ----------
-    cutoff_nm : float, default 1.0
-        The nonbonded cutoff the closest approach is checked against, in nm:
-        the one setup uses unless a force field or the person set another.
+    cutoff_nm : float, optional
+        The cutoff the closest approach is checked against, in nm. By
+        default the run's own real-space cutoff, read from the study's setup
+        record where the orchestrator runs the check (:func:`run_cutoff`),
+        else 1.0 nm, said as taken.
     selection : str, optional
         MDTraj atom selection for the solute; its heavy atoms are checked.
         The analysis scope's solute by default (the protein and any ligand),
@@ -320,16 +372,29 @@ class SoluteImage(Analysis):
     #: And there must be a solute to have them.
     requires_solute = True
 
-    def __init__(self, *, cutoff_nm: float = CUTOFF_NM, **kwargs: Any) -> None:
+    def __init__(self, *, cutoff_nm: float | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        cutoff_nm = float(cutoff_nm)
-        if not cutoff_nm > 0:
-            raise StudyError(
-                f"`cutoff_nm` is a distance, more than 0 nm; {cutoff_nm:g} was given.",
-                code="analysis.option.out_of_range", option="cutoff_nm",
-                given=cutoff_nm, frames=None)
-        self.cutoff_nm: float = cutoff_nm
+        if cutoff_nm is None:
+            self.cutoff_nm, self.cutoff_from = run_cutoff(None)
+        else:
+            cutoff_nm = float(cutoff_nm)
+            if not cutoff_nm > 0:
+                raise StudyError(
+                    f"`cutoff_nm` is a distance, more than 0 nm; {cutoff_nm:g} was given.",
+                    code="analysis.option.out_of_range", option="cutoff_nm",
+                    given=cutoff_nm, frames=None)
+            self.cutoff_nm = cutoff_nm
+            self.cutoff_from = ("set for this check "
+                                "(`options: {image_check: {cutoff_nm: ...}}`)")
+        self._cutoff_given = cutoff_nm is not None
         self.options.update(cutoff_nm=self.cutoff_nm)
+
+    def use_the_run_s_cutoff(self, study: Path | None) -> None:
+        """Check against the run's own cutoff, read from the study's record,
+        unless one was set for this check."""
+        if not self._cutoff_given:
+            self.cutoff_nm, self.cutoff_from = run_cutoff(study)
+            self.options.update(cutoff_nm=self.cutoff_nm)
 
     _traj_for_plot: md.Trajectory | None = None
 
@@ -342,7 +407,8 @@ class SoluteImage(Analysis):
                 "there is no solute to check against its images.",
                 code="analysis.selection.empty",
                 expression=self.selection or "protein", role="solute")
-        distances, record = solute_image_record(traj, atoms, cutoff_nm=self.cutoff_nm)
+        distances, record = solute_image_record(traj, atoms, cutoff_nm=self.cutoff_nm,
+                                                cutoff_from=self.cutoff_from)
         self.findings["solute_image"] = record
         # Read by this analysis as by every other.
         self.solute_image = record
