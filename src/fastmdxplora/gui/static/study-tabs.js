@@ -359,7 +359,12 @@
       var step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * list.clientWidth : event.deltaY;
       var before = list.scrollLeft;
       list.scrollLeft += step;
-      if (list.scrollLeft !== before) event.preventDefault();
+      if (list.scrollLeft !== before) {
+        event.preventDefault();
+        // Moved away now, not at the scroll event a frame later: a redraw
+        // in between (a study's id read) brought the open tab back.
+        following = currentShown();
+      }
     }, {passive: false});
     // The page's own sticky header and bars stay below the strip, its note
     // included, whatever its height (study-tabs.css, dashboard.css). Under
