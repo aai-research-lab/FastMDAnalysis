@@ -3587,6 +3587,91 @@ def test_a_refused_message_s_file_read_as_the_switch_is_seen_comes_back(tmp_path
     assert errors == []
 
 
+@pytest.mark.parametrize("start", ["a study", "no study"])
+def test_a_message_refused_as_a_study_opens_names_the_study(tmp_path, monkeypatch, start):
+    """L21 L2, L22 L4: the notes of a message refused as another window
+    opened a study named no study, where every other note names it by its
+    folder. Saved for the study it was written in (the page has seen the
+    switch as the refusal comes), the note names that study; from no study,
+    it names the study opened."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    words = "pressed as other opened"
+    asked, held, polls, threads, holding = [], [], [], [], []
+
+    def propose(route):
+        request = json.loads(route.request.post_data or "{}").get("request")
+        asked.append(request)
+        if request == words and not held:
+            held.append(route)
+        else:
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(_answer("A: " + request)))
+
+    def conversation(route):
+        if holding:
+            threads.append(route)
+        else:
+            route.continue_()
+
+    page, errors, close = _page_on(session, [])
+    try:
+        page.unroute("**/api/agent/propose*")
+        page.route("**/api/agent/propose*", propose)
+        page.route("**/api/agent/conversation*", conversation)
+        if start == "no study":
+            _from_no_study(page, session)
+            _hold(page, polls)
+        else:
+            _shows(page, study_key(here))
+            _when_known(page)
+        _say(page, words)
+        while not held:
+            page.wait_for_timeout(50)
+        session.runtime.data_stale = False
+        if start == "a study":
+            # Seen before the refusal comes, the other study's thread read
+            # held meanwhile: the message is saved for `here`.
+            holding.append(True)
+            _switch_elsewhere(session, other)
+            _shows(page, study_key(other))
+            while not threads:
+                page.wait_for_timeout(50)
+            held[0].continue_()
+        else:
+            _switch_elsewhere(session, other)
+            held[0].continue_()
+        page.wait_for_function("() => /^Not sent, as /.test((document.getElementById("
+                               "'agent-unsent-note') || {}).textContent || '')", timeout=15000)
+        page.wait_for_timeout(300)
+        refused = _note(page)
+        del holding[:]
+        for route in list(threads):
+            route.continue_()
+        _release(page, polls)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study", timeout=20000)
+        page.wait_for_timeout(1500)
+        on_other = {"note": _note(page), "box": page.input_value("#agent-request"),
+                    "kept": _unsent(page)}
+    finally:
+        close()
+        session.server.shutdown()
+    if start == "a study":
+        assert refused == ("Not sent, as the study open changed as it was sent: the message is "
+                           "saved for here, where it was written: it is in the box again when "
+                           "here is open."), refused
+        assert on_other["box"] == "" and on_other["kept"].get(study_key(here)) == words, on_other
+        assert on_other["note"] == refused, on_other
+    else:
+        assert refused.startswith("Not sent, as the study open changed as it was sent"), refused
+        assert on_other["box"] == words, on_other
+        assert on_other["note"] == ("Not sent, as other was opened as it was sent: "
+                                    "the message is back in the box."), on_other
+    assert errors == []
+
+
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_at_390_a_note_of_two_lines_hides_the_page_beneath(tmp_path, monkeypatch, scheme):
     """L20: at 390, on a study's Agent page with its starters, a note of two

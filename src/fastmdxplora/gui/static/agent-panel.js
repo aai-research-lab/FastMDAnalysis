@@ -1304,6 +1304,11 @@
   /* Files kept with the words being read again: nothing is written over
    * the kept entry meanwhile. */
   var restoring = 0;
+  /* Each study seen, by its key: how its notes name it (its folder). */
+  var studyNames = {};
+  function studyName(key) {
+    return studyNames[key] || runFolders[key] || "";
+  }
   var NOT_KEPT = "This browser window could not keep ";
   function validStudyKey(key) { return typeof key === "string" && /^[0-9a-f]{16}$/.test(key); }
   function boxNow() {
@@ -1463,7 +1468,7 @@
       sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify(raw));
     } catch (e) {
       if (held) held.files = files;
-      else heldInPage[key] = { words: kept.words, files: files, title: "" };
+      else heldInPage[key] = { words: kept.words, files: files, title: studyName(key) };
     }
   }
   /* Files saved with words, and those of an edit or a message put with
@@ -1571,6 +1576,7 @@
      * (CI-774 reviews L6, L16: one study was named two ways in its notes). */
     var folder = (study && study.folder) || "";
     if (folder) title = folder;
+    if (title) studyNames[key] = title;
     if (key === unsentKey) {
       seenWhileLaunching = null;
       unsentTitle = title || unsentTitle;
@@ -1662,7 +1668,10 @@
     unsentKey = key;
     unsentTitle = title;
     putBack(key, begunElsewhere ? "" : typed);
-    if (!begunElsewhere) saidWhereKeptAsARunStarted(key);
+    if (!begunElsewhere) {
+      saidWhereKeptAsARunStarted(key);
+      openedAsSentSaid(title);
+    }
   }
   /* The GUI went from a study to no study, or to a folder that is not one:
    * the words typed for the study are saved for it and taken out of the
@@ -2124,21 +2133,43 @@
       area.dispatchEvent(new Event("input"));
       savedWithFiles(files);
       if (files.length) readFilesAgain(files, unsentKey);
-      unsentSaid(NOT_SENT_VIEW + "the message is back in the box.", "moved", "");
+      /* Of no study: the study opened is named, once the page has seen it
+       * (CI-774 review L22 L4). */
+      var opened = validStudyKey(key) ? "" : validStudyKey(unsentKey) ? studyName(unsentKey) : "";
+      nameOpened = !validStudyKey(key) && !opened;
+      unsentSaid(opened ? openedAsSent(opened) : NOT_SENT_NONE, "moved", "");
       return;
     }
     var kept = storedUnsent(key);
     var all = kept && kept.words.trim() ? kept.words + "\n\n" + said.text : said.text;
-    var allFiles = (kept ? kept.files : []).concat(files.filter(function (f) {
-      return !(kept ? kept.files : []).some(function (k) { return k.path === f.path; });
-    })).slice(0, 6);
+    var allFiles = withFiles(kept ? kept.files : [], files);
+    var name = studyName(key);
     try {
       sessionStorage.setItem(UNSENT_WORDS + key, JSON.stringify({ words: all, files: allFiles }));
     } catch (e) {
-      heldInPage[key] = { words: all, files: allFiles, title: "" };
+      heldInPage[key] = { words: all, files: allFiles, title: name };
     }
-    unsentSaid(NOT_SENT_VIEW + "the message is saved for the study it was written in, in the box "
-               + "again when that study is open.", "moved", key);
+    /* Named by its folder, as every note names a study (CI-774 reviews L21
+     * L2, L22 L4). */
+    unsentSaid(NOT_SENT_VIEW + (name
+      ? "the message is saved for " + name + ", where it was written: it is in the box again when "
+        + name + " is open."
+      : "the message is saved for the study it was written in, in the box again when that study "
+        + "is open."), "moved", key);
+  }
+  var NOT_SENT_NONE = NOT_SENT_VIEW + "the message is back in the box.";
+  var nameOpened = false;
+  function openedAsSent(title) {
+    return "Not sent, as " + title + " was opened as it was sent: the message is back in the box.";
+  }
+  /* The study a message of no study was refused for is seen: named in the
+   * note, if the note still says only that the study open changed. */
+  function openedAsSentSaid(title) {
+    var waiting = nameOpened;
+    nameOpened = false;
+    var host = el("agent-unsent-note");
+    if (!waiting || !title || !host || noteKind !== "moved" || host.textContent !== NOT_SENT_NONE) return;
+    unsentSaid(openedAsSent(title), "moved", "");
   }
   function settled(c) {
     c.waiting -= 1;
