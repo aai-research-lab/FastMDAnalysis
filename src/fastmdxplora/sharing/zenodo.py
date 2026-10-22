@@ -128,7 +128,8 @@ def _a_draft(answer: Any, identifier: str = "", doi: str = "") -> bool:
     metadata holding something, and the DOI reserved for it where known. A
     draft read wrong is never written back."""
     if not isinstance(answer, dict) or not isinstance(answer.get("metadata"), dict) \
-            or not answer["metadata"]:
+            or not answer["metadata"] or not isinstance(answer.get("submitted"), bool):
+        # (Zenodo says of every draft or record whether it is published.)
         return False
     if identifier and str(answer.get("id") or "") != str(identifier):
         return False
@@ -138,8 +139,9 @@ def _a_draft(answer: Any, identifier: str = "", doi: str = "") -> bool:
 
 
 #: Quotes Zenodo straightens in what it is sent (as it fixes text it keeps).
-_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
-                         "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"'})
+_QUOTES = str.maketrans({"\u02bc": "'", "\u2018": "'", "\u2019": "'", "\u201a": "'",
+                         "\u201b": "'", "\u201c": '"', "\u201d": '"', "\u201e": '"',
+                         "\u201f": '"', "\u2028": "\n", "\u2029": "\n", "\u0085": "\n"})
 
 
 def _plain(value: Any) -> Any:
@@ -153,9 +155,60 @@ def _plain(value: Any) -> Any:
         return [_plain(v) for v in value]
     if not isinstance(value, str):
         return value
-    fixed = unicodedata.normalize("NFKC", value.replace("\r\n", "\n").replace("\r", "\n"))
+    # (Its entities read as what they stand for in text holding no markup.)
+    fixed = value if "<" in value else html.unescape(value)
+    fixed = unicodedata.normalize("NFKC", fixed.replace("\r\n", "\n").replace("\r", "\n"))
     return "".join(c for c in fixed.translate(_QUOTES)
                    if c in "\n\t" or unicodedata.category(c) not in ("Cc", "Cf")).strip()
+
+
+#: Zenodo's earlier ids for licences, where they are not its ids now: one
+#: sent in either form may come back in the other.
+_LICENCES_ONCE = {
+    "agpl-1.0": "agpl-1.0-only", "apache": "apache-1.0", "apache2.0": "apache-2.0",
+    "apgl-v3": "agpl-3.0-only", "apl1.0": "apl-1.0", "artistic-license-2.0": "artistic-2.0",
+    "attribution": "aal", "bsd-2-clause-freebsd": "bsd-2-clause-views",
+    "bsd-2-clause-netbsd": "bsd-2-clause", "bsd-license": "bsd-1-clause", "bsl1.0": "bsl-1.0",
+    "ca-tosl1.1": "catosl-1.1", "canada-crown": "ogl-canada-2.0", "cc-by": "cc-by-1.0",
+    "cc-by-sa": "cc-by-sa-1.0", "cc-nc": "cc-by-nc-2.0", "cc-zero": "cc0-1.0",
+    "cddl1": "cddl-1.0", "cpal_1.0": "cpal-1.0", "cuaoffice": "cua-opl-1.0", "ecl2": "ecl-2.0",
+    "eclipse-1.0": "epl-1.0", "eiffel": "efl-1.0", "fal": "lal-1.2",
+    "frameworx": "frameworx-1.0", "gfdl": "gfdl-1.1-only", "gfdl-1.1": "gfdl-1.1-only",
+    "gfdl-1.2": "gfdl-1.2-only", "gfdl-1.3": "gfdl-1.3-only", "gpl-1.0": "gpl-1.0-only",
+    "gpl-1.0+": "gpl-1.0-or-later", "gpl-2.0": "gpl-2.0-only", "gpl-2.0+": "gpl-2.0-or-later",
+    "gpl-3.0": "gpl-3.0-only", "gpl-3.0+": "gpl-3.0-or-later", "ibmpl": "ipl-1.0",
+    "intel-osl": "intel", "ipafont": "ipa", "isc-license": "isc", "lgpl-2.0": "lgpl-2.0-only",
+    "lgpl-2.0+": "lgpl-2.0-or-later", "lgpl-2.1": "lgpl-2.1-only",
+    "lgpl-2.1+": "lgpl-2.1-or-later", "lgpl-3.0": "lgpl-3.0-only",
+    "lgpl-3.0+": "lgpl-3.0-or-later", "lucent1.02": "lpl-1.02", "mit-license": "mit",
+    "mozilla": "mpl-1.0", "mozilla1.1": "mpl-1.1", "nasa1.3": "nasa-1.3", "nethack": "ngpl",
+    "nosl3.0": "nposl-3.0", "ntp-license": "ntp", "oclc2": "oclc-2.0", "odc-by": "odc-by-1.0",
+    "odc-odbl": "odbl-1.0", "odc-pddl": "pddl-1.0", "openfont": "ofl-1.0", "opengroup": "ogtsl",
+    "php": "php-3.0", "pythonpl": "python-2.0", "pythonsoftfoundation": "psf-2.0",
+    "real": "rpsl-1.0", "ricohpl": "rscpl", "rpl1.5": "rpl-1.5", "standardml-nj": "smlnj",
+    "sun-issl": "sissl", "sunpublic": "spl-1.0", "sybase": "watcom-1.0", "uk-ogl": "ogl-uk-1.0",
+    "uoi-ncsa": "ncsa", "ver2_eiffel": "efl-2.0", "vovidapl": "vsl-1.0", "zlib-license": "zlib",
+    "zpl": "zpl-1.1"
+}
+
+
+def _licence(given: Any) -> str:
+    """A licence's id in Zenodo's form now, whichever form it was given in."""
+    named = str((given.get("id") if isinstance(given, dict) else given) or "").strip().lower()
+    return _LICENCES_ONCE.get(named, named)
+
+
+def _as_kept(value: Any) -> Any:
+    """A description's fields in the forms Zenodo gives them back in, for
+    comparing what was sent with what it holds: its text as it keeps text,
+    a licence by its id now, and no field it fills with nothing (a
+    creator's affiliation given none)."""
+    if isinstance(value, dict):
+        return {k: _licence(v) if k == "license" else _as_kept(v)
+                for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_as_kept(v) for v in value]
+    return _plain(value)
 
 
 def _text(described: Any) -> str:
@@ -573,7 +626,7 @@ def _written(metadata: Any) -> str:
     study wrote, told from what the person changed there since."""
     import hashlib
 
-    return hashlib.sha256(json.dumps(_plain(_described(metadata)), sort_keys=True)
+    return hashlib.sha256(json.dumps(_as_kept(_described(metadata)), sort_keys=True)
                           .encode()) \
         .hexdigest()
 
@@ -847,7 +900,10 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     # title since may hold what the person gave it.
     answered = False
     if deposition is None:
-        title = title or f"FastMDXplora: sharing {study.name} ({secrets.token_hex(4)})"
+        # In plain letters: what Zenodo keeps of it is what was asked for.
+        plain_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", unicodedata.normalize(
+            "NFKD", study.name).encode("ascii", "ignore").decode()).strip(" _") or "study"
+        title = title or f"FastMDXplora: sharing {plain_name} ({secrets.token_hex(4)})"
         # Kept before it is asked for, so a draft made whose answer is lost
         # is found again at the next share.
         kept[site] = {"asked_as": title, "version": version}
@@ -1159,8 +1215,10 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             # (whatever defaults Zenodo gave it since).
             not versioned and _plain(str(held.get("title") or "")) in ("", _plain(marker))
             and not any(held.get(key) for key in _SOMEONE_S)
-            and all(held.get(key) in (None, "", ours, *((made_as[key],) if key in made_as
-                                                       else _ZENODO_GIVES.get(key, ())))
+            and all(_as_kept({key: held.get(key)}).get(key) in (
+                        None, "", *(_as_kept({key: given}).get(key) for given in (
+                            ours, *((made_as[key],) if key in made_as
+                                    else _ZENODO_GIVES.get(key, ())))))
                     for key, ours in (("access_right", "open"), ("upload_type", "dataset"),
                                       ("license", license_id.lower()))))
 
@@ -1310,8 +1368,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                           or (not held.get(key) and not last
                               and _written({"description": held.get("description")})
                               not in words)}
-                if said and any(held.get(key) and _described({key: held.get(key)})
-                                != _described({key: ours_said.get(key)})
+                if said and any(held.get(key) and _as_kept({key: held.get(key)})
+                                != _as_kept({key: ours_said.get(key)})
                                 for key in ("creators", "license", "keywords", "title",
                                             "access_right")):
                     said(f"The draft {page} was shared by an earlier release of "

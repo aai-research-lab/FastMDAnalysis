@@ -3853,20 +3853,25 @@ def _as_zenodo_keeps(value):
         return [_as_zenodo_keeps(v) for v in value]
     if isinstance(value, str):
         value = unicodedata.normalize("NFC", value).replace("\ufb01", "fi")
-        return value.translate(str.maketrans("\u2018\u2019\u201c\u201d", "''\"\""))
+        return value.translate(str.maketrans("\u02bc\u2018\u2019\u201c\u201d\u2028",
+                                             "'''\"\"\n"))
     return value
 
 
-@pytest.mark.parametrize("name", ["Aina\u2019s study", "Cafe\u0301", "\ufb01bril"])
+@pytest.mark.parametrize("name, words", [
+    ("Aina\u2019s study", "Its \u201cfolded\u201d \ufb01bril held."),
+    ("Cafe\u0301", "Its \u201cfolded\u201d \ufb01bril held."),
+    ("\ufb01bril", "Its \u201cfolded\u201d \ufb01bril held."),
+    ("Aina\u02bcs study", "Aina\u02bcs \ufb01bril\u2028held.")])
 def test_a_study_whose_words_zenodo_fixes_is_shared_once(tmp_path, unsteady, monkeypatch,
-                                                         name):
+                                                         name, words):
     """Review of the thirty-eighth commit: a study's name or summary Zenodo
     keeps in other characters (a curly apostrophe, a decomposed accent, a
     ligature) had a new draft made at every share, none shared."""
     unsteady.meta = {}
     # (Built under a plain name: the trajectory's writer takes no other.)
     study = _study(tmp_path / "study").rename(tmp_path / name)
-    _analysed_again(study, "Its \u201cfolded\u201d \ufb01bril held.")
+    _analysed_again(study, words)
     real = zenodo._call
 
     def kept_fixed(method, url, **kwargs):
@@ -3881,8 +3886,7 @@ def test_a_study_whose_words_zenodo_fixes_is_shared_once(tmp_path, unsteady, mon
 
     monkeypatch.setattr(zenodo, "_call", kept_fixed)
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
-    _analysed_again_from(study, "Its \u201cfolded\u201d \ufb01bril held.",
-                         "Its \u2018second\u2019 look.")
+    _analysed_again_from(study, words, "Its \u2018second\u2019 look.")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     assert sum(c[0] == "POST" and c[1] == "/api/deposit/depositions"
                for c in unsteady.calls) == 1
@@ -3987,3 +3991,123 @@ def test_a_record_answered_as_another_is_not_opened(monkeypatch, answer, opened)
     else:
         with pytest.raises(ShareRefused, match="named another, 1009"):
             zenodo.archive_of("zenodo-sandbox", "1007")
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+def test_a_record_read_not_saying_it_is_published_is_not_written(tmp_path, unsteady,
+                                                                  monkeypatch, deleted):
+    """Review of the fortieth commit: the study's record read without saying
+    whether it is published was taken as a draft, written to, and its
+    account in shared_to.json lost."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    if deleted:
+        unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+        assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+        unsteady.faults = {}
+        unsteady.gone = {8}
+    kept = (study / "shared_to.json").read_text()
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/7", lambda answer, sent: {
+        k: v for k, v in answer.items() if k != "submitted"})
+    unsteady.calls.clear()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert not any(c[0] == "PUT" for c in unsteady.calls)
+    assert (study / "shared_to.json").read_text() == kept
+
+
+def test_a_draft_s_title_asked_for_is_in_plain_letters(tmp_path, unsteady):
+    study = _study(tmp_path / "study").rename(tmp_path / "Ainaʼs Café Ａ")
+    unsteady.faults = {"PUT file": [503] * zenodo.TRIES}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    asked = json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["asked_as"]
+    assert asked.isascii() and asked.startswith("FastMDXplora: sharing Ainas Cafe A (")
+
+
+def test_text_is_compared_as_zenodo_keeps_it():
+    """Review of the fortieth commit: Zenodo straightens a modifier
+    apostrophe, breaks lines at line and paragraph separators, and reads
+    entities in text holding no markup."""
+    assert zenodo._plain(" Ainaʼs &amp; B x y\u0085z ") == "Aina's & B\nx\ny\nz"
+    assert zenodo._plain("<p>&amp;</p>") == "<p>&amp;</p>"
+
+
+def _in_zenodo_s_forms(value):
+    """A description as Zenodo gives it back: each creator with an
+    affiliation, none if none was given; a licence by its earlier id."""
+    if isinstance(value, dict):
+        out = {k: _in_zenodo_s_forms(v) for k, v in value.items()}
+        if "name" in out and "affiliation" not in out:
+            out["affiliation"] = None
+        if isinstance(out.get("license"), str):
+            out["license"] = {"cc0-1.0": "cc-zero", "mit": "mit-license"}.get(
+                out["license"], out["license"])
+        return out
+    if isinstance(value, list):
+        return [_in_zenodo_s_forms(v) for v in value]
+    return value
+
+
+@pytest.mark.parametrize("licence", ["CC0-1.0", "MIT", "CC-BY-4.0"])
+def test_a_description_whose_answer_was_lost_follows_the_study_in_zenodo_s_forms(
+        tmp_path, unsteady, monkeypatch, capsys, licence):
+    """Hands-on review of the fortieth commit: Zenodo gives creators back with
+    an affiliation and licences by their earlier ids, and one description
+    whose answer was lost was taken for the person's at every later share."""
+    from fastmdxplora.cli.main import main
+
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+    lose = {"description": False}
+
+    def as_zenodo(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        for number, held in unsteady.meta.items():
+            unsteady.meta[number] = _in_zenodo_s_forms(held)
+        if lose["description"] and method == "PUT" and (kwargs.get("body") or {}).get(
+                "metadata", {}).get("description"):
+            lose["description"] = False
+            return None
+        return _in_zenodo_s_forms(answer)
+
+    monkeypatch.setattr(zenodo, "_call", as_zenodo)
+
+    def share() -> int:
+        return main(["report", "--output", str(study), "--share", str(tmp_path / "s.zip"),
+                     "--share-author", "Adekunle Aina;0000-0002-8215-7452",
+                     "--share-to", "zenodo-sandbox", "--share-license", licence])
+
+    assert share() == 0
+    _analysed_again(study, "Words of the second share.")
+    lose["description"] = True
+    assert share() == 2
+    _analysed_again_from(study, "Words of the second share.", "Words of the third share.")
+    capsys.readouterr()
+    assert share() == 0
+    assert "changed there" not in capsys.readouterr().out
+    assert "Words of the third share." in unsteady.meta[7]["description"]
+
+
+def test_an_earlier_release_s_draft_as_the_study_gives_it_is_not_said_otherwise(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Hands-on review of the fortieth commit: a 2.6.0 draft holding what the
+    study gives, in the forms Zenodo gives it back in, was said to hold
+    other names, licence or access at every share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    real = zenodo._call
+
+    def as_zenodo(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        for number, held in unsteady.meta.items():
+            unsteady.meta[number] = _in_zenodo_s_forms(held)
+        return _in_zenodo_s_forms(answer)
+
+    monkeypatch.setattr(zenodo, "_call", as_zenodo)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _as_2_6_0_kept_it(study)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    said = capsys.readouterr().out
+    assert "Change them there" not in said
