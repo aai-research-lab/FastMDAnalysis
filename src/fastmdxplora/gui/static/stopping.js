@@ -388,15 +388,57 @@
     document.getElementById("stopping-rounds").hidden = data.rounds.length === 0;
   }
 
+  /* A record the card would have read, not read (`not_read`: linked out of
+   * the study), said under what the card says; "" takes the note away. */
+  function notRead(said) {
+    var note = document.getElementById("stopping-not-read");
+    if (!said) {
+      if (note) note.hidden = true;
+      return;
+    }
+    if (!note) {
+      var after = document.getElementById("stopping-said");
+      note = el("p", "stopping-said stopping-not-read");
+      note.id = "stopping-not-read";
+      after.parentNode.insertBefore(note, after.nextSibling);
+    }
+    note.textContent = said;
+    note.hidden = false;
+  }
+
+  /* Its record of its rounds not read: the card says so, and nothing of
+   * the record, where it would be. */
+  function renderNotRead(card, data) {
+    card.hidden = false;
+    card.setAttribute("data-outcome", "not-read");
+    var title = card.querySelector(".card-title");
+    if (title) title.textContent = "Run until it is determined";
+    var pill = document.getElementById("stopping-outcome");
+    pill.textContent = "Not read";
+    pill.setAttribute("data-state", "stale");
+    document.getElementById("stopping-said").textContent = data.not_read;
+    notRead("");
+    document.getElementById("stopping-strip").innerHTML = "";
+    document.getElementById("stopping-measures").innerHTML = "";
+    document.getElementById("stopping-key").hidden = true;
+    document.getElementById("stopping-rounds").hidden = true;
+  }
+
   function render(data) {
     var card = document.getElementById("stopping-card");
     if (!card) return;
+    if (data && !data.ok && data.not_read) {
+      last = data;
+      renderNotRead(card, data);
+      return;
+    }
     if (!data || !data.ok) {
       card.hidden = true;
       last = data;
       return;
     }
-    if (last && last.ok && last.version === data.version) return;
+    if (last && last.ok && last.version === data.version
+        && (last.not_read || "") === (data.not_read || "")) return;
     last = data;
     card.hidden = false;
     card.setAttribute("data-outcome", data.outcome);
@@ -412,6 +454,9 @@
     pill.setAttribute("data-state", data.outcome === "running" && !data.live ? "waiting"
       : PILL[data.outcome] || "stale");
     document.getElementById("stopping-said").textContent = data.said;
+    // Read, with a record it names not read (a batch manifest or a process
+    // record linked out of the study): said under it.
+    notRead(data.not_read || "");
     strip(data);
     var produced = data.production_ns || 0;
     data.measures.forEach(function (m) {

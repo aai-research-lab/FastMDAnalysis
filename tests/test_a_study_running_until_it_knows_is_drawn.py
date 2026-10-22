@@ -497,3 +497,58 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
     assert gone["outcome"] == "Stopped without finishing" and gone["errors"] == []
     assert "running" not in gone["card"].lower(), gone["card"]
     assert gone["projection"] >= 1 and len(gone["strip"]) == 3
+
+
+def test_the_card_says_a_record_it_did_not_read(tmp_path) -> None:
+    """With its record linked out of the study, the card was hidden, and the
+    Overview said nowhere which record was not read; with its batch manifest
+    linked out, the card named the runs by folder with no word of why."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    record_out = _a_campaign_killed_in_its_first_piece(tmp_path / "a")
+    _linked_out(record_out, "stopping.json", tmp_path / "elsewhere" / "stopping.json",
+                lambda record: record.update({"said": "SECRET OUTSIDE SENTENCE"}))
+    manifest_out = _a_campaign_killed_in_its_first_piece(tmp_path / "b")
+    _linked_out(manifest_out, "batch_manifest.json", tmp_path / "elsewhere" / "batch.json",
+                lambda manifest: None)
+    seen = {}
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        try:
+            for name, where in (("record", record_out), ("manifest", manifest_out)):
+                session = start_dashboard_session(output=str(where), host="127.0.0.1", port=0)
+                try:
+                    page = browser.new_page(viewport={"width": 1400, "height": 1000})
+                    page.set_default_timeout(60000)
+                    errors: list[str] = []
+                    page.on("pageerror", lambda error, into=errors: into.append(str(error)))
+                    page.goto(session.url + "#overview", wait_until="domcontentloaded")
+                    page.wait_for_selector("#stopping-card:not([hidden])")
+                    seen[name] = {
+                        "outcome": page.text_content("#stopping-outcome"),
+                        "title": page.text_content("#stopping-card .card-title"),
+                        "said": page.text_content("#stopping-said"),
+                        "note": page.evaluate(
+                            "() => { const n = document.getElementById('stopping-not-read');"
+                            " return n && !n.hidden ? n.textContent : null; }"),
+                        "measures": page.locator(".stopping-measure").count(),
+                        "card": page.inner_text("#stopping-card"),
+                        "errors": errors,
+                    }
+                    page.close()
+                finally:
+                    session.server.shutdown()
+        finally:
+            browser.close()
+    unread = seen["record"]
+    assert (unread["outcome"], unread["title"]) == ("Not read", "Run until it is determined")
+    assert unread["said"].startswith("stopping.json was not read"), unread["said"]
+    assert unread["measures"] == 0 and unread["note"] is None and unread["errors"] == []
+    assert "SECRET" not in unread["card"]
+    read = seen["manifest"]
+    assert read["outcome"] == "Stopped without finishing" and read["errors"] == []
+    assert read["said"].startswith("Stopped without finishing in its first piece")
+    assert read["note"] and read["note"].startswith("batch_manifest.json was not read"), read
