@@ -2323,8 +2323,21 @@
     });
     wireOpenShared();
     keepThePlace();
+    // Opened on this page, its studies are listed as it loads, below. Until
+    // another page is gone to, a navigation to this one (the page's first,
+    // and its route put in its address once its state is read) is the same
+    // page and not a return to it: listed again then, the cards were drawn
+    // again under whatever had been done to them meanwhile.
+    var listedAsItLoaded = null;
+    var notLeftSinceLoaded = false;
     var opened = function (detail) {
       var page = detail && detail.page ? detail.page : detail;
+      if (page !== "studies") notLeftSinceLoaded = false;
+      if (page === "studies" && notLeftSinceLoaded) {
+        if (listedAsItLoaded) listedAsItLoaded.then(returnToThePlace, returnToThePlace);
+        listedAsItLoaded = null;
+        return;
+      }
       if (page === "studies") {
         var back = load(lookedIn);
         if (back && back.then) back.then(returnToThePlace, returnToThePlace);
@@ -2334,7 +2347,10 @@
     if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
       window.FastMDXDashboard.on("navigate", opened);
     }
-    if (location.hash === "#studies") load();
+    if (location.hash === "#studies") {
+      listedAsItLoaded = load() || null;
+      notLeftSinceLoaded = true;
+    }
   }
 
   /* Where All studies was scrolled to, and its search, kept when the page
