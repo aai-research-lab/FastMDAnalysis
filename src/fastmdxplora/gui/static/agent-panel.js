@@ -4771,9 +4771,36 @@
           + "first known."
         : "Optional. Stops a study that would cost more than you meant.";
     }
+    /* The mode and the GPU-hour ceiling saved in this browser as they are
+     * chosen (`fmx.agentChoices`), and chosen again as the page opens: a
+     * reload left the Agent in Seeker with no ceiling, whatever was set. */
+    var CHOICES_KEY = "fmx.agentChoices";
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(CHOICES_KEY) || "null"); } catch (e) { saved = null; }
+    var modeField = el("agent-mode");
+    var budgetField = el("agent-budget");
+    var restored = false;
+    if (saved && typeof saved === "object") {
+      if (typeof saved.mode === "string" && Array.prototype.some.call(modeField.options, function (o) {
+        return o.value === saved.mode;
+      })) {
+        restored = modeField.value !== saved.mode;
+        modeField.value = saved.mode;
+      }
+      if (typeof saved.budget === "string" && /^\d*\.?\d*$/.test(saved.budget)) budgetField.value = saved.budget;
+    }
+    function saveChoices() {
+      try {
+        localStorage.setItem(CHOICES_KEY, JSON.stringify({ mode: modeField.value, budget: budgetField.value }));
+      } catch (e) { /* a private window saves nothing */ }
+    }
+    modeField.addEventListener("change", saveChoices);
+    budgetField.addEventListener("change", saveChoices);
     el("agent-mode").addEventListener("change", modeChanged);
     el("agent-mode").addEventListener("change", syncStart);
     modeChanged();
+    // Said wherever the mode is shown (the status bar reads the choice).
+    if (restored) modeField.dispatchEvent(new Event("change", { bubbles: true }));
 
     Array.prototype.forEach.call(document.querySelectorAll(".agent-starter"), function (b) {
       b.addEventListener("click", function () {
