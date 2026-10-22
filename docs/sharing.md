@@ -245,7 +245,7 @@ each make a draft (on a disk that keeps no locks, and on Windows, two at
 once are not told apart: share one at a time there). A study's
 `shared_to.json` names its folder too: a study copied by hand with it, while
 the one it was copied from still holds the same draft or record (or another
-version of the same record), is refused
+version of the same record, or a draft asked for and its answer lost), is refused
 (`environment.share.not_finished`), saying to delete the copy's
 `shared_to.json` to share it as a study of its own; a study moved, or the same
 folder reached by another path (a container's bind mount, say), goes on with

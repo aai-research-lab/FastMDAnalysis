@@ -5091,3 +5091,58 @@ def test_a_new_version_s_label_published_by_hand_meanwhile_is_counted_past(
     assert unsteady.meta[8]["version"] == "1.2"
     assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"][
         "version"] == "1.2"
+
+
+def test_a_copy_made_while_only_the_draft_asked_for_is_named_is_refused(
+        tmp_path, unsteady, capsys):
+    """Code review of the sixty-third commit: a copy made while shared_to.json
+    named only the title a draft was asked for under (its answer lost) named
+    nothing the original named, and took the original's draft."""
+    import shutil
+
+    unsteady.faults = {"POST": ["made late"]}
+    study = _study(tmp_path / "study")
+    zenodo._LOOKS_S, looks = (1.0,), zenodo._LOOKS_S
+    try:
+        assert _share_to_zenodo(study, tmp_path / "a.zip") == 2
+    finally:
+        zenodo._LOOKS_S = looks
+    kept = json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]
+    assert "asked_as" in kept and "id" not in kept
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    unsteady.drafts[0]["hidden"] = 0
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert f'both name the draft asked for as "{kept["asked_as"]}"' in said
+    assert not any(c[0] in ("PUT", "POST", "DELETE") for c in unsteady.calls)
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+
+
+def test_the_copy_refusal_names_the_draft_not_its_concept(tmp_path, unsteady, capsys):
+    """Code review of the sixty-third commit: the refusal named the record's
+    concept as "the draft or record", a number no draft of the person's has."""
+    import shutil
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert "both name the draft 7 on zenodo-sandbox" in said and "c7" not in said
+
+
+def test_a_tiny_or_nearly_whole_download_s_amount_is_said_as_it_is():
+    """Code review of the sixty-third commit: "1 bytes", and 999 of 1000
+    bytes said as "1.0 of 1.0 kB", as if finished."""
+    from fastmdxplora.sharing.opening import _got
+
+    assert _got(1, 0) == ", with 1 byte downloaded"
+    assert _got(0, 1, "at") == " at 0 of 1 byte"
+    assert _got(999, 1000, "at") == " at 999 of 1000 bytes"
+    assert _got(500, 1000, "at") == " at 0.5 of 1.0 kB"
+    assert _got(0, 0, "at") == " at 0 bytes"

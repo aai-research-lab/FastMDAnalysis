@@ -256,9 +256,15 @@ def _got(read: int, size: int, how: str = "having") -> str:
     where the file is under 0.1 MB)."""
     if not read and how == "having":
         return ""
-    unit, scale = ("bytes", 1) if max(read, size) < 1000 else \
-        ("kB", 1e3) if max(read, size) < 100_000 else ("MB", 1e6)
+    most = size or read
+    unit, scale = ("bytes", 1) if most < 1000 else \
+        ("kB", 1e3) if most < 100_000 else ("MB", 1e6)
     shown = ".0f" if scale == 1 else ".1f"
+    if read != size and size and f"{read / scale:{shown}}" == f"{size / scale:{shown}}":
+        # Short of the whole by less than its unit says: in bytes.
+        unit, scale, shown = "bytes", 1, ".0f"
+    if scale == 1 and (size or read) == 1:
+        unit = "byte"
     whole = f" of {size / scale:{shown}}" if size else ""
     return f" {how} {read / scale:{shown}}{whole} {unit}" if how == "at" else \
         f", with {read / scale:{shown}}{whole} {unit} downloaded"

@@ -978,13 +978,17 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
         except OSError:
             # Not to be looked into (another's, or gone stale): not there.
             same, theirs = False, {}
-        both = sorted(named & _named_in(theirs)) if not same else []
+        both = named & _named_in(theirs) if not same else set()
         if both:
-            where, _, which = both[0].partition(":")
-            which = which.partition(":")[2]
+            # The draft or record itself where both name it, before its concept.
+            where, key, which = min((b.split(":", 2) for b in both),
+                                    key=lambda b: _NAMED.index(b[1]))
+            named_as = {"id": f"the draft {which}", "record": f"the record {which}",
+                        "asked_as": f'the draft asked for as "{which}"',
+                        "concept": f"versions of the record {which}"}[key]
             raise ShareRefused(
                 f"{study / SHARED_TO} is the one of the study at {there}, copied with it: "
-                f"both name the draft or record {which} on {where}, and sharing this "
+                f"both name {named_as} on {where}, and sharing this "
                 f"one would write over that one's. To share this study as one of its own, "
                 f"delete {study / SHARED_TO} and share again; to go on with that one, share "
                 "it from its own folder (or, for this one to carry on its record instead, "
@@ -993,11 +997,15 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
     kept["folder"] = here
 
 
+# What a `shared_to.json` names a draft or record by: its id, its record's,
+# the title a draft was asked for under (its answer lost), its concept's.
+_NAMED = ("id", "record", "asked_as", "concept")
+
+
 def _named_in(kept: dict[str, Any]) -> set[str]:
     """Every draft and record a `shared_to.json` names, on whichever site."""
     return {f"{site}:{key}:{entry.get(key)}" for site, entry in kept.items()
-            if isinstance(entry, dict) for key in ("id", "record", "concept")
-            if entry.get(key)}
+            if isinstance(entry, dict) for key in _NAMED if entry.get(key)}
 
 
 def _load(path: Path) -> dict[str, Any]:
