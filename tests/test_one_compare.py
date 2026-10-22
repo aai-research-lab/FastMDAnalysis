@@ -1057,6 +1057,12 @@ def test_a_length_under_one_nanosecond_is_said_in_ps(variants):
     said = compared(first, second)
     length = next(d for d in said["settings"] if d["setting"] == "simulation.duration_ns")
     assert (length["first_said"], length["second_said"]) == ("1 ns", "250 ps")
+    # Said by one public function, as the Timeline says a piece's settings.
+    from fastmdxplora.gui.exploration import lengths_said
+
+    assert lengths_said({"setting": "simulation.duration_ns", "first": 1.0, "second": 0.25}) == {
+        "setting": "simulation.duration_ns", "first": 1.0, "second": 0.25,
+        "first_said": "1 ns", "second_said": "250 ps"}
 
     def look(page, url):
         place = (urllib.parse.quote(str(first), safe="") + "|"

@@ -404,6 +404,21 @@ def value_said(axis: str, value: Any) -> str:
     return f"{value}" + (f" {unit}" if unit else "")
 
 
+def lengths_said(record: dict[str, Any]) -> dict[str, Any]:
+    """A setting that differs (`config.diff`'s record: ``setting``,
+    ``first``, ``second``), a length in nanoseconds also said as every
+    page says one, in picoseconds under one nanosecond (``first_said``,
+    ``second_said``), as Compare and the Timeline give it."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    if str(record.get("setting", "")).endswith("_ns"):
+        for side in ("first", "second"):
+            value = record.get(side)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                record[f"{side}_said"] = length_said(value)
+    return record
+
+
 def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
     """A run in a few words, by the values that set it apart: "seed 1",
     "temperature 310 K", "duration 250 ps", several joined by commas; ""

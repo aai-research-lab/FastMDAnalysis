@@ -281,9 +281,10 @@ def _pieces(base: Path) -> list[dict[str, Any]]:
             for where in (base, folder))
         if study is not None and piece is not None:
             from fastmdxplora.config.diff import differences
+            from fastmdxplora.gui.exploration import lengths_said
 
             try:
-                settings = [_said_in_its_unit(d.as_record()) for d in differences(study, piece)
+                settings = [lengths_said(d.as_record()) for d in differences(study, piece)
                             if not d.where_only and not d.unrecorded
                             and d.setting not in _CARRYING][:12]
             except Exception:  # noqa: BLE001 - the step is said without them
@@ -507,19 +508,6 @@ def _same_length(duration: float | None, asked: float) -> bool:
     """A piece's length is the round's ask, as the piece was written with
     it (rounded to a millionth of a nanosecond, `resume.continuation_of`)."""
     return duration is not None and abs(duration - round(asked, 6)) <= 1e-6 * max(1.0, asked)
-
-
-def _said_in_its_unit(record: dict[str, Any]) -> dict[str, Any]:
-    """A setting in nanoseconds also said as the pages say a length, in
-    picoseconds under one nanosecond (``first_said``, ``second_said``)."""
-    from fastmdxplora.simulation.sampling_ask import length_said
-
-    if str(record.get("setting", "")).endswith("_ns"):
-        for side in ("first", "second"):
-            value = record.get(side)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                record[f"{side}_said"] = length_said(value)
-    return record
 
 
 def _config(folder: Path) -> dict[str, Any] | None:

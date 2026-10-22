@@ -39,11 +39,11 @@ def compared(first: Path | str, second: Path | str) -> dict[str, Any]:
     replicas = _as_replicas(a, b, places, sides)
     said = {"ok": True, **sides_compared(sides[0]["compared"], sides[1]["compared"],
                                          replicas.get("errors"))}
-    from fastmdxplora.gui.study_timeline import _said_in_its_unit
+    from fastmdxplora.gui.exploration import lengths_said
 
     # A length in nanoseconds also said as every page says one, in
     # picoseconds under one nanosecond, as the Timeline says a piece's.
-    said["settings"] = [_said_in_its_unit(d) for d in said.get("settings") or ()]
+    said["settings"] = [lengths_said(d) for d in said.get("settings") or ()]
     if replicas.get("errors") or replicas.get("alone"):
         _the_replicas_said(said, replicas)
     elif replicas.get("unfinished"):
