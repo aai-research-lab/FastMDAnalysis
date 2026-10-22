@@ -61,6 +61,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `left_out_of_bundle.txt` inside the bundle and in the report. A
   chignolin study's bundle was 7.3 GB.
 
+- New study: a spelling offered for a refused value, once pressed, takes the
+  refusal's mark off its field at once.
+- An older answer about your machines no longer replaces a newer one (or
+  its reason a study built in the form cannot be sent).
+- The strip of open studies keeps the open study's tab in view when a tab
+  before it changes width, until the strip is moved away from it; All
+  studies says why a study did not open on its card or row drawn again
+  while the answer was on its way.
+- The test legs on macOS have 90 minutes.
+
 - A sugar bonded to an asparagine where the deposition has no LINK record
   for that bond (its C1 within 2.8 A of the asparagine's ND2) is read as the
   first sugar of an N-glycan, and said to be bonded by distance: 1HZH, an
