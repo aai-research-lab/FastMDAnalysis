@@ -3031,6 +3031,56 @@ def test_an_edit_refused_as_its_file_is_read_again_is_kept(tmp_path, monkeypatch
     assert errors == []
 
 
+@pytest.mark.parametrize("way", ["edit, the file changed", "retry, the file gone"])
+def test_edit_and_retry_with_a_file_gone_or_changed_send_nothing(tmp_path, monkeypatch, way):
+    """L17 C: Edit and Retry send the message's files again; one gone or
+    changed since is named and nothing is sent or cut, and an edit stays
+    in its bubble, Escape putting the old words and the file line back."""
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked = []
+    page, errors, close = _page_on(session, [_answer("First.")])
+    try:
+        _asking(page, asked)
+        msg = _a_message_with_a_file(page, session, workspace, here)
+        if way.endswith("changed"):
+            (workspace / "notes.txt").write_text("changed\n", encoding="utf-8")
+        else:
+            (workspace / "notes.txt").unlink()
+        msg.hover()
+        if way.startswith("edit"):
+            msg.get_by_role("button", name="Edit").click()
+            page.keyboard.type(" edited")
+            page.keyboard.press("Enter")
+        else:
+            msg.get_by_role("button", name="Retry").click()
+        page.wait_for_function("() => /gone or changed since/.test((document.getElementById("
+                               "'agent-unsent-note') || {}).textContent || '')", timeout=15000)
+        page.wait_for_timeout(500)
+        out = {"note": _note(page), "bubble": msg.inner_text(),
+               "editing": msg.locator(".editing").count(),
+               "answers": page.locator("#agent-thread .agent-answer").count()}
+        if way.startswith("edit"):
+            page.click("#agent-request")
+            page.wait_for_timeout(300)
+            out["clicked"] = msg.locator(".editing").count()
+            msg.locator(".editing").press("Escape")
+            page.wait_for_timeout(300)
+            out["escaped"] = msg.inner_text()
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["with a file"], asked
+    assert "notes.txt is gone or changed since" in out["note"], out
+    assert out["answers"] == 1, out
+    if way.startswith("edit"):
+        assert "with a file edited" in out["bubble"] and out["editing"] == 1, out
+        assert out["clicked"] == 1, out
+        assert "edited" not in out["escaped"] and "notes.txt" in out["escaped"], out
+    else:
+        assert out["editing"] == 0 and "notes.txt" in out["bubble"], out
+    assert errors == []
+
+
 def test_enter_just_after_a_switch_put_words_back_sends_nothing(tmp_path, monkeypatch):
     """L16: words left unsent on `here`; another window opens `other`, where
     the person types; another window opens `here` again, and the person
