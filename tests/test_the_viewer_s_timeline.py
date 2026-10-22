@@ -264,3 +264,35 @@ def test_the_timeline_is_under_the_molecule_and_shows_a_frame_when_asked(study):
         assert times[0].endswith(" " + unit) and times[1].endswith(" " + unit), times
     assert short == ["0.2 ps", "0.4 ps", "1.500 ns"]
     assert boxes[0] <= boxes[1], boxes
+
+
+def test_the_overlay_says_a_time_under_1_ns_in_ps():
+    """The Viewer's overlay said "LAST FRAME production step 800 0.002 ns"
+    under a ruler in ps."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_frame_holds_the_study import _a_finished_study
+
+    session = start_dashboard_session(output=_a_finished_study(), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            said = page.evaluate("""() => [0.002, 0.0006, 2.5].map((ns) => {
+                window.dispatchEvent(new CustomEvent('dashboard:status-updated', {detail: {
+                    status: {status: 'completed', stage: 'production'},
+                    times: {production_ns: ns}}}));
+                return document.getElementById('overlay-simtime').textContent;
+            })""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert said == ["production 2 ps", "production 0.6 ps", "production 2.500 ns"], said

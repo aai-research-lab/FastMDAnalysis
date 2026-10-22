@@ -3373,8 +3373,11 @@
     if (info?.age != null && !ended) setText("overlay-age", `age ${info.age}`);
     if (info?.simtimeSaid) setText("overlay-simtime", info.simtimeSaid);
     else if (info?.simtime != null) {
-      setText("overlay-simtime",
-        `${info.simtimeOf ? info.simtimeOf + " " : ""}${Number(info.simtime).toFixed(3)} ns`);
+      // In ps under 1 ns, as every page says a length: the last frame of a
+      // run of 2 ps read "0.002 ns" under a ruler in ps.
+      const ns = Number(info.simtime);
+      const said = Math.abs(ns) < 1 ? `${+(ns * 1000).toFixed(1)} ps` : `${ns.toFixed(3)} ns`;
+      setText("overlay-simtime", `${info.simtimeOf ? info.simtimeOf + " " : ""}${said}`);
     }
     tidyOverlay();
   }
