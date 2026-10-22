@@ -307,10 +307,17 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+#: Letters no decomposition writes plainly, in their plain forms.
+_LETTERS = str.maketrans({"\u00df": "ss", "\u00c6": "AE", "\u00e6": "ae", "\u00d8": "O",
+                          "\u00f8": "o", "\u0152": "OE", "\u0153": "oe", "\u0141": "L",
+                          "\u0142": "l", "\u0110": "D", "\u0111": "d", "\u00de": "Th",
+                          "\u00fe": "th", "\u00d0": "D", "\u00f0": "d", "\u0131": "i"})
+
+
 def _slug(text: str) -> str:
     # Letters kept in their plain forms: a ligature, a full-width letter or
     # an accented one is not dropped.
-    plain = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text))
+    plain = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text).translate(_LETTERS))
     slug = re.sub(r"[^A-Za-z0-9]+", "-", plain.encode("ascii", "ignore").decode()) \
         .strip("-").lower()
     return slug[:60].strip("-") or "shared-study"

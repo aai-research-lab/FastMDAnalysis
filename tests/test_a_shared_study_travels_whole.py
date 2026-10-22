@@ -2069,7 +2069,9 @@ def test_a_file_the_person_names_as_the_record_s_archive_is_not_taken_away(tmp_p
     study = _study(tmp_path / "study")
     assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
     unsteady.published_ids = {7}
-    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip", "checksum": "md5:1"}]
+    # The record holds the study's archive as it was uploaded.
+    first = hashlib.md5((tmp_path / "a.zip").read_bytes()).hexdigest()  # noqa: S324
+    unsteady.files_of = {n: [{"id": "a", "filename": "a.zip", "checksum": f"md5:{first}"}]
                          for n in (7, 8)}
     assert _share_to_zenodo(study, tmp_path / "b.zip") == 0
     sent = hashlib.md5((tmp_path / "b.zip").read_bytes()).hexdigest()  # noqa: S324
@@ -4506,3 +4508,23 @@ def test_control_characters_go_as_ftfy_takes_them_out():
     assert zenodo._plain("&am\x01p;") == "&"
     assert zenodo._plain("x\x0cy") == "xy"
     assert zenodo._plain("a\x7fb") == "ab"
+
+
+def test_a_zip_of_the_archive_s_name_in_a_version_published_by_hand_is_the_person_s(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Hands-on review of the forty-seventh commit: a version the person
+    published by hand, its zip of the archive's name replaced by their own,
+    had that zip written over in the study's next version."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    theirs = {"id": "z", "filename": "shared.zip", "checksum": "md5:" + "d" * 32}
+    unsteady.latest = {"id": 9, "metadata": {"version": "2"}, "files": [{"key": "shared.zip"}]}
+    unsteady.files_of = {8: [dict(theirs)]}
+    _answers_changed(monkeypatch, "GET", "/api/deposit/depositions/9",
+                     lambda answer, sent: {**answer, "files": [dict(theirs)]})
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
+    assert "which this study did not put there" in capsys.readouterr().err
+    assert not any(c[0] == "PUT" and c[1].startswith("/files/") for c in unsteady.calls)

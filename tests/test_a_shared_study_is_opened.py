@@ -237,3 +237,12 @@ def test_an_opened_folder_s_name_keeps_its_letters_plain():
         "the-first-cafe-study-a"
     assert _slug("naïve") == "naive"
     assert _slug("“”") == "shared-study"
+
+
+def test_an_opened_folder_s_name_writes_letters_of_no_decomposition_plainly():
+    """Hands-on review of the forty-seventh commit: letters no decomposition
+    writes plainly (sharp s, ash, slashed o, stroked l) were dropped."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("Straße Æsir Øre ǅemal Łódź") == \
+        "strasse-aesir-ore-dzemal-lodz"

@@ -1051,6 +1051,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         # holds is free for the person's own file on the new version.
         if found_as["record_files"]:
             recorded_as = [name for name in recorded_as if name in found_as["record_files"]]
+            # And only as the study uploaded it: one of its name the person
+            # put on a version they published since is theirs.
+            uploaded = _known(earlier.get("sums"), earlier.get("record_sums"))
+            recorded_as = [name for name in recorded_as if not uploaded.get(name)
+                           or _md5(found_as["record_files"][name]) in ("", *uploaded[name])]
         if recorded_as:
             kept[site]["archive"], kept[site]["record_archive"] = recorded_as[0], recorded_as
             # As the record holds each: one of that name the person puts on
