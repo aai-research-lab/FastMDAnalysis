@@ -3779,10 +3779,8 @@ def test_another_deposition_answered_for_a_new_version_names_none(tmp_path, unst
     study = _study(tmp_path / "study")
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
     unsteady.submitted = True
-    _answers_changed(monkeypatch, "POST", "/7/actions/newversion", lambda answer, sent: {
-        **answer, "id": 101, "links": {**answer["links"],
-                                       "latest_draft": answer["links"]["latest_draft"]
-                                       .replace("/8", "/101")}})
+    _answers_changed(monkeypatch, "POST", "/7/actions/newversion",
+                     lambda answer, sent: {**answer, "id": 101})
     unsteady.calls.clear()
     capsys.readouterr()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
@@ -3818,3 +3816,78 @@ def test_a_latest_version_of_another_concept_begins_nothing(tmp_path, unsteady,
     unsteady.calls.clear()
     assert _share_to_zenodo(study, tmp_path / "shared.zip") == 2
     assert not any(c[1].endswith("/actions/newversion") for c in unsteady.calls)
+
+
+def test_a_new_version_answered_with_its_draft_as_zenodo_answers_is_taken(tmp_path, unsteady,
+                                                                          monkeypatch):
+    """Review of the thirty-eighth commit: Zenodo answers the beginning of a
+    new version with the draft begun (not the record its documents give),
+    and every new version was refused."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.submitted = True
+    real = zenodo._call
+
+    def as_zenodo(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method == "POST" and url.endswith("/7/actions/newversion"):
+            return real("GET", answer["links"]["latest_draft"], token=kwargs.get("token"))
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", as_zenodo)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.stored["metadata"]["version"] == "2"
+
+
+def _as_zenodo_keeps(value):
+    """What Zenodo keeps of text sent: its characters' composed forms,
+    quotes straightened, ligatures written out."""
+    import unicodedata
+
+    if isinstance(value, dict):
+        return {k: _as_zenodo_keeps(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_as_zenodo_keeps(v) for v in value]
+    if isinstance(value, str):
+        value = unicodedata.normalize("NFC", value).replace("\ufb01", "fi")
+        return value.translate(str.maketrans("\u2018\u2019\u201c\u201d", "''\"\""))
+    return value
+
+
+@pytest.mark.parametrize("name", ["Aina\u2019s study", "Cafe\u0301", "\ufb01bril"])
+def test_a_study_whose_words_zenodo_fixes_is_shared_once(tmp_path, unsteady, monkeypatch,
+                                                         name):
+    """Review of the thirty-eighth commit: a study's name or summary Zenodo
+    keeps in other characters (a curly apostrophe, a decomposed accent, a
+    ligature) had a new draft made at every share, none shared."""
+    unsteady.meta = {}
+    # (Built under a plain name: the trajectory's writer takes no other.)
+    study = _study(tmp_path / "study").rename(tmp_path / name)
+    _analysed_again(study, "Its \u201cfolded\u201d \ufb01bril held.")
+    real = zenodo._call
+
+    def kept_fixed(method, url, **kwargs):
+        answer = real(method, url, **kwargs)
+        if method in ("GET", "PUT", "POST") and "/api/deposit/" in url:
+            for number, held in unsteady.meta.items():
+                unsteady.meta[number] = _as_zenodo_keeps(held)
+            for draft in unsteady.drafts:
+                draft["title"] = _as_zenodo_keeps(draft["title"])
+            return _as_zenodo_keeps(answer)
+        return answer
+
+    monkeypatch.setattr(zenodo, "_call", kept_fixed)
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    _analysed_again_from(study, "Its \u201cfolded\u201d \ufb01bril held.",
+                         "Its \u2018second\u2019 look.")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert sum(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+               for c in unsteady.calls) == 1
+    assert "Its 'second' look." in unsteady.meta[7]["description"]
+
+
+def _analysed_again_from(study: Path, was: str, words: str) -> None:
+    report = study / "report" / "report.md"
+    text = report.read_text()
+    assert was in text
+    report.write_text(text.replace(was, words))

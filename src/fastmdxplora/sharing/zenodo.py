@@ -39,6 +39,7 @@ import os
 import re
 import secrets
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -136,10 +137,31 @@ def _a_draft(answer: Any, identifier: str = "", doi: str = "") -> bool:
     return not (doi and held_doi and held_doi != doi)
 
 
+#: Quotes Zenodo straightens in what it is sent (as it fixes text it keeps).
+_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+                         "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"'})
+
+
+def _plain(value: Any) -> Any:
+    """Text as Zenodo keeps what it is sent, for comparing the two: it
+    fixes what it takes (its forms of characters, quotes straightened,
+    no ligatures, control or zero-width characters, nothing around it), so
+    a title or description sent and read back differ in these alone."""
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_plain(v) for v in value]
+    if not isinstance(value, str):
+        return value
+    fixed = unicodedata.normalize("NFKC", value.replace("\r\n", "\n").replace("\r", "\n"))
+    return "".join(c for c in fixed.translate(_QUOTES)
+                   if c in "\n\t" or unicodedata.category(c) not in ("Cc", "Cf")).strip()
+
+
 def _text(described: Any) -> str:
     """A description's words, whatever markup Zenodo gives them back in."""
     plain = html.unescape(re.sub(r"<[^>]*>", " ", str(described or "")))
-    return " ".join(plain.split())
+    return " ".join(_plain(plain).split())
 
 
 def _zenodo_s(answer: str, code: int) -> bool:
@@ -386,7 +408,7 @@ def _marked(depositions: str, token: str, title: str,
         return None
     return [str(entry.get("id")) for entry in found if isinstance(entry, dict)
             and isinstance(entry.get("metadata"), dict)
-            and entry["metadata"].get("title") == title]
+            and _plain(entry["metadata"].get("title")) == _plain(title)]
 
 
 #: The waits before each look among the person's drafts for one whose answer
@@ -437,7 +459,7 @@ def _new_draft(depositions: str, token: str, title: str,
                      said=said)
         if not isinstance(made, dict) or not made.get("id") or (
                 _a_draft(made) and not made.get("submitted") and not made.get("files")
-                and made["metadata"].get("title") == title):
+                and _plain(made["metadata"].get("title")) == _plain(title)):
             # The new draft; or none named, refused as such by the caller.
             return made, True
         other = ShareRefused(f"Zenodo's answer to making the draft (titled {title!r}) named "
@@ -536,7 +558,8 @@ def _written(metadata: Any) -> str:
     study wrote, told from what the person changed there since."""
     import hashlib
 
-    return hashlib.sha256(json.dumps(_described(metadata), sort_keys=True).encode()) \
+    return hashlib.sha256(json.dumps(_plain(_described(metadata)), sort_keys=True)
+                          .encode()) \
         .hexdigest()
 
 
@@ -942,7 +965,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             else:
                 # Not seen as made: told as a draft found by its title is.
                 answered = False
-        if answered or (str(made_with.get("title") or "") == title
+        if answered or (_plain(str(made_with.get("title") or "")) == _plain(title)
                         and not any(made_with.get(key) for key in _SOMEONE_S)):
             # As Zenodo made it: seen in its answer, or found by its title
             # with no one's words or names in it yet.
@@ -1103,7 +1126,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
         said_there = str(held.get("description") or "")
         return by_earlier and not last and (
             not said_there or (bool(_EARLIER_WROTE.fullmatch(said_there))
-                               and said_there.split("</p>")[0] == summary_now))
+                               and _plain(said_there.split("</p>")[0])
+                               == _plain(summary_now)))
 
     # The study's description alone, as written or sent there (an earlier
     # release's draft, whose other fields stay the person's).
@@ -1116,7 +1140,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             or _as_earlier_wrote(held) or (
             # Still as asked for: titled so, and no one's words or names in it
             # (whatever defaults Zenodo gave it since).
-            not versioned and str(held.get("title") or "") in ("", marker)
+            not versioned and _plain(str(held.get("title") or "")) in ("", _plain(marker))
             and not any(held.get(key) for key in _SOMEONE_S)
             and all(held.get(key) in (None, "", ours, *((made_as[key],) if key in made_as
                                                        else _ZENODO_GIVES.get(key, ())))
@@ -1295,7 +1319,8 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
             if not (isinstance(answered_as, dict)
                     and _text(answered_as.get("description"))
                     == _text(ours_said.get("description"))
-                    and str(answered_as.get("version") or "") == str(version)):
+                    and _plain(str(answered_as.get("version") or ""))
+                    == _plain(str(version))):
                 # Not said: whether it was written is not known.
                 unsaid = ShareRefused(
                     f"Zenodo's answer to describing the draft {page} said nothing of it.",
@@ -1538,15 +1563,18 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
                       said=said)
         # Answered as Zenodo answers: begun. An empty answer may be either.
         answered = isinstance(newer, dict) and bool(newer)
-        if answered and str(newer.get("id") or "") != published:
-            # Another deposition's answer: what was begun is not known.
+        links = newer.get("links") if isinstance(newer, dict) else None
+        latest = str(links.get("latest_draft") or "") if isinstance(links, dict) else ""
+        # Answered with the record it is of (as Zenodo documents it) or with
+        # the draft begun (as Zenodo answers): any other deposition's answer
+        # leaves what was begun not known.
+        if answered and str(newer.get("id") or "") not in (
+                published, latest.rsplit("/", 1)[-1] if latest else published):
             answered = False
             other = ShareRefused("Zenodo's answer to beginning a new version named another "
                                  "deposition.", code="environment.service.unreachable")
             other.unclear = other.later = True
             raise other
-        links = newer.get("links") if isinstance(newer, dict) else None
-        latest = str(links.get("latest_draft") or "") if isinstance(links, dict) else ""
         if not latest:
             unnamed = ShareRefused("Zenodo's answer to beginning a new version named no "
                                    "draft of it.", code="environment.service.unreachable")
