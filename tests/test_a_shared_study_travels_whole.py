@@ -4865,3 +4865,26 @@ def test_a_tiny_size_is_said_in_bytes():
 
     assert said_size(20) == "20 bytes" and said_size(4900) == "4.9 kB"
     assert said_size(12_500_000) == "12.5 MB"
+
+
+def test_an_open_running_in_this_process_is_kept_whatever_its_lock_says(tmp_path, unsteady,
+                                                                        monkeypatch):
+    """Review of the fifty-sixth commit: on NFS a lock is the whole
+    process's, so of two opens at once in one process (the GUI's), one could
+    take the other's working folder for one left."""
+    import socket
+
+    from fastmdxplora.sharing import opening
+
+    _shared(tmp_path, unsteady)
+    into = tmp_path / "w"
+    into.mkdir()
+    other = into / f".fastmdx-opening-{opening._host(socket.gethostname())}-x9"
+    other.mkdir()
+    (other / ".open.lock").write_text("")
+    # Its lock taken as free, as NFS would let this process take it.
+    with opening._running(other):
+        open_shared("10.5072/zenodo.7", into=into)
+        assert other.is_dir()
+    open_shared("10.5072/zenodo.7", into=into)
+    assert not other.exists()

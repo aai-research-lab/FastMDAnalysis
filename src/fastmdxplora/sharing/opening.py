@@ -520,6 +520,11 @@ _WORKING = ".fastmdx-opening-"
 #: The lock an open holds in its working folder while it runs.
 _HELD = ".open.lock"
 
+#: The working folders of this process's opens still running: kept, whatever
+#: a lock says (on NFS a lock is the whole process's, so two opens in one
+#: process cannot tell each other's apart by it).
+_RUNNING: set[str] = set()
+
 
 def _held(work: Path) -> Any:
     """The working folder ``work`` locked for this open while it runs (the
@@ -557,7 +562,7 @@ def _left_by_the_killed(parent: Path) -> None:
         return
     for left in parent.glob(f"{_WORKING}{_host(socket.gethostname())}-*"):
         lock = left / _HELD
-        if not left.is_dir() or not lock.is_file():
+        if str(left.resolve()) in _RUNNING or not left.is_dir() or not lock.is_file():
             continue
         try:
             with lock.open("a") as tested:
@@ -565,6 +570,17 @@ def _left_by_the_killed(parent: Path) -> None:
                 shutil.rmtree(left, ignore_errors=True)
         except OSError:
             continue
+
+
+@contextlib.contextmanager
+def _running(work: Path) -> Any:
+    """``work`` named among this process's opens still running while it is."""
+    named = str(work.resolve())
+    _RUNNING.add(named)
+    try:
+        yield work
+    finally:
+        _RUNNING.discard(named)
 
 
 def _host(name: str) -> str:
@@ -582,7 +598,7 @@ def _opened(source: str, given: Path, parent: Path, most_bytes: int,
     _left_by_the_killed(parent)
     with tempfile.TemporaryDirectory(prefix=f"{_WORKING}{_host(socket.gethostname())}-",
                                      dir=parent) as work, \
-            contextlib.closing(_held(Path(work)) or io.StringIO()):
+            contextlib.closing(_held(Path(work)) or io.StringIO()), _running(Path(work)):
         work_dir = Path(work)
         if given.is_file():
             archive = given
