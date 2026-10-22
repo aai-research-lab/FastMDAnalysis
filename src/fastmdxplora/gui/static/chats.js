@@ -8,8 +8,9 @@
  * pages and Chats after them; one now, each part named where both have
  * some, the ones talked in last first, the one open in the Agent marked; a
  * click opens it in the Agent beside the page, the head's + begins one
- * about the open study (a chat where none is open), and All lists them all
- * in the Agent's Conversations.
+ * about the open study (a chat where none is open), New chat begins a
+ * chat of no study while one is, and All lists them all in the Agent's
+ * Conversations.
  */
 (function () {
   "use strict";
@@ -80,6 +81,14 @@
     fresh.type = "button";
     fresh.addEventListener("click", function () { begin(openStudy()); });
     host.appendChild(fresh);
+    // With a study open the head's + is about it: a chat of no study is
+    // begun here, in the sidebar shown and beside the folded strip alike.
+    if (openStudy()) {
+      var chat = make("button", "sidebar-conv-new sidebar-conv-chat", "New chat, about no study");
+      chat.type = "button";
+      chat.addEventListener("click", function () { begin(null); });
+      host.appendChild(chat);
+    }
     var both = mine.length && others.length;
     var each = both ? Math.ceil(SHOWN / 2) + 1 : SHOWN + 1;
     if (mine.length) {

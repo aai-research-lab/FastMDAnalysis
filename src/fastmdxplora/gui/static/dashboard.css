@@ -6128,6 +6128,7 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     }
 }
 .sidebar-chats:not(.flyout) .sidebar-conv-new { display: none; }
+.sidebar-chats:not(.flyout) .sidebar-conv-new.sidebar-conv-chat { display: flex; }
 .sidebar-conv-new { color: var(--accent-text); }
 
 /* A button that is its line icon alone, named on hover: Close in a

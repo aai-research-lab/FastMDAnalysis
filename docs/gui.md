@@ -98,7 +98,8 @@ are, without opening the sidebar; Recent's and Conversations' show their lists
 beside the strip, Conversations' with **New conversation** first (**New chat**
 where no study is open). **Conversations** in the sidebar is one list: the
 open study's first, then the chats of no study, each part named where both
-have some; its + begins one about the open study, or a chat where none is. Opening the Viewer folds both, and
+have some; its + begins one about the open study, or a chat where none is,
+and **New chat, about no study** begins a chat of no study while one is open. Opening the Viewer folds both, and
 another page brings them back as they were; a column kept open on the
 Viewer stays open there where the window has room for it. The GUI fits the
 window: where a page would have less than it needs (788 pixels for the

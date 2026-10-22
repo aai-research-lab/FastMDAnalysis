@@ -13,6 +13,8 @@ sidebar's Conversations and Chats are one list, the study's first.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.test_the_workspace_says_its_studies import _study
@@ -209,53 +211,6 @@ def test_not_now_and_escape_do_nothing_and_give_the_keyboard_back(tmp_path):
     assert (root / "simulation" / "frames.dcd").exists()
 
 
-def test_one_frame_for_a_question_a_whole_count_and_a_notice_beside_the_list(tmp_path):
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
-
-    from fastmdxplora.gui.files_page import render
-
-    from fastmdxplora.gui.server import start_dashboard_session
-
-    study = _study(tmp_path / "alpha")
-    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
-            page = browser.new_page(viewport={"width": 1250, "height": 900})
-            page.set_default_timeout(60000)
-            page.goto(session.url + "#overview", wait_until="domcontentloaded")
-            page.wait_for_selector("body.state-ready")
-            page.wait_for_function("() => !!window.FastMDXNotices && !!window.FastMDXStop")
-            page.evaluate("() => window.dispatchEvent(new CustomEvent('dashboard:app-state',"
-                          " {detail: {process_running: true}}))")
-            page.click("#sb-stop")
-            frame = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('#sb-stop-ask .fmx-ask'));
-                return [s.borderTopWidth, s.paddingTop]; }""")
-            page.keyboard.press("Escape")
-            # The bell's count whole, however narrow the bar.
-            page.set_viewport_size({"width": 900, "height": 900})
-            for n in range(12):
-                page.evaluate(f"() => window.FastMDXDashboard.toast('Notice {n}.', 'ok')")
-            page.wait_for_function("() => document.querySelector('#sb-notices .sb-count').textContent === '12'")
-            whole = page.evaluate("""() => { const c = document.querySelector('#sb-notices .sb-count');
-                return c.scrollWidth <= c.clientWidth && getComputedStyle(c).textOverflow !== 'ellipsis'; }""")
-            page.click("#sb-notices")
-            page.evaluate("() => window.FastMDXDashboard.toast('Shown while the list is open.', 'ok')")
-            page.wait_for_function("() => document.getElementById('dashboard-toast').classList.contains('show')")
-            page.wait_for_timeout(300)
-            apart = page.evaluate("""() => { const a = document.getElementById('dashboard-toast').getBoundingClientRect();
-                const b = document.getElementById('notices').getBoundingClientRect();
-                return a.right <= b.left || a.bottom <= b.top; }""")
-            browser.close()
-    finally:
-        session.server.shutdown()
-    assert frame == ["0px", "0px"]
-    assert whole and apart
-    empty = render({"files": []}, None)
-    assert 'class="fmx-state" data-kind="empty"' in empty and "files-empty" not in empty
-
-
 def test_all_studies_says_it_reads_and_its_error_once(tmp_path):
     """All studies says it is reading while its list is first asked for,
     and an error once: the block says it, the subtitle where it looked."""
@@ -288,6 +243,35 @@ def test_all_studies_says_it_reads_and_its_error_once(tmp_path):
         session.server.shutdown()
     assert first.startswith("Listing the studies")
     assert listed.count("could not be listed") == 1 and "No such folder: /gone" in listed
+
+
+def test_a_chat_of_no_study_is_begun_with_a_study_open(tmp_path):
+    """The head's + begins a conversation about the open study; a chat of
+    no study is still begun from the sidebar while one is open."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    study = _study(tmp_path / "alpha")
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.wait_for_function("() => !!window.FastMDXDashboard.state.appState.active_run")
+            page.evaluate("() => window.FastMDXChats.show()")
+            page.wait_for_selector("#sidebar-chats-list .sidebar-conv-chat", state="visible")
+            with page.expect_request(lambda r: r.url.endswith("/api/agent/conversation/new")) as asked:
+                page.click("#sidebar-chats-list .sidebar-conv-chat")
+            begun = json.loads(asked.value.post_data or "{}")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert begun["study"] is None
 
 
 def test_one_frame_for_a_question_a_whole_count_and_a_notice_beside_the_list(tmp_path):
