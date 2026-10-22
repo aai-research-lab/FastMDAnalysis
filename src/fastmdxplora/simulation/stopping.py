@@ -936,7 +936,12 @@ def stopping_section(root: str | Path) -> list[str]:
         lines.append(f"| {number} | {entry.get('production_ns', 0):g} | "
                      + " | ".join(cells) + f" | {decided} |")
     lines.append("")
-    if record.get("said"):
+    if record.get("said") and record.get("outcome") == "running":
+        # A record cannot tell a study still running from one killed: what
+        # it last said it was doing, never that it is running.
+        lines += [f"**{_OUTCOME['running']}.** The record does not say the last round "
+                  f"finished; it last says: {record['said']}", ""]
+    elif record.get("said"):
         lines += [f"**{_OUTCOME.get(record.get('outcome'), 'Outcome')}.** {record['said']}", ""]
     if record.get("outcome") == "met":
         lines += [
@@ -956,6 +961,9 @@ def stopping_section(root: str | Path) -> list[str]:
     return lines
 
 
+#: Each outcome a record holds, as the Report and the stopping card say it.
+#: "running" is what the record said when it was last written: a page that
+#: knows the run is live (its process record) says it running.
 _OUTCOME = {"met": "Determined as asked", "ceiling": "Not determined as asked",
             "stopped": "Stopped early", "rounds": "Not determined as asked",
-            "not_applied": "Not applied", "running": "Still running"}
+            "not_applied": "Not applied", "running": "Not finished when this was written"}

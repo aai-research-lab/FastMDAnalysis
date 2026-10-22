@@ -81,6 +81,16 @@ def finished(tmp_path, monkeypatch):
     return root, mid["record"]
 
 
+def _its_own_process(root: Path) -> None:
+    """The study's process record, naming this process: a study known to
+    be running."""
+    import os
+
+    from tests.test_a_run_that_ended_unsaid_is_interrupted import _its_process
+
+    _its_process(root, os.getpid())
+
+
 class TestWhatThePageIsGiven:
     def test_each_measure_round_by_round(self, finished):
         root, _ = finished
@@ -103,8 +113,10 @@ class TestWhatThePageIsGiven:
     def test_while_it_runs(self, finished):
         root, mid = finished
         (root / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
+        _its_own_process(root)
         page = stopping_payload(root)
-        assert page["outcome"] == "running" and page["outcome_label"] == "Still running"
+        assert page["outcome"] == "running" and page["outcome_label"] == "Running"
+        assert page["live"] is True
         last = page["rounds"][-1]
         assert last["decision"] == "extend"
         # The piece now running, and its time at the study's own speed: the
@@ -113,6 +125,16 @@ class TestWhatThePageIsGiven:
         assert page["next"]["to_ns"] == pytest.approx(last["production_ns"] + last["more_ns"])
         assert page["next"]["seconds"] == pytest.approx(last["more_ns"] * 1e6 / 2.0 / 1000.0)
         assert page["next"]["platform"] == "CUDA"
+
+    def test_a_record_still_running_is_not_said_running_unless_its_process_is(self, finished):
+        """The card said "Still running" of any record left saying it, which
+        a study killed where its process cannot be asked leaves too."""
+        root, mid = finished
+        (root / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
+        page = stopping_payload(root)
+        assert page["outcome"] == "running" and page["live"] is False
+        assert page["outcome_label"] == "Not finished when this was written"
+        assert page["next"] is not None
 
     def test_the_projection_is_the_arithmetic_the_next_piece_was_sized_by(self, finished):
         root, mid = finished
@@ -283,9 +305,13 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
     running = tmp_path / "running"
     shutil.copytree(root, running)
     (running / "stopping.json").write_text(json.dumps(mid), encoding="utf-8")
+    left = tmp_path / "left"
+    shutil.copytree(running, left)
+    _its_own_process(running)
     killed = _killed_in_its_round(root, mid, tmp_path / "killed")
     seen = {}
-    for name, where in (("finished", root), ("running", running), ("killed", killed)):
+    for name, where in (("finished", root), ("running", running), ("left", left),
+                        ("killed", killed)):
         session = start_dashboard_session(output=str(where), host="127.0.0.1", port=0)
         try:
             with sync_playwright() as pw:
@@ -298,6 +324,7 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
                 page.wait_for_selector("#stopping-card:not([hidden]) .stopping-measure")
                 seen[name] = {
                     "outcome": page.text_content("#stopping-outcome"),
+                    "title": page.text_content("#stopping-card .card-title"),
                     "measures": page.locator(".stopping-measure").count(),
                     "states": [page.locator(".stopping-measure").nth(i).get_attribute("data-state")
                                for i in range(page.locator(".stopping-measure").count())],
@@ -328,9 +355,17 @@ def test_the_overview_draws_it(finished, tmp_path) -> None:
     assert done["strip"][0] == f"{json.loads((root / 'stopping.json').read_text())['rounds'][-1]['production_ns']:g} ns of 20 ns"
     assert done["strip"][1] == "3 replicas" and done["rows"] == rounds
     assert done["labels"] == 4
-    assert now["outcome"] == "Still running" and now["projection"] >= 1
+    assert now["outcome"] == "Running" and now["projection"] >= 1
+    assert now["title"] == "Running until it is determined"
     assert now["strip"][3].startswith("+") and "about" in now["strip"][3]
+    assert "now running" in now["card"].lower()
     assert done["errors"] == [] and now["errors"] == []
+    # Not known to be running: as the record stood when written, and its
+    # title, as a stopped study's, the rule's name.
+    left = seen["left"]
+    assert left["outcome"] == "Not finished when this was written" and left["errors"] == []
+    assert left["title"] == "Run until it is determined" == done["title"]
+    assert "running" not in left["card"].lower(), left["card"]
     # Killed in its round: as its header and Timeline say it, never running.
     gone = seen["killed"]
     assert gone["outcome"] == "Stopped without finishing" and gone["errors"] == []

@@ -348,7 +348,8 @@
         : "One run's own precision; not checked against independent starts");
     add("Rounds judged", String(data.rounds.length));
     if (data.next) {
-      add("Now running", "+" + ns(data.next.more_ns, data.next.more_said) + " each, to " +
+      // "Now running" only where the study's process is known to be.
+      add(data.live ? "Now running" : "Asked for next", "+" + ns(data.next.more_ns, data.next.more_said) + " each, to " +
           ns(data.next.to_ns, data.next.to_said) +
           (data.next.seconds ? ", about " + duration(data.next.seconds) : ""),
           data.next.seconds ? "At the speed this study has run" +
@@ -399,16 +400,17 @@
     last = data;
     card.hidden = false;
     card.setAttribute("data-outcome", data.outcome);
-    // The rule's name, said of a study it no longer runs as such where the
-    // study stopped without finishing.
+    // The rule's name: said running only of a study known to be running
+    // (its process), as its pill says it.
     var title = card.querySelector(".card-title");
     if (title) {
-      title.textContent = data.outcome === "interrupted" ? "Run until it is determined"
-        : "Running until it is determined";
+      title.textContent = data.live ? "Running until it is determined"
+        : "Run until it is determined";
     }
     var pill = document.getElementById("stopping-outcome");
     pill.textContent = data.outcome_label;
-    pill.setAttribute("data-state", PILL[data.outcome] || "stale");
+    pill.setAttribute("data-state", data.outcome === "running" && !data.live ? "waiting"
+      : PILL[data.outcome] || "stale");
     document.getElementById("stopping-said").textContent = data.said;
     strip(data);
     var produced = data.production_ns || 0;

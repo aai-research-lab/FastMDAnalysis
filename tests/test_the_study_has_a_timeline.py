@@ -783,6 +783,22 @@ def test_a_round_still_extending_is_said_extending_never_done(tmp_path, runs, wh
     assert "the last round asked for 250 ps more" in methods
 
 
+def test_the_report_says_a_record_still_running_as_not_finished_when_written(tmp_path):
+    """Under the round still extending, the Report's summary said "**Still
+    running.**" of a study a kill leaves the same, and "Write it again"
+    writes it so after the kill."""
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = tmp_path / "study"
+    root.mkdir()
+    _stopping(root, ["study"], [_round("extend", 1.0, 0.25)], "running",
+              "Extending by 250 ps, to 1.25 ns of the 5 ns allowed: rmsd 0.150 ± 0.004 nm.")
+    text = "\n".join(stopping_section(root))
+    assert ("**Not finished when this was written.** The record does not say the last round "
+            "finished; it last says: Extending by 250 ps, to 1.25 ns of the 5 ns allowed") in text
+    assert "still running" not in text.lower()
+
+
 
 def test_rounds_placed_at_one_time_are_newest_first(tmp_path):
     """Rounds whose pieces recorded no time are all placed after the last

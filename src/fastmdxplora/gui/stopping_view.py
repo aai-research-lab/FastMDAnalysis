@@ -205,6 +205,41 @@ def _ended_without_finishing(record: dict[str, Any], where: Path) -> dict[str, A
     return {"runs": named, "how": ended[0][1]}
 
 
+def _known_live(record: dict[str, Any], where: Path) -> bool:
+    """Whether the study is known to be running now: the process record of
+    the study, of one of its runs, or of the piece one is carried on in
+    names a process here that is its run (`telemetry._what_its_process_says`).
+    A record still saying "running" does not tell a live study from one
+    killed, and a process that cannot be asked here is not known live."""
+    from fastmdxplora.gui.telemetry import _what_its_process_says, read_study_status
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+
+    if str(record.get("outcome") or "running") != "running":
+        return False
+    runs = [str(r) for r in record.get("runs") or []]
+    places = [where] + [f for f in (_run_folder(where, r, alone=len(runs) == 1) for r in runs)
+                        if f is not None and f != where]
+    for place in places:
+        try:
+            status = read_study_status(place)
+        except Exception:  # noqa: BLE001 - not known live
+            status = {}
+        piece = status.get("piece") if isinstance(status, dict) else None
+        roots = [place]
+        if isinstance(piece, str) and piece.startswith("segment-") and "/" not in piece \
+                and _records.is_dir(place / piece):
+            roots.insert(0, place / piece)
+        for root in roots:
+            try:
+                process = json.loads(_records.read_text(root / RUN_PROCESS_FILE,
+                                                        encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(process, dict) and _what_its_process_says(root, process) == "running":
+                return True
+    return False
+
+
 def _listed(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
@@ -235,11 +270,16 @@ def stopping_payload(root: Path | str) -> dict[str, Any]:
         said += (f"; {ended['how']}" if ended["how"] else "") + "."
     production = _finite(rounds[-1].get("production_ns")) if rounds else 0.0
     ceiling = _finite(record.get("max_duration_ns"))
+    # Said running only where its process is known to be (`_known_live`):
+    # otherwise as the record stood when it was written.
+    live = ended is None and _known_live(record, where)
     return {
         "ok": True,
         "outcome": shown,
         "recorded_outcome": outcome,
+        "live": live,
         "outcome_label": ("Stopped without finishing" if ended is not None
+                          else "Running" if live
                           else _OUTCOME.get(outcome, outcome.replace("_", " "))),
         "said": said,
         "ceiling_ns": ceiling,
@@ -258,7 +298,7 @@ def stopping_payload(root: Path | str) -> dict[str, Any]:
                    for n, r in enumerate(rounds, start=1)],
         "next": _next_piece(record, where) if ended is None else None,
         # Changes whenever the record does, so the page redraws only then.
-        "version": f"{len(rounds)}:{shown}:{_stamp(where)}",
+        "version": f"{len(rounds)}:{shown}:{live}:{_stamp(where)}",
     }
 
 
