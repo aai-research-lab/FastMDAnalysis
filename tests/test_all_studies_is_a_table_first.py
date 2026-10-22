@@ -571,7 +571,9 @@ def test_the_list_fits_its_column_and_keeps_what_it_says(tmp_path, width, beside
     assert seen["rows"] == rows, seen
     assert seen["sort"] and seen["all"] and seen["active"], seen
     assert "8\u00a0ps of 20\u00a0ps" in seen["left"] and "left" in seen["left"], seen
-    assert seen["count"] == ["5 studies", True, True], seen
+    # On a phone a page's heading is its name alone (every page's heading
+    # is one line), the count with it.
+    assert seen["count"] == ["5 studies", True, width > 800], seen
     # The tagged study's name kept (about 8 characters or all of it), its
     # tags under it, within its cell; the running study's name kept whole.
     assert seen["tagged"]["name"] >= 60 and seen["tagged"]["tags"] == 0, seen
