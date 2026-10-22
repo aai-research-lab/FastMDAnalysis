@@ -61,6 +61,36 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `left_out_of_bundle.txt` inside the bundle and in the report. A
   chignolin study's bundle was 7.3 GB.
 
+- A sugar bonded to an asparagine where the deposition has no LINK record
+  for that bond (its C1 within 2.8 A of the asparagine's ND2) is read as the
+  first sugar of an N-glycan, and said to be bonded by distance: 1HZH, an
+  IgG1, was refused as two sets of free sugars and now prepares. A sugar
+  only in contact with an asparagine is still asked about.
+- Setup's check that every atom has a positive mass reads the OpenMM units
+  `prepare_system` was given, not OpenMM's own a second time.
+- The GUI says a plot is plotted and a molecule rendered (Compare, a map's
+  picture of its cells, a plot's Save, All studies' pictures), and a
+  replica's withheld mean not determined; the Timeline's note is on the type
+  scale.
+- The Report prints whole: the status bar's styles held the page to the
+  window's height in print as well.
+- New study's steps 2 to 5, waiting for a starting point, are no longer
+  faded below the contrast both schemes are held to; they are inert and say
+  in words that they wait.
+- The strip of open studies is the centre column's top bar, as high as the
+  side panel's tabs and the sidebar's name, its rule on their line.
+- A study of runs' Analysis page says its runs' analyses once the study's
+  state arrives, whether its results were read before or after.
+- All studies: a card's tags, note and a tag half typed stay while the
+  cards are drawn again; tags saved while a list was being answered show on
+  the card listed now; a list read again is of the folder asked for, not
+  the workspace; the page opened on All studies lists them once; on a phone
+  its heading is its name alone.
+- A Viewer view chosen before the page's first state arrives stays chosen.
+- Tests: each test has its own insertion codes and presenter; the coverage
+  leg runs the tests that drive no browser on every core and the browser
+  tests one at a time after them; tests held to what the code now does.
+
 - A joined run's drift between segments counts every ordering of up to
   seven segments, and the mirror of the observed order always counts as
   extreme: on four segments the verdict had turned on rounding. A segment
