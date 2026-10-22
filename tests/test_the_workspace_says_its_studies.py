@@ -424,3 +424,81 @@ def test_why_a_study_did_not_open_outlasts_the_cards_drawn_again(workspace) -> N
     assert redrawn
     assert kept == "Not in this test."
     assert errors == []
+
+
+def test_why_a_study_did_not_open_is_not_said_once_it_has_passed(workspace) -> None:
+    """Why a study did not open was kept until that study was asked again. A
+    hold of the page's own (unsent Agent words) was still said on the card
+    after the words were cleared, the page left and drawn again; and a
+    server's answer, said, was said again on coming back to the page."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "ubiquitin"), host="127.0.0.1",
+                                      port=0)
+    card = '.study-card[data-path$="stopped"]'
+
+    def typed(page, words):
+        page.evaluate("words => { const box = document.getElementById('agent-request'); "
+                      "box.value = words; box.dispatchEvent(new Event('input', {bubbles: true})); }",
+                      words)
+
+    def said(page):
+        return page.eval_on_selector_all(card + " .study-open-said", "s => s.map(x => x.textContent)")
+
+    def away_and_back(page):
+        old = page.query_selector(card)
+        page.evaluate("() => window.FastMDXDashboard.navigate('overview')")
+        page.wait_for_selector('.page[data-page="overview"]:not([hidden])')
+        page.evaluate("() => window.FastMDXDashboard.navigate('studies')")
+        page.wait_for_function("card => !card.isConnected", arg=old)
+        page.wait_for_selector(card + " .study-open")
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/explore/switch",
+                       lambda route: route.fulfill(json={"ok": False, "error": "Not in this test."}))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            page.wait_for_selector(card + " .study-open")
+
+            # Held by the page's own work: said, then passed.
+            typed(page, "hello")
+            page.click(card + " .study-open")
+            page.wait_for_selector(card + " .study-open-said")
+            held = said(page)
+            typed(page, "")
+            away_and_back(page)
+            after_the_hold = said(page)
+            page.fill("#studies-search", "stopped")
+            page.wait_for_selector(card + " .study-open")
+            searched_after_the_hold = said(page)
+            page.fill("#studies-search", "")
+
+            # Answered by the server: said while the page stays, not after.
+            page.wait_for_selector(card + " .study-open")
+            page.click(card + " .study-open")
+            page.locator(card + ' .study-open-said:has-text("Not in this test.")').wait_for()
+            page.fill("#studies-search", "stopped")
+            page.wait_for_selector(card + " .study-open")
+            searched_after_the_answer = said(page)
+            away_and_back(page)
+            back_after_the_answer = said(page)
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert held and "Agent" in held[0]
+    assert after_the_hold == []
+    assert searched_after_the_hold == []
+    assert searched_after_the_answer == ["Not in this test."]
+    assert back_after_the_answer == []
+    assert errors == []

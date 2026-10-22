@@ -26,7 +26,12 @@
   // had been added was gone.
   var draft = null;
   var tagsUsed = [];
-  // Why a study did not open, by its folder, until it is asked again.
+  // Why a study did not open, as the server answered, by its folder: said on
+  // the card or row drawn again while that answer was on its way and while
+  // All studies stays shown after it (a search typed, the list read again),
+  // and no longer once the page is left after it was said there. A hold of
+  // this page's own (unsent Agent words, a draft not saved) is said beside
+  // the button pressed and not kept: it passes when the work is sent or saved.
   var notOpenedWhy = {};
   var TAG_LENGTH = 40;
   var NOTE_LENGTH = 200;
@@ -841,7 +846,7 @@
     actions.append.apply(actions, [openButton(study), tagButton(study), openButton(study, "files"), pick]
       .filter(Boolean));
     var opened = actions.querySelector(".study-open");
-    if (opened && notOpenedWhy[study.path]) sayNotOpened(opened, notOpenedWhy[study.path]);
+    if (opened && notOpenedWhy[study.path]) sayKept(opened, study.path);
     body.appendChild(actions);
     item.appendChild(body);
     return item;
@@ -1108,7 +1113,7 @@
     acts.append.apply(acts, [openButton(study), tagButton(study), openButton(study, "files")]
       .filter(Boolean));
     var opened = acts.querySelector(".study-open");
-    if (opened && notOpenedWhy[study.path]) sayNotOpened(opened, notOpenedWhy[study.path]);
+    if (opened && notOpenedWhy[study.path]) sayKept(opened, study.path);
     tr.appendChild(cell("studies-acts", acts));
     return tr;
   }
@@ -2179,7 +2184,7 @@
     var dashboard = window.FastMDXDashboard;
     delete notOpenedWhy[path];
     var held = switchBegun();
-    if (held) { notOpened(button, held, path); return; }
+    if (held) { notOpened(button, held); return; }
     button.disabled = true;
     fetch("/api/explore/switch", {
       method: "POST",
@@ -2217,11 +2222,26 @@
     // was on its way (the page shown again, a search typed) made a new
     // card, and the reason went with the old one.
     if (path) {
-      notOpenedWhy[path] = why;
+      notOpenedWhy[path] = { why: why, said: false };
       if (!button.isConnected) button = liveOpenButton(path) || button;
     }
     ICONS.flash(button, false, why);
-    sayNotOpened(button, why);
+    if (path) sayKept(button, path);
+    else sayNotOpened(button, why);
+  }
+
+  /* A kept reason said on a card or row; said on the page shown, it goes
+   * once the page is left (forgetSaid). */
+  function sayKept(button, path) {
+    var kept = notOpenedWhy[path];
+    sayNotOpened(button, kept.why);
+    if (onStudiesPage()) kept.said = true;
+  }
+
+  function forgetSaid() {
+    Object.keys(notOpenedWhy).forEach(function (path) {
+      if (notOpenedWhy[path].said) delete notOpenedWhy[path];
+    });
   }
 
   /* The reason beside a study's Open button, without a second flash. */
@@ -2365,7 +2385,10 @@
     var notLeftSinceLoaded = false;
     var opened = function (detail) {
       var page = detail && detail.page ? detail.page : detail;
-      if (page !== "studies") notLeftSinceLoaded = false;
+      if (page !== "studies") {
+        notLeftSinceLoaded = false;
+        forgetSaid();
+      }
       if (page === "studies" && notLeftSinceLoaded) {
         if (listedAsItLoaded) listedAsItLoaded.then(returnToThePlace, returnToThePlace);
         listedAsItLoaded = null;
