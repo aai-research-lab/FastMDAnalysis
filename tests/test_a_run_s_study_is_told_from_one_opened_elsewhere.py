@@ -2337,7 +2337,9 @@ def test_a_button_while_a_review_holds_sending_cuts_nothing(tmp_path, monkeypatc
 def test_edit_while_send_waits_keeps_the_edited_words(tmp_path, monkeypatch):
     """L13 8: an Edit sent while Send waits put the bubble back to the old
     words, the edit lost. Nothing is cut and the edited words stay, still
-    being edited; Enter on them once Send is offered sends them."""
+    being edited, through a click elsewhere while the person waits (L16: the
+    click put the old words back); Enter on them once Send is offered sends
+    them."""
     from fastmdxplora.gui.workspace import study_key
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
@@ -2356,6 +2358,8 @@ def test_edit_while_send_waits_keeps_the_edited_words(tmp_path, monkeypatch):
         page.keyboard.type(" and more")
         page.keyboard.press("Enter")
         page.wait_for_timeout(500)
+        page.click("#agent-request")
+        page.wait_for_timeout(300)
         held = {"text": msg.inner_text(), "editing": msg.locator(".editing").count(),
                 "note": _note(page), "asked": _requests(asked)}
         page.evaluate("() => window.FastMDXDashboard.studyChangeAnswered('')")
@@ -2373,10 +2377,12 @@ def test_edit_while_send_waits_keeps_the_edited_words(tmp_path, monkeypatch):
 
 def test_a_starter_over_words_in_autonomous_mode_says_why(tmp_path, monkeypatch):
     """L13 9 and L14 F5: in autonomous mode a suggestion pressed with words
-    in the box did nothing, and said nothing."""
+    in the box did nothing, and said nothing. Said; and no more once the
+    words are sent (L16: the note stayed beside an empty box)."""
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
-    page, errors, close = _page_on(session, [])
+    page, errors, close = _page_on(session, [_answer("Sent.")])
     try:
+        _when_known(page)
         page.evaluate("""() => { const m = document.getElementById('agent-mode');
             m.value = 'autonomous'; m.dispatchEvent(new Event('change')); }""")
         page.wait_for_function("() => !document.getElementById('agent-start').hidden")
@@ -2384,11 +2390,16 @@ def test_a_starter_over_words_in_autonomous_mode_says_why(tmp_path, monkeypatch)
         page.locator(".agent-starter:visible").first.click()
         page.wait_for_timeout(300)
         box, note = page.input_value("#agent-request"), _note(page)
+        page.focus("#agent-request")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Sent.')", timeout=15000)
+        after = _note(page)
     finally:
         close()
         session.server.shutdown()
     assert box == "my words"
     assert note.startswith("The box holds words of yours"), note
+    assert after == "", after
     assert errors == []
 
 
@@ -2557,6 +2568,264 @@ def test_enter_after_a_conversation_read_refused_as_the_gui_moved_waits(tmp_path
     assert _requests(asked) == ["asked on other"], asked
     where = _where(workspace, "asked on other")
     assert where and all(w.startswith("other/") for w in where), where
+    assert errors == []
+
+
+# ---- CI-774 round 6: no study is an answer; a chat of no study follows ----
+
+
+#: Holds the reloaded page's read of its study's conversation while a flag
+#: is set in this window's session storage.
+_HOLD_RELOADED_READ = (
+    "(() => { const real = window.fetch;"
+    " window.__holdRead = !!sessionStorage.getItem('__holdRead');"
+    " window.fetch = function (url, opts) {"
+    "   const u = String(url);"
+    "   if (window.__holdRead && /[/]api[/]agent[/]conversation[?]study=/.test(u)"
+    "       && (!opts || !opts.method || opts.method === 'GET')) {"
+    "     window.__heldRead = u;"
+    "     return new Promise((ok) => { const t = setInterval(() => {"
+    "       if (!window.__holdRead) { clearInterval(t); ok(real.call(window, url, opts)); } }, 50); }); }"
+    "   return real.call(this, url, opts); }; })();")
+
+
+def _begun(workspace):
+    """A folder a run began in and left before it was a study: its log only."""
+    begun = workspace / "begun"
+    begun.mkdir()
+    (begun / "exploration.log").write_text("starting\n", encoding="utf-8")
+    return begun
+
+
+@pytest.mark.parametrize("left", ["no study", "a folder not a study"])
+def test_a_reload_with_no_study_open_leaves_send_working(tmp_path, monkeypatch, left):
+    """L15 1: the GUI left its study for none (a run that failed at once) or
+    for a folder that is not a study, and the page was reloaded: its read of
+    the study left was refused, and Send waited for good, as no study open
+    was never taken as where the GUI is. The question goes into the
+    workspace's chats."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked = []
+    page, errors, close = _page_on(session, [_answer("After a reload.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        if left == "no study":
+            session.runtime.data_stale = True
+            session.runtime.active_root = None
+            page.wait_for_function("() => !(window.FastMDXDashboard.state.appState || {}).active_run",
+                                   timeout=30000)
+            page.reload(wait_until="domcontentloaded")
+        else:
+            page.add_init_script(_HOLD_RELOADED_READ)
+            page.evaluate("() => sessionStorage.setItem('__holdRead', '1')")
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_function("() => window.__heldRead", timeout=30000)
+            session.runtime.active_root = _begun(workspace)
+            _shows(page, study_key(workspace / "begun"))
+            page.evaluate("() => { sessionStorage.removeItem('__holdRead'); window.__holdRead = false; }")
+        page.wait_for_selector("#agent-request", state="visible")
+        page.wait_for_function("() => window.FastMDXDashboard.studyKnown()"
+                               " && !window.FastMDXAgentPanel.waits", timeout=20000)
+        _say(page, "and after a reload?")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('After a reload.')", timeout=15000)
+        page.wait_for_timeout(1500)
+        note = _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["and after a reload?"], asked
+    assert "Not saved" not in note, note
+    where = _where(workspace, "and after a reload?")
+    assert where and all(w.startswith(".fastmdxplora_agent_conversations/") for w in where), where
+    assert errors == []
+
+
+@pytest.mark.parametrize("left", ["no study", "a folder not a study"])
+def test_a_study_opened_after_no_study_shows_its_own_thread(tmp_path, monkeypatch, left):
+    """L15 2: no study open (or a folder that is not one), a question asked
+    there; another window opens `other`. The chat of no study stayed on
+    screen, and the message written on `other` went into it with `other`'s
+    view (or, for the folder, was refused on save and kept for a folder the
+    GUI does not open). `other`'s own thread is read in its place."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    if left == "no study":
+        session.runtime.data_stale = True
+        session.runtime.active_root = None
+    else:
+        session.runtime.active_root = _begun(workspace)
+    asked, saves = [], []
+    page, errors, close = _page_on(session, [_answer("With none."), _answer("On other.")])
+    page.on("response", lambda r: saves.append(r.status)
+            if r.url.endswith("/api/agent/conversation") and r.request.method == "POST" else None)
+    try:
+        _asking(page, asked)
+        page.wait_for_function("() => window.FastMDXDashboard.studyKnown()"
+                               " && !window.FastMDXAgentPanel.waits", timeout=30000)
+        _say(page, "asked with no study")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('With none.')", timeout=15000)
+        page.wait_for_timeout(1000)
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study"
+                               " && !window.FastMDXAgentPanel.waits", timeout=20000)
+        _say(page, "asked on other")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('On other.')", timeout=15000)
+        page.wait_for_timeout(1500)
+        out = {"note": _note(page), "kept": _unsent(page),
+               "users": page.locator("#agent-thread .agent-msg-user").all_text_contents()}
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["asked with no study", "asked on other"], asked
+    assert 409 not in saves, saves
+    assert out["users"] == ["asked on other"] and not out["kept"], out
+    assert "Not saved" not in out["note"], out
+    none = _where(workspace, "asked with no study")
+    assert none and all(w.startswith(".fastmdxplora_agent_conversations/") for w in none), none
+    where = _where(workspace, "asked on other")
+    assert where and all(w.startswith("other/") for w in where), where
+    assert errors == []
+
+
+def test_an_edit_refused_by_a_review_is_kept_through_the_choice(tmp_path, monkeypatch):
+    """L15 3: an Edit refused because a review holds sending; then the choice
+    the note asks for. Its click blurred the bubble, which put the old words
+    back: the edit was lost, and the note stayed. The edit stays, the note
+    goes once the review is chosen, and Enter in the bubble sends it."""
+    import tempfile
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", tempfile.mkdtemp())
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    session = start_dashboard_session(output=str(workspace), host="127.0.0.1", port=0)
+    _seed_a_review(session)
+    live = "#agent-thread .agent-study:not(.is-replaced):not([hidden])"
+    asked = []
+    page, errors, close = _page_on(session, [_answer("Roughly a day.")])
+    try:
+        _asking(page, asked)
+        page.locator(f'{live} [data-review-setting="simulation.temperature_K"]').wait_for()
+        page.wait_for_function("() => !window.FastMDXAgentPanel.waits", timeout=20000)
+        page.locator(f'{live} [data-review-setting="simulation.temperature_K"] '
+                     '[data-choice="reject"]').click()
+        page.wait_for_timeout(500)
+        msg = page.locator("#agent-thread .agent-msg-user").filter(has_text="How long will it take?")
+        msg.hover()
+        msg.get_by_role("button", name="Edit").click()
+        page.keyboard.type(" Roughly?")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(500)
+        refused = _note(page)
+        page.locator(f"{live} button", has_text="Use reviewed version").first.click()
+        page.wait_for_selector("#agent-thread .agent-msg-user:has-text('Reviewed version 2')",
+                               timeout=15000)
+        page.wait_for_timeout(500)
+        chosen = {"bubble": msg.inner_text(), "editing": msg.locator(".editing").count(),
+                  "note": _note(page), "asked": _requests(asked)}
+        msg.locator(".editing").press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Roughly a day.')", timeout=15000)
+    finally:
+        close()
+        session.server.shutdown()
+    assert refused.startswith("Not sent: choose in the review above first"), refused
+    assert "How long will it take? Roughly?" in chosen["bubble"] and chosen["editing"] == 1, chosen
+    assert chosen["note"] == "" and chosen["asked"] == [], chosen
+    assert _requests(asked) == ["How long will it take? Roughly?"], asked
+    assert errors == []
+
+
+@pytest.mark.parametrize("way", ["edit", "retry"])
+def test_edit_and_retry_send_the_message_s_file_with_it(tmp_path, monkeypatch, way):
+    """L16: Edit made the line naming the files editable and sent it as
+    words, the file dropped; Retry sent no file either. The words alone are
+    edited, and the file is read again and sent with them."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    (workspace / "notes.txt").write_text("n\n", encoding="utf-8")
+    asked = []
+    page, errors, close = _page_on(session, [_answer("First."), _answer("Again.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        page.evaluate("""(p) => { const i = document.getElementById('agent-attach-path');
+            i.value = p; i.dispatchEvent(new Event('change')); }""", str(workspace / "notes.txt"))
+        page.wait_for_selector("#agent-attachments :text('notes.txt')")
+        _say(page, "with a file")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('First.')", timeout=15000)
+        msg = page.locator("#agent-thread .agent-msg-user").first
+        msg.hover()
+        if way == "edit":
+            msg.get_by_role("button", name="Edit").click()
+            editing = page.locator("#agent-thread .editing").inner_text()
+            page.keyboard.type(" edited")
+            page.keyboard.press("Enter")
+        else:
+            editing = ""
+            msg.get_by_role("button", name="Retry").click()
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Again.')", timeout=15000)
+        page.wait_for_timeout(1500)
+        users = page.locator("#agent-thread .agent-msg-user").all_text_contents()
+    finally:
+        close()
+        session.server.shutdown()
+    words = "with a file edited" if way == "edit" else "with a file"
+    assert _requests(asked) == ["with a file", words], asked
+    assert [a["name"] for a in asked[1].get("attachments", [])] == ["notes.txt"], asked[1]
+    assert "notes.txt" not in editing, editing
+    assert len(users) == 1 and users[0].startswith(words) and "notes.txt" in users[0], users
+    said = [e for entries in _entries_everywhere(workspace).values() for e in entries
+            if e.get("role") == "user"]
+    assert [e["text"] for e in said] == [words], said
+    assert [a["name"] for a in said[0].get("attachments", [])] == ["notes.txt"], said
+    assert errors == []
+
+
+def test_enter_just_after_a_switch_put_words_back_sends_nothing(tmp_path, monkeypatch):
+    """L16: words left unsent on `here`; another window opens `other`, where
+    the person types; another window opens `here` again, and the person
+    presses Enter for what they typed. The words put back for `here` went,
+    not those typed. Said, and the next Enter sends them."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked = []
+    page, errors, close = _page_on(session, [_answer("Old.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        page.fill("#agent-request", "old words")
+        _switch_elsewhere(session, other)
+        _shows(page, study_key(other))
+        page.wait_for_function("() => !document.getElementById('agent-request').value", timeout=15000)
+        page.focus("#agent-request")
+        page.keyboard.type("new words")
+        _switch_elsewhere(session, here)
+        page.wait_for_function("() => document.getElementById('agent-request').value === 'old words'",
+                               timeout=15000)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(1500)
+        first = {"asked": _requests(asked), "note": _note(page), "box": page.input_value("#agent-request")}
+        _send_when_offered(page)
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('Old.')", timeout=15000)
+        kept = _unsent(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert first["asked"] == [] and first["box"] == "old words", first
+    assert "Press Enter again to send them" in first["note"], first
+    assert _requests(asked) == ["old words"], asked
+    assert kept.get(study_key(other)) == "new words", kept
     assert errors == []
 
 

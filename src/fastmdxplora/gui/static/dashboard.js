@@ -875,6 +875,10 @@
       renderHealth({});
       renderLiveProgress({});
       emit("status-updated", {status: {}, health: {}, study: ""});
+      // No study open is where the GUI is too: a page waiting to know it
+      // (the Agent's read refused for the study left) reads the workspace
+      // now (CI-774 review L15: after a reload, Send waited for good).
+      emit("study-addressed", {key: "", title: "", folder: "", gone: false, past: studyKnown()});
       return;
     }
     const status = payload.status || {};

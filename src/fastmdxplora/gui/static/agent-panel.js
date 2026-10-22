@@ -1538,6 +1538,9 @@
       unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
                  + "it is in the box again when " + forTitle + " is open" + last, "moved", was);
       putBack(key, "");
+      /* Words of this study's own put in place of those being typed: an
+       * Enter meant for those sends nothing (`draft`). */
+      swappedAt = boxNow().trim() ? Date.now() : 0;
       return;
     }
     unsentKey = key;
@@ -1594,6 +1597,12 @@
     var at = lastRun(runStudies, unsentKey);
     if (at >= 0) runStudies = runStudies.slice(at + 1);
   }
+  /* When a study opened elsewhere put its own kept words in the box in
+   * place of those being typed (CI-774 review L16: an Enter pressed for the
+   * words typed sent the words put back). */
+  var swappedAt = 0;
+  var SWAPPED = "Not sent: the box now holds the words saved for this study, put back as it was "
+    + "opened. Press Enter again to send them.";
   function putBack(key, typed) {
     var area = el("agent-request");
     var kept = storedUnsent(key);
@@ -1797,8 +1806,11 @@
        * review, 10-08: made in the open study's folder). So is a study's
        * thread, in the study it was written in, the GUI's study now or not
        * (CI-774 reviews L13, L14: saved to the study open, it was refused
-       * once another window had opened another, and the answer lost). */
-      if (c.placed || (c.page && c.study)) body.study = c.study || null;
+       * once another window had opened another, and the answer lost). And
+       * a chat of no study read for where the GUI was, in the workspace's
+       * chats: saved to the study open since, it was refused (CI-774 review
+       * L15). */
+      if (c.placed || c.standsIn || (c.page && c.study)) body.study = c.study || null;
     }
     return body;
   }
@@ -1830,6 +1842,7 @@
            * the server's word. */
           if (d.study !== undefined && (d.study || null) !== (c.study || null)) c.page = "";
           if (d.study !== undefined) c.study = d.study;
+          if (c.study) c.standsIn = false;
           takeIn(c, entries, d.entries || [], sent, as, d.cut || []);
           window.dispatchEvent(new CustomEvent("fmx:conversation-saved"));
         } else if (d && d.study_changed) {
@@ -2253,9 +2266,15 @@
            * bubble becomes editable, Enter sends, Escape puts it back.
            * Copying the text down into the composer was a detour. */
           if (body.isContentEditable) return;
-          var before = body.textContent;
+          /* The words alone are edited: the line naming its files is put
+           * beside the bubble meanwhile, and the files go with the edit
+           * (CI-774 review L16: the line was edited and sent as words, the
+           * files dropped). */
+          var before = text;
+          var clip = body.querySelector(".attached");
           function begin(words) {
-            if (typeof words === "string") body.textContent = words;
+            if (clip && clip.parentNode === body) msg.insertBefore(clip, body.nextSibling);
+            body.textContent = typeof words === "string" ? words : body.textContent;
             body.contentEditable = "true";
             body.classList.add("editing");
             body.focus();
@@ -2277,25 +2296,30 @@
             var edited = body.textContent.trim();
             body.contentEditable = "false";
             body.classList.remove("editing");
-            if (!send || !edited) {
-              body.textContent = before;
-              return;
-            }
+            body.textContent = send && edited ? edited : before;
+            if (clip) body.appendChild(clip);
+            if (!send || !edited) return;
             /* Refused (Send waits, a review holds it): nothing is cut, and
              * the edited words stay in the bubble, still being edited, beside
-             * the note that says why (CI-774 review L13: they were undone). */
-            if (!sendPressed(edited, function () { cutFrom(msg); }, true)) begin(edited);
+             * the note that says why (CI-774 review L13: they were undone).
+             * A click elsewhere then leaves them so, as the click the note
+             * asks for (a choice in the review) or one to wait elsewhere;
+             * Escape alone puts the old words back (CI-774 reviews L15,
+             * L16: the click threw the edit away). */
+            function again() { refused = true; begin(edited); }
+            if (!sendPressed(edited, function () { cutFrom(msg); }, true, attached, again)) again();
           }
+          var refused = false;
           function onKey(e) {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); done(true); }
             if (e.key === "Escape") { e.preventDefault(); done(false); }
           }
-          function onBlur() { done(false); }
+          function onBlur() { if (!refused) done(false); }
           begin();
         } },
       { label: "Retry", icon: "refresh", title: "Send this again from here",
         run: function () {
-          sendPressed(text, function () { cutFrom(msg); }, true);
+          sendPressed(text, function () { cutFrom(msg); }, true, attached);
         } }
     ]);
     el("agent-thread").appendChild(msg);
@@ -2365,12 +2389,23 @@
   /* `text`: the words of a button that sends (`sendPressed`), sent as they
    * are; the box and its files are the person's, and are left as they are. */
   var viewSending = false;
-  function draft(text) {
+  function draft(text, attached) {
     var area = el("agent-request");
     var own = typeof text === "string";
     var typed = (own ? text : area.value).trim();
     if (!typed || writing) return;
     if (heldByReview("sending another message")) return;
+    /* Pressed within moments of the box's words being changed by a study
+     * opened elsewhere, nothing typed since: not the words it was pressed
+     * for. Said, and the next Enter sends them. */
+    if (!own && swappedAt && Date.now() - swappedAt < 3000) {
+      swappedAt = 0;
+      var host = el("agent-unsent-note");
+      var before = noteKind === "moved" && host && host.textContent !== SWAPPED ? host.textContent : "";
+      unsentSaid((before ? before + " " : "") + SWAPPED, "moved", noteAbout);
+      return;
+    }
+    swappedAt = 0;
     /* Not while it cannot be known where it would be answered, nor before
      * the thread has been read (seventeenth review, 10-08; CI-774 review
      * L12: queued until it was, it went by itself): said, and the words
@@ -2414,7 +2449,7 @@
      * message, the question in it, so an answer is read as one. */
     var request = typed;
 
-    var files = own ? [] : pendingFiles.slice();
+    var files = own ? (attached || []).slice() : pendingFiles.slice();
     if (!own) {
       pendingFiles = [];
       renderChips();
@@ -2437,6 +2472,9 @@
       keepUnsent();
       autosize(area);
       renderMentions();
+      /* A note about the words in the box is done with once they are sent
+       * (CI-774 review L16: a starter's note stayed beside an empty box). */
+      if (noteKind === "moved" && !noteAbout) unsentSaid("");
     }
     /* The thread this was said in. Another shown before the answer came
      * stops the answer, which is said in this one, not the one on screen
@@ -3605,6 +3643,16 @@
     return true;
   }
 
+  /* The note that a button's message waits for the review, said no more
+   * once nothing is held by it (CI-774 review L15: it stayed after the
+   * choice was made). */
+  function reviewNoteDone() {
+    var host = el("agent-unsent-note");
+    if (noteKind === "moved" && host && host.textContent === REVIEW_NOT_SENT && !reviewPending()) {
+      unsentSaid("");
+    }
+  }
+
   function counted(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
 
   function eitherOf(names) {
@@ -3816,6 +3864,7 @@
         refusal.textContent = "These choices cannot be used together. " + review.refusal.error
           + (labels.length ? " Change your choice for " + eitherOf(labels) + "." : "");
       }
+      reviewNoteDone();
       if (review.busy) return;
       note.textContent = rejected
         ? counted(rejected, "change") + " rejected. Use reviewed version makes a new version without "
@@ -3835,6 +3884,7 @@
       if (!review.stands() || review.busy || writing) return;
       keepChoices(review, v, null);
       useVersion(v, review);
+      reviewNoteDone();
     };
     apply.onclick = function () {
       if (!review.stands() || writing || apply.disabled) return;
@@ -3882,6 +3932,7 @@
           review: { base: v.previous.number, proposal: v.number, accepted: receipt.accepted,
                     rejected: receipt.rejected }, cycles: 1, attempts: [] });
         persist();
+        reviewNoteDone();
         scrollToEnd();
       }).catch(function () {
         if (review.stands()) free("Could not check the choices. Try again.");
@@ -4145,6 +4196,7 @@
             }
           }
           c.study = moved.study || started.output;
+          if (c.study) c.standsIn = false;
         }
         if (started.ok) {
           /* Started once. A second press started it again into the same
@@ -4339,8 +4391,10 @@
    * answered), while a run this page started is not yet a study, while
    * the thread of the study shown is being read, while the thread on
    * screen is another study's (one a run took away, or the one before a
-   * study changed under the page), and before the page's view of the study
-   * shown is read after the status that showed it. Send and Enter then
+   * study changed under the page) or a chat of no study read before a
+   * study was opened, and before the page's view of the study shown is
+   * read after the status that showed it. No study open is an answer too:
+   * the page then reads the workspace's chats. Send and Enter then
    * send nothing: they say so beside the box, the words stay there (kept
    * per study as any unsent words), and once the page knows, Send is
    * offered again for the person to press. Nothing is ever sent later by
@@ -4380,6 +4434,9 @@
      * (read before the study changed), or a chat of no study the page put
      * up for a folder that was not yet a study, waits for its own. */
     if (conv.study && conv.page && shown && conv.page !== shown) return "read";
+    /* So does a chat of no study read for where the GUI was, once a study
+     * is shown there (CI-774 review L15). */
+    if (conv.standsIn && !conv.study && shown && dash.studyIsOne !== false) return "read";
     if (shown && dashboard.viewKnown && !dashboard.viewKnown()) return "view";
     return "";
   }
@@ -4394,7 +4451,7 @@
     var dashboard = window.FastMDXDashboard;
     if (asked && dashboard && dashboard.readStatusNow
         && ((why === "run" && dashboard.studyKnown && !dashboard.studyKnown())
-            || (why === "read" && readAgain))) {
+            || (why === "read" && (readAgain || conv.standsIn)))) {
       dashboard.readStatusNow();
     }
     /* The view is read meanwhile, whatever else is still waited for. */
@@ -4423,26 +4480,71 @@
   var WRITING_NOT_SENT = "Not sent: an answer is still being written. Press it again once it is done, "
     + "or stop it first.";
   var REVIEW_NOT_SENT = "Not sent: choose in the review above first, as it says.";
-  function sendPressed(text, before, cuts) {
-    if (!String(text || "").trim()) return false;
+  /* Whether a button's message is refused now, and why, said. */
+  function refusedNow(cuts) {
     if (writing && !cuts) {
       unsentSaid(WRITING_NOT_SENT, "moved", "");
-      return false;
+      return true;
     }
     if (heldByReview("sending another message")) {
       unsentSaid(REVIEW_NOT_SENT, "moved", "");
-      return false;
+      return true;
     }
     if (sendWaits()) {
       unsentSaid(sendWaits() === "run" ? SEND_WAITS : SEND_READS, "waits");
       sendReady();
-      return false;
+      return true;
     }
-    if (before) before();
-    draft(text);
-    if (boxNow().trim()) {
-      unsentSaid("The words in the box are kept, not sent with it: send them with Enter.", "moved", "");
+    return false;
+  }
+  /* `files`: the files the message was sent with (Retry, Edit), read
+   * again and sent with it, as they were (CI-774 review L16: they were
+   * dropped); one gone or changed since is said, and nothing sent. Read
+   * again, the press is asked again, and `refused` is told when it is
+   * refused then. */
+  function sendPressed(text, before, cuts, files, refused) {
+    if (!String(text || "").trim()) return false;
+    if (refusedNow(cuts)) return false;
+    function go(attached) {
+      if (before) before();
+      draft(text, attached);
+      if (boxNow().trim()) {
+        unsentSaid("The words in the box are kept, not sent with it: send them with Enter.", "moved", "");
+      }
     }
+    if (!files || !files.length) {
+      go([]);
+      return true;
+    }
+    var thread = conv;
+    var read = [], lost = [];
+    Promise.all(files.map(function (f) {
+      return post("/api/agent/attachment", { path: f.path }).then(function (d) {
+        if (!d || !d.ok || (f.sha256 && d.sha256 && d.sha256 !== f.sha256)) lost.push(f.name);
+        else read.push(d);
+      }, function () { lost.push(f.name); });
+    })).then(function () {
+      var no = function (why) {
+        if (why) unsentSaid(why, "moved", "");
+        if (refused) refused();
+      };
+      if (lost.length) {
+        no("Not sent: " + lost.join(", ") + (lost.length === 1 ? " is" : " are")
+           + " gone or changed since, and could not be sent with it again. Attach "
+           + (lost.length === 1 ? "it" : "them") + " to a message in the box to send "
+           + (lost.length === 1 ? "it." : "them."));
+        return;
+      }
+      if (conv !== thread) {
+        no("Not sent: another conversation is shown now.");
+        return;
+      }
+      if (refusedNow(cuts)) { no(""); return; }
+      /* In the order they were sent with it. */
+      go(files.map(function (f) {
+        return read.filter(function (d) { return d.path === f.path; })[0];
+      }).filter(Boolean));
+    });
     return true;
   }
   var reading = 0;
@@ -4468,7 +4570,7 @@
       /* The GUI has another study open than this page is for: nothing of
        * another study's is drawn here; read again once the page knows its
        * study. */
-      if (d && d.study_changed) { readAgain = true; return; }
+      if (d && d.study_changed) { readAgain = true; refusedFor = d.study_key || ""; return; }
       readAgain = false;
       var entries = (d && d.entries) || [];
       /* Another thread put on screen while this was read (New pressed
@@ -4486,14 +4588,34 @@
          * one, and Send waits until then (CI-774 reviews L10, L11, L12: a
          * message went into that chat). */
         conv.unread = !d.study && validStudyKey(d.study_key) ? d.study_key : "";
+        /* Read for where the GUI is with no study there (none open, or a
+         * folder that is not one): a study opened next has its own thread
+         * read in its place (`standsIn`). */
+        conv.standsIn = !d.study;
       }
       replay(entries);
     }).catch(function () {}).then(function () {
       reading -= 1;
       threadRead = true;
       readFirst();
+      readAgainNow();
       sendWaitLater();
     });
+  }
+  /* The study the server said the GUI has open as it refused a read ("" for
+   * none). Where the page already shows it (the read named the study its
+   * address names, before the page read the GUI's), the GUI's place is read
+   * again now, and with it this study's thread (`study-addressed`): no
+   * change of study is coming to ask it (CI-774 review L15: Send waited for
+   * good after a reload, a folder that is no study open). */
+  var refusedFor = null;
+  function readAgainNow() {
+    var open = refusedFor;
+    refusedFor = null;
+    var dashboard = window.FastMDXDashboard;
+    if (open === null || !readAgain || reading || !dashboard || !dashboard.readStatusNow) return;
+    var shown = noStudyOpen() ? "" : (dashboard.state || {}).studyShown || "";
+    if (open === shown) dashboard.readStatusNow();
   }
 
   function replay(entries) {
@@ -4634,6 +4756,8 @@
           if (study === undefined && !d.study && validStudyKey(c.page) && c.page === shownStudy()) {
             c.unread = c.page;
           }
+          /* Made where the GUI is, with no study there: as one read there. */
+          if (study === undefined && !d.study) c.standsIn = true;
           sendWaitLater();
         } else if (d && d.gone && !c.id) {
           /* Its key's conversation was deleted: so is this thread, kept
@@ -5013,9 +5137,11 @@
       window.FastMDXDashboard.on("study-addressed", function (study) {
         var key = study && study.key;
         if (!validStudyKey(key)) {
-          /* No study open: a read refused for the study left is read again,
-           * as the workspace's chats, so Send waits no longer. */
-          if (readAgain && noStudyOpen() && !launching && !reading) {
+          /* No study open, or a folder open that is not a study: a read
+           * refused for the study left is read again, for where the GUI is
+           * (the workspace's chats), so Send waits no longer (CI-774 review
+           * L15: with a folder open, or after a reload, it waited for good). */
+          if (readAgain && !launching && !reading) {
             readAgain = false;
             hideList();
             restore(true).then(function () { told(); });
@@ -5040,7 +5166,14 @@
          * (CI-774 review L14: another window filed every message in that
          * chat). */
         var nowOne = conv.unread === key && dash.state && dash.state.studyIsOne !== false;
-        if (readAgain || nowOne || (conv.study && convFor && convFor !== key)) {
+        /* A chat of no study read or made for where the GUI was (no study,
+         * or a folder that is not one): a study opened there since, from
+         * another window or an AI app, has its own thread read in its place,
+         * so a message written on it goes into its thread (CI-774 review L15:
+         * every message was asked in that chat, refused on save and kept
+         * for a folder the GUI does not open). */
+        var standingIn = Boolean(conv.standsIn && !conv.study && conv.unread !== key);
+        if (readAgain || nowOne || standingIn || (conv.study && convFor && convFor !== key)) {
           readAgain = false;
           hideList();
           restore(true).then(function () { readAway(); told(); });
@@ -5116,6 +5249,7 @@
     /* Said that words went with their study: said until the person types. */
     area.addEventListener("input", function (event) {
       if (event.isTrusted && noteKind === "moved") unsentSaid("");
+      if (event.isTrusted) swappedAt = 0;
     });
     window.addEventListener("pagehide", keepUnsent);
     /* Left as a run started (a reload, a Back): the words kept are marked
