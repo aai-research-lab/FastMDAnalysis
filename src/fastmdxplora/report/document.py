@@ -1219,7 +1219,18 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
                 "frame" if discarded == 1 else "frames")
         notes.append(said + ".")
     if isinstance(measured, dict) and measured.get("not_a_measurement"):
-        notes.append(str(measured["not_a_measurement"]))
+        reason = str(measured["not_a_measurement"])
+        # "The remedy is a longer run, or better, replicas": neither lifts
+        # the bias of a solute in contact with its image in every frame the
+        # mean uses, as the Convergence part says of the run.
+        from fastmdxplora.image_note import note_of
+
+        note = note_of(measured)
+        if ("remedy is a longer run" in reason and note is not None
+                and note.get("frames_under_close") == note.get("frames_used")):
+            reason += (" Neither lifts the bias of the solute's own image, in contact with "
+                       "it in every frame this mean uses: a larger box, in a new study, does.")
+        notes.append(reason)
     if findings.get("made_whole"):
         notes.append(str(findings["made_whole"]))
     # How close the solute came to its own images: the image check's own

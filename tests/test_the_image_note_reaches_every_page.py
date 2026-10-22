@@ -98,6 +98,12 @@ class TestTheShortForm:
         assert said.startswith("may be biased: in ") and " frames used (" in said
         assert said.endswith(") the solute was within 1 nm of its own image")
 
+    def test_it_says_the_run_s_own_cutoff(self):
+        assert said_short(_NOTE_09) == ("may be biased: in 100 of 100 frames used (100%) the "
+                                        "solute was within 0.9 nm of its own image")
+        assert said_short({**_NOTE_09, "cutoff_nm": None}).endswith(
+            "the solute was within the cutoff of its own image")
+
 
 class TestHowANoteReads:
     """A sub-mean's paragraph gave the main mean's counts (polar SASA's line
@@ -367,7 +373,7 @@ class TestTheRunsOfAStudy:
         text = _so_far(two_runs, runs, runs)
         row = next(line for line in text.splitlines() if line.startswith("| t310 |"))
         assert row.endswith(" \u2020 |")
-        assert f"\u2020 t310, rmsd: {said_short(_NOTE)}." in text
+        assert f"\u2020 t310, RMSD: {said_short(_NOTE)}." in text
         assert "\u2020" not in next(line for line in text.splitlines()
                                     if line.startswith("| t300 |"))
 
@@ -390,6 +396,17 @@ class TestTheRunsOfAStudy:
         assert f"\u2020 t310, RMSD: {said_short(_NOTE)}." in md
         assert ("One end's mean may be biased by the solute's own image (the note in the "
                 "summary), so the change may be that bias and not the setting.") in md
+
+    def test_the_written_comparison_s_csv_carries_it(self, two_runs):
+        pytest.importorskip("matplotlib")
+        import csv
+
+        from fastmdxplora.batch.compare import build_comparison_report
+
+        with (build_comparison_report(two_runs) / "comparison_summary.csv").open() as fh:
+            rows = {row["run_id"]: row for row in csv.DictReader(fh)}
+        assert rows["t310"]["rmsd_noted"] == said_short(_NOTE)
+        assert rows["t300"]["rmsd_noted"] == ""
 
     def test_the_slides_say_it_beside_the_mean(self, study, monkeypatch):
         from fastmdxplora.report import document, slides
@@ -477,6 +494,44 @@ class TestALongerRunAlone:
         from fastmdxplora.report.document import _convergence_section
 
         assert self._said() in _convergence_section(in_contact)
+
+
+class TestTheReportAndItsCaptions:
+    """The report's "The remedy is a longer run, or better, replicas" stood
+    under a mean in contact with its image in every frame it uses; and the
+    written dashboard's cards for the order parameters, the cluster matrix
+    and a landscape had no caption, so no note."""
+
+    REASON = ("This run is not long against its own correlation time. The remedy is a "
+              "longer run, or better, replicas.")
+
+    def test_the_remedy_says_neither_lifts_it(self):
+        from fastmdxplora.report.document import _findings_notes
+
+        def notes(note):
+            return _findings_notes({"mean": {"mean": 1.04, "standard_error": None,
+                                             "not_a_measurement": self.REASON,
+                                             "solute_image": note}})
+
+        assert (self.REASON + " Neither lifts the bias of the solute's own image, in contact "
+                "with it in every frame this mean uses: a larger box, in a new study, "
+                "does.") in notes(dict(_NOTE_09))
+        assert self.REASON in notes({**_NOTE_09, "frames_under_close": 99})
+
+    def test_a_card_with_no_caption_of_its_own_says_its_note(self, study):
+        from fastmdxplora.gui.report_dashboard import _analysis_sections, _dashboard_summaries
+
+        folder = study / "analysis" / "order_parameters"
+        folder.mkdir()
+        (folder / "order_parameters.png").write_bytes(b"\x89PNG")
+        (folder / "options.json").write_text(json.dumps({
+            "analysis": "order_parameters", "findings": {"solute_image": dict(_NOTE_09)}}))
+        (panel,) = [panel for section in _analysis_sections(study, study / "report",
+                                                            _dashboard_summaries(study))
+                    for panel in section.panels if panel.source.startswith(
+                        "analysis/order_parameters/")]
+        noted = said_short(_NOTE_09)
+        assert panel.summary == noted[:1].upper() + noted[1:] + "."
 
 
 class TestADeterminedRunInContact:

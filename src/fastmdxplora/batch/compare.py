@@ -351,8 +351,11 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
         if axis is not None:
             header.append(_short_axis(axis))
         for a in summary_scalar_keys:
+            # Its image note (`image_note.said_short`), as the Analysis
+            # page's CSV gives it: empty where the mean has none.
             header += [f"{a}_{_SUMMARY_FNS[_OVERLAY_ANALYSES[a][2]][1]}",
-                       f"{a}_standard_error", f"{a}_frames_discarded", f"{a}_over"]
+                       f"{a}_standard_error", f"{a}_frames_discarded", f"{a}_over",
+                       f"{a}_noted"]
         writer.writerow(header)
         for run in runs:
             rid = run["run_id"]
@@ -363,12 +366,12 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
             for a in summary_scalar_keys:
                 mean = per_run_means.get(rid, {}).get(a)
                 if mean is None:
-                    row += ["", "", "", ""]
+                    row += ["", "", "", "", ""]
                     continue
                 row += [f"{mean['mean']:.6g}",
                         "" if mean["error"] is None else f"{mean['error']:.6g}",
                         "" if mean["discard"] is None else mean["discard"],
-                        _over(mean)]
+                        _over(mean), mean.get("noted") or ""]
             writer.writerow(row)
 
     _write_what_was_plotted(cmp_dir, plotted_from)

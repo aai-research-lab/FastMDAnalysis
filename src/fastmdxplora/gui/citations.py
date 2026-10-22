@@ -68,10 +68,13 @@ def cited_findings(answer: str, root: Any) -> list[dict[str, Any]]:
     """The analyses ``answer`` names that the study at ``root`` holds, in
     the order the answer first names them.
 
-    Each is ``{"analysis", "label", "value", "withheld"}``: ``value`` is the
-    recorded mean as its caption gives it ("0.0130 ± 0.0021 nm"), or empty
-    for an analysis with no mean (a per-residue profile, a map); ``withheld``
-    is the analysis's reason where its mean is not a measurement.
+    Each is ``{"analysis", "label", "value", "withheld", "noted"}``:
+    ``value`` is the recorded mean as its caption gives it ("0.0130 ± 0.0021
+    nm", its image note after it where it has one), or empty for an analysis
+    with no mean (a per-residue profile, a map); ``withheld`` is the
+    analysis's reason where its mean is not a measurement; ``noted`` is the
+    mean's image note alone (`image_note.said_short`), empty where it has
+    none.
     """
     if not answer or not root:
         return []

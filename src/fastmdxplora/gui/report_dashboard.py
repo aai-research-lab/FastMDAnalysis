@@ -1170,6 +1170,12 @@ def _analysis_sections(
         href = _href(source, output_dir)
         mode = "analysis figure"
         summary = asset.summary if asset is not None else ""
+        if not summary and folder != "image_check":
+            # A figure with no caption of its own (the order parameters, the
+            # cluster matrix, a landscape): its analysis's image note, as
+            # its row on the Analysis page says it.
+            noted = _analysis_noted(project_root / "analysis" / folder / source.name).removeprefix("; ")
+            summary = noted[:1].upper() + noted[1:] + "." if noted else ""
         grouped[section].append(
             DashboardPanel(
                 title=title,

@@ -480,8 +480,13 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
         return "\n".join(lines)
     units = {m: next((unit_of(m, row[m]) for row in means.values() if m in row), "")
              for m in measures}
+    # Each measure by its name on the pages ("End-to-end distance"), not its
+    # folder's ("end_to_end"), in the header and the notes under the table.
+    from fastmdxplora.gui.runs_compared import _named
+
+    named = {m: _named(m) for m in measures}
     head = [short[a] for a in axes] + [
-        f"{m} mean" + (f" ({units[m]})" if units[m] else "") for m in measures]
+        f"{named[m]} mean" + (f" ({units[m]})" if units[m] else "") for m in measures]
     lines.append("| run | " + " | ".join(head) + " |")
     lines.append("|---|" + "---|" * len(head))
     qualified = False
@@ -504,7 +509,7 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
             short = said_short(note_of(record))
             if short:
                 cell += " \u2020"
-                noted.append(f"{run['run_id']}, {measure}: {short}.")
+                noted.append(f"{run['run_id']}, {named[measure]}: {short}.")
             cells.append(cell)
         lines.append(f"| {run['run_id']} | " + " | ".join(cells) + " |")
     lines += ["", "Each mean is over the frames after equilibration, with its standard error."]
