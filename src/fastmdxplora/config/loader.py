@@ -738,6 +738,12 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False,
 
     # analysis include/exclude mutual exclusion (nested)
     analysis = data.get("analysis", {})
+    if (as_record and isinstance(analysis, dict) and analysis.get("include")
+            and analysis.get("exclude")):
+        # A study's record written with both: the analyses left out by name
+        # and, beside them, the plan they resolved to. That plan is what ran,
+        # so it is read as the record's and the study is not refused.
+        analysis.pop("exclude")
     if isinstance(analysis, dict) and analysis.get("include") and analysis.get("exclude"):
         raise ConfigError(
             "The 'analysis' block sets both 'include' and 'exclude'; "
