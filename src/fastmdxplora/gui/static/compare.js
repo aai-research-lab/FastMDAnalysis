@@ -431,7 +431,7 @@
     if (unread.length) {
       // Both recorded it, a record of one was not read (named above).
       host.appendChild(make("p", "muted small compare-series-unread",
-        "Not drawn: " + unread.join(", ") + ". A record of one of the two was not read."));
+        "Not plotted: " + unread.join(", ") + ". A record of one of the two was not read."));
     }
     if (!found.length) {
       if (!unread.length) {

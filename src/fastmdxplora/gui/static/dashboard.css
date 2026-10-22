@@ -4255,7 +4255,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .viewer-timeline:not(:has(.control-row:not([hidden]))) { display: none; }
 .timeline-ruler { margin-top: 6px; }
 .timeline-ruler svg { display: block; width: 100%; cursor: pointer; touch-action: none; }
-.timeline-note { margin: 2px 0 0; font-size: 11px; color: var(--text-muted); }
+.timeline-note { margin: 2px 0 0; font-size: var(--text-2xs); color: var(--text-muted); }
 .timeline-mark { cursor: pointer; }
 .frame-series { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .frame-series[hidden] { display: none; }
