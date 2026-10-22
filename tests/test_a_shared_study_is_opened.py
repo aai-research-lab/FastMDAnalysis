@@ -274,3 +274,12 @@ def test_an_opened_folder_s_name_writes_greek_plainly():
 
     assert _slug("x² H₂O µM Ω α-helix ΔG") == \
         "x2-h2o-um-o-a-helix-dg"
+
+
+def test_an_opened_folder_s_name_tells_mu_from_the_micro_sign():
+    """Review of the fifty-eighth commit: a Greek mu was written u, as the
+    micro sign is."""
+    from fastmdxplora.sharing.opening import _slug
+
+    assert _slug("μ-opioid in µM") == "m-opioid-in-um"
+    assert _slug("ƒoo ɔ ɛ ʒ ɖ ʉ ꜳ") == "foo-o-e-z-d-u-aa"

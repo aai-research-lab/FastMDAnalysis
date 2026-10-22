@@ -160,7 +160,7 @@ _CONTROLS = re.compile("[\x00-\x08\x0b\x0e-\x1f\x7f\u206a-\u206f\ufeff\ufff9-\uf
 
 #: What Zenodo takes out once ftfy has fixed it: what no XML may hold, and
 #: zero-width spaces.
-_TAKEN_OUT = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\u200b\ufffe\uffff\ud800-\udfff]")
+_TAKEN_OUT = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\u200b\ufffe\uffff]")
 
 #: A terminal's escape (a colour, say), which Zenodo takes out.
 _TERMINAL = re.compile("\x1b\\[((?:\\d|;)*)([a-zA-Z])")
@@ -236,6 +236,8 @@ def _plain(value: Any) -> Any:
                            lambda c: unicodedata.normalize("NFKC", c.group()), fixed)
             fixed = fixed.translate(_QUOTES).replace("\r\n", "\n").replace("\r", "\n")
             fixed = fixed.replace("\u2028", "\n").replace("\u2029", "\n")
+            # (A lone surrogate as the character ftfy puts in its place.)
+            fixed = re.sub("[\ud800-\udfff]", "\ufffd", fixed)
             # (A terminal's escapes go once the rest is fixed, as ftfy takes them.)
             fixed = unicodedata.normalize("NFC", _CONTROLS.sub("", _TERMINAL.sub("", fixed)))
             if fixed == was:
@@ -936,6 +938,30 @@ def _metadata(crate: dict[str, Any], *, authors: list[tuple[str, str]], license_
             "prereserve_doi": True}
 
 
+def _not_a_copy(study: Path, kept: dict[str, Any], earlier: dict[str, Any],
+                site: str) -> None:
+    """The study's `shared_to.json` its own, not one copied with a study it
+    was copied from: refused where the folder it names still holds the same
+    draft or record. (A study moved goes on: its folder is gone.) The folder
+    is then kept as this one's."""
+    here = str(study.resolve())
+    recorded = kept.get("folder") if isinstance(kept.get("folder"), str) else ""
+    named = {str(earlier.get(key) or "") for key in ("id", "record")} - {""}
+    if recorded and recorded != here and named:
+        there = Path(recorded)
+        theirs = _load(there / SHARED_TO).get(site) if there.is_dir() else None
+        if isinstance(theirs, dict) and named & (
+                {str(theirs.get(key) or "") for key in ("id", "record")} - {""}):
+            raise ShareRefused(
+                f"{study / SHARED_TO} is the one of the study at {there}, copied with it: "
+                f"both name Zenodo's draft or record {sorted(named)[0]}, and sharing this "
+                f"one would write over that one's. To share this study as one of its own, "
+                f"delete {study / SHARED_TO} and share again; to go on with that one, share "
+                "it from its own folder.", code="environment.share.not_finished",
+                path=str(study / SHARED_TO))
+    kept["folder"] = here
+
+
 def _load(path: Path) -> dict[str, Any]:
     try:
         found = json.loads(path.read_text(encoding="utf-8"))
@@ -1028,6 +1054,7 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
     depositions = f"{base}/api/deposit/depositions"
     kept = _load(study / SHARED_TO)
     earlier = kept.get(site) if isinstance(kept.get(site), dict) else {}
+    _not_a_copy(study, kept, earlier, site)
     found_as = _found(study, kept, earlier, site=site, depositions=depositions, token=token,
                       said=said)
     deposition, version = found_as["deposition"], found_as["version"]

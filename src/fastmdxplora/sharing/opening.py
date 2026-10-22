@@ -256,10 +256,12 @@ def _got(read: int, size: int, how: str = "having") -> str:
     where the file is under 0.1 MB)."""
     if not read and how == "having":
         return ""
-    unit, scale = ("kB", 1e3) if max(read, size) < 100_000 else ("MB", 1e6)
-    whole = f" of {size / scale:.1f}" if size else ""
-    return f" {how} {read / scale:.1f}{whole} {unit}" if how == "at" else \
-        f", with {read / scale:.1f}{whole} {unit} downloaded"
+    unit, scale = ("bytes", 1) if max(read, size) < 1000 else \
+        ("kB", 1e3) if max(read, size) < 100_000 else ("MB", 1e6)
+    shown = ".0f" if scale == 1 else ".1f"
+    whole = f" of {size / scale:{shown}}" if size else ""
+    return f" {how} {read / scale:{shown}}{whole} {unit}" if how == "at" else \
+        f", with {read / scale:{shown}}{whole} {unit} downloaded"
 
 
 def _again(what: str, failures: int, headers: Any,
@@ -334,7 +336,7 @@ _LETTERS = str.maketrans({"\u00df": "ss", "\u00c6": "AE", "\u00e6": "ae", "\u00d
                           "\u01e4": "G", "\u01e5": "g", "\u023b": "C", "\u023c": "c",
                           "\u0246": "E", "\u0247": "e",
                           # Greek, as written in plain letters (a micro sign as u).
-                          "\u00b5": "u", "\u03bc": "u", "\u039c": "M",
+                          "\u03bc": "m", "\u039c": "M",
                           "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d",
                           "\u03b5": "e", "\u03b6": "z", "\u03b7": "e", "\u03b8": "th",
                           "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bd": "n",
@@ -346,7 +348,11 @@ _LETTERS = str.maketrans({"\u00df": "ss", "\u00c6": "AE", "\u00e6": "ae", "\u00d
                           "\u0399": "I", "\u039a": "K", "\u039b": "L", "\u039d": "N",
                           "\u039e": "X", "\u039f": "O", "\u03a0": "P", "\u03a1": "R",
                           "\u03a3": "S", "\u03a4": "T", "\u03a5": "Y", "\u03a6": "Ph",
-                          "\u03a7": "Ch", "\u03a8": "Ps", "\u03a9": "O", "\u2126": "O"})
+                          "\u03a7": "Ch", "\u03a8": "Ps", "\u03a9": "O", "\u2126": "O",
+                          "\u0192": "f", "\u0186": "O", "\u0254": "o", "\u0190": "E",
+                          "\u025b": "e", "\u01dd": "e", "\u018e": "E", "\u0292": "z",
+                          "\u01b7": "Z", "\u0256": "d", "\u019d": "N", "\u0272": "n",
+                          "\u0289": "u", "\ua733": "aa", "\ua732": "AA"})
 
 
 def _slug(text: str) -> str:
@@ -354,8 +360,10 @@ def _slug(text: str) -> str:
     # an accented one is not dropped.
     # (Written plainly before and after the letters come apart: one comes
     # apart into another the table writes, as a slashed o with an accent.)
+    # (A micro sign as u, before it reads as the Greek mu.)
     plain = unicodedata.normalize(
-        "NFKD", unicodedata.normalize("NFKC", text).translate(_LETTERS)).translate(_LETTERS)
+        "NFKD", unicodedata.normalize("NFKC", text.replace("\u00b5", "u"))
+        .translate(_LETTERS)).translate(_LETTERS)
     slug = re.sub(r"[^A-Za-z0-9]+", "-", plain.encode("ascii", "ignore").decode()) \
         .strip("-").lower()
     return slug[:60].strip("-") or "shared-study"

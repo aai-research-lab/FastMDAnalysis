@@ -4888,3 +4888,54 @@ def test_an_open_running_in_this_process_is_kept_whatever_its_lock_says(tmp_path
         assert other.is_dir()
     open_shared("10.5072/zenodo.7", into=into)
     assert not other.exists()
+
+
+def test_a_study_copied_with_its_shared_to_json_is_refused_and_its_remedy_works(
+        tmp_path, unsteady, capsys):
+    """Hands-on review of the fifty-eighth commit: a study's folder copied by
+    hand, its shared_to.json with it, shared onto the original's draft, and
+    the two then wrote over each other's."""
+    import shutil
+
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    copy = tmp_path / "copy"
+    shutil.copytree(study, copy)
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    said = capsys.readouterr().err
+    assert f"is the one of the study at {study.resolve()}, copied with it" in said
+    assert f"delete {copy / 'shared_to.json'} and share again" in said
+    assert not any(c[0] in ("PUT", "POST", "DELETE") for c in unsteady.calls)
+    # As said: shared as a study of its own, and the original goes on.
+    (copy / "shared_to.json").unlink()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 0
+    assert json.loads((copy / "shared_to.json").read_text())["zenodo-sandbox"]["id"] != "7"
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"]["id"] == "7"
+
+
+def test_a_study_moved_goes_on_with_its_draft(tmp_path, unsteady):
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    moved = study.rename(tmp_path / "moved")
+    unsteady.calls.clear()
+    assert _share_to_zenodo(moved, tmp_path / "a.zip") == 0
+    kept = json.loads((moved / "shared_to.json").read_text())
+    assert kept["zenodo-sandbox"]["id"] == "7" and kept["folder"] == str(moved.resolve())
+    assert not any(c[0] == "POST" and c[1] == "/api/deposit/depositions"
+                   for c in unsteady.calls)
+
+
+def test_a_lone_surrogate_is_compared_as_zenodo_keeps_it():
+    """Review of the fifty-eighth commit: ftfy puts U+FFFD for a lone
+    surrogate, which was taken out here."""
+    assert zenodo._plain("a\ud800b") == "a�b"
+
+
+def test_a_tiny_download_s_amounts_are_said_in_bytes():
+    from fastmdxplora.sharing.opening import _got
+
+    assert _got(5, 17, "at") == " at 5 of 17 bytes"
+    assert _got(5, 17) == ", with 5 of 17 bytes downloaded"

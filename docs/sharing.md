@@ -242,7 +242,12 @@ archive of 10 MB or more says how much of it has gone at each tenth.
 A study is shared to Zenodo by one command at a time: a second started
 while one runs is refused (`environment.share.not_finished`), as two would
 each make a draft (on a disk that keeps no locks, and on Windows, two at
-once are not told apart: share one at a time there).
+once are not told apart: share one at a time there). A study's
+`shared_to.json` names its folder too: a study copied by hand with it, while
+the one it was copied from still holds the same draft or record, is refused
+(`environment.share.not_finished`), saying to delete the copy's
+`shared_to.json` to share it as a study of its own; a study moved goes on with
+its draft or record.
 
 It needs a Zenodo token in `ZENODO_TOKEN` (`ZENODO_SANDBOX_TOKEN` for
 `--share-to zenodo-sandbox`) with the **deposit:write** scope, made under
@@ -333,7 +338,7 @@ FastMDXplora:
    A download that has had nothing for 30 seconds counts as stalled, and is
    asked for again from where it stopped. A folder made to open into is not
    left behind when the study is refused, and what an open killed part way
-   leaves (`.fastmdx-opening-<computer>-...`) is taken away by the next open
+   leaves (`.fastmdx-opening-<computer>.<digest of its name>-...`) is taken away by the next open
    into that folder on the same computer, told from one still running by
    the lock each holds while it runs (on a disk that keeps no locks, or on
    Windows, it is left for you to delete). An archive of 10 MB or
@@ -520,7 +525,7 @@ The packing list of the demo study, cut to one file of each kind:
 
 | Code | When |
 |---|---|
-| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; a file or folder of the study is a link; or a file or folder of it cannot be read. |
+| `environment.share.not_finished` | The study is running or stopped short; a run of a study of several did not finish or never ran; a run's prepared system is not found, is another one now, or is kept as links; a file or folder of the study is a link; a file or folder of it cannot be read; it is being shared already; or its `shared_to.json` is the one of a study it was copied from. |
 | `environment.share.unscrubbed` | A packed text file still holds the study's folder, the home folder or the computer's name. |
 | `environment.share.not_a_study` | Opening: an archive that cannot be read or is no zip, no packing list, not RO-Crate 1.2, not this profile, or a profile version this release does not know. Sharing: a study's record of runs names no run, or a run by a name that is no folder's. |
 | `environment.share.unsafe` | A member outside the folder, a link or a device, or more unpacked than the limit. |
