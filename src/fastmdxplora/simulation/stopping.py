@@ -823,6 +823,21 @@ def study_ended(record: dict[str, Any]) -> str:
     return ""
 
 
+def record_said(text: str) -> str:
+    """A sentence a record holds, with its lengths in ps under 1 ns
+    (`length_said`): a record written before its sentences were said so
+    gave "the 0.0012 ns ceiling" and "Extending by 0.25 ns"."""
+    import re
+
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    def said(found: "re.Match[str]") -> str:
+        value = float(found.group(1))
+        return length_said(value) if 0 < value < 1 else found.group(0)
+
+    return re.sub(r"(?<![\w.])(\d+(?:\.\d+)?(?:[eE]-?\d+)?) ns\b", said, str(text or ""))
+
+
 def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) -> dict[str, Any]:
     """What was decided on one round of a study's record, and what stopped
     a stopped one, as every page and the report say it: ``said``, the words
@@ -889,7 +904,7 @@ def round_decided(entry: dict[str, Any], *, last: bool, record: dict[str, Any]) 
     else:
         said = "judged; what was decided is not recorded"
     return {"said": said, "stopped_by": stopped_by, "going": going, "theirs": theirs,
-            "sentence": sentence if theirs else ""}
+            "sentence": record_said(sentence) if theirs else ""}
 
 
 def stopping_section(root: str | Path) -> list[str]:
@@ -917,7 +932,7 @@ def stopping_section(root: str | Path) -> list[str]:
              + ", and ran in pieces: after each, the analyses were read and the study "
              "was extended by what the numbers said was still needed.", ""]
     names = [t.analysis for t in targets]
-    lines.append("| round | production (ns) | " + " | ".join(names) + " | decision |")
+    lines.append("| round | production | " + " | ".join(names) + " | decision |")
     lines.append("|---|---|" + "---|" * len(names) + "---|")
     for number, entry in enumerate(record["rounds"], start=1):
         verdicts = {v.get("analysis"): v for v in entry.get("verdicts") or []}
@@ -933,16 +948,20 @@ def stopping_section(root: str | Path) -> list[str]:
             cells.append(cell)
         decided = round_decided(entry, last=number == len(record["rounds"]),
                                 record=record)["said"]
-        lines.append(f"| {number} | {entry.get('production_ns', 0):g} | "
-                     + " | ".join(cells) + f" | {decided} |")
+        production = entry.get("production_ns", 0)
+        production = (length_said(float(production))
+                      if isinstance(production, (int, float)) and not isinstance(production, bool)
+                      else "not recorded")
+        lines.append(f"| {number} | {production} | " + " | ".join(cells) + f" | {decided} |")
     lines.append("")
-    if record.get("said") and record.get("outcome") == "running":
+    said = record_said(record.get("said") or "")
+    if said and record.get("outcome") == "running":
         # A record cannot tell a study still running from one killed: what
         # it last said it was doing, never that it is running.
         lines += [f"**{_OUTCOME['running']}.** The record does not say the last round "
-                  f"finished; it last says: {record['said']}", ""]
-    elif record.get("said"):
-        lines += [f"**{_OUTCOME.get(record.get('outcome'), 'Outcome')}.** {record['said']}", ""]
+                  f"finished; it last says: {said}", ""]
+    elif said:
+        lines += [f"**{_OUTCOME.get(record.get('outcome'), 'Outcome')}.** {said}", ""]
     if record.get("outcome") == "met":
         lines += [
             "Stopping as soon as an error falls below a target favours a round whose error "

@@ -497,7 +497,7 @@ class TestTheReport:
         text = "\n".join(stopping_section(tmp_path))
         assert "## How long it ran, and why" in text
         assert "rmsd to ±0.01 nm" in text
-        assert "| 1 | 2 | " in text and "extended by 6 ns" in text
+        assert "| 1 | 2 ns | " in text and "extended by 6 ns" in text
         assert "| determined as asked, so stopped |" in text
         assert "**Determined as asked.**" in text
         assert "A state none of the runs left is not in the error" in text
@@ -852,7 +852,7 @@ def test_a_real_study_is_run_until_its_ceiling(tmp_path):
     assert (study / "segment-001").is_dir() and (study / "joined" / "production.dcd").is_file()
     report = (study / "report" / "report.md").read_text(encoding="utf-8")
     assert "## How long it ran, and why" in report
-    assert f"| {len(produced)} | 0.0012 | " in report and "stopped at the ceiling" in report
+    assert f"| {len(produced)} | 1.2 ps | " in report and "stopped at the ceiling" in report
     # Writing the report again leaves the record of what the study ran as
     # the study, at its whole length: not as one step that wrote a report,
     # and not as its last extension.

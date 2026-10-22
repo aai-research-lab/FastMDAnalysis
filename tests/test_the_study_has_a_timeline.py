@@ -783,6 +783,29 @@ def test_a_round_still_extending_is_said_extending_never_done(tmp_path, runs, wh
     assert "the last round asked for 250 ps more" in methods
 
 
+def test_lengths_under_1_ns_are_said_in_ps_in_the_report_and_from_an_older_record(tmp_path):
+    """The Report's table gave "production (ns)" and 0.0006 for a 0.6 ps
+    round, and a record written before its sentences were said in ps was
+    quoted as it stands: "Stopped at the 0.0012 ns ceiling"."""
+    from fastmdxplora.gui.stopping_view import stopping_payload
+    from fastmdxplora.simulation.stopping import stopping_section
+
+    root = tmp_path / "study"
+    root.mkdir()
+    _stopping(root, ["study"], [_round("extend", 0.0006, 0.0006), _round("ceiling", 0.0012)],
+              "ceiling", "Stopped at the 0.0012 ns ceiling, with what was asked not determined "
+              "to the precision asked: rmsd 0.150 ± 0.004 nm, outside the ±0.002 asked.")
+    lines = stopping_section(root)
+    assert "| round | production | rmsd | decision |" in lines
+    rows = [line for line in lines if line[:4] in ("| 1 ", "| 2 ")]
+    assert [row.split(" | ")[1] for row in rows] == ["0.6 ps", "1.2 ps"], rows
+    assert rows[0].endswith(" | the run extended by 0.6 ps |")
+    assert ("**Not determined as asked.** Stopped at the 1.2 ps ceiling, with what was asked "
+            "not determined") in "\n".join(lines)
+    assert stopping_payload(root)["said"].startswith("Stopped at the 1.2 ps ceiling, with")
+    assert not any("0.0012 ns" in line or "0.0006" in line for line in lines)
+
+
 def test_the_report_says_a_record_still_running_as_not_finished_when_written(tmp_path):
     """Under the round still extending, the Report's summary said "**Still
     running.**" of a study a kill leaves the same, and "Write it again"
@@ -900,6 +923,7 @@ def test_a_round_s_cause_is_its_own_after_the_study_is_resumed_and_stopped(tmp_p
     card = stopping_payload(root)
     assert [r["decided"] for r in card["rounds"]] == ["each run extended by 1 ns", cause]
     assert card["said"] == ENDED
+    assert "| 2 | 2 ns | " in "\n".join(stopping_section(root))
     assert [line for line in stopping_section(root) if line.startswith("| 2 |")][0].endswith(
         f" | {cause} |")
     record = json.loads((root / "stopping.json").read_text(encoding="utf-8"))

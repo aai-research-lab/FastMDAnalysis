@@ -373,7 +373,7 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
     piece of the length the round asked for, the next in the run's order),
     or, where it began none, just after the last step before it."""
     from fastmdxplora.simulation.sampling_ask import length_said
-    from fastmdxplora.simulation.stopping import RECORD, study_ended
+    from fastmdxplora.simulation.stopping import RECORD, record_said, study_ended
 
     record = _json(base / RECORD)
     if not isinstance(record, dict) or not isinstance(record.get("targets"), list):
@@ -430,7 +430,7 @@ def _rounds(base: Path) -> list[dict[str, Any]]:
                 "stopped when asked (Ctrl+C or a signal), before it was "
                 + ("applied again" if rounds else "first applied") if asked
                 else "not applied" + (" again" if rounds else "")),
-            "detail": said, "stopped_by": "asked" if asked else "",
+            "detail": record_said(said), "stopped_by": "asked" if asked else "",
             "placed": {"at": latest, "before": False} if latest else None,
             "production_said": "", "round": None})
     return events
