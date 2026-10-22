@@ -502,3 +502,40 @@ def test_why_a_study_did_not_open_is_not_said_once_it_has_passed(workspace) -> N
     assert searched_after_the_answer == ["Not in this test."]
     assert back_after_the_answer == []
     assert errors == []
+
+
+def test_all_studies_opened_on_is_listed_once(workspace) -> None:
+    """A page opened on All studies listed its studies as it loaded, and again
+    when its first route was put in its address once its state was read: the
+    cards were drawn again under whatever had been done to them."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "ubiquitin"), host="127.0.0.1",
+                                      port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            listed: list[str] = []
+            page.on("request", lambda request: listed.append(request.url)
+                    if "/api/studies" in request.url else None)
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.wait_for_function("() => !!window.FastMDXDashboard?.state.appState.mode")
+            first = page.wait_for_selector(
+                "#studies-grid .study-card, #studies-table-wrap .studies-row")
+            page.wait_for_timeout(1500)
+            kept = first.evaluate("drawn => drawn.isConnected")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    # Listed again, it was asked for the folder its first list was read from.
+    assert [url for url in listed if "path=" in url] == []
+    assert kept, "the cards first drawn are the cards shown"
+    assert errors == []
