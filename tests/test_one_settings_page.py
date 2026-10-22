@@ -412,6 +412,68 @@ def test_a_display_size_chosen_sizes_everything_and_is_saved(browser, session):
     assert restored == ["auto", "auto"]
 
 
+def _at(browser, url, size, viewport, where="#overview"):
+    context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]})
+    context.add_init_script(f"try {{ localStorage.setItem('fmx.displaySize', '{size}'); }} "
+                            "catch (e) {}")
+    page = context.new_page()
+    page.set_default_timeout(60000)
+    page.errors = []
+    page.on("pageerror", lambda error: page.errors.append(str(error)))
+    page.route("**/api/defaults-file", lambda route: route.fulfill(status=404, body="{}"))
+    page.goto(url + where, wait_until="domcontentloaded")
+    page.wait_for_function("() => window.FastMDXDashboard && window.FastMDXSettings")
+    page.wait_for_selector("body:not(.state-loading)")
+    return page
+
+
+def _box(page, selector):
+    return page.evaluate(f"""() => {{ const r = document.querySelector('{selector}')
+        .getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }}""")
+
+
+@pytest.mark.parametrize("size", ["90", "110", "125", "150"])
+def test_at_every_display_size_tips_and_menus_land_where_they_are_seen(browser, session, size):
+    """A tooltip was placed from the window's height read from the root
+    element, which said the screen's pixels: at 125% the status bar's tip
+    was put wholly below the window, and one near the right edge ran past
+    it. The gear's menu, opened by a click where its button is seen, opens
+    over it; and the columns end at the status bar at every size."""
+    page = _at(browser, session.url, size, (1440, 900))
+    zoom = int(size) / 100
+    said = {"window": page.evaluate("() => [innerWidth, innerHeight]")}
+    shell, bar = _box(page, ".app-shell"), _box(page, ".status-bar")
+    said["columns"] = abs(shell[3] - bar[1]) < 2 and abs(bar[3] - said["window"][1]) < 2
+    tips = {}
+    for target in ("#sb-machine", "#refresh-now"):
+        at = _box(page, target)
+        page.mouse.move(0, 0)
+        page.wait_for_timeout(350)
+        page.mouse.move((at[0] + at[2]) / 2 * zoom, (at[1] + at[3]) / 2 * zoom)
+        page.wait_for_selector("#fmx-tooltip:not([hidden])")
+        tip = _box(page, "#fmx-tooltip")
+        tips[target] = {"inside": tip[0] >= 0 and tip[1] >= 0 and tip[2] <= said["window"][0] + 0.5
+                        and tip[3] <= said["window"][1] + 0.5,
+                        "beside": min(abs(at[1] - tip[3]), abs(tip[1] - at[3])) < 12}
+    page.mouse.move(0, 0)
+    gear = _box(page, "#settings-open")
+    page.mouse.click((gear[0] + gear[2]) / 2 * zoom, (gear[1] + gear[3]) / 2 * zoom)
+    page.wait_for_selector("#settings-popup:not([hidden])")
+    menu = _box(page, "#settings-popup")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert abs(said["window"][0] - 1440 / zoom) < 0.01, said
+    assert said["columns"], said
+    for target, placed in tips.items():
+        assert placed == {"inside": True, "beside": True}, (target, placed)
+    assert menu[0] >= 0 and menu[1] >= 0 and menu[2] <= said["window"][0] + 0.5
+    assert menu[3] <= said["window"][1] + 0.5
+    # Over the button it was opened from, its foot on the button.
+    assert menu[0] < gear[2] and gear[0] < menu[2], (menu, gear)
+    assert gear[1] - 12 < menu[3] <= gear[3] + 12, (menu, gear)
+
+
 def test_the_docs_say_the_settings_page(tmp_path):
     from pathlib import Path
 

@@ -42,11 +42,12 @@
  * page lays itself out and is positioned in its own: every popover, menu
  * and tooltip placed from a box would land a quarter off at 125%, and the
  * Viewer's canvas would draw at the page's pixels, not the screen's. While
- * the page is zoomed, what it is told of the screen is said in its own
- * pixels, as at 100%, and the screen's pixels per page pixel include the
- * zoom; at 100% nothing is changed. Where the browser does not zoom so
- * (no `currentCSSZoom`), the page stays at 100% and Settings says to use
- * the browser's own zoom. */
+ * the page is zoomed, what it is told of the screen (a box, the pointer,
+ * the window's width and height however read) is said in its own pixels,
+ * as at 100%, and the screen's pixels per page pixel include the zoom; at
+ * 100% nothing is changed. Where the browser does not zoom so (no
+ * `currentCSSZoom`), the page stays at 100% and Settings says to use the
+ * browser's own zoom. */
 (function () {
   var root = document.documentElement;
   var STEPS = [1, 1.1, 1.25, 1.5];
@@ -132,6 +133,18 @@
       if (!d || !d.configurable || !d.get) return;
       Object.defineProperty(window, name, { configurable: true, enumerable: d.enumerable,
         get: function () { return d.get.call(window) / zoom; } });
+    });
+    // The window's size read from the root element (as tooltips.js reads
+    // it): the root's own box is the page's, and only the root's is the
+    // window's.
+    ["clientWidth", "clientHeight", "scrollWidth", "scrollHeight"].forEach(function (name) {
+      var d = Object.getOwnPropertyDescriptor(Element.prototype, name);
+      if (!d || !d.configurable || !d.get) return;
+      Object.defineProperty(Element.prototype, name, { configurable: true, enumerable: d.enumerable,
+        get: function () {
+          var value = d.get.call(this);
+          return this === document.documentElement ? value / zoom : value;
+        } });
     });
     var ratio = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
     if (ratio && ratio.configurable && ratio.get) {
