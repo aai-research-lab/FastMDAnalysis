@@ -68,7 +68,7 @@ def timeline_of(root: str | Path) -> dict[str, Any]:
                     again["changes"] = _means_moved(previous / "analysis", base / "analysis")
                     again["again"] = True
     events += _pieces(base)
-    events += _rounds(base, {base.name: ""})
+    events += _rounds(base)
     ended = _ended(base)
     if ended is not None:
         events.append(ended)
@@ -145,7 +145,7 @@ def _of_its_runs(base: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
         listed.append({"label": run["label"], "path": str(folder), "steps": len(steps)})
     # The study's own rounds, where it ran its runs until what it asks is
     # determined: the study's steps, named by no run.
-    events += _rounds(base, {run["run_id"]: run["label"] for run in runs})
+    events += _rounds(base)
     # Those with a time newest first; those without after them, run by run
     # in the study's order, each run's as its own Timeline orders them.
     timed = sorted((e for e in events if _when(e) is not None), key=_when, reverse=True)
@@ -354,7 +354,7 @@ _STOPPED_WHEN_ASKED = "Stopped when asked"
 _EXTENDING_FAILED = "Stopped: extending "
 
 
-def _rounds(base: Path, names: dict[str, str]) -> list[dict[str, Any]]:
+def _rounds(base: Path) -> list[dict[str, Any]]:
     """Each round of a study run until what it asks is determined
     (`simulation.stop_when`), as its record (`stopping.json`) gives it:
     the production judged, what was decided, and what stopped it, from
@@ -372,7 +372,8 @@ def _rounds(base: Path, names: dict[str, str]) -> list[dict[str, Any]]:
         return []
     rounds = record.get("rounds") if isinstance(record.get("rounds"), list) else []
     runs = [str(name) for name in record.get("runs") or [] if isinstance(name, (str, int))]
-    folders = [folder for folder in (_run_folder(base, name) for name in runs) if folder]
+    folders = [folder for folder in (_run_folder(base, name, alone=len(runs) == 1)
+                                     for name in runs) if folder]
     several = len(runs) > 1
     # Each run's production before the rounds, and its pieces in order.
     latest = max((t for t in (_simulated_until(folder) for folder in folders) if t),
@@ -474,14 +475,20 @@ def _step(kind: str, phase: str, status: str) -> dict[str, Any]:
             "changes": None, "where": "stopping.json"}
 
 
-def _run_folder(base: Path, name: str) -> Path | None:
+def _run_folder(base: Path, name: str, *, alone: bool = False) -> Path | None:
     """One of the record's runs: a child of the study's `runs/`, or the
-    study itself for a study of one run. A name is data, never a path."""
+    study itself for a study of one run. The record names a study of one
+    run by its folder's name when it was written, so with the record's one
+    run (``alone``) and no `runs/` folder the study's folder is the run's,
+    whatever it is called now (renamed, copied, or unpacked under another
+    name). A name is data, never a path."""
     if not name or "/" in name or "\\" in name or name in (".", ".."):
         return None
     folder = base / "runs" / name
     if record_access.is_dir(folder):
         return folder
+    if alone and not record_access.is_dir(base / "runs"):
+        return base
     return base if base.name == name else None
 
 

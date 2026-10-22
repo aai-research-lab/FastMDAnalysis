@@ -681,3 +681,32 @@ def test_a_run_going_or_finished_is_not_said_stopped(tmp_path):
     finished.mkdir()
     _a_run_said_it_was_going(finished, said="completed")
     assert timeline_of(going)["events"] == [] and timeline_of(finished)["events"] == []
+
+
+def test_a_one_run_study_s_rounds_are_placed_under_another_folder_name(tmp_path):
+    """The record names a study of one run by its folder's name when it was
+    written: copied, moved or unpacked under another name, its rounds found
+    no folder and were listed below the oldest step."""
+    import shutil
+
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    root = tmp_path / "study"
+    root.mkdir()
+    (root / "manifest.json").write_text(json.dumps({"phases": [
+        _phase("setup", "07:00:00", "07:00:04"), _phase("simulation", "07:00:04", "07:30:04")]}),
+        encoding="utf-8")
+    (root / "resolved_config.yml").write_text("simulation:\n  duration_ns: 1.0\n",
+                                              encoding="utf-8")
+    _a_piece(root, 1, 0.25, "08:00:00", "08:10:00")
+    _stopping(root, ["study"], [_round("extend", 1.0, 0.25), _round("met", 1.25)], "met",
+              "After 1.25 ns of production: rmsd 0.150 ± 0.001 nm, within the ±0.002 asked.")
+    copied = tmp_path / "copied"
+    shutil.move(str(root), str(copied))
+    events = timeline_of(copied)["events"]
+    said = [e["said"] for e in events]
+    assert said == ["Round 2: determined as asked, so stopped", "Carried on, piece 1",
+                    "Round 1: the run extended by 250 ps", "Simulated", "Set up"], said
+    rounds = {e["round"]: e["placed"] for e in events if e["kind"] == "round"}
+    assert rounds == {1: {"at": "2026-10-18T08:00:00+00:00", "before": True},
+                      2: {"at": "2026-10-18T08:10:00+00:00", "before": False}}

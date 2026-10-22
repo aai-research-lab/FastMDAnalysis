@@ -124,14 +124,19 @@ def _measures(record: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _run_folder(where: Path, name: str) -> Path | None:
+def _run_folder(where: Path, name: str, *, alone: bool = False) -> Path | None:
     """One of the record's runs: a child of the study's `runs/`, or the
-    study itself for a study of one run. A name is data, never a path."""
+    study itself for a study of one run, whatever its folder is called now
+    (``alone``: the record's one run, and no `runs/` folder), as the
+    Timeline finds it (`study_timeline._run_folder`). A name is data, never
+    a path."""
     if not name or "/" in name or "\\" in name or name in (".", ".."):
         return None
     folder = where / "runs" / name
     if folder.is_dir():
         return folder
+    if alone and not (where / "runs").is_dir():
+        return where
     return where if where.name == name else None
 
 
@@ -148,7 +153,8 @@ def _next_piece(record: dict[str, Any], where: Path) -> dict[str, Any] | None:
     production = _finite(last.get("production_ns")) or 0.0
     piece = {"more_ns": more, "to_ns": production + more, "seconds": None, "platform": ""}
     runs = [str(r) for r in record.get("runs") or []]
-    first = next((f for f in (_run_folder(where, r) for r in runs) if f is not None), None)
+    first = next((f for f in (_run_folder(where, r, alone=len(runs) == 1) for r in runs)
+                  if f is not None), None)
     if first is not None:
         from fastmdxplora.simulation.sampling_ask import _time_here
 
