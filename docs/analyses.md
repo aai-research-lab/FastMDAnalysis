@@ -85,8 +85,11 @@ solute the analyses already use (the scope's, `protein or resname LIG` with a
 ligand); water, ions and lipids never. Its molecules are grouped into
 complexes in the first frame the check reads: molecules bonded to each other,
 or in contact (any heavy atoms within 0.5 nm, at the nearest image), are one
-complex, kept whole from frame to frame. Each complex is checked against its
-own periodic images only. A copy meeting another copy's image (eight
+complex, kept whole from frame to frame. The grouping is not made again as the
+run goes: a complex that parts, a ligand that unbinds, or molecules that join
+during the run are grouped as in the first frame read, so a parted dimer may
+be noted and an oligomer formed later is checked as its molecules. Each
+complex is checked against its own periodic images only. A copy meeting another copy's image (eight
 peptides in a box, an aggregation study) is contact between molecules in the
 box, their concentration, not a self-image, and is not counted: eight 2.2 nm
 peptides on a grid in a 6 nm cube each come 3.80 nm from their own images,
@@ -153,7 +156,8 @@ and says that the longer run it asks for would determine the means without
 lifting that bias, as the Overview's lead and the Agent's answers on run
 length and on what would strengthen the run say beside the longer run they
 advise (`image_note.longer_run_said`).
-Not done yet: the check is not said while the run goes; a ligand's approach
+Not done yet: complexes are not grouped again frame by frame (above); the
+check is not said while the run goes; a ligand's approach
 to an image of the protein is not recorded apart from the complex's; the
 note is not graded by thresholds (above); the GUI's map of time against time
 draws its last block a full block wide where the figure draws it its own

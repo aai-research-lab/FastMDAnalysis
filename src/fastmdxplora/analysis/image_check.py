@@ -27,6 +27,10 @@ one complex (:func:`complexes`), kept whole from frame to frame. Each complex
 is checked against its own images only. Two copies of a peptide meeting
 across the box's boundary are two molecules in contact, the box's
 concentration, not a molecule meeting its own copy, and are not counted.
+The grouping is not made again as the run goes: a complex that parts or a
+ligand that unbinds stays one complex, so a parted dimer may be noted, and
+molecules that join later (an oligomer formed during the run) are checked as
+its molecules.
 
 **The images searched.** Every lattice vector ``L = i a + j b + k c`` that
 could carry an image closer than the closest found, in any cell shape,
@@ -521,18 +525,22 @@ class _Complex:
 
 def _grouping_said(groups: list[list[int]]) -> str:
     """How the solute's molecules were grouped, as the finding says it."""
-    rule = ("molecules bonded to each other, or in contact (any heavy atoms within "
-            f"{CLOSE_NM:g} nm) in the first frame read, are one complex")
+    # Grouped once, in the first frame read, and said so: a complex that
+    # parts is still checked as one, and molecules that join later apart.
+    rule = ("molecules bonded to each other or in contact (any heavy atoms within "
+            f"{CLOSE_NM:g} nm) in the first frame read being one complex for the whole "
+            "run, so a complex that parts or a ligand that unbinds may still be noted, and "
+            "molecules that join later are checked apart")
     if len(groups) == 1:
         if len(groups[0]) == 1:
             return "checked as one molecule against its own images"
         return (f"checked as one complex of {len(groups[0])} molecules against its own "
-                f"images ({rule})")
+                f"images, {rule}")
     sizes = sorted({len(group) for group in groups})
     each = (f"of {sizes[0]} {'molecule' if sizes[0] == 1 else 'molecules'} each"
             if len(sizes) == 1 else f"of {sizes[0]} to {sizes[-1]} molecules")
     return (f"checked as {len(groups)} complexes {each}, each against its own images "
-            f"only ({rule}); a copy meeting another copy's image is contact between "
+            f"only, {rule}; a copy meeting another copy's image is contact between "
             "molecules in the box, their concentration, not a self-image, and is "
             "not counted")
 

@@ -957,6 +957,21 @@ class TestSeparateCopiesAreNotOneComplex:
         union = traj.xyz[0].astype(np.float64)
         assert abs(_brute(union, np.diag([6.0] * 3), cells=1) - 0.8) < 1e-5
 
+    def test_the_grouping_says_it_is_not_made_again_as_the_run_goes(self):
+        """Grouped once, in the first frame read: a dimer that parts is
+        still checked as one, and an oligomer formed later as its molecules,
+        which the finding said nowhere."""
+        from fastmdxplora.analysis.image_check import _grouping_said
+
+        for groups in ([[0, 1]], [[0], [1]], [[0, 1], [2]]):
+            said = _grouping_said(groups)
+            assert ("in the first frame read being one complex for the whole run, so a "
+                    "complex that parts or a ligand that unbinds may still be noted, and "
+                    "molecules that join later are checked apart") in said, said
+            # One bracket deep.
+            assert said.count("(") == 1, said
+        assert _grouping_said([[0]]) == "checked as one molecule against its own images"
+
     def test_a_dimer_in_contact_is_one_complex(self):
         """Two chains 0.4 nm apart side by side: one complex, checked as the
         union is, through each frame, though wrapped apart as stored."""
