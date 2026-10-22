@@ -166,7 +166,7 @@ Not done yet: complexes are not grouped again frame by frame (above); the
 check is not said while the run goes; a ligand's approach
 to an image of the protein is not recorded apart from the complex's; the
 note is not graded by thresholds (above); the GUI's map of time against time
-draws its last block a full block wide where the figure draws it its own
+plots its last block a full block wide where the figure plots it its own
 width; several workers clustering at once each plan on the same memory; and
 no frame cap is set by default (a cap is the person's choice); and fetching a
 study from another machine does not yet give its sizes by kind.
