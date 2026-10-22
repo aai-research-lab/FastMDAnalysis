@@ -32,14 +32,30 @@
     return node;
   }
 
-  function read() {
+  function newestFirst(a, b) { return b.at - a.at; }
+
+  /* The list as saved on this computer, newest first, or null where the
+   * browser saves nothing. Only a run's end keeps its study's key (to open
+   * it); nothing keeps a folder. */
+  function stored() {
     try {
       var kept = JSON.parse(localStorage.getItem(SAVED) || "[]");
-      notices = Array.isArray(kept) ? kept.filter(function (n) { return n && typeof n.said === "string"; }) : [];
-      // A folder is kept only by what opens it.
-      notices.forEach(function (n) { if (n.act !== "overview") n.folder = ""; });
-      seenAt = Number(localStorage.getItem(SEEN)) || 0;
-    } catch (e) { notices = []; }
+      var list = Array.isArray(kept) ? kept.filter(function (n) {
+        return n && typeof n.said === "string" && isFinite(n.at);
+      }) : [];
+      list.forEach(function (n) {
+        delete n.folder;
+        if (n.act !== "overview") n.key = "";
+      });
+      return { list: list.sort(newestFirst), seen: Number(localStorage.getItem(SEEN)) || 0 };
+    } catch (e) { return null; }
+  }
+
+  function read() {
+    var kept = stored();
+    if (!kept) return;
+    notices = kept.list;
+    seenAt = kept.seen;
   }
 
   function write() {
@@ -49,25 +65,51 @@
     } catch (e) { /* a browser that saves nothing: this page's list still holds them */ }
   }
 
+  function board() { return window.FastMDXDashboard; }
+
+  /* The open study: the server's key for it and its folder's name, as the
+   * sidebar names it. */
   function study() {
-    var board = window.FastMDXDashboard;
-    var folder = board && board.state ? String(board.state.outputDir || "") : "";
-    return { folder: folder, name: folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "" };
+    var state = board() && board().state ? board().state : {};
+    var named = el("study-folder");
+    var folder = String(state.outputDir || "");
+    return { key: String(state.studyShown || ""),
+             name: (named && named.dataset.name) || folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "" };
   }
 
-  /* A notice saved: the same words of the same kind within two seconds are
-   * one (a toast shown again as a page is drawn again). Saved is what was
-   * said, the study's name and, only for what opens it (a run's end), its
-   * folder: nothing of the study the notice did not show. */
-  function add(kind, said, about, act) {
+  /* The study a toast is about: the open one on its pages; on a page of no
+   * study (All studies, Compare, New study, the Agent) none, as a toast
+   * there is about another study or none. */
+  var STUDY_PAGES = ["overview", "viewer", "analysis", "report", "files"];
+  function studyOfThePage() {
+    var page = document.documentElement.dataset.page || "overview";
+    return STUDY_PAGES.indexOf(page) >= 0 ? study() : { key: "", name: "" };
+  }
+
+  /* A notice saved, unless it is saved already: one with the same identity
+   * (a run's end, a refusal of the Log, as another window of the GUI saved
+   * it), or the same words of the same kind about the same study within two
+   * seconds (a toast shown again as a page is drawn again). The list is
+   * read from this computer first, where another window may have saved it.
+   * Saved is what was said, the study's name and, only for what opens it
+   * (a run's end), the study's key: nothing of the study the notice did not
+   * show. */
+  function add(kind, said, about, act, id) {
     said = String(said || "").replace(/\s+/g, " ").trim();
     if (!said) return;
+    read();
     var now = Date.now();
-    var last = notices[0];
-    if (last && last.said === said && last.kind === kind && now - last.at < 2000) return;
-    var where = about || study();
-    notices.unshift({ at: now, kind: kind, said: said, name: where.name || "", act: act || "",
-                      folder: act === "overview" ? where.folder || "" : "" });
+    var where = about || studyOfThePage();
+    var name = where.name || "";
+    var already = notices.some(function (n) {
+      if (id) return n.id === id && Math.abs(now - n.at) < 300000;
+      return n.kind === kind && n.said === said && (n.name || "") === name && Math.abs(now - n.at) < 2000;
+    });
+    if (already) return;
+    var notice = { at: now, kind: kind, said: said, name: name, act: act || "",
+                   key: act === "overview" ? where.key || "" : "" };
+    if (id) notice.id = id;
+    notices.unshift(notice);
     if (notices.length > MOST) notices.length = MOST;
     write();
     drawBell();
@@ -104,13 +146,17 @@
     attach();
   }
 
-  // A run that ended, as run-notice.js sees it.
+  // A run that ended, as run-notice.js sees it: how it ended, as the
+  // browser's notice says it; the study by the server's key for it, named
+  // by its folder.
   window.addEventListener("fmx:run-ended", function (event) {
     var d = event.detail || {};
     var ended = { failed: "failed", stopped: "stopped", interrupted: "was interrupted" }[d.run] || "completed";
     var said = (d.name || "The run") + " " + ended + (d.stage ? ": " + d.stage : ".");
-    add(d.run === "failed" || d.run === "interrupted" ? "refused" : "ended", said,
-        { folder: d.study || study().folder, name: d.name || study().name }, "overview");
+    var here = study();
+    var about = { key: d.study || "", name: d.folder || (d.study && d.study === here.key ? here.name : "") };
+    add(d.run === "failed" || d.run === "interrupted" ? "refused" : "ended", said, about, "overview",
+        "run:" + (d.study || "") + ":" + (d.started || "") + ":" + ended);
   });
 
   /* A refusal as a notice says it: its first line, at most 200
@@ -130,14 +176,15 @@
     var events = Array.isArray(d.events) ? d.events : [];
     var times = events.map(function (e) { return Date.parse(e.timestamp || ""); }).filter(isFinite);
     var newest = times.length ? Math.max.apply(null, times) : 0;
-    if (!(where.folder in since)) { since[where.folder] = newest; return; }
-    var from = since[where.folder];
+    if (!(where.key in since)) { since[where.key] = newest; return; }
+    var from = since[where.key];
     events.forEach(function (e) {
       var at = Date.parse(e.timestamp || "");
       if (!isFinite(at) || at <= from || typeof d.refused !== "function" || !d.refused(e)) return;
-      add("refused", firstLine(e.message), where);
+      var line = firstLine(e.message);
+      add("refused", line, where, "", "event:" + where.key + ":" + e.timestamp + ":" + line);
     });
-    since[where.folder] = Math.max(from, newest);
+    since[where.key] = Math.max(from, newest);
   });
 
   /* ---- The bell and its list ---- */
@@ -164,7 +211,11 @@
     box.hidden = true;
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Notices");
+    // Keys pressed in the list stay in it: Escape closes the list alone,
+    // and a page's own keys (All studies' c, j, k, t, x) do nothing under it.
     box.addEventListener("keydown", function (event) {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      event.stopPropagation();
       if (event.key === "Escape") { event.preventDefault(); close(true); }
     });
     document.body.appendChild(box);
@@ -227,10 +278,10 @@
       if (n.name) about.appendChild(make("span", "", n.name));
       // Another study opens by a POST, refused to a page bound beyond
       // this computer: not offered there.
-      if (n.act === "overview" && n.folder && (n.folder === study().folder || !beyondLoopback())) {
+      if (n.act === "overview" && n.key && (n.key === study().key || !beyondLoopback())) {
         var go = make("button", "notice-act", "Open its Overview");
         go.type = "button";
-        go.addEventListener("click", function () { openOverview(n.folder); });
+        go.addEventListener("click", function () { openOverview(n.key); });
         about.appendChild(go);
       }
       if (about.childNodes.length) row.appendChild(about);
@@ -247,7 +298,8 @@
       var undo = make("button", "notices-undo", "Undo");
       undo.type = "button";
       undo.addEventListener("click", function () {
-        notices = cleared.concat(notices).slice(0, MOST);
+        // Newest first, with any saved since the list was cleared.
+        notices = cleared.concat(notices).sort(newestFirst).slice(0, MOST);
         cleared = null;
         write();
         drawBell();
@@ -280,14 +332,20 @@
 
   function beyondLoopback() { return document.body.dataset.beyondLoopback === "true"; }
 
-  /* Another study opens as every way to one does (place.js): asked first
-   * whether the switch would lose work here, one switch at a time. */
-  function openOverview(folder) {
-    var board = window.FastMDXDashboard;
-    if (!board) return;
+  /* Another study opens by its key as the strip's tabs open one
+   * (dashboard.js): asked first whether the switch would lose work here,
+   * one switch at a time; why it did not open is said. */
+  function openOverview(key) {
+    var dashboard = board();
+    if (!dashboard) return;
     close(false);
-    if (study().folder === folder) { board.navigate("overview"); return; }
-    if (window.FastMDXPlace && window.FastMDXPlace.open) window.FastMDXPlace.open(folder, "overview");
+    if (study().key === key) { dashboard.navigate("overview"); return; }
+    if (!dashboard.openStudyTab) return;
+    dashboard.openStudyTab(key, "overview").then(function (answer) {
+      if (answer && !answer.ok && dashboard.toast) {
+        dashboard.toast(answer.error || "The study could not be opened.", "warning");
+      }
+    });
   }
 
   function open() {
@@ -299,7 +357,7 @@
     if (bell) bell.setAttribute("aria-expanded", "true");
     // Read once seen: the bell's count goes, the new ones stay marked in
     // the list while it is open.
-    seenAt = notices.length ? notices[0].at : Date.now();
+    seenAt = notices.reduce(function (most, n) { return Math.max(most, n.at); }, 0) || Date.now();
     write();
     drawBell();
     var first = box.querySelector(".notices-chip[aria-pressed='true']");
