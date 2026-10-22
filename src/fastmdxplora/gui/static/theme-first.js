@@ -194,12 +194,21 @@
    * 150% a 900 pixel window, a page 600 wide, still had the layout for a
    * wide one. Each media rule's query is said again with its lengths times
    * the zoom, from its own words saved the first time; a sheet added later
-   * is said so as it comes. */
-  var LENGTH = /(\d*\.?\d+)(px|em|rem)\b/g;
+   * is said so as it comes. A bound of whole pixels stays one of whole
+   * pixels, so a pair that meets at 100% meets at every size: a `max-*` of
+   * N is floor(N * zoom) and a `min-*` of N is floor((N - 1) * zoom) + 1.
+   * Times the zoom, `(max-width: 800px)` and `(min-width: 801px)` were 1000
+   * and 1001.25 at 125%, and a window 1001 wide held neither layout. */
+  var LENGTH = /((min|max)-(width|height)\s*:\s*)?(\d*\.?\d+)(px|em|rem)\b/g;
   function zoomedQuery(text) {
     if (zoom === 1) return text;
-    return text.replace(LENGTH, function (all, n, unit) {
-      return String(Math.round(Number(n) * zoom * 1000) / 1000) + unit;
+    return text.replace(LENGTH, function (all, bound, side, axis, n, unit) {
+      var v = Number(n);
+      if (bound && unit === "px" && Math.floor(v) === v) {
+        var at = side === "max" ? Math.floor(v * zoom + 1e-9) : Math.floor((v - 1) * zoom + 1e-9) + 1;
+        return bound + at + unit;
+      }
+      return (bound || "") + String(Math.round(v * zoom * 1000) / 1000) + unit;
     });
   }
   var asWritten = typeof WeakMap === "function" ? new WeakMap() : null;

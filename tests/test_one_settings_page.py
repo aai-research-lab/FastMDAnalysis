@@ -544,6 +544,29 @@ def test_a_media_query_is_compared_at_the_page_s_size(browser, session):
     assert at_150 == at_100, (at_150, at_100)
 
 
+def test_a_pair_of_media_queries_meets_at_every_display_size(browser, session):
+    """`(max-width: 800px)` and `(min-width: 801px)` times 1.25 were 1000
+    and 1001.25: a window 1001 wide held neither, its sidebar neither the
+    narrow layout's nor the wide one's (and the same at 881 for 110%, 1201
+    for 150%). Each pair meets at every size, and the scripts say the
+    layout the style sheets do."""
+    look = """() => [matchMedia('(max-width: 800px)').matches,
+                     matchMedia('(min-width: 801px)').matches, innerWidth <= 800,
+                     getComputedStyle(document.querySelector('.sidebar')).position]"""
+    said = {}
+    for size, width in (("100", 800), ("100", 801), ("125", 1000), ("125", 1001),
+                        ("110", 881), ("150", 1201)):
+        page = _at(browser, session.url, size, (width, 800))
+        said[(size, width)] = page.evaluate(look)
+        page.context.close()
+    narrow, wide = said[("100", 800)], said[("100", 801)]
+    assert narrow[:3] == [True, False, True] and wide[:3] == [False, True, False]
+    assert narrow[3] != wide[3]
+    assert said[("125", 1000)] == narrow, said
+    for key in (("125", 1001), ("110", 881), ("150", 1201)):
+        assert said[key] == wide, (key, said[key], wide)
+
+
 @pytest.mark.parametrize("width", [900, 1250])
 def test_at_150_settings_is_laid_out_for_the_room_it_has(browser, session, width):
     """At 150% a 900 pixel window is a page 600 wide, and beside the Agent
