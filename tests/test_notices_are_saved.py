@@ -444,3 +444,79 @@ def test_a_page_bound_beyond_this_computer_offers_no_switch_or_stop(tmp_path):
     # switch, a POST refused here.
     assert acts == ["Open its Overview", ""]
     assert stops == 0 and running is False
+
+
+def test_no_notice_is_saved_with_a_path_in_it(tmp_path):
+    """A toast that names a path (the study menu's Open the folder, a
+    server's refusal, a Log line, from the root, the home, a drive or a
+    share) is saved without it; a list saved before is saved again
+    without."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    alpha, beta, serving = _session(tmp_path)
+    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    folders = iter([{"ok": True, "opened": True, "path": "/Users/kunle aina/Studies/alpha"},
+                    {"ok": True, "opened": False, "path": "C:\\Users\\Kunle Aina\\Studies\\alpha"}])
+    said = [
+        "Permission denied: '/home/kunle/ws/locked'",
+        "[Errno 2] No such file or directory: 'C:\\Users\\Kunle\\x.yml'",
+        "The folder ~/studies/alpha is not a study.",
+        "Saved to /Users/kunle/ws/alpha/view.json.",
+        "No such folder: \\\\lab-nas\\share\\kunle\\ws",
+        "Could not read file:///Users/kunle/x.pdb",
+        "TRIA ran at 120 ns/day and/or 1/2 kJ/mol, see https://example.org/a/b.",
+    ]
+    with serving as url, sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        # A list saved before a path was left out.
+        context.add_init_script("""if (!sessionStorage.getItem('seeded')) {
+            sessionStorage.setItem('seeded', '1');
+            localStorage.setItem('fmx.notices', JSON.stringify([{at: Date.now() - 60000, kind: 'ok',
+                said: 'Opened output folder: /Users/kunle/Studies/old', name: 'old', act: ''},
+                {at: Date.now() - 50000, kind: 'refused', said: 'Could not read /Users/kunle/a.pdb',
+                 name: 'old', act: '', id: 'event::2026-10-21T10:00:00Z:Could not read /Users/kunle/a.pdb'}]));
+        }""")
+        context.route("**/api/open-output*", lambda route: route.fulfill(json=next(folders)))
+        page = _page(browser, url, "#overview", context=context)
+        before = page.evaluate(SAVED)
+        # Open the folder, opened; then not opened, its path not copied.
+        page.evaluate("() => { window.FastMDXIcons.copy = () => Promise.resolve(false);"
+                      " window.FastMDXIcons.copyText = () => Promise.resolve(false); }")
+        for _ in range(2):
+            page.click("#study-card")
+            page.click("#open-output")
+            page.wait_for_function("""() => /folder/.test((document.querySelector(
+                '#dashboard-toast.show .dashboard-toast-said') || {}).textContent || '')""")
+            page.evaluate("() => document.getElementById('dashboard-toast').classList.remove('show')")
+        for words in said:
+            page.evaluate("(w) => window.FastMDXDashboard.toast(w, 'warning')", words)
+        page.evaluate("""() => window.dispatchEvent(new CustomEvent('fmx:events', {
+            detail: {events: [], refused: () => true}}))""")
+        page.evaluate("""(at) => window.dispatchEvent(new CustomEvent('fmx:events', {
+            detail: {events: [{timestamp: at, message: 'Could not read /Users/kunle/ws/alpha/in.pdb: no atoms'}],
+                     refused: () => true}}))""", later)
+        page.wait_for_function(f"() => window.FastMDXNotices.all.length === {len(said) + 5}")
+        saved = page.evaluate(SAVED)
+        errors = page.errors
+        browser.close()
+    assert errors == []
+    assert [n["said"] for n in before] == ["Could not read", "Opened output folder"]
+    assert [n["said"] for n in reversed(saved)] == [
+        "Opened output folder",
+        "Could not read",
+        "Opened output folder",
+        "Could not open the folder automatically.",
+        "Permission denied",
+        "[Errno 2] No such file or directory",
+        "The folder is not a study.",
+        "Saved.",
+        "No such folder",
+        "Could not read",
+        "TRIA ran at 120 ns/day and/or 1/2 kJ/mol, see https://example.org/a/b.",
+        "Could not read: no atoms",
+    ]
+    text = json.dumps(saved)
+    for private in ("/Users", "/home", "C:", "~/", "lab-nas", "file:", "kunle", "Kunle", str(alpha)):
+        assert private not in text, private

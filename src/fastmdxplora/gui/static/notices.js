@@ -35,19 +35,31 @@
   function newestFirst(a, b) { return b.at - a.at; }
 
   /* The list as saved on this computer, newest first, or null where the
-   * browser saves nothing. Only a run's end keeps its study's key (to open
-   * it); nothing keeps a folder. */
+   * browser saves nothing. Only a run's end saves its study's key (to open
+   * it); nothing saves a folder, nor a path in its words. */
   function stored() {
     try {
       var kept = JSON.parse(localStorage.getItem(SAVED) || "[]");
       var list = Array.isArray(kept) ? kept.filter(function (n) {
         return n && typeof n.said === "string" && isFinite(n.at);
       }) : [];
+      var scrubbed = false;
       list.forEach(function (n) {
         delete n.folder;
         if (n.act !== "overview") n.key = "";
+        // Saved before a path was left out: left out now, and saved so.
+        var said = withoutPaths(n.said);
+        if (said === n.said) return;
+        // A refusal is known by its words too.
+        if (typeof n.id === "string" && n.id.slice(-n.said.length) === n.said) {
+          n.id = n.id.slice(0, n.id.length - n.said.length) + said;
+        }
+        n.said = said;
+        scrubbed = true;
       });
-      return { list: list.sort(newestFirst), seen: Number(localStorage.getItem(SEEN)) || 0 };
+      list = list.filter(function (n) { return n.said; });
+      return { list: list.sort(newestFirst), seen: Number(localStorage.getItem(SEEN)) || 0,
+               scrubbed: scrubbed };
     } catch (e) { return null; }
   }
 
@@ -56,6 +68,7 @@
     if (!kept) return;
     notices = kept.list;
     seenAt = kept.seen;
+    if (kept.scrubbed) write();
   }
 
   function write() {
@@ -86,16 +99,66 @@
     return STUDY_PAGES.indexOf(page) >= 0 ? study() : { key: "", name: "" };
   }
 
+  /* ---- No path in what is saved ---- */
+  /* A notice is saved without any path it named: a folder from the root
+   * ("/Users/name/..."), from the home ("~/..."), on a drive ("C:\..."),
+   * on a share ("\\server\...") or a file's address, whatever showed it
+   * (the study menu's Open the folder, a server's refusal, a Log line). A
+   * path after a colon runs to its sentence's end and goes with the colon
+   * ("Opened output folder: /Users/..." is saved "Opened output folder"), a
+   * sentence that only named it goes whole ("Its path: ..."); one in quotes
+   * goes with its quotes; one in the words goes with the word that led to
+   * it ("Saved to /Users/....": "Saved."). Words with a slash in them
+   * (ns/day, and/or) and a web address are not paths. */
+  var START = /(?:file:\/\/|\/(?=[^\s\/])|~[\w.-]*[\\\/]|[A-Za-z]:[\\\/]|\\\\(?=[^\s\\]))/.source;
+  var MARK = "\u0000";
+  var QUOTED = new RegExp("[\"'`\u2018\u201c]" + START + "[^\"'`\u2019\u201d\\n]*[\"'`\u2019\u201d]", "g");
+  var AFTER_COLON = new RegExp(":[ \\t]+(?:" + MARK + "|" + START + "(?:(?![.;!?]\\s)[^\\n])*)", "g");
+  var IN_WORDS = new RegExp("(^|[\\s(\\[{=,])" + START +
+    "[^\\s'\"`<>|]*(?: [^\\s'\"`<>|]*[\\\\/][^\\s'\"`<>|]*)*", "g");
+  var NAMES_A_PATH = /\b(?:path|folder|file|directory|location)$/i;
+
+  function withoutPaths(said) {
+    var words = String(said || "");
+    var text = words.replace(QUOTED, MARK);
+    // After a colon: the sentence's own words before it stay, unless all
+    // they did was name the path.
+    text = text.replace(AFTER_COLON, function (match, at, whole) {
+      var before = whole.slice(0, at);
+      var begins = Math.max(before.lastIndexOf(". "), before.lastIndexOf("! "), before.lastIndexOf("? "));
+      return begins >= 0 && NAMES_A_PATH.test(before.slice(begins + 2).trim()) ? MARK + MARK : MARK;
+    });
+    text = text.replace(/[.!?] [^.!?\u0000]*\u0000\u0000/g, function (match) { return match.charAt(0); });
+    text = text.replace(IN_WORDS, function (match, lead) {
+      // Its sentence's end stays.
+      var end = /[.,;:!?)\]]+$/.exec(match.slice(lead.length));
+      return lead + MARK + (end ? end[0] : "");
+    });
+    // No path: the words as they were.
+    if (text === words) return words;
+    return text
+      .replace(/\u0000(?:,? and |, | or )\u0000/g, MARK)
+      .replace(/\s+(?:in|at|to|from|into|under|on|of|as)\s+\u0000/gi, "")
+      .replace(/\(\s*\u0000\s*\)/g, "")
+      .replace(/\u0000/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/ +([.,;:!?)\]])/g, "$1")
+      .replace(/\( +/g, "(")
+      .replace(/,\./g, ".")
+      .trim()
+      .replace(/[,;:]+$/, "");
+  }
+
   /* A notice saved, unless it is saved already: one with the same identity
    * (a run's end, a refusal of the Log, as another window of the GUI saved
    * it), or the same words of the same kind about the same study within two
    * seconds (a toast shown again as a page is drawn again). The list is
    * read from this computer first, where another window may have saved it.
-   * Saved is what was said, the study's name and, only for what opens it
-   * (a run's end), the study's key: nothing of the study the notice did not
-   * show. */
+   * Saved is what was said with no path in it, the study's name and, only
+   * for what opens it (a run's end), the study's key: nothing of the study
+   * the notice did not show. */
   function add(kind, said, about, act, id) {
-    said = String(said || "").replace(/\s+/g, " ").trim();
+    said = withoutPaths(String(said || "").replace(/\s+/g, " ").trim());
     if (!said) return;
     read();
     var now = Date.now();
@@ -181,7 +244,8 @@
     events.forEach(function (e) {
       var at = Date.parse(e.timestamp || "");
       if (!isFinite(at) || at <= from || typeof d.refused !== "function" || !d.refused(e)) return;
-      var line = firstLine(e.message);
+      // Its words with no path, in what it is saved as and known by.
+      var line = withoutPaths(firstLine(e.message));
       add("refused", line, where, "", "event:" + where.key + ":" + e.timestamp + ":" + line);
     });
     since[where.key] = Math.max(from, newest);
