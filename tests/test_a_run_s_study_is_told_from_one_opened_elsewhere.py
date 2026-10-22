@@ -1229,7 +1229,10 @@ def test_enter_after_a_reload_during_a_launch_sends_nothing_by_itself(tmp_path, 
     page that came back Send was offered, and Enter queued the message until
     the thread was read: when the launch answered it went by itself, with
     the start study's view, was refused and lost. Now Enter there sends
-    nothing, says why, and nothing goes by itself after."""
+    nothing, says why, and nothing goes by itself after. The run's switch
+    waits for that Enter (CI-774 reviews L13, L14: under load the page read
+    its thread first, and the Enter went, rightly, into the run's)."""
+    import threading
     import time as clock
 
     from fastmdxplora.gui.exploration import DashboardRuntime
@@ -1237,9 +1240,11 @@ def test_enter_after_a_reload_during_a_launch_sends_nothing_by_itself(tmp_path, 
 
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
     run = workspace / "run1"
+    entered = threading.Event()
 
     def launch(self, state, *, dashboard_url=None, config=None):
-        clock.sleep(4.0)
+        entered.wait(60)
+        clock.sleep(0.5)
         run.mkdir()
         (run / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
         made.append(str(run))
@@ -1271,15 +1276,19 @@ def test_enter_after_a_reload_during_a_launch_sends_nothing_by_itself(tmp_path, 
         page.keyboard.press("Enter")
         page.wait_for_timeout(300)
         note = _note(page)
+        entered.set()
         _shows(page, study_key(run))
         page.wait_for_timeout(5000)
         kept, box = _unsent(page), page.input_value("#agent-request")
     finally:
+        entered.set()
         close()
         session.server.shutdown()
     assert made
     assert note in (_SEND_READS, _SEND_WAITS), note
     assert _requests(asked) == ["chignolin"], asked
+    # Nowhere on disk; kept unsent, in this tab.
+    assert _where(workspace, words) == []
     assert words in json.dumps(kept) or words in box, (kept, box)
     assert errors == []
 
@@ -1879,11 +1888,15 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
     workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
     run = workspace / "run1"
 
+    processes = []
+
     def launch(self, state, *, dashboard_url=None, config=None):
         run.mkdir()
         self.active_root = run
+        # As a real run: a process runs it, and its folder is a study once
+        # it has written its first record.
+        processes.append(_going(session, run))
         clock.sleep(1.0)
-        # As a real run: its folder is a study once setup has begun.
         threading.Timer(4.0, lambda: ((run / "exploration.yml").write_text(
             "systems: []\n", encoding="utf-8"), (run / "setup").mkdir())).start()
         return {"ok": True, "output": str(run)}
@@ -1926,6 +1939,8 @@ def test_a_builder_run_s_study_has_its_own_thread_and_the_start_study_its_words(
     finally:
         close()
         session.server.shutdown()
+        for process in processes:
+            process.kill()
     assert waiting == {"note": _SEND_WAITS, "asked": ["q in here"]}, waiting
     assert moved["box"] == "" and moved["kept"].get(study_key(here)) == "the start study's words", moved
     assert _requests(asked) == ["q in here", "asked on run1"], asked
@@ -2029,6 +2044,262 @@ def test_send_is_offered_soon_after_a_launch_whatever_the_results_take(tmp_path,
         session.server.shutdown()
     assert offered - answered[0] < 4.0, offered - answered[0]
     assert (asked[1].get("current_view") or {}).get("study", "").endswith("run1"), asked
+    assert errors == []
+
+
+# ---- CI-774 round 5: one rule for a study; buttons refused before acting --
+
+
+def test_a_folder_the_gui_opens_as_a_study_is_one_the_agent_writes_for(tmp_path) -> None:
+    """L13 2 and L14 F1, F2: a run the Config Builder started has its config
+    written (exploration.yml) and a log, nothing else yet. The GUI opened it
+    as a study; the Agent counted it as none, so its messages went into a
+    chat of no study, or Send waited for good where the run ended there."""
+    from fastmdxplora.gui.agent_panel import _is_study, merge_conversation, read_conversation
+    from fastmdxplora.gui.browse import is_study
+    from fastmdxplora.gui.exploration import DashboardRuntime
+
+    workspace = tmp_path / "workspace"
+    run = workspace / "run1"
+    run.mkdir(parents=True)
+    (run / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+    (run / "exploration.log").write_text("", encoding="utf-8")
+    begun = workspace / "begun"
+    begun.mkdir()
+    (begun / "exploration.log").write_text("", encoding="utf-8")
+    runtime = DashboardRuntime(workspace_root=workspace, exploration_root=workspace)
+    runtime.active_root = run
+    assert is_study(run) and _is_study(run)
+    assert not is_study(begun) and not _is_study(begun)
+    read = read_conversation(runtime)
+    assert read["ok"] and read["study"] == str(run), read
+    saved = merge_conversation(runtime, [{"eid": "e1", "role": "user", "text": "why?"}], [],
+                               None, key="k1")
+    assert saved["ok"] and saved["study"] == str(run), saved
+    assert list((run / "agent" / "conversations").glob("conv-*.json"))
+
+
+def _builder_run(monkeypatch, run, *, written=True):
+    """The Config Builder's Start, without a process: `run` gets its config
+    (or, `written` False, nothing, as "Run as it is" leaves it) and the log,
+    and the GUI opens it."""
+    from fastmdxplora.gui.exploration import DashboardRuntime
+
+    def launch(self, state, *, dashboard_url=None, config=None):
+        run.mkdir()
+        if written:
+            (run / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+        (run / "exploration.log").write_text("", encoding="utf-8")
+        self.active_root = run
+        return {"ok": True, "output": str(run)}
+
+    monkeypatch.setattr(DashboardRuntime, "launch_from_config", launch)
+
+
+def _going(session, run):
+    """A process runs `run`, as the GUI's own run of it."""
+    import subprocess
+    import sys
+
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    session.runtime.process = process
+    session.runtime.running_root = run
+    return process
+
+
+def _start_from_the_builder(page, workspace, run):
+    from fastmdxplora.gui.workspace import study_key
+
+    built = []
+    page.on("response", lambda r: built.append(r) if r.url.endswith("/api/run") else None)
+    _builder(page, {"root": workspace})
+    page.click("#run-start-button")
+    while not built:
+        page.wait_for_timeout(100)
+    _shows(page, study_key(run))
+    page.evaluate("window.FastMDXDashboard.navigate('agent')")
+
+
+@pytest.mark.parametrize("then", ["launching window", "reloaded"])
+def test_a_builder_run_that_ended_at_once_leaves_send_working(tmp_path, monkeypatch, then):
+    """L13 2 and L14 F1: a Config Builder run stopped (or dead) in its first
+    seconds leaves its folder with its config and log. Send waited on it for
+    good, saying a run was starting; after a reload the message went into a
+    chat of no study. It goes into the run's study's own thread."""
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    run = workspace / "run1"
+    _builder_run(monkeypatch, run)
+    asked = []
+    page, errors, close = _page_on(session, [_answer("It stopped.")])
+    try:
+        _asking(page, asked)
+        _start_from_the_builder(page, workspace, run)
+        if then == "reloaded":
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector("#agent-request", state="visible")
+        page.fill("#agent-request", "why did it fail?")
+        page.wait_for_function("() => !window.FastMDXAgentPanel.waits", timeout=15000)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('It stopped.')", timeout=15000)
+        page.wait_for_timeout(1500)
+        note = _note(page)
+    finally:
+        close()
+        session.server.shutdown()
+    assert _requests(asked) == ["why did it fail?"], asked
+    assert note != _SEND_WAITS, note
+    where = _where(workspace, "why did it fail?")
+    assert where and all(w.startswith("run1/") for w in where), where
+    assert errors == []
+
+
+@pytest.mark.parametrize("written", ["config", "nothing yet"])
+def test_another_window_follows_a_builder_run_onto_its_own_thread(tmp_path, monkeypatch, written):
+    """L14 F2: another window starts a Config Builder run; this one follows
+    the GUI to it, and filed every message in the newest chat of no study,
+    one about something else, for good. With its config written the run's
+    folder is a study with its own thread at once; with nothing yet, Send
+    waits while its run goes, and the folder's own thread is read once it
+    is a study."""
+    from fastmdxplora.gui.agent_panel import _write_one
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    chats = workspace / ".fastmdxplora_agent_conversations"
+    chats.mkdir()
+    _write_one(chats, "conv-20260101-000000-000001",
+               [{"eid": "old", "role": "user", "text": "an old chat"}])
+    (chats / "current").write_text("conv-20260101-000000-000001", encoding="utf-8")
+    run = workspace / "run1"
+    asked, process = [], None
+    page, errors, close = _page_on(session, [_answer("On run1.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        # The other window's launch.
+        run.mkdir()
+        (run / "exploration.log").write_text("", encoding="utf-8")
+        if written == "config":
+            (run / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+        else:
+            process = _going(session, run)
+        session.runtime.active_root = run
+        _shows(page, study_key(run))
+        if written == "nothing yet":
+            page.wait_for_function("() => window.FastMDXAgentPanel.waits === 'run'", timeout=15000)
+            _say(page, "typed as it starts")
+            page.wait_for_timeout(1000)
+            waited = {"note": _note(page), "asked": _requests(asked)}
+            (run / "resolved_config.yml").write_text("systems: []\n", encoding="utf-8")
+            assert waited == {"note": _SEND_WAITS, "asked": []}, waited
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study"
+                               " && !window.FastMDXAgentPanel.waits", timeout=20000)
+        page.wait_for_timeout(500)
+        _say(page, "asked on run1")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('On run1.')", timeout=15000)
+        page.wait_for_timeout(1500)
+        old = page.locator("#agent-thread .agent-msg-user", has_text="an old chat").count()
+    finally:
+        close()
+        session.server.shutdown()
+        if process is not None:
+            process.kill()
+    assert _requests(asked) == ["asked on run1"], asked
+    where = _where(workspace, "asked on run1")
+    assert where and all(w.startswith("run1/") for w in where), where
+    assert old == 0
+    assert errors == []
+
+
+@pytest.mark.parametrize("written", ["config", "nothing yet"])
+def test_new_on_a_builder_run_s_folder_gives_that_study_s_chat(tmp_path, monkeypatch, written):
+    """L13 6: New pressed on a Config Builder run's folder before the Agent
+    counted it a study made a chat of no study, where every message after
+    went, the folder a study or not. New there gives the run's study's chat
+    (or, with nothing written yet, Send waits while the run goes and the
+    study's own thread is read once it is one)."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    run = workspace / "run1"
+    _builder_run(monkeypatch, run, written=(written == "config"))
+    asked, process = [], None
+    page, errors, close = _page_on(session, [_answer("New on run1.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        _start_from_the_builder(page, workspace, run)
+        if written == "nothing yet":
+            process = _going(session, run)
+        page.wait_for_timeout(1000)
+        page.click("#agent-new")
+        page.wait_for_timeout(1000)
+        if written == "nothing yet":
+            page.wait_for_function("() => window.FastMDXAgentPanel.waits === 'run'", timeout=15000)
+            (run / "resolved_config.yml").write_text("systems: []\n", encoding="utf-8")
+        page.wait_for_function("() => window.FastMDXAgentPanel.current.study"
+                               " && !window.FastMDXAgentPanel.waits", timeout=20000)
+        page.wait_for_timeout(500)
+        _say(page, "asked in a new chat")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('New on run1.')", timeout=15000)
+        page.wait_for_timeout(1500)
+    finally:
+        close()
+        session.server.shutdown()
+        if process is not None:
+            process.kill()
+    assert _requests(asked) == ["asked in a new chat"], asked
+    where = _where(workspace, "asked in a new chat")
+    assert where and all(w.startswith("run1/") for w in where), where
+    assert errors == []
+
+
+def test_enter_after_a_conversation_read_refused_as_the_gui_moved_waits(tmp_path, monkeypatch):
+    """L13 7: the page's read of its study's conversation refused, as the
+    GUI had opened another study meanwhile (`study_changed`). Send was
+    offered all the same, and Enter went with the view of the study left.
+    It waits until the study open and its thread are read."""
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, here, other, made, session = _here_and_other(tmp_path, monkeypatch)
+    asked, polls = [], []
+    page, errors, close = _page_on(session, [_answer("On other.")])
+    try:
+        _asking(page, asked)
+        _shows(page, study_key(here))
+        _when_known(page)
+        _hold(page, polls)
+        _switch_elsewhere(session, other)
+        refused = []
+        page.on("response", lambda r: refused.append(r.json().get("study_changed"))
+                if "/api/agent/conversation?" in r.url else None)
+        # The page reads its study's conversation again (as at a run's change).
+        page.evaluate("() => window.dispatchEvent(new CustomEvent('dashboard:run-changed',"
+                      " {detail: {activeRun: '/elsewhere'}}))")
+        while not refused:
+            page.wait_for_timeout(50)
+        page.wait_for_timeout(500)
+        _say(page, "asked on other")
+        page.wait_for_timeout(1000)
+        held = {"asked": _requests(asked), "note": _note(page),
+                "waits": page.evaluate("() => window.FastMDXAgentPanel.waits")}
+        _release(page, polls)
+        _shows(page, study_key(other))
+        _when_known(page)
+        # The words typed on `here` are kept for it; asked again on `other`.
+        _say(page, "asked on other")
+        page.wait_for_selector("#agent-thread .agent-answer:has-text('On other.')", timeout=15000)
+        page.wait_for_timeout(1500)
+    finally:
+        close()
+        session.server.shutdown()
+    assert refused[0] is True
+    assert held == {"asked": [], "note": _SEND_READS, "waits": "read"}, held
+    assert _requests(asked) == ["asked on other"], asked
+    where = _where(workspace, "asked on other")
+    assert where and all(w.startswith("other/") for w in where), where
     assert errors == []
 
 

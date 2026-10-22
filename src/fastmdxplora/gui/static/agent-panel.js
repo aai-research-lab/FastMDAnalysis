@@ -4316,17 +4316,24 @@
     if (dashboard && dashboard.studyKnown && !dashboard.studyKnown()) {
       return dash.answeredAt ? "run" : "read";
     }
-    if (!threadRead || reading > 0) return "read";
+    /* A read refused as the GUI had moved on: the study open and its
+     * thread are read again first (CI-774 review L13: Enter went with the
+     * view of the study left). */
+    if (!threadRead || reading > 0 || readAgain) return "read";
     /* No study open (a run that failed at once leaves none): the study
      * the page last showed is no thread's or view's to wait for (CI-774
      * review L11: Send never sent again). */
     var shown = shownStudy();
     if (conv.ranTo && shown && conv.ranTo !== shown) return "run";
-    /* A run of this page whose folder is not yet a study, or holds no
-     * conversation of its own yet (a chat of no study stood in for its
-     * thread, CI-774 reviews L10 to L12): the run has not started. */
+    /* A run going in the folder shown that is not yet a study (a run of
+     * this page), or for which a chat of no study stood in for its thread,
+     * in any window: the run has not started (CI-774 reviews L10 to L12).
+     * Only while it goes: one that ended first leaves a folder that is no
+     * study, and Send goes as for any (reviews L13, L14: it waited for good,
+     * saying a run was starting). */
+    var going = Boolean(dash.appState && dash.appState.process_running);
     var ours = Boolean(shown && dashboard.launchedHere && dashboard.launchedHere(shown));
-    if (ours && (dash.studyIsOne === false || conv.unread === shown)) return "run";
+    if (going && shown && ((ours && dash.studyIsOne === false) || conv.unread === shown)) return "run";
     /* The thread on screen is the study's shown: a study's other than it
      * (read before the study changed), or a chat of no study the page put
      * up for a folder that was not yet a study, waits for its own. */
@@ -4343,8 +4350,9 @@
     if (text && (asked || noteKind === "waits")) unsentSaid(text, "waits");
     else if (!why && noteKind === "waits") unsentSaid("");
     var dashboard = window.FastMDXDashboard;
-    if (why === "run" && asked && dashboard && dashboard.studyKnown && !dashboard.studyKnown()
-        && dashboard.readStatusNow) {
+    if (asked && dashboard && dashboard.readStatusNow
+        && ((why === "run" && dashboard.studyKnown && !dashboard.studyKnown())
+            || (why === "read" && readAgain))) {
       dashboard.readStatusNow();
     }
     /* The view is read meanwhile, whatever else is still waited for. */
@@ -4561,6 +4569,14 @@
         if (d && d.ok && !c.id) {
           c.id = d.id || null;
           if (d.study !== undefined) c.study = d.study;
+          /* Made as a chat of no study for the folder shown, not yet a
+           * study (a run starting): Send waits as for the one read, and
+           * the folder's own thread is read once it is one (CI-774 review
+           * L13: New filed every message in a chat of no study). */
+          if (study === undefined && !d.study && validStudyKey(c.page) && c.page === shownStudy()) {
+            c.unread = c.page;
+          }
+          sendWaitLater();
         } else if (d && d.gone && !c.id) {
           /* Its key's conversation was deleted: so is this thread, kept
            * anew once the person says something in it; what the deleted
@@ -4938,7 +4954,16 @@
     if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
       window.FastMDXDashboard.on("study-addressed", function (study) {
         var key = study && study.key;
-        if (!validStudyKey(key)) return;
+        if (!validStudyKey(key)) {
+          /* No study open: a read refused for the study left is read again,
+           * as the workspace's chats, so Send waits no longer. */
+          if (readAgain && noStudyOpen() && !launching && !reading) {
+            readAgain = false;
+            hideList();
+            restore(true).then(function () { told(); });
+          }
+          return;
+        }
         /* On the run's study, its thread is the page's. On any other, that
          * study's own thread is read in its place, and where the run's is
          * said (CI-774 review L3). */
@@ -4952,8 +4977,11 @@
          * thread on screen): the page is on that study now. */
         if (readAgain && convFor === key && conv.study) { readAgain = false; return; }
         var dash = window.FastMDXDashboard;
-        var nowOne = conv.unread === key && dash.state && dash.state.studyIsOne !== false
-          && dash.launchedHere && dash.launchedHere(key);
+        /* A chat of no study given for a folder that is a study now (a
+         * run's, whichever window started it): its own thread is read
+         * (CI-774 review L14: another window filed every message in that
+         * chat). */
+        var nowOne = conv.unread === key && dash.state && dash.state.studyIsOne !== false;
         if (readAgain || nowOne || (conv.study && convFor && convFor !== key)) {
           readAgain = false;
           hideList();

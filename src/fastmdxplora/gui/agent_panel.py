@@ -956,7 +956,7 @@ def run_summary_endpoint(payload: dict[str, Any], runtime: Any, *,
             head = f"The study was prepared once, for its {prepared} windows"
         return {"ok": True, "ended": True, "status": status, "head": head,
                 "found": said("found"), "long_enough": "", "strengthen": ""}
-    if not _is_study(root):
+    if not _wrote_records(root):
         # It ended before it wrote a record of the study. One forgotten by
         # this server (another folder opened, or a restart) that wrote
         # nothing cannot have finished.
@@ -1543,12 +1543,29 @@ CONTEXT_RECEIPTS_DIR = Path("receipts")
 
 
 def _is_study(path: Any) -> bool:
-    """A folder FastMDXplora wrote: a manifest or a phase directory."""
+    """A study, as the GUI says it (`browse.is_study`): a folder the GUI
+    opens as a study is one the Agent reads and writes for. The Agent had a
+    rule of its own (a manifest or a phase folder), and a run the Config
+    Builder started, its config written, was a study to the GUI and none to
+    the Agent until its first phase: its messages went into a chat of no
+    study, or waited for good where the run ended first (CI-774 reviews L13,
+    L14)."""
+    from fastmdxplora.gui.browse import is_study
+
     if not path:
         return False
     p = Path(path)
-    return p.is_dir() and any((p / m).exists()
-                              for m in ("manifest.json", "simulation", "analysis", "report", "setup"))
+    return p.is_dir() and is_study(p)
+
+
+#: What a run writes once it has begun: a record of a study to summarise.
+_RUN_RECORDS = ("manifest.json", "setup", "simulation", "analysis", "report")
+
+
+def _wrote_records(path: Path) -> bool:
+    """Whether a run wrote any record of its own: its config alone, written
+    before it began, is not one."""
+    return any((path / m).exists() for m in _RUN_RECORDS)
 
 
 def _holds_conversations(path: Any) -> bool:
