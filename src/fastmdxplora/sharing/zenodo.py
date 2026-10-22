@@ -742,6 +742,25 @@ def _latest_published(found: dict[str, Any], depositions: str, token: str,
     return deposition
 
 
+def _counted_past(draft: dict[str, Any], depositions: str, token: str,
+                  said: Callable[[str], None] | None, version: str) -> str:
+    """The label of a draft of a new version, not yet published: ``version``,
+    unless a version published since holds that same label (one the person
+    published by hand as the share began this draft), then the one after it.
+    Where the latest is not read, as it was."""
+    base = depositions.rsplit("/api/", 1)[0]
+    asked = {**draft, "links": {**(draft.get("links") or {}),
+                                "latest": f"{base}/api/records/{draft['conceptrecid']}"}}
+    try:
+        newest = _latest_published(asked, depositions, token, said)
+    except ShareRefused:
+        return version
+    if not newest.get("submitted") or str(newest.get("id")) == str(draft.get("id")):
+        return version
+    label = str((newest.get("metadata") or {}).get("version") or "")
+    return (_bumped(label) or version) if _plain(label) == _plain(version) else version
+
+
 def _concept_drafts(depositions: str, token: str, record: dict[str, Any],
                     said: Callable[[str], None] | None) -> list[dict[str, Any]] | None:
     """The person's drafts of a new version of ``record`` (the drafts of its
@@ -962,6 +981,7 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
         both = sorted(named & _named_in(theirs)) if not same else []
         if both:
             where, _, which = both[0].partition(":")
+            which = which.partition(":")[2]
             raise ShareRefused(
                 f"{study / SHARED_TO} is the one of the study at {there}, copied with it: "
                 f"both name the draft or record {which} on {where}, and sharing this "
@@ -975,8 +995,9 @@ def _not_a_copy(study: Path, kept: dict[str, Any]) -> None:
 
 def _named_in(kept: dict[str, Any]) -> set[str]:
     """Every draft and record a `shared_to.json` names, on whichever site."""
-    return {f"{site}:{entry.get(key)}" for site, entry in kept.items()
-            if isinstance(entry, dict) for key in ("id", "record") if entry.get(key)}
+    return {f"{site}:{key}:{entry.get(key)}" for site, entry in kept.items()
+            if isinstance(entry, dict) for key in ("id", "record", "concept")
+            if entry.get(key)}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -1121,6 +1142,11 @@ def _draft(study: Path, archive: Path, *, site: str, pack: Callable[[str], dict[
                                              "written_words", "record_words", "sending_words",
                                              "record_sending_words")
                      if same and earlier.get(k)}}
+    # The record's concept, kept from one version to the next: a copy is told
+    # by it however many versions the study went on since.
+    concept = str(deposition.get("conceptrecid") or earlier.get("concept") or "")
+    if concept:
+        kept[site]["concept"] = concept
     if versioned:
         kept[site]["record"] = published
         if earlier.get("by_earlier"):
@@ -1784,6 +1810,9 @@ def _found(study: Path, kept: dict[str, Any], earlier: dict[str, Any], *, site: 
         if not found.get("submitted"):
             # The draft made last time, never published: made again.
             out["deposition"] = found
+            if earlier.get("record") and found.get("conceptrecid"):
+                out["version"] = _counted_past(found, depositions, token, said,
+                                               str(earlier.get("version") or "1"))
             return out
     except ShareRefused as exc:
         if getattr(exc, "whole", False):

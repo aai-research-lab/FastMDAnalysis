@@ -244,7 +244,8 @@ while one runs is refused (`environment.share.not_finished`), as two would
 each make a draft (on a disk that keeps no locks, and on Windows, two at
 once are not told apart: share one at a time there). A study's
 `shared_to.json` names its folder too: a study copied by hand with it, while
-the one it was copied from still holds the same draft or record, is refused
+the one it was copied from still holds the same draft or record (or another
+version of the same record), is refused
 (`environment.share.not_finished`), saying to delete the copy's
 `shared_to.json` to share it as a study of its own; a study moved, or the same
 folder reached by another path (a container's bind mount, say), goes on with
@@ -285,7 +286,8 @@ of a new version of the same record, which Zenodo makes only for a token
 that also has the **deposit:actions** scope; the record's concept DOI
 always leads to its latest version. Its version is counted on from the
 latest one published (one you published by hand included; only one Zenodo
-says is the last, else the share waits to be asked again), in that one's
+says is the last, else the share waits to be asked again; a version published
+by hand as the share began its draft is counted past at the next share), in that one's
 own form: 3 after 2, 1.3 after 1.2, v4 after v3. Zenodo keeps one draft
 of a new version at a time, and gives it to whoever asks: one there
 already, begun on its site or by a share whose answer was lost or named

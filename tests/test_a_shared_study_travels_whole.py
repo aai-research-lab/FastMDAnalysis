@@ -5037,3 +5037,57 @@ def test_the_copy_refusal_says_how_the_copy_may_carry_on_the_record(tmp_path, un
     capsys.readouterr()
     assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
     assert f"delete {study.resolve() / 'shared_to.json'})" in capsys.readouterr().err
+
+
+def test_a_copy_is_told_by_its_record_s_concept_after_the_original_went_on(tmp_path,
+                                                                          unsteady,
+                                                                          capsys):
+    """Hands-on review of the sixty-first commit: a copy made before the
+    original went on two versions named no id the original still named, and
+    took a new version of the original's record."""
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "a.zip") == 0
+    kept = json.loads((study / "shared_to.json").read_text())
+    assert kept["zenodo-sandbox"]["concept"] == "c7"
+    copy = tmp_path / "copy"
+    import shutil
+
+    shutil.copytree(study, copy)
+    # The original went on since: its draft and record are others now.
+    kept["zenodo-sandbox"].update(id="104", record="103")
+    (study / "shared_to.json").write_text(json.dumps(kept))
+    unsteady.calls.clear()
+    capsys.readouterr()
+    assert _share_to_zenodo(copy, tmp_path / "b.zip") == 2
+    assert "copied with it" in capsys.readouterr().err
+    assert not any(c[0] in ("PUT", "POST", "DELETE") for c in unsteady.calls)
+
+
+def test_a_new_version_s_label_published_by_hand_meanwhile_is_counted_past(
+        tmp_path, unsteady, monkeypatch, capsys):
+    """Hands-on review of the sixty-first commit: a version the person
+    published by hand as the share began its draft gave the draft the same
+    label, kept at every later share."""
+    unsteady.meta = {}
+    study = _study(tmp_path / "study")
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    unsteady.meta[7]["version"] = "1.0"
+    unsteady.published_ids = {7}
+    unsteady.latest = {"id": 7, "metadata": {"version": "1.0"}, "files": [{"key": "shared.zip"}]}
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.1"
+    # The person published 1.1 by hand meanwhile.
+    unsteady.latest = {"id": 9, "metadata": {"version": "1.1"}, "files": []}
+    real = zenodo._call
+
+    def by_concept(method, url, **kwargs):
+        if method == "GET" and url.endswith("/api/records/c7"):
+            return real(method, url.replace("/c7", "/latest"), **kwargs)
+        return real(method, url, **kwargs)
+
+    monkeypatch.setattr(zenodo, "_call", by_concept)
+    capsys.readouterr()
+    assert _share_to_zenodo(study, tmp_path / "shared.zip") == 0
+    assert unsteady.meta[8]["version"] == "1.2"
+    assert json.loads((study / "shared_to.json").read_text())["zenodo-sandbox"][
+        "version"] == "1.2"
