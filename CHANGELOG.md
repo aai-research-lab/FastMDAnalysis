@@ -195,7 +195,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   study measured the distance between the lab's residues 10 and 50 in its
   own protein. Position restraints on a selection and the selections
   every structure has stay a lab's, and the biasing blocks' refusal says
-  they bias one study's system along variables chosen for it.
+  they bias one study's system along variables chosen for it. One given as
+  nothing (`membrane_orientation_checked: false`, as a full config writes
+  it, or `report.title: null`) is refused as that.
 
 - New study says a defaults file that is refused, and why, above the form,
   with the way to Settings' This folder: the form showed FastMDXplora's own
@@ -203,19 +205,24 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   its values silently, and the study was refused only once it started.
 
 - New study says when the defaults file changed since its form was drawn
-  (in This folder, put right or refused), with Read the defaults again,
-  which draws the form from the file as it is: the fields said "Your
-  default 6.5" while the run took the file's 6.8, beside a note that could
-  say the opposite.
+  (in This folder or put right), with Read the defaults again, which draws
+  the form from the file as it is: the fields said "Your default 6.5"
+  while the run took the file's 6.8, beside a note that could say the
+  opposite. A file refused since is said as refused, as on opening, and on
+  a phone the note is brought into view, where New study opened as far
+  down as This folder was left.
 
 - Bound beyond loopback, `/api/schema` sends no folder defaults and no
-  refusal of them, as `/api/defaults-file` refuses the file there: anyone
-  on the network was given the file's values and, for a refused file, its
-  path, and New study said them.
+  refusal of them, as `/api/defaults-file` refuses the file there, and the
+  config `/api/config` hands back is drawn from FastMDXplora's own values:
+  anyone on the network was given the file's values and, for a refused
+  file, its path, and New study said them.
 
 - A change saved in This folder is shown set while the file is read
   again: a read answered after it, with the file as it was, drew the row
-  empty and unset although the file held the value.
+  empty and unset although the file held the value. A value set with
+  Enter is sent once, so Undo takes it back: it was sent again as its row
+  was drawn, and Undo put back the value just set.
 
 - Analysis at 390 pixels: a quantity the same in every frame wraps between
   its name and its value, where it scrolled the page sideways.
