@@ -17,7 +17,7 @@ setup:
 simulation:
   duration_ns: 100
 agent: assisted
-agent_model: anthropic/claude-sonnet-4-6
+agent_model: openai/gpt-5
 ```
 
 That Config then runs like any other:
@@ -69,91 +69,52 @@ is the `agent:` setting, which is **provenance, not permission**. Including
 
 ---
 
-## Connecting an AI model
+## Setting an AI model
 
 Nothing in FastMDXplora needs an AI model. The Agent does, and it asks once.
 
-```
+```text
 $ fastmdx agent model
-  No AI model chosen yet.
+  No AI model is set yet.
 
   AI model:
-    [1] Anthropic
-    [2] OpenAI
-    [3] Other (any OpenAI-compatible URL)
+    [1] OpenAI
+    [2] Other (any OpenAI-compatible server)
   > 1
-  AI model [claude-sonnet-5-5]:
-  API key (leave blank to read ANTHROPIC_API_KEY from the environment instead):
-  > sk-ant-...
+  AI model [gpt-5]:
+  API key (leave blank to read OPENAI_API_KEY from the environment instead):
+  > …
 
   ✓ Saved to ~/.config/fastmdxplora/model.json
-  ✓ Key stored in the OS credential vault. It is never written into a study.
+  ✓ Key stored in the owner-only model settings file. It is never written into a study.
 ```
 
 | Provider | AI model offered first | Environment variable |
 |---|---|---|
-| `anthropic` | the newest `claude-sonnet` it offers (`claude-sonnet-4-6` where it cannot be asked) | `ANTHROPIC_API_KEY` |
 | `openai` | the newest `gpt-N` it offers (`gpt-5` where it cannot be asked) | `OPENAI_API_KEY` |
-| `compatible` | whatever you name | `FASTMDX_MODEL_API_KEY` |
+| `compatible` | the model name you enter | `FASTMDX_MODEL_API_KEY` |
 
-The AI model offered first is read from the provider's own list, asked with
-the key in the environment or the one stored, and kept to one family: a
-provider's newest may be its largest and dearest, or its smallest. Any other
-it lists can be chosen, and any name typed. A stored key is sent only to the
-provider and address it was stored for, never to another being looked at.
+OpenAI's offered model list is read from its `/v1/models` endpoint when a key
+is available. Other servers list models from `/v1/models` at the base URL you
+supply. The Agent offers its written default when the list cannot be read; you
+can also type a model name directly.
 
-Option 3 covers DeepSeek, vLLM, Ollama, OpenRouter and most local servers,
-because they speak the OpenAI chat shape. One entry rather than one per vendor:
-a list of vendors goes stale and a protocol does not. It takes a base URL —
-`https://api.deepseek.com`, `http://localhost:11434/v1`,
-`http://localhost:8000/v1`.
+**Other (any OpenAI-compatible server)** covers DeepSeek, vLLM, Ollama,
+OpenRouter and local servers because they speak the OpenAI chat shape. It
+requires a base URL, such as `https://api.deepseek.com`,
+`http://localhost:11434/v1` or `http://localhost:8000/v1`.
 
-The Agent ships with FastMDXplora and sends requests using Python's standard
-library. Saving credentials uses the system keyring installed with the package.
-Anthropic Console sign-in additionally requires Anthropic's official `ant` CLI.
-With Go 1.25 or later, install it using `go install github.com/anthropics/anthropic-cli/cmd/ant@latest`
-and put the Go `bin` directory on `PATH`, as described in the
-[official CLI quickstart](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart).
-Restart an already running dashboard after installing the CLI, then choose
-Anthropic → Anthropic Console OAuth in Agent Settings. Start sign-in there so
-the CLI uses FastMDXplora's own profile; complete organization/workspace
-selection in the official browser flow.
-
-### Account sign-in in Agent Settings
-
-OpenAI offers **Continue with ChatGPT** for eligible local, open-source apps.
-The user completes registration and consent in the system browser. The Agent
-uses the selected account's model catalog and public Responses API route, as
-documented in [OpenAI registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
-and [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
-
-Anthropic offers API keys and **Anthropic Console OAuth** through the official
-`ant` CLI's [local authentication](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/authentication)
-and [HTTP scripting flow](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/scripting).
-FastMDXplora uses its own isolated CLI profile. The Console option explains
-missing CLI or terminal requirements and stays disabled until they are available.
-
-Settings shows the saved provider, model and authentication method separately
-from unsaved edits. **Test connection** checks the selected route's model access.
-**Disconnect** stops this app's use of its saved credential; an API key supplied through
-the environment remains active until the environment variable is unset.
-
-For ChatGPT, disconnect immediately stops local use and attempts to revoke the
-renewable session, retrying temporary failures. If remote revocation cannot be
-confirmed, the dashboard says so; disconnect the app in ChatGPT Settings too.
-The account registration remains available for a later sign-in, following
-[OpenAI's accounts and sessions guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions).
+The Agent sends requests using Python's standard library. `model.json` stores
+the provider, model, optional base URL and API key outside the study. The key
+file is owner-only. An environment key takes precedence over a stored key, and
+a stored key is used only when the saved provider and base URL match the
+selected provider and server. The key is never returned to the page or written
+to a Config, Manifest, log or error message. Saving a new choice rewrites the
+file with its current fields; unrecognized legacy fields are dropped.
 
 ### Where the key lives
 
-API keys and ChatGPT tokens are stored in the OS credential vault. An API key
-in the environment is checked first, so a cluster job or CI run can supply one
-without saving it. If no supported vault is available, use the provider's
-environment variable. Existing sessions from other tools and browsers are
-never imported.
-
-The following settings file stores provider/model choices and cache preferences,
-with no API keys or OAuth tokens:
+The settings file is located at:
 
 | | |
 |---|---|
@@ -161,17 +122,10 @@ with no API keys or OAuth tokens:
 | `$XDG_CONFIG_HOME/fastmdxplora/model.json` | otherwise, defaulting to `~/.config/` |
 | `%APPDATA%\fastmdxplora\model.json` | on Windows |
 
-Settings are replaced atomically. Anthropic Console credentials remain managed by
-the official CLI in this app's isolated `anthropic-console` profile directory.
-Disconnect retires that profile and saves a fresh profile identifier before
-asking the CLI to log out. An already-open terminal can finish only in the
-retired profile; its late result cannot reconnect the Agent. Close any sign-in
-terminal that is still open after canceling.
-
-**The key never enters a Config, a Manifest, a log line or an error message.**
-Those files get shared, pasted into issues and committed; a key in one is a key
-on the internet. What is recorded is the provider and the AI model and nothing
-else.
+In the GUI, Agent Settings has the provider, AI model, server address for
+Other, and API-key fields. A key is cleared from the form after saving; the
+page says when a key is set without showing its value. The saved model is
+shown separately from the current unsaved selection.
 
 ---
 
@@ -323,17 +277,13 @@ this existed stays truthful without being rewritten.
 
 ```yaml
 agent: assisted
-agent_model: anthropic/claude-sonnet-4-5-20250929
+agent_model: openai/gpt-5
 ```
 
-`agent: assisted` says an AI model was involved, not which one, and six months on
-that is the difference between a record and a note. "Why did this study pick
-300 K" has a different answer depending on whether a frontier AI model or a 7B on
-a laptop proposed it.
-
-**An alias is not a version.** `claude-sonnet-4-6` names different software at
-different times, because it moves when a new snapshot lands. Pin the dated
-string where the record needs to identify what ran.
+`agent: assisted` says an AI model was involved, not which one. The
+`agent_model` value records the provider and model name that wrote the study.
+A dated model version identifies the run more precisely than an alias that a
+provider may update.
 
 ---
 
@@ -411,32 +361,19 @@ Text written beside a look is what the AI model is about to do, not its
 reply. The sentence beside a Config is shown under it on the page, and a
 question's candidates are said with the question.
 
-The instructions, the tools and the config language are the same for every
-message, and they are sent first, as a system prompt the provider keeps in
-its cache; what changes (the run, the current Config, the files attached,
-the request) comes after them. After the first message of a conversation
-most of what is sent is read from the cache. What each reply cost is
-recorded, and `fastmdx agent` says it:
+The tools and config language are sent with each request. A provider may
+reuse repeated input under its own caching policy. Where the provider reports
+usage, FastMDXplora records calls, input, cached input and output tokens.
 
 ```
-  Used: 1 call, 17,899 tokens in (17,806 written to the cache), 498 out
-  Used: 2 calls, 29,170 tokens in (28,770 cached, 300 written to the cache), 412 out
+  Used: 1 call, 17,899 tokens in, 498 out
+  Used: 2 calls, 29,170 tokens in (28,770 cached), 412 out
 ```
 
-The first message of a conversation writes the instructions to the cache
-(at a little more than the usual price); a message after it reads them from
-there (at about a tenth), for as long as the cache is kept. With Anthropic
-that is a setting, **Keep the instructions cached** in the Agent's settings
-(or asked by `fastmdx agent model`): `auto`, the default, keeps them for an
-hour on the Agent page, where a plan is read before it is answered, and for
-five minutes from the command line and `ask_agent`, where a request is
-usually asked once; `1h` and `5m` keep them so everywhere. An hour costs
-twice the input price to write instead of 1.25 times, once, and each read
-renews it. Other providers keep their caches as they decide. `fastmdx agent` says the
-reply as a terminal shows it: "Thinking...", each look in the page's words,
-the answer without
-its Markdown emphasis, a link as its words and its address, and "Accepted
-first time." or "Accepted after 2 attempts." for a Config.
+`fastmdx agent` also says the reply as a terminal shows it: "Thinking...",
+each look in the page's words, the answer without its Markdown emphasis, a link
+as its words and address, and "Accepted first time." or "Accepted after 2
+attempts." for a Config.
 
 A server that does not take tool calls (some local ones) says so on the
 first message of a conversation, and is asked in the text protocol from
@@ -880,9 +817,9 @@ the Agent.
 The reply is shown as the AI model writes it, and each look as it is taken; a
 config appears line by line. While it is written the send button is a stop:
 pressing it ends the reply, the request to the AI model is closed with it, and
-nothing it had written is kept. The next message goes on from yours. Both
-stream shapes the providers use are read, content-block events and the OpenAI
-chat shape, so a local or compatible server streams too.
+nothing it had written is kept. The next message goes on from yours. The
+OpenAI-compatible chat stream is read as it arrives, so local and compatible
+servers stream too.
 
 ### Showing what an answer is about
 

@@ -233,11 +233,6 @@ jobs:
           python -m pip install playwright
           python -m playwright install --with-deps chromium
 
-      - name: Check provider callback coordination
-        # Check real subprocess/loopback coordination before the longer suite.
-        shell: bash
-        run: pytest tests/test_chatgpt_authentication_races.py -rfEs
-
       - name: Check chart navigation and selections
         # These browser regressions must also work with coverage tracing,
         # before committing the runner to the longer full-suite step.
