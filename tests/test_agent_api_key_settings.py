@@ -185,6 +185,35 @@ def test_model_discovery_does_not_repeat_a_failed_request_and_uses_written_model
     assert found == [{"id": model, "label": model} for model in fallback]
 
 
+def test_model_endpoint_fetches_once_and_falls_back_when_discovery_fails(
+        tmp_path, monkeypatch):
+    from fastmdxplora.agent import models
+    from fastmdxplora.gui.agent_panel import model_endpoint
+
+    settings = tmp_path / "settings"
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", str(settings))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    choice = models.ModelChoice("openai", "gpt-5")
+    models.save_choice(choice, key="endpoint-discovery-test-key")
+    calls = []
+
+    def failed_discovery(found_choice):
+        calls.append(found_choice)
+        raise OSError("offline")
+
+    monkeypatch.setattr(models, "list_model_options", failed_discovery)
+    response = model_endpoint({})
+    openai = next(item for item in response["providers"] if item["id"] == "openai")
+    fallback = list(models.PROVIDERS["openai"]["models"])
+
+    assert response["ok"] is True
+    assert calls == [choice]
+    assert openai["models"] == fallback
+    assert openai["model_options"] == [
+        {"id": model, "label": model} for model in fallback
+    ]
+
+
 def test_the_agent_model_command_saves_an_openai_choice(tmp_path, monkeypatch, capsys):
     from fastmdxplora.agent.models import ModelChoice, _key_for, load_choice
     from fastmdxplora.cli.main import main
@@ -203,9 +232,28 @@ def test_the_agent_model_command_saves_an_openai_choice(tmp_path, monkeypatch, c
     assert _key_for(choice) == "cli-test-key"
     assert "cli-test-key" not in output
     assert "No key entered" in output
-    assert "a matching saved key is kept if present" in output
-    assert "OPENAI_API_KEY is used if none is saved" in output
-    assert "It takes precedence when set" in output
+    assert "a key already saved for this provider and URL is kept" in output
+    assert "OPENAI_API_KEY is used when set" in output
+
+
+def test_blank_other_key_message_names_its_environment_variable(
+        tmp_path, monkeypatch, capsys):
+    from fastmdxplora.cli.main import main
+
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", str(tmp_path / "settings"))
+    monkeypatch.delenv("FASTMDX_MODEL_API_KEY", raising=False)
+    monkeypatch.setattr("fastmdxplora.agent.models.list_models",
+                        lambda *_a, **_kw: ("llama3",))
+    answers = iter(("2", "http://localhost:11434/v1", "llama3", ""))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+
+    assert main(["agent", "model"]) == 0
+    output = capsys.readouterr().out
+
+    assert "No key entered" in output
+    assert "no key is saved for this provider and URL" in output
+    assert "FASTMDX_MODEL_API_KEY is used when set" in output
+    assert "OPENAI_API_KEY" not in output
 
 
 def test_the_model_endpoint_keeps_a_key_when_only_the_model_changes(tmp_path, monkeypatch):

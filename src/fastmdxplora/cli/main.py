@@ -3743,7 +3743,7 @@ def _choose_model() -> int:
     from fastmdxplora.agent import (
         PROVIDERS, ModelChoice, describe_choice, load_choice, save_choice,
     )
-    from fastmdxplora.agent.models import default_model, list_models
+    from fastmdxplora.agent.models import _key_for, default_model, list_models
 
     # What is in use first, so a look at the choice is not a change to it:
     # nothing is saved unless an AI model is picked below.
@@ -3795,9 +3795,20 @@ def _choose_model() -> int:
         print("  ✓ Key stored in the owner-only model settings file. It is never "
               "written into a study.")
     else:
-        print(f"  ✓ No key entered; a matching saved key is kept if present, "
-              f"and {env_name} is used if none is saved. It takes precedence "
-              "when set.")
+        if os.environ.get(env_name):
+            detail = f"{env_name} is set and takes precedence over saved keys."
+        else:
+            from fastmdxplora.refusals import StudyError
+
+            try:
+                _key_for(ModelChoice(picked, model, base_url))
+            except StudyError:
+                detail = ("no key is saved for this provider and URL; "
+                          f"{env_name} is used when set.")
+            else:
+                detail = ("a key already saved for this provider and URL is kept; "
+                          f"{env_name} is used when set.")
+        print(f"  ✓ No key entered; {detail}")
     return 0
 
 
