@@ -231,6 +231,84 @@ def test_a_setting_of_this_folder_is_set_given_its_reason_undone_and_taken_out(b
     assert put_back == written and why_back == "the body's temperature"
 
 
+def test_a_change_saved_while_the_file_is_read_is_shown_set(browser, session):
+    """Settings re-reads the file as it is shown. A change typed at once,
+    while a slow server had not answered that read, was saved in the file
+    and shown empty and unset: the read's answer, the file as it was before
+    the change, drew every row again, and the change's answer then replaced
+    a row no longer in the page (E8's quick.py, five times in six)."""
+    started, where = session
+    ph = '.settings-field[data-name="setup.ph"]'
+    page = _open(browser, started.url)
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{ph} .settings-control")
+    reads, writes = [], []
+
+    def held(route):
+        if route.request.method == "GET":
+            # Answered now, with the file as it is, and given to the page later.
+            reads.append((route, route.fetch()))
+        elif hold_writes:
+            writes.append(route)
+        else:
+            route.continue_()
+
+    def answered(routes):
+        while not routes:
+            page.wait_for_timeout(50)
+
+    def read_given(route, response):
+        with page.expect_response(lambda r: r.request.method == "GET"
+                                  and "/api/defaults-file" in r.url):
+            route.fulfill(response=response)
+        page.wait_for_timeout(300)
+
+    def row(name):
+        selector = f'.settings-field[data-name="{name}"]'
+        return (page.get_attribute(selector, "class"),
+                page.input_value(f"{selector} .settings-control"),
+                page.text_content(f"{selector} .settings-status"))
+
+    hold_writes = False
+    page.route("**/api/defaults-file", held)
+    # A read asked, then two changes sent and answered before it is.
+    page.evaluate("() => window.FastMDXSettings.reload()")
+    answered(reads)
+    page.fill(f"{ph} .settings-control", "6.5")
+    page.press(f"{ph} .settings-control", "Enter")
+    page.fill(f"{ROW} .settings-control", "310")
+    page.press(f"{ROW} .settings-control", "Enter")
+    page.wait_for_selector(f"{ph}.is-set")
+    page.wait_for_selector(f"{ROW}.is-set")
+    read_given(*reads.pop())
+    both = (row("setup.ph"), row("simulation.temperature_K"))
+    # A change sent, then a read asked and answered before the change is:
+    # the change's answer finds its row again.
+    hold_writes = True
+    page.fill(f"{ph} .settings-control", "6.0")
+    page.press(f"{ph} .settings-control", "Enter")
+    answered(writes)
+    page.evaluate("() => window.FastMDXSettings.reload()")
+    answered(reads)
+    read_given(*reads.pop())
+    with page.expect_response(lambda r: r.request.method == "POST"
+                              and "/api/defaults-file" in r.url):
+        writes.pop().continue_()
+    page.wait_for_selector(f"{ph} .settings-status.is-saved")
+    found_again = row("setup.ph")
+    page.unroute("**/api/defaults-file")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    for (classes, value, status), wanted in zip(both, ("6.5", "310")):
+        assert "is-set" in classes.split() and value == wanted, (classes, value, status)
+        assert status.startswith("Saved in the file."), status
+    assert "is-set" in found_again[0].split() and found_again[1] == "6", found_again
+    assert found_again[2].startswith("Saved in the file."), found_again
+    assert yaml.safe_load(where.read_text(encoding="utf-8")) == {
+        "setup": {"ph": 6.0}, "simulation": {"temperature_K": 310}}
+
+
 def test_a_file_with_comments_is_shown_and_not_written(browser, session):
     started, where = session
     where.write_text("simulation:\n  temperature_K: 305  # the lab's\n", encoding="utf-8")
