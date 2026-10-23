@@ -24,25 +24,11 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _agent_credentials_use_an_in_memory_test_vault(monkeypatch):
-    """Keep provider test keys out of the workstation's real OS vault."""
-    from fastmdxplora.agent import models
-
-    values = {}
-
-    class TestVault:
-        def get_password(self, service, username):
-            return values.get((service, username))
-
-        def set_password(self, service, username, value):
-            values[(service, username)] = value
-
-        def delete_password(self, service, username):
-            if (service, username) not in values:
-                raise ValueError("Password not found")
-            del values[(service, username)]
-
-    monkeypatch.setattr(models, "_secure_keyring", lambda: TestVault())
+def _provider_credentials_are_not_inherited(monkeypatch):
+    """Provider tests use local stubs; ambient credentials must not turn
+    model discovery into a real network request."""
+    for name in ("OPENAI_API_KEY", "FASTMDX_MODEL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

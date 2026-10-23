@@ -29,8 +29,8 @@ def _strings_of(script: str) -> list[str]:
 def test_the_page_s_script_names_the_ai_model_only_where_it_is_chosen() -> None:
     said = [s for s in _strings_of((GUI / "static" / "agent-panel.js").read_text(encoding="utf-8"))
             if "AI model" in s]
-    # The Settings dialog's field for an AI model the list does not have.
-    assert said == ["Type an AI model name\\u2026"]
+    # The no-choice message and the Settings dialog's custom-model field.
+    assert said == ["No AI model is set.", "Type an AI model name\\u2026"]
 
 
 def test_the_agent_page_names_no_ai_model_outside_its_settings() -> None:
@@ -92,7 +92,7 @@ def test_the_command_line_thinks_and_says_what_was_used(monkeypatch, capsys, tmp
         return "SAY: unused"
 
     def turn(system, messages, tools, on_text=None, on_call=None):
-        return Turn("A 2 fs step.", (), Usage(1, 900, 0, 0, 10))
+        return Turn("A 2 fs step.", (), Usage(1, 900, 0, 10))
 
     complete.turn = turn
     complete.turned_away = lambda: False
