@@ -632,8 +632,9 @@
     if (!spec) return;
     var help = KEY_HELP[id] || "";
     if (help) help += " ";
+    var baseUrl = spec.needs_url ? (el("agent-base-url").value || "").trim() : "";
     var matches = savedEngineChoice && savedEngineChoice.provider === id &&
-      (savedEngineChoice.base_url || "") === (el("agent-base-url").value || "").trim();
+      (savedEngineChoice.base_url || "") === baseUrl;
     var status = matches && savedKeyIsSet
       ? " An API key is set for this choice; its value is never shown."
       : "";
@@ -644,8 +645,11 @@
 
   function updateEngineSummary(error) {
     var saved = savedEngineChoice;
-    var selected = { provider: el("agent-provider").value,
-      model: chosenModel(), base_url: el("agent-base-url").value.trim() };
+    var provider = el("agent-provider").value;
+    var spec = providerSpec(provider);
+    var selected = { provider: provider,
+      model: chosenModel(), base_url: spec && spec.needs_url
+        ? el("agent-base-url").value.trim() : "" };
     var parts = saved && engineLabelParts(saved);
     var before = saved ? "Saved for Agent requests: " + parts[0]
       : "No AI model is set.";
@@ -1230,10 +1234,12 @@
   function saveEngine(keepOpen) {
     var button = el("agent-save-model");
     button.disabled = true;
+    var provider = el("agent-provider").value;
+    var spec = providerSpec(provider);
     return post("/api/agent/model", {
-      provider: el("agent-provider").value,
+      provider: provider,
       model: chosenModel(),
-      base_url: el("agent-base-url").value,
+      base_url: spec && spec.needs_url ? el("agent-base-url").value.trim() : "",
       api_key: el("agent-key").value
     }).then(function (data) {
       button.disabled = false;
