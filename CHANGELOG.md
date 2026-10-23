@@ -1211,6 +1211,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   own padding keeps it, setup still grows a box too narrow for the cutoff,
   and studies already run are unchanged.
 
+### Removed
+
+- The Anthropic provider and `ANTHROPIC_API_KEY`, the prompt-cache retention
+  setting, and provider sign-in and accounts are removed. Use
+  `OPENAI_API_KEY` or **Other** for an OpenAI-compatible server. A stored
+  `provider: "anthropic"` now reads as no model set. A key kept only in the
+  removed sign-in vault is not migrated; set `OPENAI_API_KEY` or save the key
+  again in Agent Settings.
+
 ### Fixed
 
 - A long value in an Agent Config version's change list (a "Prepared
