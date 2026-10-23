@@ -11,7 +11,9 @@
  * (run-builder.js): put right, refused or changed in This folder since,
  * the fields still said the old ones beside a note that said the new. A
  * read that differs from the form's is said as that, above the form, with
- * Read the defaults again, which draws the form from the file as it is. */
+ * Read the defaults again, which draws the form from the file as it is.
+ * A file refused since the form was drawn from it is said as refused, as
+ * on opening: the start refuses it, so it is not one a study runs with. */
 (function () {
   "use strict";
 
@@ -33,13 +35,17 @@
     });
   }
 
-  function say(note, refused) {
+  /* `drawnFromFile`: the form's fields say the file's values, read before
+   * it was refused, and Read the defaults again offers FastMDXplora's. */
+  function say(note, refused, drawnFromFile) {
     note.textContent = "";
     if (!refused) { note.hidden = true; return; }
     note.appendChild(make("b", "", "Your defaults are not used. "));
     words(note, refused);
-    note.appendChild(document.createTextNode(
-      " This form offers FastMDXplora's own values until the file is put right. "));
+    note.appendChild(document.createTextNode(drawnFromFile
+      ? " This form was drawn with the file's values; read the defaults again to offer"
+        + " FastMDXplora's own. "
+      : " This form offers FastMDXplora's own values until the file is put right. "));
     var link = make("a", "", "This folder in Settings");
     link.href = "#settings";
     link.addEventListener("click", function (e) {
@@ -48,21 +54,29 @@
       window.FastMDXSettings.scope("folder");
     });
     note.appendChild(link);
+    if (drawnFromFile) note.appendChild(againButton(note));
     note.hidden = false;
+  }
+
+  function fieldsOf(schema) {
+    var lists = Object.keys(schema.phases || {}).sort().map(function (phase) {
+      return schema.phases[phase].fields;
+    }).concat([schema.run_options, schema.execution_options]);
+    return [].concat.apply([], lists.map(function (fields) { return fields || []; }));
   }
 
   /* What a schema says of the folder's defaults: each setting's default
    * and where it is from, and the refusal of the file. */
   function defaultsOf(schema) {
     if (!schema) return "";
-    var said = [schema.defaults_refused || ""];
-    var lists = Object.keys(schema.phases || {}).sort().map(function (phase) {
-      return schema.phases[phase].fields;
-    }).concat([schema.run_options, schema.execution_options]);
-    lists.forEach(function (fields) {
-      (fields || []).forEach(function (f) { said.push([f.name, f.default, f.default_from || ""]); });
-    });
-    return JSON.stringify(said);
+    return JSON.stringify([schema.defaults_refused || ""].concat(fieldsOf(schema).map(function (f) {
+      return [f.name, f.default, f.default_from || ""];
+    })));
+  }
+
+  /* Whether any of a schema's defaults is the folder's file's. */
+  function fromFile(schema) {
+    return fieldsOf(schema).some(function (f) { return Boolean(f.default_from); });
   }
 
   function builder() { return window.FastMDXRun && window.FastMDXRun.schema ? window.FastMDXRun : null; }
@@ -78,15 +92,19 @@
     }).catch(function () { button.disabled = false; });
   }
 
+  function againButton(note) {
+    var button = make("button", "ghost-btn builder-defaults-again", "Read the defaults again");
+    button.type = "button";
+    button.addEventListener("click", function () { again(note, button); });
+    return button;
+  }
+
   function changed(note) {
     note.textContent = "";
     note.appendChild(make("b", "", "Your defaults changed since this form was drawn. "));
     note.appendChild(document.createTextNode(
       "Its fields say the defaults it was drawn with, and a study runs with the file as it is now."));
-    var button = make("button", "ghost-btn builder-defaults-again", "Read the defaults again");
-    button.type = "button";
-    button.addEventListener("click", function () { again(note, button); });
-    note.appendChild(button);
+    note.appendChild(againButton(note));
     note.hidden = false;
   }
 
@@ -100,8 +118,10 @@
     ]).then(function (both) {
       var now = both[0];
       var drawn = both[1];
-      if (drawn && defaultsOf(drawn) !== defaultsOf(now)) changed(note);
-      else say(note, now && now.defaults_refused);
+      var refused = now && now.defaults_refused;
+      var differs = drawn && defaultsOf(drawn) !== defaultsOf(now);
+      if (differs && !refused) changed(note);
+      else say(note, refused, differs && fromFile(drawn));
     }).catch(function () { /* the form says it could not read the settings */ })
       .then(function () { asking = null; });
   }

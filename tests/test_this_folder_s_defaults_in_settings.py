@@ -474,8 +474,10 @@ def test_new_study_follows_the_defaults_file_it_was_drawn_with(browser, session)
     changed = changed_while_away("setup:\n  ph: 6.8\n")
     redrawn = read_again()
     focused = page.evaluate("() => document.activeElement.className")
-    # Refused while the page is open: the form drawn with 6.8 is said to be
-    # as drawn, not as offering FastMDXplora's values; drawn again, it does.
+    # Refused while the page is open: the refusal is said first, as on
+    # opening, never that a study runs with the file (the start refuses
+    # it); the form drawn with 6.8 is not said to offer FastMDXplora's
+    # values until it is drawn again.
     refused = changed_while_away("setup:\n  mutations: [L99A]\n  ph: 6.8\n")
     refused_again = read_again()
     # Put right: the form takes the file's value again.
@@ -493,7 +495,11 @@ def test_new_study_follows_the_defaults_file_it_was_drawn_with(browser, session)
     assert "FastMDXplora's own values" not in changed[0] and changed[1] == "Your default 6.5"
     assert redrawn[1] and redrawn[2] == "Your default 6.8", redrawn
     assert "page-title" in focused
-    assert refused[0].startswith("Your defaults changed") and refused[1] == "Your default 6.8"
+    assert refused[0].startswith("Your defaults are not used. "), refused[0]
+    assert "sets setup.mutations, which says what one study simulates" in refused[0], refused[0]
+    assert "drawn with the file's values" in refused[0], refused[0]
+    assert "runs with the file" not in refused[0] and "until the file is put right" not in refused[0]
+    assert refused[1] == "Your default 6.8"
     assert refused_again[0].startswith("Your defaults are not used. "), refused_again
     assert "setup.mutations" in refused_again[0] and refused_again[2] == "Default 7.4"
     assert right[1] == "Default 7.4" and "FastMDXplora's own values" not in right[0]

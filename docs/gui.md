@@ -595,18 +595,18 @@ value, the plan names each with its systems ("310 K, 1 bar (plain); 320 K,
 1 bar (warm)"). Every value typed into the form is kept in the file, yours
 too, so the file run where there is no defaults file runs the study shown;
 only FastMDXplora's own value, where yours say nothing else, goes unsaid.
-The file is changed in **Settings**, under **This folder**. A file that
-is refused (a setting of one study in it, or a value the schema refuses)
+The file is changed in **Settings**, under **This folder**. A file that is
+refused (a setting of one study in it, or a value the schema refuses)
 fills nothing: New study says why above the form, with the way to This
 folder, and offers FastMDXplora's own values until it is put right. The
-form keeps the defaults it was drawn with: where the file has changed since
-(in This folder, put right or refused), New study says so above the form,
-and **Read the defaults again** draws the form from the file as it is. Bound
-beyond loopback, the folder's file is neither shown nor said, as This
-folder is not offered there: the form offers FastMDXplora's own values,
-and the config handed back is drawn from them. A
-full config gives your default only to the systems that take it, and each
-run records your reason only where it took your value.
+form keeps the defaults it was drawn with: where the file has changed
+since (in This folder or put right), New study says so above the form,
+where it is refused since, the refusal, and **Read the defaults again**
+draws the form from the file as it is. Bound beyond loopback, the folder's
+file is neither shown nor said, as This folder is not offered there: the
+form offers FastMDXplora's own values, and the config handed back is drawn
+from them. A full config gives your default only to the systems that take
+it, and each run records your reason only where it took your value.
 
 When you press **Run**, the Config is written into the output directory as
 `exploration.yml` before anything starts (the full one where **Full config** is
