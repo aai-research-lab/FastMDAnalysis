@@ -5,7 +5,13 @@
  * with nothing said, so a lab's file refused for one setting dropped all
  * its values silently, and the study was refused only once it started.
  * The refusal `/api/schema` gives (`defaults_refused`) is said above the
- * form each time New study is opened, with the way to This folder. */
+ * form each time New study is opened, with the way to This folder.
+ *
+ * The form is drawn from the defaults read when it was first drawn
+ * (run-builder.js): put right, refused or changed in This folder since,
+ * the fields still said the old ones beside a note that said the new. A
+ * read that differs from the form's is said as that, above the form, with
+ * Read the defaults again, which draws the form from the file as it is. */
 (function () {
   "use strict";
 
@@ -45,12 +51,58 @@
     note.hidden = false;
   }
 
+  /* What a schema says of the folder's defaults: each setting's default
+   * and where it is from, and the refusal of the file. */
+  function defaultsOf(schema) {
+    if (!schema) return "";
+    var said = [schema.defaults_refused || ""];
+    var lists = Object.keys(schema.phases || {}).sort().map(function (phase) {
+      return schema.phases[phase].fields;
+    }).concat([schema.run_options, schema.execution_options]);
+    lists.forEach(function (fields) {
+      (fields || []).forEach(function (f) { said.push([f.name, f.default, f.default_from || ""]); });
+    });
+    return JSON.stringify(said);
+  }
+
+  function builder() { return window.FastMDXRun && window.FastMDXRun.schema ? window.FastMDXRun : null; }
+
+  /* The form drawn again from the file as it is now, and what that says. */
+  function again(note, button) {
+    button.disabled = true;
+    builder().schema(true).then(function (schema) {
+      say(note, schema && schema.defaults_refused);
+      var title = document.querySelector('.page[data-page="run"] .page-title');
+      var to = note.hidden ? title : note;
+      if (to) { to.tabIndex = -1; to.focus(); }
+    }).catch(function () { button.disabled = false; });
+  }
+
+  function changed(note) {
+    note.textContent = "";
+    note.appendChild(make("b", "", "Your defaults changed since this form was drawn. "));
+    note.appendChild(document.createTextNode(
+      "Its fields say the defaults it was drawn with, and a study runs with the file as it is now."));
+    var button = make("button", "ghost-btn builder-defaults-again", "Read the defaults again");
+    button.type = "button";
+    button.addEventListener("click", function () { again(note, button); });
+    note.appendChild(button);
+    note.hidden = false;
+  }
+
   function read() {
     var note = el("run-defaults-refused");
     if (!note || asking) return;
-    asking = fetch("/api/schema").then(function (response) { return response.json(); })
-      .then(function (schema) { say(note, schema && schema.defaults_refused); })
-      .catch(function () { /* the form says it could not read the settings */ })
+    var form = builder();
+    asking = Promise.all([
+      fetch("/api/schema").then(function (response) { return response.json(); }),
+      form ? form.schema() : null
+    ]).then(function (both) {
+      var now = both[0];
+      var drawn = both[1];
+      if (drawn && defaultsOf(drawn) !== defaultsOf(now)) changed(note);
+      else say(note, now && now.defaults_refused);
+    }).catch(function () { /* the form says it could not read the settings */ })
       .then(function () { asking = null; });
   }
 

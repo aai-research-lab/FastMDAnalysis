@@ -4291,6 +4291,16 @@
     renderPreview, describeCost, previewCost, boxVectors, periodicCell, pickResidue,
     sayRefusal, renderSettings, showSetting, forLoaded, bodyOf, snapshotOfLoaded,
     beforeStudySwitch: () => draftHeld(),
+    /* The settings the form is drawn with; `again`, read again and the form
+     * drawn from them (new-study.js, when the folder's defaults changed). */
+    schema: (again) => (again ? fetch("/api/schema").then((response) => response.json())
+      .then((schema) => {
+        state.schema = schema;
+        schemaAsked = Promise.resolve(schema);
+        describeOutput();
+        renderAll();
+        return schema;
+      }) : loadSchema()),
   };
 
   /* A Config draft this browser could not keep, or changed here since

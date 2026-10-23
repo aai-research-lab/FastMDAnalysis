@@ -598,7 +598,10 @@ only FastMDXplora's own value, where yours say nothing else, goes unsaid.
 The file is changed in **Settings**, under **This folder**. A file that
 is refused (a setting of one study in it, or a value the schema refuses)
 fills nothing: New study says why above the form, with the way to This
-folder, and offers FastMDXplora's own values until it is put right. Bound
+folder, and offers FastMDXplora's own values until it is put right. The
+form keeps the defaults it was drawn with: where the file has changed since
+(in This folder, put right or refused), New study says so above the form,
+and **Read the defaults again** draws the form from the file as it is. Bound
 beyond loopback, the folder's file is neither shown nor said, as This
 folder is not offered there: the form offers FastMDXplora's own values. A
 full config gives your default only to the systems that take it, and each

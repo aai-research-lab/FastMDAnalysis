@@ -2038,6 +2038,7 @@ body.state-ready .loading-screen {
     overflow-wrap: anywhere;
 }
 .builder-defaults-refused b { color: var(--text-primary); font-weight: 600; }
+.builder-defaults-again { display: block; margin-top: 8px; }
 
 .builder-grid {
     display: grid;

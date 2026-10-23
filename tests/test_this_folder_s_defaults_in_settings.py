@@ -278,7 +278,8 @@ def test_new_study_says_a_refused_defaults_file(browser, session):
     """A lab's file refused for one setting filled nothing, and New study
     showed FastMDXplora's values with nothing said: the study was refused
     only once it started. The refusal is said above the form, with the
-    way to This folder, and is gone once the file is put right."""
+    way to This folder, and is gone once the file is put right and the
+    form drawn from it."""
     started, where = session
     where.write_text("setup:\n  mutations: [L99A]\n  ph: 6.5\n", encoding="utf-8")
     note = "#run-defaults-refused"
@@ -290,9 +291,11 @@ def test_new_study_says_a_refused_defaults_file(browser, session):
     page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
     page.wait_for_selector("#settings-folder-body .settings-cannot")
     scope = page.get_attribute("#settings-scope-folder", "aria-selected")
-    # Put right, New study says nothing more.
+    # Put right, New study says nothing more once the form is drawn from it
+    # (until then, that it was drawn with the file as it was).
     where.write_text("setup:\n  ph: 6.5\n", encoding="utf-8")
     page.evaluate("() => window.FastMDXDashboard.navigate('run')")
+    page.click(f"{note} .builder-defaults-again")
     page.wait_for_selector(f"{note}[hidden]", state="attached")
     errors = page.errors
     page.context.close()
@@ -303,6 +306,64 @@ def test_new_study_says_a_refused_defaults_file(browser, session):
     assert said[0].count(str(where)) == 1 and "`" not in said[0]
     assert "setup.mutations" in said[1]
     assert scope == "true"
+
+
+def test_new_study_follows_the_defaults_file_it_was_drawn_with(browser, session):
+    """New study's form keeps the defaults it was drawn with: changed in
+    This folder, put right or refused since, its fields said "Your default
+    6.5" beside a note that said otherwise, and the run took the file as it
+    then was. A read that differs is said above the form, and Read the
+    defaults again draws the form from the file as it is."""
+    started, where = session
+    where.write_text("setup:\n  ph: 6.5\n", encoding="utf-8")
+    note = "#run-defaults-refused"
+    ph = '.builder-field[data-phase="setup"][data-setting="ph"] .builder-default'
+    page = _open(browser, started.url, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
+    page.wait_for_selector(ph, state="attached")
+    drawn = page.text_content(ph)
+
+    def changed_while_away(text):
+        where.write_text(text, encoding="utf-8")
+        page.evaluate("() => window.FastMDXDashboard.navigate('settings')")
+        page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
+        page.evaluate("() => window.FastMDXDashboard.navigate('run')")
+        page.wait_for_selector(f"{note}:not([hidden]) .builder-defaults-again")
+        return page.text_content(note), page.text_content(ph)
+
+    def read_again():
+        page.click(f"{note} .builder-defaults-again")
+        page.wait_for_selector(f"{note} .builder-defaults-again", state="detached")
+        return page.text_content(note), page.is_hidden(note), page.text_content(ph)
+
+    # Changed in This folder: said, the fields as drawn, then drawn again.
+    changed = changed_while_away("setup:\n  ph: 6.8\n")
+    redrawn = read_again()
+    focused = page.evaluate("() => document.activeElement.className")
+    # Refused while the page is open: the form drawn with 6.8 is said to be
+    # as drawn, not as offering FastMDXplora's values; drawn again, it does.
+    refused = changed_while_away("setup:\n  mutations: [L99A]\n  ph: 6.8\n")
+    refused_again = read_again()
+    # Put right: the form takes the file's value again.
+    right = changed_while_away("setup:\n  ph: 6.5\n")
+    right_again = read_again()
+    # Read again with nothing changed: nothing said.
+    page.evaluate("() => window.FastMDXDashboard.navigate('settings')")
+    page.evaluate("() => window.FastMDXDashboard.navigate('run')")
+    page.wait_for_selector(f"{note}[hidden]", state="attached")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert drawn == "Your default 6.5"
+    assert changed[0].startswith("Your defaults changed since this form was drawn."), changed[0]
+    assert "FastMDXplora's own values" not in changed[0] and changed[1] == "Your default 6.5"
+    assert redrawn[1] and redrawn[2] == "Your default 6.8", redrawn
+    assert "page-title" in focused
+    assert refused[0].startswith("Your defaults changed") and refused[1] == "Your default 6.8"
+    assert refused_again[0].startswith("Your defaults are not used. "), refused_again
+    assert "setup.mutations" in refused_again[0] and refused_again[2] == "Default 7.4"
+    assert right[1] == "Default 7.4" and "FastMDXplora's own values" not in right[0]
+    assert right_again[1] and right_again[2] == "Your default 6.5"
 
 
 def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):
