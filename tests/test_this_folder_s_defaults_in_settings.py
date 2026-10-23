@@ -365,6 +365,55 @@ def test_a_change_saved_while_the_file_is_read_is_shown_set(browser, session):
         "setup": {"ph": 6.0}, "simulation": {"temperature_K": 310}}
 
 
+def test_a_read_asked_while_a_change_is_in_flight_does_not_undo_it(browser, session):
+    """A read asked after a change was sent, and before it was answered,
+    can read the file before the change is written and be answered after
+    it: the threaded server answered the read with the file as it was, and
+    the row was drawn unset again."""
+    started, where = session
+    ph = '.settings-field[data-name="setup.ph"]'
+    page = _open(browser, started.url)
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{ph} .settings-control")
+    reads, writes = [], []
+
+    def held(route):
+        if route.request.method == "GET":
+            # Read now, the change not yet written, and given to the page later.
+            reads.append((route, route.fetch()))
+        else:
+            writes.append(route)
+
+    def answered(routes):
+        while not routes:
+            page.wait_for_timeout(50)
+
+    page.route("**/api/defaults-file", held)
+    page.fill(f"{ph} .settings-control", "6.5")
+    page.press(f"{ph} .settings-control", "Tab")
+    answered(writes)
+    page.evaluate("() => window.FastMDXSettings.reload()")
+    answered(reads)
+    with page.expect_response(lambda r: r.request.method == "POST"
+                              and "/api/defaults-file" in r.url):
+        writes.pop().continue_()
+    page.wait_for_selector(f"{ph} .settings-status.is-saved")
+    route, response = reads.pop()
+    with page.expect_response(lambda r: r.request.method == "GET"
+                              and "/api/defaults-file" in r.url):
+        route.fulfill(response=response)
+    page.wait_for_timeout(300)
+    shown = (page.get_attribute(ph, "class"), page.input_value(f"{ph} .settings-control"),
+             page.text_content(f"{ph} .settings-status"))
+    page.unroute("**/api/defaults-file")
+    errors = page.errors
+    page.context.close()
+    assert errors == [] and not writes
+    assert "is-set" in shown[0].split() and shown[1] == "6.5", shown
+    assert shown[2].startswith("Saved in the file."), shown
+    assert yaml.safe_load(where.read_text(encoding="utf-8")) == {"setup": {"ph": 6.5}}
+
+
 def test_a_file_with_comments_is_shown_and_not_written(browser, session):
     started, where = session
     where.write_text("simulation:\n  temperature_K: 305  # the lab's\n", encoding="utf-8")

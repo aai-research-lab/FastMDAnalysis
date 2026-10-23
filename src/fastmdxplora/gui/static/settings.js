@@ -220,9 +220,10 @@
   /* ==================================================================== */
   /* This folder                                                           */
   /* ==================================================================== */
-  /* `sent` counts the changes sent: a read asked before the last of them
-   * is answered with the file as it was, and is dropped. */
-  var folder = { said: null, asking: false, before: {}, sent: 0 };
+  /* `sent` counts the changes sent, and `pending` those not yet answered:
+   * a read asked before the last of them, or while one is in flight, may
+   * be answered with the file as it was, and is dropped. */
+  var folder = { said: null, asking: false, before: {}, sent: 0, pending: 0 };
 
   function shownValue(field, value) {
     if (value === null || value === undefined) return "";
@@ -467,9 +468,13 @@
     };
     if (asked) asked.setAttribute("aria-busy", "true");
     folder.sent += 1;
+    folder.pending += 1;
+    var inFlight = true;
+    function answered() { if (inFlight) { inFlight = false; folder.pending -= 1; } }
     fetch("/api/defaults-file", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
     }).then(function (r) { return r.json(); }).then(function (said) {
+      answered();
       if (asked) asked.removeAttribute("aria-busy");
       var item = rowOf(field.name);
       if (item) item.removeAttribute("aria-busy");
@@ -514,6 +519,7 @@
       var refocus = focused && again.querySelector(focused);
       if (refocus) refocus.focus();
     }).catch(function () {
+      answered();
       if (asked) asked.removeAttribute("aria-busy");
       var item = rowOf(field.name);
       if (item) item.removeAttribute("aria-busy");
@@ -588,14 +594,17 @@
   function loadFolder() {
     folder.asking = true;
     var sent = folder.sent;
+    var inFlight = folder.pending > 0;
+    function stale() { return folder.said && (inFlight || folder.sent !== sent); }
     fetch("/api/defaults-file").then(function (r) {
       if (r.status === 404) return { cannot: "This server cannot read the folder's defaults yet." };
       return r.json();
     }).then(function (said) {
       folder.asking = false;
-      // A change sent since it was asked: the file as it was, which would
-      // draw that change's row as not set. The change's answer says it.
-      if (folder.said && folder.sent !== sent) return;
+      // A change sent since it was asked, or not yet answered when it was:
+      // the file as it was, which would draw that change's row as not set.
+      // The change's answer says it.
+      if (stale()) return;
       if (said && said.ok === false && !said.fields) said.cannot = said.reason || said.error || "Not here.";
       folder.said = said || { cannot: "The folder's defaults could not be read." };
       if (!folder.said.values) folder.said.values = {};
@@ -603,7 +612,7 @@
       drawFolder();
     }).catch(function () {
       folder.asking = false;
-      if (folder.said && folder.sent !== sent) return;
+      if (stale()) return;
       folder.said = { cannot: "Could not reach the server.", values: {}, whys: {} };
       drawFolder();
     });
