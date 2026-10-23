@@ -213,3 +213,56 @@ def test_a_new_frame_moves_the_atoms_and_keeps_the_measurement(tmp_path) -> None
     assert moved["retained overlay"]["after"] == moved["retained overlay"]["before"]
     assert reloaded is True
     assert errors == []
+
+
+def test_switching_to_a_study_without_a_live_frame_clears_the_overlay(tmp_path) -> None:
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    study_a = _study(tmp_path / "study-a")
+    study_b = tmp_path / "study-b"
+    (study_b / "setup").mkdir(parents=True)
+    (study_b / "simulation").mkdir()
+    _peptide(12).save_pdb(str(study_b / "setup" / "topology.pdb"))
+
+    session = start_dashboard_session(output=str(study_a), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => (document.getElementById('overlay-frame')?.textContent || '')"
+                ".startsWith('step') && document.getElementById('overlay-simtime')"
+                "?.textContent"
+            )
+            before = page.evaluate("""() => ({
+                frame: document.getElementById('overlay-frame')?.textContent || '',
+                simtime: document.getElementById('overlay-simtime')?.textContent || '',
+            })""")
+            assert before["frame"].startswith("step") and before["simtime"]
+
+            base = session.url.split("#")[0].rstrip("/")
+            asked = urllib.request.Request(
+                base + "/api/explore/switch", method="POST",
+                data=json.dumps({"folder": str(study_b)}).encode(),
+                headers={"content-type": "application/json"})
+            with urllib.request.urlopen(asked, timeout=30) as answer:
+                assert json.loads(answer.read()).get("ok") is not False
+            page.wait_for_function(
+                "() => (window.FastMDXDashboard.state.appState?.active_run || '')"
+                ".endsWith('study-b')"
+            )
+            after = page.evaluate("""() => ({
+                frame: document.getElementById('overlay-frame')?.textContent || '',
+                simtime: document.getElementById('overlay-simtime')?.textContent || '',
+            })""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+
+    assert after["frame"] == ""
+    assert after["simtime"] == ""

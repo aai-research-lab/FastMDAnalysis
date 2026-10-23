@@ -3090,7 +3090,7 @@
     const simtimeSaid = STATE.playbackPayload?.source_kind === "production-dcd"
       && window.FastMDXSeries?.frameTimeSaid
       ? window.FastMDXSeries.frameTimeSaid(time, STATE.playbackFrameTimes) : null;
-    setOverlay(false, {stage: "playback", frame: index + 1,
+    setOverlay(false, {stage: "playback", frame: index + 1, age: "",
       total: STATE.playbackFrames, step, simtime: time, simtimeSaid});
     try {
       if (STATE.miniEngine && STATE.miniModel?.of === "frames") {
@@ -3719,6 +3719,10 @@
   function setOverlay(live, info) {
     const overlay = document.getElementById("viewer-overlay");
     if (!overlay) return;
+    if (info?.clear) {
+      ["overlay-stage", "overlay-frame", "overlay-age", "overlay-simtime"]
+        .forEach((id) => setText(id, ""));
+    }
     // A frame the engine wrote is live only while the engine is writing
     // them: a finished study's last frame read "LIVE, age 56m".
     const running = STATE.runStatus === "running" || STATE.runStatus === "starting";
@@ -3739,7 +3743,9 @@
     if (info?.frame != null) {
       setText("overlay-frame", `frame ${info.frame}${info.total != null ? ` / ${info.total}` : ""}`);
     }
-    if (info?.age != null && !ended) setText("overlay-age", `age ${info.age}`);
+    if (info?.age != null && !ended) {
+      setText("overlay-age", info.age === "" ? "" : `age ${info.age}`);
+    }
     if (info?.simtimeSaid) setText("overlay-simtime", info.simtimeSaid);
     else if (info?.simtime != null) {
       // In ps under 1 ns, as every page says a length: the last frame of a

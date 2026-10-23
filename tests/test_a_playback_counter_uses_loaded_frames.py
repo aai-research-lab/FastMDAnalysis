@@ -139,6 +139,45 @@ def test_the_counter_announces_only_a_frame_the_renderer_committed(tmp_path, rej
         session.server.shutdown()
 
 
+def test_playback_clears_the_age_from_the_live_frame(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    root = tmp_path / "study"
+    _write_history(root, count=3)
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.set_default_timeout(60000)
+            page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => (document.getElementById('overlay-age')?.textContent || '')"
+                ".startsWith('age ')", timeout=30_000)
+            live_age = page.locator("#overlay-age").inner_text()
+            assert live_age.startswith("age ")
+
+            page.evaluate("async () => window.FastMDXMoleculeViewer.loadPlayback("
+                          "await (await fetch('/api/frames-info')).json())")
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer?.STATE.playbackLoaded",
+                timeout=60_000)
+            page.locator('#trajectory-row [data-traj="first"]').click()
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer?.STATE.mode === 'playback'"
+                " && document.getElementById('overlay-frame')?.textContent === 'frame 1 / 3'",
+                timeout=60_000)
+            playback_age = page.locator("#overlay-age").inner_text()
+            browser.close()
+    finally:
+        session.server.shutdown()
+
+    assert playback_age == ""
+
+
 def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path):
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
