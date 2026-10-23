@@ -151,6 +151,13 @@ def _one_study_s(block: str, key: str, value: Any) -> tuple[str, str] | None:
     analysis in `analysis.options`, or a restraint that names atoms."""
     name = f"{block}.{key}"
     if name in _ONE_STUDY_SAID:
+        if value is None or value is False or value in ("", [], {}):
+            # Given as nothing (`false`, `null`, as a full config writes
+            # them), it says neither what its words say nor the opposite.
+            import json
+
+            return name, (f"is one study's setting; given as `{json.dumps(value)}` it sets "
+                          "nothing, so take it out of the file")
         return name, _ONE_STUDY_SAID[name]
     if name == "analysis.options" and isinstance(value, dict):
         for analysis, given in value.items():

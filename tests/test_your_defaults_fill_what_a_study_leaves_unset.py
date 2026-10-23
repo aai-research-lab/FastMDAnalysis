@@ -121,6 +121,26 @@ def test_a_setting_of_one_study_is_refused_in_the_file(tmp_path, setting, value)
     assert where.read_text() == before
 
 
+@pytest.mark.parametrize("setting, value, shown, not_said", [
+    ("setup.membrane_orientation_checked", False, "false", "turns off"),
+    ("report.title", None, "null", "one study's title"),
+    ("setup.mutations", [], "[]", "simulates"),
+])
+def test_a_setting_of_one_study_given_as_nothing_is_said_as_that(tmp_path, setting, value, shown,
+                                                                 not_said):
+    """A full config writes `membrane_orientation_checked: false`, and a
+    file holding it was refused as saying one structure was oriented by
+    hand and turning the membrane's stops off, the opposite of `false`;
+    `report.title: null` as one study's title. Refused still, as what it is."""
+    block, _, key = setting.partition(".")
+    with pytest.raises(ConfigError) as caught:
+        read_defaults(_write(tmp_path, {block: {key: value}}))
+    said = str(caught.value)
+    assert caught.value.code == "config.option.inapplicable"
+    assert f"`{setting}`, which is one study's setting; given as `{shown}` it sets nothing" in said
+    assert not_said not in said, said
+
+
 @pytest.mark.parametrize("block, value, named", [
     ("analysis", {"options": {"pair_distance": {"selection_a": "resid 10 and name CA",
                                                 "selection_b": "resid 50 and name CA"}}},
