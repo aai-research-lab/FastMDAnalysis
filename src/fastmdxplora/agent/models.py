@@ -27,10 +27,9 @@ the AI model's name, never the key. Six months on, "why did this study pick
 300 K" has a different answer depending on whether a frontier AI model or a 7B
 running on a laptop proposed it, and that is provenance like any other.
 
-Two providers are offered by name. A third option takes any
-OpenAI-compatible base URL, which covers DeepSeek, vLLM, Ollama,
-OpenRouter and most local servers -- they speak the same shape, so there
-is nothing to add per provider.
+OpenAI is offered by name. **Other** takes any OpenAI-compatible base URL,
+which covers DeepSeek, vLLM, Ollama, OpenRouter and most local servers --
+they speak the same shape, so there is nothing to add per provider.
 """
 
 from __future__ import annotations
@@ -255,9 +254,9 @@ def list_models(choice: ModelChoice | None = None, *,
 
     A list written into this file is stale the week after it is written,
     and an AI model released next month would simply be missing with nothing to
-    explain why. Both hosted providers publish one at ``/v1/models``, and
-    an OpenAI-compatible server serves the same path relative to its base
-    URL, so a local Ollama answers this too.
+    explain why. OpenAI publishes one at ``/v1/models``, and an
+    OpenAI-compatible server serves the same path relative to its base URL,
+    so a local Ollama answers this too.
 
     Returns the fallback in `PROVIDERS` when there is no key yet, when the
     provider cannot be reached, or when the answer is not the shape this
