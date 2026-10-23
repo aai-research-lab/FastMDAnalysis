@@ -1447,9 +1447,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "giving up (default: 3, as in the browser and from Python). "
             "Each attempt is checked before anything runs, "
             "so they cost seconds rather than GPU time. Three is measured "
-            "rather than guessed: claude-sonnet-4-6 took at most two on "
-            "the evaluation set with the schema's help text, and at most "
-            "three without it."
+            "rather than guessed: on the recorded evaluation set, attempts "
+            "were capped at two with the schema's help text and three "
+            "without it."
         ),
     )
 
@@ -3743,7 +3743,7 @@ def _choose_model() -> int:
     # What is in use first, so a look at the choice is not a change to it:
     # nothing is saved unless an AI model is picked below.
     if load_choice() is None:
-        print("No AI model chosen yet.\n")
+        print("No AI model is set yet.\n")
     else:
         print("In use: " + describe_choice() + "\n")
     names = list(PROVIDERS)
@@ -3784,21 +3784,10 @@ def _choose_model() -> int:
           "instead):")
     key = input("> ").strip()
 
-    cache = "auto"
-    if picked == "anthropic":
-        print("Keep the instructions in Anthropic's cache for [auto]: auto (an hour on "
-              "the Agent page, five minutes here), 1h or 5m. An hour costs twice the "
-              "input price to write instead of 1.25 times, and a reply after a pause "
-              "still reads them at a tenth.")
-        cache = input("> ").strip().lower() or "auto"
-        if cache not in ("auto", "1h", "5m"):
-            print(f"{cache!r} is not auto, 1h or 5m.")
-            return 1
-
-    where = save_choice(ModelChoice(picked, model, base_url), key=key, cache=cache)
+    where = save_choice(ModelChoice(picked, model, base_url), key=key)
     print(f"\n  ✓ Saved to {where}")
     if key:
-        print("  ✓ Key stored in the OS credential vault. It is never "
+        print("  ✓ Key stored in the owner-only model settings file. It is never "
               "written into a study.")
     else:
         print(f"  ✓ No key stored; {env_name} will be read at call time.")

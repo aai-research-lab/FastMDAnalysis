@@ -7,17 +7,14 @@ whether a config is acceptable. The validator does that, as it does for a
 config somebody typed by hand.
 
 The key is accepted here and handed to
-:func:`fastmdxplora.agent.save_choice`, which puts it in the OS credential
-vault. It is never echoed back to the browser, never written into a config,
-and never logged. Server-side rather than in the page because a browser
-cannot hold a secret: anything the page keeps is readable by anything else
-the page runs.
+:func:`fastmdxplora.agent.save_choice`, which writes it to the owner-only
+model settings file. It is never echoed back to the browser, never written
+into a config, and never logged.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 import time
@@ -27,7 +24,7 @@ from typing import Any
 
 from fastmdxplora.refusals import StudyError
 
-__all__ = ["model_endpoint", "auth_endpoint", "propose_endpoint", "run_endpoint"]
+__all__ = ["model_endpoint", "propose_endpoint", "run_endpoint"]
 
 
 #: The memory of the person at this computer: their settings folder, where
@@ -35,95 +32,8 @@ __all__ = ["model_endpoint", "auth_endpoint", "propose_endpoint", "run_endpoint"
 OWN_MEMORY = "own"
 
 
-def _auth_methods(provider: str, *, local_auth_allowed: bool = True) -> list[dict[str, Any]]:
-    """Authentication modes documented for this provider and this Agent."""
-    methods: list[dict[str, Any]] = [{
-        "id": "api_key", "label": "API key", "available": True,
-        "requires_api_key": True,
-    }]
-    if provider == "anthropic":
-        from fastmdxplora.agent import anthropic_cli
-
-        installed = bool(anthropic_cli.executable())
-        terminal_available = installed and anthropic_cli.can_launch_login()
-        methods.append(
-            {
-                "id": "anthropic_console",
-                "label": "Anthropic Console OAuth (official ant CLI)",
-                "available": local_auth_allowed and terminal_available,
-                "requires_api_key": False,
-                "reason": (
-                    (
-                        "Provider credentials and interactive sign-in are available only in "
-                        "the local dashboard."
-                    )
-                    if not local_auth_allowed
-                    else "Install Anthropic's official ant CLI to enable this method. "
-                    "This is Anthropic Console API OAuth."
-                    if not installed
-                    else "A local interactive terminal is required."
-                    if not terminal_available
-                    else "This is Anthropic Console API OAuth."
-                ),
-            }
-        )
-    if provider == "openai":
-        from fastmdxplora.agent.models import _secure_keyring
-
-        vault_available = _secure_keyring() is not None
-        methods.append(
-            {
-                "id": "chatgpt_plan",
-                "label": "ChatGPT plan sign-in",
-                "available": local_auth_allowed and vault_available,
-                "requires_api_key": False,
-                "reason": (
-                    (
-                        "Provider credentials and interactive sign-in are available only in "
-                        "the local dashboard."
-                    )
-                    if not local_auth_allowed
-                    else "A supported OS credential vault is required to save ChatGPT tokens. "
-                    "Use an OpenAI API key instead."
-                    if not vault_available
-                    else "Sign in locally with ChatGPT. The signed-in account must authorize "
-                    "ChatGPT plan usage; API keys remain a separate option."
-                ),
-            }
-        )
-    return methods
-
-
-def _key_availability(choice: Any) -> dict[str, Any]:
-    from fastmdxplora.agent.models import (
-        PROVIDERS, _stored_api_key,
-    )
-
-    if choice.auth_method == "anthropic_console":
-        from fastmdxplora.agent.anthropic_cli import status
-
-        return status()
-    if choice.auth_method == "chatgpt_plan":
-        from fastmdxplora.agent.openai_chatgpt import status
-
-        return status()
-    env_name = PROVIDERS[choice.provider]["env"]
-    if os.environ.get(env_name):
-        return {"available": True, "connected": None,
-                "message": f"API key supplied by {env_name}; test it to verify access."}
-    if _stored_api_key(choice):
-        return {"available": True, "connected": None,
-                "message": "API key saved in the OS credential vault; test it to verify access."}
-    return {"available": True, "connected": False,
-            "message": f"No API key is set. Enter one here or set {env_name}."}
-
-
 def _model_options(choice: Any) -> list[dict[str, str]]:
-    """Fetch once, keeping the configured choices usable while offline.
-
-    Authentication status is reported separately; a fallback list never
-    establishes that a connection succeeded.
-    """
+    """Fetch once, keeping the configured choices usable while offline."""
     from fastmdxplora.agent.models import PROVIDERS, list_model_options
 
     try:
@@ -133,36 +43,24 @@ def _model_options(choice: Any) -> list[dict[str, str]]:
                 for model in PROVIDERS[choice.provider].get("models", ())]
 
 
-def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -> dict[str, Any]:
-    """Read or set which AI model to ask.
-
-    With no ``provider``, reports what is set. With one, stores the choice
-    and, if a key came with it, the key.
-    """
+def model_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    """Read or set the OpenAI or OpenAI-compatible model choice."""
     from fastmdxplora.agent.models import (
-        CACHE_FOR,
-        PROVIDERS,
-        SIGNED_IN_METHODS,
-        ModelChoice,
-        _takes_tools,
-        default_model,
-        load_choice,
-        model_path,
-        save_choice,
+        PROVIDERS, ModelChoice, _takes_tools, default_model, load_choice,
+        model_path, save_choice, _key_for,
     )
+
+    def key_is_set(choice: Any) -> bool:
+        try:
+            return bool(_key_for(choice))
+        except StudyError:
+            return False
 
     if not payload.get("provider"):
         current = load_choice()
-        # Ask the provider now, if there is already a key to ask with. The
-        # list used to be fetched only when a choice was saved, so opening
-        # Settings showed the written fallback and an AI model chosen from it
-        # could 404 -- which is how `claude-opus-4-1` reached somebody.
-        live: dict[str, list] = {}
+        live: dict[str, list[str]] = {}
         options: dict[str, list[dict[str, str]]] = {}
-        # A signed-in account is not used to list AI models for a GUI served
-        # beyond this computer (see `auth_status` below).
-        if current is not None and (local_auth_allowed
-                                    or current.auth_method not in SIGNED_IN_METHODS):
+        if current is not None:
             found_options = _model_options(current)
             options[current.provider] = found_options
             found = [item["id"] for item in found_options]
@@ -179,283 +77,47 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
                      for model in (live.get(name) or list(spec.get("models") or ()))],
                  "environment_variable": spec["env"],
                  "needs_url": not spec["url"],
-                 "auth_methods": _auth_methods(name, local_auth_allowed=local_auth_allowed),
                  "examples": [
                      {"label": label, "url": url, "model": model}
                      for label, url, model in spec.get("examples", ())
                  ]}
                 for name, spec in PROVIDERS.items()
             ],
-            # What is set, never the key.
             "current": current.as_record() if current else None,
-            # Whether the server takes tool calls; once it has turned them
-            # away, the Agent writes to it in plain text.
+            "key_set": key_is_set(current) if current else False,
             "tool_use": _takes_tools() if current else None,
-            # Not shown, or refreshed, from a GUI served beyond this
-            # computer: the accounts signed in here are this computer's.
-            "auth_status": ((_key_availability(current) if local_auth_allowed else {
-                "available": False, "connected": None,
-                "message": ("Provider credentials are shown and checked only in the "
-                            "local dashboard.")}) if current else None),
-            # How long the instructions are kept in the provider's cache.
-            "cache_for": _stored_cache_for(),
             "stored_at": str(model_path()),
         }
 
     provider = str(payload["provider"])
     if provider not in PROVIDERS:
-        return {"ok": False,
-                "error": f"No provider called {provider!r}.",
+        return {"ok": False, "error": f"No provider called {provider!r}.",
                 "code": "config.option.not_permitted"}
 
-    # Only a provider without a fixed endpoint takes a base URL: the page
-    # keeps the field filled while it is hidden, and a URL saved with
-    # Anthropic or OpenAI sent their key or token to that server.
     base_url = "" if PROVIDERS[provider]["url"] else str(payload.get("base_url") or "")
     if not PROVIDERS[provider]["url"] and not base_url:
         return {"ok": False,
-                "error": ("An OpenAI-compatible server needs a base URL, "
-                          "such as http://localhost:11434/v1 for Ollama."),
+                "error": "An OpenAI-compatible server needs a base URL, such as "
+                         "http://localhost:11434/v1 for Ollama.",
                 "code": "config.option.missing_companion"}
 
     model = str(payload.get("model") or default_model(provider))
     if not model:
         return {"ok": False, "error": "An AI model name is needed.",
                 "code": "config.option.missing_companion"}
-    cache = str(payload.get("cache_for") or "auto")
-    if cache not in CACHE_FOR:
-        return {"ok": False, "error": f"Keep the cache for {', '.join(CACHE_FOR)}.",
-                "code": "config.option.not_permitted"}
-
-    auth_method = str(payload.get("auth_method") or "api_key")
-    choice = ModelChoice(provider, model, base_url, auth_method)
-    if auth_method != "api_key":
-        supported = next((method for method in _auth_methods(
-            provider, local_auth_allowed=local_auth_allowed)
-            if method["id"] == auth_method), None)
-        if supported is None or not supported["available"]:
-            return {"ok": False,
-                    "error": (supported or {}).get("reason") or
-                             "This sign-in method is unavailable in this dashboard."}
+    choice = ModelChoice(provider, model, base_url)
     try:
-        save_choice(choice, key=str(payload.get("api_key") or ""), cache=cache)
+        save_choice(choice, key=str(payload.get("api_key") or ""))
     except StudyError as exc:
         return {"ok": False, "error": str(exc), "code": exc.code}
     except OSError:
-        return {
-            "ok": False,
-            "error": (
-                "Agent settings could not be saved. Check the settings folder "
-                "permissions and retry."
-            ),
-        }
-    # Ask the provider what it actually has, now that there is a key to ask
-    # with. The written list is what to show before this can be answered.
+        return {"ok": False,
+                "error": "Agent settings could not be saved. Check the settings folder "
+                         "permissions and retry."}
     options = _model_options(choice)
-    offered = [item["id"] for item in options]
-    # The choice, not the key. A browser that never receives one cannot
-    # leak one.
-    return {"ok": True, "models": offered, "model_options": options,
-            "current": choice.as_record()}
-
-
-def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -> dict[str, Any]:
-    """Return safe provider refusals without claiming a failed action completed."""
-    from fastmdxplora.refusals import CodedError
-
-    try:
-        return _auth_action(payload, local_auth_allowed=local_auth_allowed)
-    except CodedError as exc:
-        return {"ok": False, "error": str(exc), "code": exc.code,
-                "status": {"connected": None, "message": str(exc), "code": exc.code}}
-
-
-def _auth_action(payload: dict[str, Any], *, local_auth_allowed: bool) -> dict[str, Any]:
-    """Check, test, connect, or disconnect the selected provider credential.
-
-    Access tokens are consumed only in the server process. This endpoint
-    returns status and safe explanations, never a key, token, or CLI output.
-    """
-    if not local_auth_allowed:
-        return {
-            "ok": False,
-            "error": (
-                "Provider credentials and interactive sign-in are available only in "
-                "the local dashboard."
-            ),
-        }
-
-    from fastmdxplora.agent.models import (
-        AUTH_METHODS,
-        PROVIDERS,
-        ModelChoice,
-        forget_api_key,
-        load_choice,
-        probe_connection,
-    )
-
-    action = str(payload.get("action") or "status")
-    saved = load_choice()
-    provider = str(payload.get("provider") or (saved.provider if saved else ""))
-    auth_method = str(payload.get("auth_method") or
-                      (saved.auth_method if saved and saved.provider == provider else "api_key"))
-    if provider not in PROVIDERS:
-        return {"ok": False, "error": "Choose a provider in Agent Settings first."}
-    if auth_method not in AUTH_METHODS[provider]:
-        return {"ok": False, "error": "That sign-in method is not supported for this provider."}
-
-    if action == "status":
-        choice = (saved if saved and saved.provider == provider
-                  and saved.auth_method == auth_method else
-                  ModelChoice(provider, str(payload.get("model") or
-                                            PROVIDERS[provider].get("default_model") or ""),
-                              str(payload.get("base_url") or ""), auth_method))
-        return {"ok": True, "auth_method": auth_method,
-                "status": _key_availability(choice)}
-    if action == "connect":
-        if provider == "openai" and auth_method == "chatgpt_plan":
-            from fastmdxplora.agent.openai_chatgpt import connect, status
-
-            result = connect(client_id=str(payload.get("client_id") or ""),
-                             add_account=bool(payload.get("add_account")))
-            current_status = status()
-            current_status.update(
-                {
-                    "available": True,
-                    "connected": None
-                    if result.get("pending")
-                    else current_status.get("connected", False),
-                    "pending": bool(result.get("pending")),
-                    "message": result.get("message") or current_status.get("message", ""),
-                }
-            )
-            return {"ok": bool(result.get("ok")), "auth_method": auth_method,
-                    "status": current_status}
-        if provider != "anthropic" or auth_method != "anthropic_console":
-            return {
-                "ok": False,
-                "error": "Interactive sign-in is not supported for this selection.",
-            }
-        from fastmdxplora.agent.anthropic_cli import connect
-
-        result = connect()
-        return {
-            "ok": bool(result.get("ok")),
-            "auth_method": auth_method,
-            "status": {
-                "available": bool(result.get("ok")),
-                "connected": None if result.get("ok") else False,
-                "pending": bool(result.get("ok")),
-                "message": result.get("message") or "Anthropic Console sign-in could not start.",
-            },
-        }
-    if action == "activate":
-        if provider != "openai" or auth_method != "chatgpt_plan":
-            return {
-                "ok": False,
-                "error": "Saved-account switching is available for ChatGPT sign-in.",
-            }
-        from fastmdxplora.agent.openai_chatgpt import activate, list_models, status
-
-        result = activate(client_id=str(payload.get("client_id") or ""))
-        if not result.get("ok"):
-            return {
-                "ok": False,
-                "auth_method": auth_method,
-                "status": {
-                    "available": True,
-                    "connected": False,
-                    "message": result.get("message") or "That account could not be selected.",
-                },
-            }
-        try:
-            options = list_models()
-        except Exception as exc:  # noqa: BLE001 - use safe provider error text
-            return {"ok": False, "auth_method": auth_method,
-                    "status": {"available": True, "connected": False,
-                               "message": str(exc)},
-                    "accounts": status().get("accounts", [])}
-        return {"ok": True, "auth_method": auth_method,
-                "status": status(), "model_options": options}
-    if action == "disconnect":
-        if provider == "openai" and auth_method == "chatgpt_plan":
-            from fastmdxplora.agent.openai_chatgpt import disconnect, status
-
-            result = disconnect(client_id=str(payload.get("client_id") or ""))
-            return {"ok": bool(result.get("ok")), "auth_method": auth_method,
-                    "status": dict(status(), message=result.get("message") or "Disconnected.")}
-        if auth_method == "anthropic_console":
-            from fastmdxplora.agent.anthropic_cli import disconnect
-
-            result = disconnect()
-            return {
-                "ok": bool(result.get("ok")),
-                "auth_method": auth_method,
-                "status": {
-                    "available": True,
-                    "connected": False if result.get("ok") else None,
-                    "message": result.get("message") or "Anthropic Console sign-out failed.",
-                },
-            }
-        base_url = str(payload.get("base_url") or
-                       (saved.base_url if saved and saved.provider == provider else ""))
-        choice = ModelChoice(provider, str(payload.get("model") or
-                                            (saved.model if saved and saved.provider == provider
-                                             else PROVIDERS[provider].get("default_model") or "")),
-                             base_url)
-        try:
-            removed = forget_api_key(choice)
-        except StudyError as exc:
-            return {"ok": False, "auth_method": auth_method,
-                    "status": {"available": True, "connected": None, "message": str(exc)}}
-        if os.environ.get(PROVIDERS[provider]["env"]):
-            return {
-                "ok": True,
-                "auth_method": auth_method,
-                "status": {
-                    "available": True,
-                    "connected": None,
-                    "message": (
-                        "The saved key was removed. The environment variable "
-                        f"{PROVIDERS[provider]['env']} is still active; unset it "
-                        "to disconnect completely."
-                    ),
-                },
-            }
-        return {
-            "ok": True,
-            "auth_method": auth_method,
-            "status": {
-                "available": True,
-                "connected": False,
-                "message": "Saved API key removed from the OS credential vault."
-                if removed
-                else "No saved API key was found in the OS credential vault.",
-            },
-        }
-    if action == "test":
-        oauth_method = auth_method in {"anthropic_console", "chatgpt_plan"}
-        if not oauth_method and (saved is None or saved.provider != provider
-                                 or saved.auth_method != auth_method):
-            return {
-                "ok": False,
-                "auth_method": auth_method,
-                "status": {
-                    "available": True,
-                    "connected": False,
-                    "message": "Save this provider and authentication method before testing it.",
-                },
-            }
-        choice = (saved if saved and saved.provider == provider
-                  and saved.auth_method == auth_method else
-                  ModelChoice(provider, str(payload.get("model") or
-                                            PROVIDERS[provider].get("default_model") or ""),
-                              str(payload.get("base_url") or ""), auth_method))
-        result = probe_connection(choice)
-        result["available"] = True
-        return {"ok": True, "auth_method": auth_method, "status": result,
-                "model_options": result.get("model_options", [])}
-    return {"ok": False, "error": "Unknown authentication action."}
+    return {"ok": True, "models": [item["id"] for item in options],
+            "model_options": options, "current": choice.as_record(),
+            "key_set": key_is_set(choice)}
 
 
 def propose_endpoint(payload: dict[str, Any],
@@ -500,22 +162,8 @@ def propose_endpoint(payload: dict[str, Any],
     # Where this reply's receipt is kept, taken as it is asked: a study
     # opened while the AI model answers is not where its prompts belong.
     receipts = _receipts_of(runtime)
-    # A GUI served beyond this computer does not ask with an account signed
-    # in here (ChatGPT, Anthropic Console): sign-in is refused there, and so
-    # is its use by the people that GUI is served to. An API key is the
-    # host's to share, as before.
-    from fastmdxplora.agent.models import SIGNED_IN_METHODS, load_choice
-
-    chosen = load_choice() if path_for is not None else None
-    if chosen is not None and chosen.auth_method in SIGNED_IN_METHODS:
-        return {"ok": False,
-                "error": ("This dashboard is served beyond the computer it runs on, and "
-                          "the AI model set there uses a signed-in account, which is "
-                          "used only from the local dashboard. Its host can set an API "
-                          "key instead."),
-                "code": "environment.credentials.absent"}
     try:
-        complete = completion_for(where="page")
+        complete = completion_for()
     except StudyError as exc:
         # The start page's questions about the study open are answered from
         # its records where no AI model can be asked.
@@ -771,20 +419,6 @@ def memory_endpoint(payload: dict[str, Any] | None = None, *,
     if op in ("add", "change", "forget", "undo"):
         answer["done"] = done.as_record() | {"said": done.said()}
     return answer
-
-
-def _stored_cache_for() -> str:
-    """The cache setting as stored: auto, 1h or 5m."""
-    import json
-
-    from fastmdxplora.agent.models import CACHE_FOR, model_path
-
-    try:
-        record = json.loads(model_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return "auto"
-    chosen = record.get("cache_for") if isinstance(record, dict) else None
-    return chosen if chosen in CACHE_FOR else "auto"
 
 
 def your_defaults(runtime: Any) -> Any:

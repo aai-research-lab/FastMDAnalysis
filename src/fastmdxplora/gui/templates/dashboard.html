@@ -85,54 +85,11 @@
                    placeholder="http://localhost:11434/v1">
             <p class="builder-card-note" id="agent-url-examples"></p>
           </label>
-          <label class="builder-field builder-field-wide" id="agent-auth-method-field">
-            <span class="builder-label">Authentication</span>
-            <select id="agent-auth-method" aria-describedby="agent-auth-help"></select>
-            <p class="builder-card-note" id="agent-auth-help"></p>
-          </label>
           <label class="builder-field builder-field-wide">
             <span class="builder-label">API key</span>
             <input id="agent-key" type="password"
                    placeholder="paste your key">
             <p class="builder-card-note" id="agent-key-help"></p>
-          </label>
-          <div class="builder-field builder-field-wide agent-auth-tools"
-               id="agent-auth-tools" aria-live="polite">
-            <div class="agent-auth-status" id="agent-auth-status">Checking credentials…</div>
-            <div class="agent-auth-buttons">
-              <button type="button" class="line-btn" id="agent-auth-connect" hidden>
-                Continue with provider
-              </button>
-              <label class="agent-auth-account" id="agent-auth-account-field" hidden>
-                <span class="builder-label">ChatGPT account</span>
-                <select id="agent-auth-account" aria-label="Saved ChatGPT account"></select>
-              </label>
-              <button type="button" class="line-btn" id="agent-auth-add-account" hidden>
-                Add another ChatGPT account
-              </button>
-              <button type="button" class="line-btn" id="agent-auth-activate" hidden>
-                Use selected ChatGPT account
-              </button>
-              <button type="button" class="line-btn" id="agent-auth-test">
-                Test connection
-              </button>
-              <button type="button" class="line-btn" id="agent-auth-disconnect">
-                Disconnect
-              </button>
-            </div>
-          </div>
-          <label class="builder-field builder-field-wide" id="agent-cache-field" hidden>
-            <span class="builder-label">Keep the instructions cached</span>
-            <select id="agent-cache">
-              <option value="auto">An hour on this page, five minutes from the command line</option>
-              <option value="1h">An hour</option>
-              <option value="5m">Five minutes</option>
-            </select>
-            <p class="builder-card-note">Every message starts with the same
-              instructions. Read again from the provider's cache they cost a
-              tenth of the usual price. Kept for an hour, writing them costs
-              twice the price instead of 1.25 times, and a reply after a pause
-              still reads them. Anthropic only.</p>
           </label>
           <label class="builder-field">
             <span class="builder-label">Mode</span>

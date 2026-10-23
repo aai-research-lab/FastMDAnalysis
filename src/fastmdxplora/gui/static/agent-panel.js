@@ -2,8 +2,6 @@
  *
  * The subject of this page is the FastMDXplora Agent. Which AI model
  * it drafts with is an engine setting -- chosen once, then out of the way.
- * An earlier version led with "Asking anthropic, claude-sonnet-4-6", which
- * put another company's product in the primary status line of this one.
  *
  * Help is progressive. The mode note says one short thing about the mode
  * actually selected rather than explaining all three at once, and the key
@@ -34,7 +32,6 @@
    * because this is where somebody needs it; a GUI that tells you to run
    * a command is a GUI that has given up. */
   var KEY_HELP = {
-    anthropic: "Create an Anthropic Console API key at platform.claude.com.",
     openai: "Get one at platform.openai.com, under API keys.",
     compatible: "A local server usually needs none; leave this blank."
   };
@@ -46,7 +43,7 @@
     "environment.model.unset":
       "I am not set up yet. Open Settings to set me up.",
     "environment.credentials.absent":
-      "Authentication required. Open Settings to connect or enter a key."
+      "An API key is needed. Open Settings to add one."
   };
 
   function el(id) { return document.getElementById(id); }
@@ -431,13 +428,10 @@
   }
 
   function usageSaid(u) {
-    if (!u || !(u.input_tokens || u.cache_read_tokens || u.cache_write_tokens)) return "";
-    var sent = (u.input_tokens || 0) + (u.cache_read_tokens || 0) + (u.cache_write_tokens || 0);
+    if (!u || !(u.input_tokens || u.cache_read_tokens)) return "";
+    var sent = (u.input_tokens || 0) + (u.cache_read_tokens || 0);
     var kept = [];
     if (u.cache_read_tokens) kept.push(u.cache_read_tokens.toLocaleString("en-US") + " from the cache");
-    if (u.cache_write_tokens) {
-      kept.push(u.cache_write_tokens.toLocaleString("en-US") + " written to the cache");
-    }
     return sent.toLocaleString("en-US") + " tokens in" + (kept.length ? " (" + kept.join(", ") + ")" : "")
       + " \u00b7 " + (u.output_tokens || 0).toLocaleString("en-US") + " out";
   }
@@ -621,21 +615,11 @@
     return providers.filter(function (p) { return p.id === id; })[0] || null;
   }
 
-  function authMethodLabel(provider, id) {
-    var spec = providerSpec(provider);
-    var method = spec && (spec.auth_methods || []).filter(function (m) {
-      return m.id === id;
-    })[0];
-    return method ? method.label : (id === "anthropic_console" ? "Anthropic Console OAuth"
-      : id === "chatgpt_plan" ? "ChatGPT plan sign-in" : "API key");
-  }
-
   function engineLabelParts(choice) {
     var spec = providerSpec(choice.provider);
     var label = spec ? spec.label : choice.provider;
     var location = choice.base_url ? " at " + choice.base_url : "";
-    return [label + " · ", choice.model || "no model", location +
-      " · " + authMethodLabel(choice.provider, choice.auth_method || "api_key")];
+    return [label + " · ", choice.model || "no model", location];
   }
 
   function engineLabel(choice) {
@@ -643,19 +627,33 @@
   }
 
   var savedEngineChoice = null;
+  var savedKeyIsSet = false;
+
+  function updateKeyHelp(id) {
+    var spec = providerSpec(id);
+    if (!spec) return;
+    var help = KEY_HELP[id] || "";
+    if (help) help += " ";
+    var matches = savedEngineChoice && savedEngineChoice.provider === id &&
+      (savedEngineChoice.base_url || "") === (el("agent-base-url").value || "").trim();
+    var status = matches && savedKeyIsSet
+      ? " An API key is set for this choice; its value is never shown."
+      : "";
+    el("agent-key-help").textContent = help +
+      "Saved keys stay in your owner-only model.json file. " +
+      spec.environment_variable + " takes precedence; the key is never shown again." + status;
+  }
 
   function updateEngineSummary(error) {
     var saved = savedEngineChoice;
     var selected = { provider: el("agent-provider").value,
-      model: chosenModel(), base_url: el("agent-base-url").value.trim(),
-      auth_method: el("agent-auth-method").value || "api_key" };
+      model: chosenModel(), base_url: el("agent-base-url").value.trim() };
     var parts = saved && engineLabelParts(saved);
     var before = saved ? "Saved for Agent requests: " + parts[0]
-      : "No provider or model saved yet.";
+      : "No AI model is set.";
     var after = saved ? (saved.model ? "" : "no model") + parts[2] : "";
     var same = saved && saved.provider === selected.provider && saved.model === selected.model &&
-      (saved.base_url || "") === selected.base_url &&
-      (saved.auth_method || "api_key") === selected.auth_method;
+      (saved.base_url || "") === selected.base_url;
     if (!same && (selected.model || selected.provider)) {
       after += "\nCurrent selection (unsaved): " + engineLabel(selected);
     }
@@ -664,63 +662,6 @@
     current.textContent = saved && saved.model || "";
     el("agent-model-summary").replaceChildren(document.createTextNode(before),
       current, document.createTextNode(after));
-  }
-
-  var authRequest = 0;
-  var authPollTimer = null;
-  var authPollCount = 0;
-  /* Which polling run is current. A run stopped (a new provider, a
-   * disconnect, a new sign-in) ignores its last answer; an answer lost to a
-   * newer request on the same run polls again rather than ending the run
-   * while the sign-in is still pending. */
-  var authPollRun = 0;
-
-  function setAuthStatus(status) {
-    var target = el("agent-auth-status");
-    target.textContent = status && status.message ? status.message : "No authentication status is available.";
-    target.classList.toggle("is-connected", !!status && status.connected === true);
-    target.classList.toggle("is-disconnected", !!status && status.connected === false);
-    target.classList.toggle("is-unverified", !status || status.connected == null);
-    var pending = !!(status && status.pending);
-    el("agent-auth-test").disabled = pending;
-    el("agent-auth-disconnect").disabled = false;
-    el("agent-auth-disconnect").textContent = pending ? "Cancel sign-in" : "Disconnect";
-    var method = providerSpec(el("agent-provider").value);
-    var selected = method && (method.auth_methods || []).filter(function (item) {
-      return item.id === el("agent-auth-method").value;
-    })[0];
-    el("agent-auth-connect").disabled = pending || !selected || !selected.available;
-    el("agent-auth-add-account").disabled = pending;
-    el("agent-auth-activate").disabled = pending;
-    updateAccountChoices(status || {});
-  }
-
-  function updateAccountChoices(status) {
-    var field = el("agent-auth-account-field");
-    var select = el("agent-auth-account");
-    var isChatGPT = el("agent-auth-method").value === "chatgpt_plan";
-    var previous = select.value;
-    var accounts = status.accounts || [];
-    select.replaceChildren();
-    accounts.forEach(function (account) {
-      var option = document.createElement("option");
-      option.value = account.client_id;
-      var label = account.email || ("ChatGPT account ···" + account.subject_hint);
-      option.textContent = label + (account.active ? " (active)" : "");
-      option.dataset.active = account.active ? "1" : "";
-      select.appendChild(option);
-    });
-    field.hidden = !isChatGPT || !accounts.length;
-    if (status.active_client_id) {
-      select.value = status.active_client_id;
-    } else if (previous && accounts.some(function (account) { return account.client_id === previous; })) {
-      select.value = previous;
-    }
-    el("agent-auth-add-account").hidden = !isChatGPT || !accounts.length;
-    el("agent-auth-activate").hidden = !isChatGPT || !select.value ||
-      !!(accounts.filter(function (account) {
-        return account.client_id === select.value && account.active;
-      })[0]);
   }
 
   function applyModelOptions(options) {
@@ -732,32 +673,6 @@
     var selected = chosenModel();
     fillModels(spec, selected);
     updateEngineSummary();
-  }
-
-  function refreshAuthStatus(action, details) {
-    // Every action shares this ordering guard, including its polling result.
-    var request = ++authRequest;
-    if (["connect", "activate", "disconnect"].indexOf(action) !== -1) {
-      ["agent-auth-connect", "agent-auth-test", "agent-auth-disconnect",
-        "agent-auth-add-account", "agent-auth-activate"].forEach(function (id) {
-        el(id).disabled = true;
-      });
-    }
-    return post("/api/agent/auth", Object.assign({
-      action: action || "status", provider: el("agent-provider").value,
-      auth_method: el("agent-auth-method").value || "api_key",
-      model: chosenModel(), base_url: el("agent-base-url").value.trim()
-    }, details || {})).then(function (data) {
-      if (request !== authRequest) return null;
-      setAuthStatus(data.status || {connected: false, message: data.error});
-      applyModelOptions(data.model_options || (data.status && data.status.model_options));
-      return data;
-    }).catch(function () {
-      if (request === authRequest) {
-        setAuthStatus({connected: false, message: "The local authentication status could not be reached."});
-      }
-      return null;
-    });
   }
 
   var OTHER = "__other__";
@@ -806,101 +721,26 @@
       : el("agent-model").value;
   }
 
-  function showAuthMethods(spec, preferred) {
-    var select = el("agent-auth-method");
-    select.innerHTML = "";
-    (spec.auth_methods || [{id: "api_key", label: "API key", available: true,
-      requires_api_key: true}]).forEach(function (method) {
-      var option = document.createElement("option");
-      option.value = method.id;
-      option.textContent = method.label + (method.available ? "" : " (unavailable)");
-      option.disabled = !method.available;
-      option.dataset.requiresKey = method.requires_api_key ? "true" : "false";
-      option.dataset.reason = method.reason || "";
-      select.appendChild(option);
-    });
-    var hasPreferred = (spec.auth_methods || []).some(function (method) {
-      return method.id === preferred;
-    });
-    select.value = hasPreferred ? preferred : "api_key";
-    updateAuthControls(spec);
-  }
-
-  function updateAuthControls(spec) {
-    if (authPollTimer) window.clearTimeout(authPollTimer);
-    authPollTimer = null;
-    authPollRun += 1;
-    var method = (spec.auth_methods || []).filter(function (item) {
-      return item.id === el("agent-auth-method").value;
-    })[0] || {id: "api_key", requires_api_key: true};
-    var usesKey = !!method.requires_api_key;
-    el("agent-key").closest("label").hidden = !usesKey;
-    if (!usesKey) el("agent-key").value = "";
-    el("agent-key-help").textContent = usesKey
-      ? (KEY_HELP[spec.id] || "") + " A new key is saved only in the OS credential vault; " +
-        "you may instead set " + (spec.environment_variable || "the provider's key variable") +
-        " in the environment. It is never sent back to the page or written to settings files."
-      : "";
-    var isConsole = method.id === "anthropic_console";
-    var isChatGPT = method.id === "chatgpt_plan";
-    var usesOAuth = isConsole || isChatGPT;
-    el("agent-auth-connect").hidden = !usesOAuth || !method.available;
-    el("agent-auth-connect").disabled = !method.available;
-    el("agent-auth-connect").textContent = isChatGPT
-      ? "Continue with ChatGPT" : "Continue with Anthropic Console";
-    el("agent-auth-account-field").hidden = !isChatGPT;
-    el("agent-auth-add-account").hidden = true;
-    el("agent-auth-activate").hidden = true;
-    el("agent-auth-test").hidden = false;
-    el("agent-auth-disconnect").hidden = false;
-    var help = method.reason || (isConsole
-      ? "Signs into the Anthropic Console API through an app-isolated ant CLI profile."
-      : isChatGPT
-      ? "OpenAI's documented Sign in with ChatGPT supports this local open-source Agent " +
-        "through the public Responses API. Approve ChatGPT plan usage in the system browser. " +
-        "Tokens stay in the OS credential vault."
-      : usesKey ? "API-key authentication uses the provider's documented API endpoint. " +
-        "Environment keys take precedence over a key saved in the OS vault."
-      : "This authentication method is unavailable.");
-    var unavailable = (spec.auth_methods || []).filter(function (item) {
-      return item.id !== method.id && !item.available;
-    });
-    if (unavailable.length) {
-      help += " " + unavailable.map(function (item) {
-        return item.label + " unavailable: " + (item.reason || "not supported here");
-      }).join(" ");
-    }
-    el("agent-auth-help").textContent = help;
-    setAuthStatus({connected: null,
-      message: "Checking " + authMethodLabel(spec.id, method.id) + "…"});
-    refreshAuthStatus("status");
-  }
-
-  function showProvider(id, chosen, authMethod) {
-    var spec = providers.filter(function (p) { return p.id === id; })[0];
+  function showProvider(id, chosen) {
+    var spec = providerSpec(id);
     if (!spec) return;
     /* A pasted key belongs to the provider that was selected when it was
-     * entered. Never carry it across a provider or auth-method switch. */
+     * entered. Never carry it across a provider switch. */
     el("agent-key").value = "";
     el("agent-url-field").hidden = !spec.needs_url;
-    /* Only Anthropic is told how long to keep its cache. */
-    el("agent-cache-field").hidden = id !== "anthropic";
-    /* The AI model follows the provider. It used to be filled only when the
-     * field was empty, so switching provider left the previous one's AI model
-     * in place -- OpenAI selected and claude-sonnet-4-6 still showing. */
     fillModels(spec, chosen || spec.default_model || "");
-    el("agent-key-help").textContent =
-      KEY_HELP[id] || "";
+    updateKeyHelp(id);
     el("agent-url-examples").textContent =
       (spec.examples || []).map(function (e) {
         return e.label + ": " + e.url;
-      }).join("  \u00b7  ");
-    showAuthMethods(spec, authMethod);
+      }).join("  ·  ");
     updateEngineSummary();
   }
 
-  function engineIsSet(current) {
+  function engineIsSet(current, keyIsSet) {
     savedEngineChoice = current ? Object.assign({}, current) : null;
+    savedKeyIsSet = !!keyIsSet;
+    updateKeyHelp(current ? current.provider : el("agent-provider").value);
     updateEngineSummary();
     engineChosen = !!current;
     syncStart();
@@ -1376,25 +1216,19 @@
         select.value = data.current.provider;
         el("agent-base-url").value = data.current.base_url || "";
       }
-      el("agent-cache").value = data.cache_for || "auto";
-      showProvider(select.value, data.current && data.current.model,
-                   data.current && data.current.auth_method);
-      engineIsSet(data.current);
-      if (data.current && data.auth_status) setAuthStatus(data.auth_status);
+      showProvider(select.value, data.current && data.current.model);
+      engineIsSet(data.current, data.key_set);
     });
   }
 
   function saveEngine(keepOpen) {
     var button = el("agent-save-model");
     button.disabled = true;
-    var authMethod = el("agent-auth-method").value || "api_key";
     return post("/api/agent/model", {
       provider: el("agent-provider").value,
       model: chosenModel(),
       base_url: el("agent-base-url").value,
-      auth_method: el("agent-auth-method").value || "api_key",
-      api_key: authMethod === "api_key" ? el("agent-key").value : "",
-      cache_for: el("agent-cache").value
+      api_key: el("agent-key").value
     }).then(function (data) {
       button.disabled = false;
       if (!data.ok) {
@@ -1418,8 +1252,7 @@
           fillModels(spec, data.current.model);
         }
       }
-      engineIsSet(data.current);
-      refreshAuthStatus("status");
+      engineIsSet(data.current, data.key_set);
       if (!keepOpen) closeSettings();
       return true;
     }).catch(function () {
@@ -1427,64 +1260,6 @@
       updateEngineSummary("The provider settings could not be saved.");
       return false;
     });
-  }
-
-  function connectAuth(addAccount) {
-    var details = {};
-    if (el("agent-auth-method").value === "chatgpt_plan") {
-      details.add_account = addAccount === true;
-      details.client_id = details.add_account ? "" : el("agent-auth-account").value;
-    }
-    refreshAuthStatus("connect", details).then(function (data) {
-      if (data && data.status && data.status.pending) startAuthPolling();
-    });
-  }
-
-  function startAuthPolling() {
-    if (authPollTimer) window.clearTimeout(authPollTimer);
-    authPollCount = 0;
-    var run = ++authPollRun;
-    function poll() {
-      if (authPollCount++ >= 150) {
-        setAuthStatus({connected: false,
-          message: "Sign-in timed out. Return to Agent Settings and start again."});
-        authPollTimer = null;
-        return;
-      }
-      authPollTimer = window.setTimeout(function () {
-        refreshAuthStatus("status").then(function (data) {
-          if (run !== authPollRun) return;
-          var status = data && data.status;
-          if (!data || (status && status.pending)) poll();
-          else {
-            authPollTimer = null;
-            if (status && status.connected === true &&
-                ["chatgpt_plan", "anthropic_console"].indexOf(
-                  el("agent-auth-method").value) !== -1) {
-              refreshAuthStatus("test");
-            }
-          }
-        });
-      }, 2000);
-    }
-    poll();
-  }
-
-  function activateAuthAccount() {
-    refreshAuthStatus("activate", {client_id: el("agent-auth-account").value});
-  }
-
-  function testAuth() {
-    el("agent-auth-test").disabled = true;
-    refreshAuthStatus("test");
-  }
-
-  function disconnectAuth() {
-    if (authPollTimer) window.clearTimeout(authPollTimer);
-    authPollTimer = null;
-    authPollRun += 1;
-    refreshAuthStatus("disconnect", {client_id: el("agent-auth-account").value})
-      .then(function (data) { if (data) el("agent-key").value = ""; });
   }
 
   /* ---- The conversation ---------------------------------------------- */
@@ -4963,24 +4738,11 @@
       updateEngineSummary();
     });
     el("agent-model-other").addEventListener("input", updateEngineSummary);
-    el("agent-base-url").addEventListener("input", updateEngineSummary);
-    el("agent-auth-method").addEventListener("change", function () {
-      updateAuthControls(providerSpec(el("agent-provider").value) || {id: el("agent-provider").value});
+    el("agent-base-url").addEventListener("input", function () {
+      updateKeyHelp(el("agent-provider").value);
       updateEngineSummary();
     });
     el("agent-save-model").addEventListener("click", function () { saveEngine(false); });
-    el("agent-auth-connect").addEventListener("click", function () { connectAuth(false); });
-    el("agent-auth-add-account").addEventListener("click", function () { connectAuth(true); });
-    // Choosing an account offers Use it unless it is the active one. The list
-    // was rebuilt from the options' ids alone, which named every account
-    // "ChatGPT account ···undefined".
-    el("agent-auth-account").addEventListener("change", function () {
-      var chosen = this.selectedOptions[0];
-      el("agent-auth-activate").hidden = !chosen || chosen.dataset.active === "1";
-    });
-    el("agent-auth-activate").addEventListener("click", activateAuthAccount);
-    el("agent-auth-test").addEventListener("click", testAuth);
-    el("agent-auth-disconnect").addEventListener("click", disconnectAuth);
     el("agent-settings-open").addEventListener("click", openSettings);
     el("agent-settings-close").addEventListener("click", closeSettings);
     el("agent-propose").addEventListener("click", function () {
