@@ -143,6 +143,7 @@ class TestWhetherItEnded:
         _its_process(root, os.getpid(), started=_ago(30 * 86400))
         assert how_the_run_ended(root) == "process"
 
+    @linux
     def test_its_number_given_to_the_process_asking_under_a_record_with_arguments(self, tmp_path):
         """The same with the run's arguments recorded (a record written
         before its start ticks): the asking process's command line is not
@@ -178,11 +179,15 @@ class TestWhetherItEnded:
         assert not run_ended_unsaid(study("slow", _ago(SILENT_RUN_ENDED_AFTER_SECONDS - 60)))
         assert how_the_run_ended(study("weeks", _ago(21 * 86400))) == "silence"
 
-    def test_never_for_the_run_reading_its_own_record(self, tmp_path):
+    @pytest.mark.parametrize("arguments", [False, True])
+    def test_never_for_the_run_reading_its_own_record(self, tmp_path, arguments):
         import os
 
         root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(30 * 86400))
-        _its_process(root, os.getpid())
+        if arguments:
+            _its_process(root, os.getpid(), argv=[sys.argv[0], "run", str(root)])
+        else:
+            _its_process(root, os.getpid())
         assert not run_ended_unsaid(root)
 
     @pytest.mark.parametrize("said", ["completed", "failed", "stopped", ""])

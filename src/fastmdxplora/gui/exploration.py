@@ -546,7 +546,8 @@ def _what_the_process_is(pid: int, root: Path, record: Any = None, *,
     API's), or the command line is not a run's, a process begun more than
     a few seconds after the record was written is another one
     (`telemetry._began_since`, on Linux). ``asking``: the process is the
-    one asking or what started it, whose command line is not read.
+    one asking or what started it, whose command line is not read: it is the
+    run unless it began more than a few seconds after the record was written.
     """
     from fastmdxplora.gui.telemetry import _began_since
     from fastmdxplora.orchestrator import process_start_ticks, this_machine
