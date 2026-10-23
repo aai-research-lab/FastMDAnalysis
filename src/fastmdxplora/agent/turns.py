@@ -242,9 +242,6 @@ def _events(response: Any):
 
 def _stream_error(event: dict[str, Any]) -> str:
     error = event.get("error") if isinstance(event.get("error"), dict) else {}
-    response = event.get("response") if isinstance(event.get("response"), dict) else {}
-    if not error and isinstance(response.get("error"), dict):
-        error = response["error"]
     code = str(error.get("code") or "")
     detail = str(error.get("message") or code or error or "Unknown provider error")[:400]
     return redacted("I could not finish: the provider said: " + detail)

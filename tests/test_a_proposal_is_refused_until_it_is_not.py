@@ -263,6 +263,46 @@ class TestTheBoundaryHolds(unittest.TestCase):
                 failures.append(f"{info.name}: {exc}")
         self.assertEqual(failures, [])
 
+    def test_the_proposing_loop_knows_nothing_about_providers(self):
+        """The loop is provider-agnostic, and that has not changed.
+
+        This began as a ban on the strings `api_key` and `anthropic`
+        anywhere in `agent/`, which was right while the agent only ever
+        took a caller-supplied function. Choosing a model changed that:
+        somebody has to hold a key, and `models.py` is where.
+
+        The property worth keeping is narrower. `propose_config` and its
+        repair loop still take a callable and know nothing about what
+        answers it -- so a caller can plug in anything, and `models.py` is
+        one convenience built on the same hook rather than a dependency
+        baked into the loop.
+        """
+        import pathlib
+
+        import fastmdxplora.agent.propose as propose
+
+        source = pathlib.Path(propose.__file__).read_text(encoding="utf-8")
+        for banned in ("api_key", "API_KEY", "anthropic", "openai",
+                       "import requests", "import httpx"):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, source)
+
+    def test_no_client_library_anywhere_in_the_agent(self):
+        # One HTTPS request through the standard library. A package that
+        # should not gain a dependency should not gain one for this.
+        import pathlib
+
+        import fastmdxplora.agent as agent
+
+        root = pathlib.Path(agent.__file__).parent
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for banned in ("import openai", "import anthropic",
+                           "import langchain", "import requests",
+                           "import httpx"):
+                with self.subTest(path=path.name, banned=banned):
+                    self.assertNotIn(banned, text)
+
     def test_the_key_never_reaches_a_study(self):
         # The one that would actually hurt somebody. Configs and manifests
         # get shared, pasted into issues and committed.
