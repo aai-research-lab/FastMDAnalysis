@@ -4465,6 +4465,7 @@ def _setup_details(setup_manifest: dict[str, Any]) -> dict[str, Any]:
             params.get("force_field"),
         ),
         "water_model": _first_present(
+            forcefield.get("water_name"),
             forcefield.get("water_model"),
             params.get("water_model"),
         ),

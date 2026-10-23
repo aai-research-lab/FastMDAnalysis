@@ -107,7 +107,7 @@ class SimulateSettings(TypedDict, total=False):
     dashboard_ligand_resname: str
     dashboard_binding_pocket_cutoff_A: float
     dashboard_max_playback_frames: int
-    restrain: str
+    restrain: str | list[Any] | dict[str, Any]
     restraint_release: list[Any]
     restrain_production: bool
     umbrella: dict[str, Any]

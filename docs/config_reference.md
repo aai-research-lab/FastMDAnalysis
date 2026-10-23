@@ -152,7 +152,7 @@ Defaults suit a solvated protein. Changing one changes the physics.
 | `ewald_error_tolerance` | float | `0.0005` | Ewald/PME error tolerance |
 | `use_switching_function` | bool | the force field's | Apply a switching function near the cutoff |
 | `switch_distance_nm` | int or float | the force field's, else 0.9 × cutoff | Where the switching function turns on |
-| `dispersion_correction` | bool | `true` | Long-range dispersion (vdW tail) correction |
+| `dispersion_correction` | bool | the force field's | Long-range dispersion (vdW tail) correction: off for CHARMM36, otherwise as its files leave it (on for AMBER, OpenMM's default) |
 | `remove_cm_motion` | bool | `true` | Add a centre-of-mass motion remover |
 
 The cutoff and the switch are taken from the force field when you do not set
@@ -258,7 +258,7 @@ this for you — see [Continuing a study that stopped](agent.md#continuing-a-stu
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
-| `integrator` | str | `langevin_middle` | `langevin_middle`, `langevin`, `brownian`, `verlet`, `variable_langevin`, `variable_verlet` |
+| `integrator` | str | `langevin_middle` | `langevin_middle`, `langevin`, `brownian`, `verlet`, `variable_langevin`, `variable_verlet`. The two Verlet ones have no thermostat and are refused; `brownian` needs a friction of about 100 per ps at 2 fs and 300 K |
 | `timestep_fs` | int or float | `2.0` | Integrator timestep |
 | `integrator_error_tolerance` | float | `0.001` | Variable-timestep integrators only |
 | `random_seed` | int | unset | Integrator seed. Fixes the dynamics, not the solvation |

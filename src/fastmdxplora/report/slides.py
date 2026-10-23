@@ -380,7 +380,7 @@ def _setup_bullets(project_root: Path) -> list[str]:
     xmls = r.get("xmls")
     field = ", ".join(xmls) if isinstance(xmls, list) else r.get("forcefield")
     if field:
-        water = r.get("water_model")
+        water = r.get("water_name") or r.get("water_model")
         bullets.append(f"Force field: {field}"
                        + (f", {water} water" if water else ""))
     if r.get("ligand") and r.get("ligand_forcefield"):
@@ -434,7 +434,9 @@ def _simulation_bullets(project_root: Path) -> list[str]:
     if r.get("constraints"):
         bullets.append(f"Constraints: {r['constraints']}")
     if r.get("restrain"):
-        bullets.append("Restraints applied during equilibration and released")
+        bullets.append("Restraints kept through production: the trajectory is biased"
+                       if r.get("restrain_production")
+                       else "Restraints applied during equilibration and released")
     for method in ("umbrella", "steered", "metadynamics"):
         if r.get(method):
             bullets.append(f"Enhanced sampling: {method}")

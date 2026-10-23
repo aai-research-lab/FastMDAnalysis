@@ -13,9 +13,15 @@ RMSD.
   - **t-SNE**: t-distributed stochastic neighbor embedding. Non-linear,
     preserves local neighborhood structure, useful for visualizing
     metastable basins. Stochastic — set ``random_state`` for reproducibility.
+  - **MDS**: classical (Torgerson) multidimensional scaling of the
+    pairwise RMSD matrix: the leading eigenvectors of its double-centred
+    squared distances, an arrangement whose distances match the RMSDs
+    exactly where they are Euclidean, and approximately otherwise.
   - **UMAP** (optional): uniform manifold approximation and projection.
-    Non-linear, generally faster than t-SNE, also preserves global
-    structure better. Requires the optional ``umap-learn`` package.
+    Non-linear and generally faster than t-SNE; how much more of the
+    global structure it keeps is debated, so distances between its
+    clusters are not to be read as RMSDs. Requires the optional
+    ``umap-learn`` package.
 
 Every frame is projected by default, the equilibration from the starting
 structure included; ``start`` begins later, and the record says how many
@@ -63,7 +69,8 @@ class DimRed(Analysis):
     Parameters
     ----------
     methods : sequence of str, default ``("pca",)``
-        Which methods to run. Choices: ``"pca"``, ``"tsne"``, ``"umap"``.
+        Which methods to run. Choices: ``"pca"``, ``"mds"``, ``"tsne"``,
+        ``"umap"``.
     n_components : int, default 2
         Dimensionality of the embedding. For visualization keep at 2 (or 3).
     perplexity : float, default 30.0
@@ -223,7 +230,7 @@ class DimRed(Analysis):
                     "frames": np.int64(traj.n_frames),
                 }
             elif method == "mds":
-                # Metric MDS on the pairwise RMSD between frames, which is
+                # Classical MDS on the pairwise RMSD between frames, which is
                 # what version 1 offered and what a reader comparing against
                 # it needs. It answers a different question from PCA: PCA
                 # finds the directions of largest variance in the

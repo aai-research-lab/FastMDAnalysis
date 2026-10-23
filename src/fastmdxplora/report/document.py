@@ -1091,6 +1091,11 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
         notes.append(said + ".")
     if isinstance(measured, dict) and measured.get("not_a_measurement"):
         notes.append(str(measured["not_a_measurement"]))
+    if findings.get("made_whole"):
+        notes.append(str(findings["made_whole"]))
+    shell = findings.get("shell")
+    if isinstance(shell, dict) and shell.get("said"):
+        notes.append(str(shell["said"]))
 
     chemistry = findings.get("ligand_chemistry")
     if isinstance(chemistry, dict):

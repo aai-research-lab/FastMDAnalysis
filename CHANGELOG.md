@@ -125,6 +125,119 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   changed, refuses a timestep of 0 on its box, shows the Mode a Config's
   workers give, tells a person what to add to a Config with no system, and
   lets its verdict and empty boxes be read whole at every width.
+
+- `verlet` and `variable_verlet` are refused: they have no thermostat, and
+  every stage of a run holds a temperature, so the NVT stage and production
+  were constant-energy dynamics (a "300 K" peptide in water ran at 169-181 K)
+  with a barostat over them, while the methods said "at 300 K with a friction
+  coefficient". Checked per run (a sweep or a system's own settings, the run
+  named) wherever a config is checked and the simulation runs; an older
+  study's record is still read and reported, and its Methods say the stages
+  ran at constant energy with no temperature held.
+- `brownian` is refused below the friction its step needs, 2 kT dt / (m s^2)
+  with a hydrogen's random step s held to 0.01 nm (about 100 per ps at 2 fs
+  and 300 K): at the default 1 per ps it went to NaN within 50 steps.
+
+- Each restraint is held at its own force constant. The release ladder was
+  written into every restraint as it stood, so a position restraint asked for
+  at 200, a distance at 500 and a torsion at 50 kJ/mol/rad² all ran at 1000,
+  500, 100, 0; now each is stepped down in the ladder's proportions, and one
+  given no constant runs at the ladder's values as before. With
+  `restrain_production` they are held at full strength throughout instead of
+  being let go during equilibration and taken up again at 1000 when
+  production began (a ladder other than the default is refused beside it, as
+  it would not be used); without it production is free whatever the last
+  step.
+- A distance, angle or torsion restraint given no `target` is held where it
+  is in the prepared structure (it was held at zero: two atoms pulled onto
+  each other), measured as the nearest image in a periodic box, and the value
+  is recorded; the distance, angle and torsion forces measure the nearest
+  image too (a ligand wrapped a box away was pulled through it). A target
+  outside its coordinate's range (an angle in degrees) is refused. An angle's or torsion's atoms are
+  taken in the order an `index` selection writes them (they were sorted).
+- One force constant is one spring: every kind is E = k x² with no half, and
+  the torsion is 2k(1 − cos x), which was k(1 − cos x), half as stiff as an
+  angle given the same number. Said in the docs, the schema and the methods,
+  with GROMACS's and PLUMED's ½ k x² beside it.
+- The long form of `restrain` documented in the guide is accepted in a study
+  file (it was refused as "should be string") and read when the config is
+  checked: a key a restraint does not take, a negative force constant, a
+  target on a position restraint and a ladder rising above its first step
+  are refused, in a system entry and a sweep value as in the study's own
+  block.
+
+- CHARMM36 runs without the long-range dispersion correction its file turns
+  off. Every run passed the correction on, OpenMM takes that over
+  `charmm36.xml`'s `useDispersionCorrection="False"`, and CHARMM36 systems,
+  bilayers among them, ran with an isotropic tail their lipids were fitted
+  without (-75 bar in CHARMM water at 1.2 nm). `dispersion_correction` now
+  defaults to the force field's scheme: off for CHARMM36, `charmm36_2024.xml`
+  included (it says nothing, which OpenMM reads as on), and otherwise as the
+  files leave it, on for AMBER (OpenMM's default). A stated value wins, and
+  the value used is recorded.
+- An explicit `force_field` list takes the cutoff scheme of the family its
+  files belong to: AMBER files listed by hand were switched at 0.9 nm, which
+  `amber14` by name is not, and CHARMM36 files ran at 1.0 nm rather than 1.2.
+  A list of no one family takes OpenMM's own default, no switch, and says so.
+- The Methods state the Lennard-Jones treatment (switch and tail correction),
+  and that `charmm36.xml` is an older CHARMM36 release, without the
+  CHARMM36m protein parameters.
+
+- `amber-fb15` runs with TIP3P-FB (`tip3pfb.xml`), the water AMBER-FB15 was
+  developed with, rather than plain TIP3P, and the records, the Methods, the
+  slides and the GUI name it. A study prepared before keeps its recorded
+  `force_field` list, and so its TIP3P, when it is run again.
+
+- An analysis handed a trajectory with molecules split across the box makes
+  them whole first, as the loader does, and says so: given straight from
+  `md.load`, a rigid body wrapped atom by atom read an RMSD of 2.7 nm. The
+  loader measures once that what it hands on is whole, so the analyses need
+  not, and makes a box of solvent alone whole too (MDTraj found no anchor
+  in one and left it split).
+- `rdf` and `coordination_number` stop at half the cell's shortest lattice
+  vector, not half its shortest edge (the same for the boxes setup builds;
+  past it in a squashed cell an ideal gas read g = 0.74), and the
+  centre-of-mass minimum image searches two cells out (it was 0.115 nm long
+  in such a cell).
+- `rdf`'s first peak and `coordination_number`'s `cutoff: rdf` are judged
+  against the scatter of g(r)'s own counts in each bin (each distinct pair
+  once, the larger of the counting noise and the spread over frames, widened
+  by the frames' correlation), at a bar set by how many bins are searched:
+  `rdf` reported a first peak on 15 ideal gases out of 15, and an FCC
+  crystal's first shell was refused. The cutoff is the first dip clear below
+  bulk that the curve climbs back out of to bulk, on g(r) smoothed over
+  0.035 nm, rather than the lowest point anywhere after the peak. Where the
+  trough is level, as the gap between a crystal's shells is, its middle is
+  taken (FCC reads 12 and rock salt 6 at thermal spreads of 0.002 to 0.01
+  nm). It is refused where there is no trough, where the minimum is not
+  located to within 0.1 nm and the count changes across that, where the two
+  halves of the run put it outside the stretch the whole run allows, and
+  where neither half finds one: O-O in 1 M NaCl (read before at 0.383 nm,
+  the second half of the run giving 0.349) is refused at every length of
+  run. The stretch the minimum could lie in, the count across it and the
+  cutoff from each half of the run are recorded and said. A gas moving 0.002
+  to 0.01 nm a frame over 50 frames is correlated beyond what the run can
+  show, and is still accepted now and then (4 of 640). More frames are
+  needed to resolve a minimum than before: TIP3P O-O reads at 60 frames of a
+  564-water box and not from its first 30.
+- `rdf` refuses a `bin_width` or `r_max` that is not a positive distance, a
+  range under one bin, and a frame whose cell is empty or not a number, as
+  `coordination_number` now does with an explicit cutoff too.
+- Wording and records: the H-bond criteria's defaults and citations
+  (`hbonds`' occupancy threshold; the 3.5 A rule no longer credited to
+  McDonald and Thornton, whose HBPLUS limits are wider), DSSP's loop letter, the omega
+  column's residue, the native frame of the Q value, `dimred`'s MDS and
+  `cluster`'s embedding, a united-atom lipid's refusal, the thermodynamics
+  ensemble without a volume column, `start` on the trajectory's clock, how
+  the RMSF is fitted, and the GUI page's count of analysis options.
+- `bfactor_comparison` and `ligand_rmsf` leave out the equilibration, as
+  `rmsf` does (`start`, `equilibrated` by default, recorded under
+  `findings.frames`, said on the figures). The B-factor comparison read every
+  frame, so a loop relaxing 0.4 nm over the first fifth of a run read 57%
+  higher there than in `rmsf.dat`; the ligand RMSF read 1.7 times the
+  fluctuation of the settled frames for a ligand still settling, and now
+  starts once both the receptor's RMSD and its own, in the receptor frame,
+  equilibrate, saying so where that leaves out more than a third of the run.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

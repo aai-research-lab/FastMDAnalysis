@@ -381,7 +381,10 @@ class Thermodynamics(Analysis):
             "source": str(path),
             **({"pieces": [str(piece["path"]) for piece in pieces]} if pieces else {}),
             "samples": int(len(next(iter(found.values())))) if found else 0,
-            "ensemble": ("constant volume" if constant_volume
+            # Unknown without a volume column (a record another engine
+            # wrote), rather than called constant pressure.
+            "ensemble": ("unknown" if volume is None
+                         else "constant volume" if constant_volume
                          else "constant pressure"),
         }
 

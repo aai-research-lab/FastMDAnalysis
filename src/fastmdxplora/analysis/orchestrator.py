@@ -33,7 +33,7 @@ from typing import Any
 
 import mdtraj as md
 
-from fastmdxplora.analysis.base import Analysis, AnalysisResult
+from fastmdxplora.analysis.base import Analysis, AnalysisResult, carry_wholeness
 from fastmdxplora.analysis.plotting import settle_figure_colours, settle_figure_width
 from fastmdxplora.config.schema import ANALYSIS
 from fastmdxplora.analysis.loading import (
@@ -339,7 +339,7 @@ class AnalysisOrchestrator:
             # `pl_interactions` reported 252 hydrophobic contacts after
             # rmsf and ligand_rmsd had aligned the frames, and 10 when run
             # by itself. The 10 was right.
-            self.results[name] = analysis.run(self.traj[:])
+            self.results[name] = analysis.run(carry_wholeness(self.traj, self.traj[:]))
 
         self._reweight()
         self._write_manifest()

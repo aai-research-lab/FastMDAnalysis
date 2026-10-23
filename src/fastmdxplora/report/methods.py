@@ -24,6 +24,7 @@ nobody chose is worse than one with a gap in it: the gap is visible.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -37,7 +38,6 @@ _INTEGRATOR_NAMES = {
     "langevin": "Langevin",
     "verlet": "Verlet",
     "brownian": "Brownian",
-    "nose_hoover": "Nose-Hoover",
     "variable_langevin": "variable-timestep Langevin",
     "variable_verlet": "variable-timestep Verlet",
 }
@@ -110,6 +110,28 @@ def _file_named(source: Any) -> Any:
     if not isinstance(source, str) or not re.search(r"[\\/]", source):
         return source
     return PureWindowsPath(source).name if "\\" in source else PurePosixPath(source).name
+
+
+def _restraint_phrase(record: dict[str, Any]) -> str:
+    """One restraint as a methods clause: what, toward what, how firmly."""
+    kind = record.get("kind")
+    selection = record.get("selection")
+    k = record.get("force_constant")
+    units = str(record.get("units") or "").replace("^2", "²")
+    firm = f"k = {float(k):g} {units}" if k is not None else "k not recorded"
+    target = record.get("target")
+    if kind == "position":
+        return (f"atoms matching `{selection}` held at their positions in the "
+                f"starting structure, {firm}")
+    if target is None:
+        toward = "at a target not recorded"
+    elif kind == "distance":
+        toward = f"at {float(target):.3f} nm"
+    else:
+        toward = f"at {math.degrees(float(target)):.1f}°"
+    what = {"distance": "the distance", "angle": "the angle",
+            "torsion": "the dihedral"}.get(str(kind), str(kind))
+    return f"{what} between atoms `{selection}` held {toward}, {firm}"
 
 
 def _get(params: dict[str, Any], *names: str, default: Any = None) -> Any:
@@ -403,7 +425,8 @@ def methods_paragraphs(
             ", ".join(str(x) for x in xmls) if xmls
             else _get(setup, "forcefield", "force_field")
         )
-        water = resolved.get("water_model") or _get(setup, "water_model")
+        water = (resolved.get("water_name") or resolved.get("water_model")
+                 or _get(setup, "water_model"))
         ligand_ff = (resolved.get("small_molecule_forcefield")
                      or _get(setup, "ligand_forcefield"))
         # Whether a ligand was *parameterised*, not whether one could have
@@ -424,6 +447,15 @@ def methods_paragraphs(
                 + (f" with the {water} water model" if water else "")
                 + "."
             )
+            # Which release a file is, where its name does not say: OpenMM's
+            # `charmm36.xml` is an older CHARMM36 (its sources are
+            # toppar_c36_aug15, its protein par_all36_prot), before CHARMM36m's
+            # protein corrections, and "CHARMM36" alone reads as the current one.
+            if xmls and any(str(x) == "charmm36.xml" for x in xmls):
+                parameterisation.append(
+                    "`charmm36.xml` is OpenMM's port of an older CHARMM36 "
+                    "release (toppar_c36_aug15), without the CHARMM36m protein "
+                    "parameters.")
         if parameterised and ligand_name and ligand_ff:
             charge = _get(setup, "ligand_net_charge")
             parameterisation.append(
@@ -500,6 +532,28 @@ def methods_paragraphs(
                 f"Long-range electrostatics were treated with {method} and a "
                 f"real-space cutoff of {_nm(cutoff)}."
             )
+            # The Lennard-Jones treatment, which is what differs between a
+            # CHARMM36 run (switched from 1.0 nm, no tail correction) and an
+            # AMBER one (truncated, with it), and was not said at all.
+            switching = _get(setup, "use_switching_function")
+            switch_at = _get(setup, "switch_distance_nm")
+            # The tail correction is applied under periodic boundaries alone,
+            # and with no cutoff there is nothing to switch or correct.
+            periodic = str(method) in ("CutoffPeriodic", "PME", "Ewald")
+            tail = _get(setup, "dispersion_correction") if periodic else None
+            if str(method) != "NoCutoff" and (switching is not None or tail is not None):
+                lj = f"Lennard-Jones interactions were cut off at {_nm(cutoff)}"
+                if switching is True and switch_at is not None:
+                    lj += f", switched from {_nm(switch_at)} (OpenMM's potential switch)"
+                elif switching is True:
+                    lj += ", with a switching function"
+                elif switching is False:
+                    lj += " with no switching function"
+                if tail is True:
+                    lj += ", with the isotropic long-range dispersion correction"
+                elif tail is False:
+                    lj += ", with no long-range dispersion correction"
+                interactions.append(lj + ".")
         if constraints:
             interactions.append(
                 f"Bonds were constrained with `{constraints}`"
@@ -514,9 +568,13 @@ def methods_paragraphs(
     if sim:
         timestep = _get(sim, "timestep_fs")
         integrator = _get(sim, "integrator")
+        # A Verlet run has no thermostat, so it had neither a temperature it
+        # was held at nor a friction; a record from before such runs were
+        # refused is described as what it was.
+        unthermostatted = str(integrator).lower() in ("verlet", "variable_verlet")
         integrator = _INTEGRATOR_NAMES.get(str(integrator).lower(), integrator)
         temperature = _get(sim, "temperature_K")
-        friction = _get(sim, "friction_per_ps")
+        friction = None if unthermostatted else _get(sim, "friction_per_ps")
         # What ran, then what was asked for. Unset means one bar, and the
         # runner is the only place that knew.
         pressure = _get(sim, "pressure_bar_used", "pressure_bar")
@@ -549,16 +607,36 @@ def methods_paragraphs(
         # protein at a thousand kilojoules and released it in four steps
         # unless the paragraph says so.
         held = _get(sim, "restrain")
+        each = _get(sim, "restraints_resolved")
         if held:
             release = _get(sim, "restraint_release") or [1000.0, 500.0, 100.0, 0.0]
             steps = ", ".join(f"{float(k):g}" for k in release)
-            protocol.append(
-                f"Atoms matching `{held}` were harmonically restrained to "
-                f"their minimized positions during equilibration, with the "
-                f"force constant stepped through {steps} kJ/mol/nm² as "
-                "equilibration proceeded."
-            )
-            if _get(sim, "restrain_production", default=False):
+            kept = _get(sim, "restrain_production", default=False)
+            if isinstance(each, list) and each:
+                # What each held, toward what and how firmly, in the form the
+                # energy was written in: another program's k for the same
+                # spring is often twice this one.
+                protocol.append(
+                    "Restraints were applied as E = k x² (no factor of one "
+                    "half; a torsion as 2k(1 − cos x)): "
+                    + "; ".join(_restraint_phrase(r) for r in each) + "."
+                    + ("" if kept else
+                       f" During equilibration each was stepped down in the "
+                       f"proportions of {steps} kJ/mol/nm².")
+                )
+            elif isinstance(held, str):
+                protocol.append(
+                    f"Atoms matching `{held}` were restrained to "
+                    f"their starting positions during equilibration (E = k d², "
+                    f"no factor of one half), with the force constant stepped "
+                    f"through {steps} kJ/mol/nm² as equilibration proceeded."
+                )
+            else:
+                protocol.append(
+                    "Restraints were applied during equilibration, stepped "
+                    f"through {steps} kJ/mol/nm²; the record does not say "
+                    "what each held.")
+            if kept:
                 protocol.append(
                     "**The restraints were retained during production**, so "
                     "the trajectory is biased: flexibility analyses run "
@@ -647,11 +725,22 @@ def methods_paragraphs(
                 # section reading "a friction coefficient of None" is worse
                 # than one that omits it: the reader cannot tell whether the
                 # run had no friction or the software lost the number.
-                + (f", at {temperature} K" if temperature is not None else "")
+                + (", with no thermostat" if unthermostatted
+                   else f", at {temperature} K" if temperature is not None else "")
                 + (f" with a friction coefficient of {friction} ps⁻¹"
                    if friction is not None else "")
                 + "."
             )
+            if unthermostatted:
+                # The ensembles named above are what the stages were called,
+                # not what they sampled.
+                protocol.append(
+                    "With no thermostat, no stage was held at a temperature: "
+                    "those named NVT ran at constant energy, and where a "
+                    "barostat acted (those named NPT) it did so over "
+                    "unthermostatted dynamics, which sample no defined "
+                    "ensemble."
+                )
         # The runner records a pressure whatever the ensemble, and a barostat
         # acts only where there is one: through production at constant
         # pressure, or through the NPT stage before constant-volume
