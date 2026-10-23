@@ -143,6 +143,17 @@ class TestWhetherItEnded:
         _its_process(root, os.getpid(), started=_ago(30 * 86400))
         assert how_the_run_ended(root) == "process"
 
+    def test_its_number_given_to_the_process_asking_under_a_record_with_arguments(self, tmp_path):
+        """The same with the run's arguments recorded (a record written
+        before its start ticks): the asking process's command line is not
+        read, so its arguments cannot make it the run."""
+        import os
+
+        root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(5))
+        _its_process(root, os.getpid(), started=_ago(30 * 86400),
+                     argv=[sys.argv[0], "run", str(root)])
+        assert how_the_run_ended(root) == "process"
+
     def test_this_host_restarted_since_it_ended(self, tmp_path, a_script):
         if not this_machine()["boot"]:
             pytest.skip("this system does not say which boot")

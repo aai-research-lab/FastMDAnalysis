@@ -565,12 +565,13 @@ def _what_the_process_is(pid: int, root: Path, record: Any = None, *,
     argv = record.get("argv")
     arguments = isinstance(argv, list) and bool(" ".join(str(a) for a in argv[1:]).split())
     if asking:
-        a_run = True
-    else:
-        line = _command_line_of(pid)
-        if line is None:
-            return "unread"
-        a_run = _command_line_is_a_run(line, root, argv)
+        # Its command line is not read, so it is judged by when it began: the
+        # asking process begun since the record was written is not the run.
+        return "another" if _began_since(pid, dict(record)) else "the run"
+    line = _command_line_of(pid)
+    if line is None:
+        return "unread"
+    a_run = _command_line_is_a_run(line, root, argv)
     if a_run and arguments:
         return "the run"
     if _began_since(pid, dict(record)):
