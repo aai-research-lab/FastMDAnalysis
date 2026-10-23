@@ -364,14 +364,14 @@ its old address), each applied as it is changed, with no Save. One search
 finds a setting by its words, and says beside each scope how many it found
 there. Two scopes:
 
-- **You** is this computer, saved in the browser for the GUI's address: the
-  scheme and the accent, as in the gear's menu; the **Display size**; how the
-  Viewer opens (representation, a dark or white ground, water, ions, spin,
-  the camera kept as frames change, the pocket cutoff), the time in 24 or 12
-  hours, how many samples a live chart keeps and a notice when a run ends;
-  and the Agent's engine and mode, changed in its own settings (**Change the
-  Agent's settings**; that dialog's **All settings** leads back here). The
-  Agent's mode and GPU-hour ceiling are saved as they are chosen.
+- **You** is this computer, saved in this browser's storage for the GUI's
+  address: the scheme and the accent, as in the gear's menu; the **Display
+  size**; how the Viewer opens (representation, a dark or white ground, water,
+  ions, spin, the camera kept as frames change, the pocket cutoff), the time
+  in 24 or 12 hours, how many samples a live chart keeps and a notice when a
+  run ends; and the Agent's engine and mode, changed in its own settings
+  (**Change the Agent's settings**; that dialog's **All settings** leads back
+  here). The Agent's mode and GPU-hour ceiling are saved as they are chosen.
   **Restore defaults** puts the release's back for the Display size, the
   Viewer, time, charts and notices. Nothing in You changes a study or its
   files.
@@ -396,12 +396,12 @@ there. Two scopes:
   by hand, as writing it again would lose them. Not offered when the GUI is served to others.
 
 The **Display size** sizes everything at once, text included: Auto, 90%,
-100%, 110%, 125% or 150%. Auto chooses from the screen as the browser
+100%, 110%, 125% or 150%. Auto chooses from the screen as your browser
 reports it, in its own pixels, so a system's own scaling is counted once:
 100% up to about 1920 by 1080, 125% at 2560 by 1440 (or an ultrawide 3440 by
 1440), 150% at 3840 by 2160. It chooses again when the window is moved to
-another screen. Where the browser cannot size the page itself, Settings
-says to use the browser's own zoom. The page is laid out as a window of its
+another screen. Where your browser cannot size the page itself, Settings
+says to use the browser's zoom. The page is laid out as a window of its
 own width is: at 150%, a window 1500 pixels wide is laid out as one 1000
 wide is at 100%. A Display size never makes the page narrower than a
 phone's 390 pixels: the size applied is the largest not above the one
