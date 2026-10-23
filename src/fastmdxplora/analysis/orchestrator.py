@@ -666,8 +666,11 @@ class AnalysisOrchestrator:
                 return True
             from fastmdxplora.analysis.image_check import solute_atoms
 
-            return len(solute_atoms(traj.topology, self.default_selection
-                                    or self.scope_selection)[0]) > 0
+            # Read as the other gates read what they need: a plan is also
+            # built on an orchestrator made without its constructor.
+            selection = (getattr(self, "default_selection", None)
+                         or getattr(self, "scope_selection", None))
+            return len(solute_atoms(traj.topology, selection)[0]) > 0
 
         def _box_ok(name: str) -> bool:
             """A g(r) divides by the bulk density, which needs a volume.
