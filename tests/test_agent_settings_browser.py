@@ -56,6 +56,8 @@ def test_agent_settings_offer_api_keys_without_auth_controls_or_restored_state(
             assert page.locator("#agent-settings select").count() == 3
             assert page.locator('[id^="agent-auth"], [id^="agent-cache"]').count() == 0
             settings_text = page.locator("#agent-settings").inner_text().lower()
+            for phrase in ("authentication", "continue with", "test connection", "disconnect"):
+                assert phrase not in settings_text
             assert "connected" not in settings_text and "signed in" not in settings_text
             assert "no ai model is set" in settings_text
             browser.close()
