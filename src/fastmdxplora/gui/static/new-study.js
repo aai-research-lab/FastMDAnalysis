@@ -13,7 +13,11 @@
  * read that differs from the form's is said as that, above the form, with
  * Read the defaults again, which draws the form from the file as it is.
  * A file refused since the form was drawn from it is said as refused, as
- * on opening: the start refuses it, so it is not one a study runs with. */
+ * on opening: the start refuses it, so it is not one a study runs with.
+ *
+ * A phone's page scrolls as a whole, and New study was come back to where
+ * This folder was left, the note far above: it is brought into view as it
+ * is said, where it is not in view already. */
 (function () {
   "use strict";
 
@@ -108,6 +112,14 @@
     note.hidden = false;
   }
 
+  /* Shown, and not out of view or under the bar kept at a phone's top. */
+  function seen(note) {
+    if (note.hidden || !note.getClientRects().length) return true;
+    var r = note.getBoundingClientRect();
+    var at = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height, 20) / 2);
+    return Boolean(at && note.contains(at));
+  }
+
   function read() {
     var note = el("run-defaults-refused");
     if (!note || asking) return;
@@ -122,6 +134,7 @@
       var differs = drawn && defaultsOf(drawn) !== defaultsOf(now);
       if (differs && !refused) changed(note);
       else say(note, refused, differs && fromFile(drawn));
+      if (!seen(note)) note.scrollIntoView({ block: "center" });
     }).catch(function () { /* the form says it could not read the settings */ })
       .then(function () { asking = null; });
   }

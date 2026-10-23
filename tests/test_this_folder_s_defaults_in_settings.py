@@ -216,8 +216,8 @@ def session(tmp_path):
     started.server.shutdown()
 
 
-def _open(browser, url, where="#settings"):
-    page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
+def _open(browser, url, where="#settings", width=1440, height=900):
+    page = browser.new_context(viewport={"width": width, "height": height}).new_page()
     page.set_default_timeout(60000)
     page.errors = []
     page.on("pageerror", lambda error: page.errors.append(str(error)))
@@ -504,6 +504,38 @@ def test_new_study_follows_the_defaults_file_it_was_drawn_with(browser, session)
     assert "setup.mutations" in refused_again[0] and refused_again[2] == "Default 7.4"
     assert right[1] == "Default 7.4" and "FastMDXplora's own values" not in right[0]
     assert right_again[1] and right_again[2] == "Your default 6.5"
+
+
+def test_at_390_the_note_is_seen_on_coming_back_from_this_folder(browser, session):
+    """On a phone the page scrolls as a whole, and New study, come back to
+    after a change far down This folder, opened where Settings was left:
+    the note that the defaults changed was thousands of pixels above, and
+    the fields said the old defaults with Run enabled."""
+    started, where = session
+    where.write_text("setup:\n  ph: 6.5\n", encoding="utf-8")
+    note = "#run-defaults-refused"
+    page = _open(browser, started.url, "#run", width=390, height=844)
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
+    page.wait_for_selector('.builder-field[data-phase="setup"][data-setting="ph"] .builder-default',
+                           state="attached")
+    page.evaluate("() => window.FastMDXDashboard.navigate('settings')")
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{ROW} .settings-control")
+    where.write_text("setup:\n  ph: 6.8\n", encoding="utf-8")
+    left = page.evaluate("""() => { for (const s of [document.scrollingElement, document.body]) {
+        s.scrollTop = s.scrollHeight; } return document.body.scrollTop
+        || document.scrollingElement.scrollTop; }""")
+    page.evaluate("() => window.FastMDXDashboard.navigate('run')")
+    page.wait_for_selector(f"{note}:not([hidden]) .builder-defaults-again")
+    seen = page.evaluate(f"""() => {{ const n = document.querySelector('{note}');
+        const r = n.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height, 20) / 2);
+        return [Math.round(r.top), Math.round(r.bottom), innerHeight, Boolean(at && n.contains(at))]; }}""")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert left > 1000, left
+    assert seen[0] >= 0 and seen[1] <= seen[2] and seen[3], seen
 
 
 def test_the_settings_main_changed_are_said_as_they_now_are(browser, session):
