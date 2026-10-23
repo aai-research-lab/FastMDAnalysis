@@ -1201,6 +1201,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Saving Agent settings or `fastmdx agent model` with the key left blank keeps a
+  key already saved for the same provider and URL; choosing a different
+  provider or URL drops it. Delete `api_key` from `model.json` to remove a
+  saved key. `OPENAI_API_KEY` and `FASTMDX_MODEL_API_KEY` always take
+  precedence when set.
+
 - Setup's default padding (`setup.solvent_padding_nm`) is 2.0 nm, about
   1.0 nm of water between the solute and the box's wall, where it was 1.0 nm
   (OpenMM's padding is the least distance from the solute to its image, so
