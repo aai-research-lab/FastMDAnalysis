@@ -681,11 +681,28 @@ def test_a_display_size_never_makes_the_page_narrower_than_a_phone(browser, tmp_
     and Files scrolled sideways, the sort select and the Files actions past
     the edge. The size applied is the largest not above the one chosen that
     keeps the page at least 390 wide, again as the window is resized, and
-    Settings says so beside the select."""
+    Settings says so beside the select. Each page is checked with what it
+    shows: a quantity the same in every frame ran 6 pixels past Analysis at
+    390, and Files lists a trajectory with a long name."""
+    import json
+
     from fastmdxplora.gui.server import start_dashboard_session
 
     study = _study(tmp_path / "helical", system="2I9M",
                    means={"rmsd": (0.213, 0.011), "radius_of_gyration": (1.104, 0.02)})
+    # A quantity the same in every frame (an NVT run's kinetic energy at
+    # its thermostat's value): its line ran past a 390 page.
+    thermodynamics = study / "analysis" / "thermodynamics"
+    thermodynamics.mkdir()
+    (thermodynamics / "options.json").write_text(json.dumps({
+        "analysis": "thermodynamics", "findings": {"thermodynamics": {
+            "kinetic_energy": {"units": "kJ/mol", "mean": 8500.0, "standard_error": None,
+                               "standard_deviation": 0.0, "effective_samples": 1.0}}}}),
+        encoding="utf-8")
+    (thermodynamics / "thermodynamics.png").write_bytes((study / "analysis" / "rmsd" / "rmsd.png")
+                                                         .read_bytes())
+    (study / "simulation").mkdir()
+    (study / "simulation" / "production_of_the_helical_peptide_at_310_K.dcd").write_bytes(b"\0" * 64)
     started = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
     try:
         page = _at(browser, started.url, "150", (390, 844), "#studies")
@@ -708,15 +725,25 @@ def test_a_display_size_never_makes_the_page_narrower_than_a_phone(browser, tmp_
                 && getComputedStyle(e).position !== 'fixed' && !scrolls(e); })
             .map((e) => e.id || e.className || e.tagName);
         return scrolled.concat(past.slice(0, 6)); }"""
+    # What each page shows, so the check meets content: the analyses'
+    # values, the studies and the study's files.
+    content = {"analysis": ".analysis-cell-head .cell-value",
+               "studies": ".studies-row, .study-card", "files": '.files-row[data-path$=".dcd"]'}
     try:
         said = {}
+        met = {}
         for where in ("analysis", "studies", "files"):
             page.evaluate(f"() => window.FastMDXDashboard.navigate('{where}')")
             page.wait_for_selector(f'.page[data-page="{where}"]:not([hidden])')
+            page.wait_for_selector(content[where])
             page.wait_for_timeout(400)
             said[where] = page.evaluate(f"() => [({sideways})(), window.FastMDXDisplay.zoom(), innerWidth]")
+            met[where] = page.evaluate(f"""() => [...document.querySelectorAll('{content[where]}')]
+                .filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.textContent)""")
         for where, (scrolled, zoom, width) in said.items():
             assert scrolled == [] and zoom == 1 and width == 390, (where, scrolled, zoom, width)
+        assert "Kinetic energy8,500 kJ/mol in every frame" in met["analysis"], met
+        assert met["studies"] and len(met["files"]) == 1, met
         page.evaluate("() => window.FastMDXDashboard.navigate('settings')")
         page.wait_for_selector('.page[data-page="settings"]:not([hidden])')
         notes = [page.text_content("#setting-display-size-note")]
