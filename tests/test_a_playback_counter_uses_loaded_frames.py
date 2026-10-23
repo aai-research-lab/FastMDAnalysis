@@ -173,14 +173,13 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
                 "() => window.FastMDXMoleculeViewer?.STATE.playbackLoaded"
                 " && document.getElementById('traj-current').textContent === '1'"
                 " && document.getElementById('overlay-frame').textContent === 'frame 1 / 200'"
-                " && document.getElementById('overlay-step').textContent === 'step 163,000'",
+                " && document.getElementById('overlay-simtime').textContent === '326 ps'",
                 timeout=60_000,
             )
             assert page.locator("#traj-step").inner_text() == "step 163,000"
             assert page.locator("#traj-simtime").inner_text() == "time 0.326 ns"
             assert page.locator("#overlay-frame").inner_text() == "frame 1 / 200"
-            assert page.locator("#overlay-step").inner_text() == "step 163,000"
-            assert page.locator("#overlay-simtime").inner_text() == "sim time 0.326 ns"
+            assert page.locator("#overlay-simtime").inner_text() == "326 ps"
             assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
                                  ".find({atom: 'CA'})[0].x") == pytest.approx(0.0, abs=0.006)
 
@@ -198,14 +197,15 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
                 "() => document.getElementById('traj-current').textContent === '200'"
                 " && document.getElementById('traj-total').textContent === '200'"
                 " && document.getElementById('traj-step').textContent === 'step 362,000'"
-                " && document.getElementById('traj-simtime').textContent === 'time 0.724 ns'",
+                " && document.getElementById('traj-simtime').textContent === 'time 0.724 ns'"
+                " && document.getElementById('overlay-simtime').textContent === '724 ps'",
                 timeout=60_000,
             )
             page.wait_for_function(
                 "() => window.FastMDXMoleculeViewer.STATE.engine.frame() === 199"
             )
             assert page.locator("#overlay-frame").inner_text() == "frame 200 / 200"
-            assert page.locator("#overlay-step").inner_text() == "step 362,000"
+            assert page.locator("#overlay-simtime").inner_text() == "724 ps"
             assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
                                  ".find({atom: 'CA'})[0].x") == pytest.approx(1.99, abs=0.006)
 
@@ -372,7 +372,7 @@ def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
             for name, count in (("short", 3), ("single", 1), ("empty", 0), ("large", 200)):
                 page.evaluate("() => window.FastMDXDashboard.navigate('studies')")
                 page.evaluate("path => window.FastMDXStudies.load(path)", str(tmp_path))
-                page.locator(f'.study-card[data-path$="{name}"] .study-open').click()
+                page.locator(f'[data-path$="{name}"] .study-open').click()
                 page.wait_for_function(
                     "name => document.getElementById('study-folder')?.textContent.trim() === name",
                     arg=name)

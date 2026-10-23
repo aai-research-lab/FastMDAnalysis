@@ -3732,6 +3732,8 @@
     setText("overlay-tag", shown ? "LIVE"
       : (STATE.mode === "playback" ? "PLAYBACK" : (ended ? "LAST FRAME" : "STATIC")));
     if (ended) setText("overlay-age", "");
+    // Empty status updates during playback change the tag, not the frame's
+    // time; the frame remains the overlay's source until another is shown.
     if (Object.keys(info || {}).length) {
       setText("overlay-stage", info?.stage ?? "");
       // A live frame is named by the step it was written at, which is what
@@ -3756,8 +3758,6 @@
       } else {
         setText("overlay-simtime", "");
       }
-    } else {
-      setText("overlay-simtime", "");
     }
     tidyOverlay();
   }
