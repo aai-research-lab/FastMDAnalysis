@@ -427,7 +427,7 @@ class RadialDistribution(Analysis):
         if int(r_max / self.bin_width) < 1:
             raise StudyError(
                 f"r_max of {r_max:g} nm is less than one bin of "
-                f"{self.bin_width:g} nm, so there is no curve to draw.",
+                f"{self.bin_width:g} nm, so there is no curve to plot.",
                 code="analysis.option.out_of_range")
 
         pairs, available = _pairs_between(a, b, np.random.default_rng(0))

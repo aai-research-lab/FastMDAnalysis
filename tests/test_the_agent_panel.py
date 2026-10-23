@@ -734,8 +734,19 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
                 / "dashboard.html").read_text(encoding="utf-8")
 
     def panel(self):
+        # To the </section> that closes the Agent's own, not the first one:
+        # the panel holds sections of its own (the review of a config's
+        # changes, 10-17), and the first </section> was theirs.
+        import re
+
         page = self.page()
-        return _agent_section(page)
+        start = page.index('data-page="agent"')
+        depth = 1  # inside the Agent's own <section, which opens before start
+        for tag in re.finditer(r"<(/?)section\b", page[start:]):
+            depth += -1 if tag.group(1) else 1
+            if depth == 0:
+                return page[start:start + tag.start()]
+        raise AssertionError("the Agent's section is not closed")
 
     def dialog(self):
         # At body level, not inside the Agent section: a fixed overlay
@@ -2086,7 +2097,7 @@ class TestEditIsInPlace(unittest.TestCase):
         # Enter sends; Escape restores; blur restores.
         self.assertIn('e.key === "Enter" && !e.shiftKey', edit)
         self.assertIn('e.key === "Escape"', edit)
-        self.assertIn("body.textContent = before;", edit)
+        self.assertIn("body.textContent = send && edited ? edited : before;", edit)
         # Not the old detour through the composer.
         self.assertNotIn("Put this back in the composer", edit)
 

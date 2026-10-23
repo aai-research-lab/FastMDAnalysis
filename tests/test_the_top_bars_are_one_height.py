@@ -18,17 +18,21 @@ from tests.test_the_workspace_says_its_studies import _study
 
 PAGES = ("studies", "run", "overview", "viewer", "analysis", "report", "files", "agent")
 
+# The middle column's top bar is the strip of open studies where it is
+# shown (10-17), with the page's title bar directly beneath it; the page's
+# title bar where it is not.
 _BARS = """() => {
     const box = (s) => document.querySelector(s).getBoundingClientRect();
     const header = box('.page:not([hidden]) .page-header');
     const title = box('.page:not([hidden]) .page-title');
     const tabs = box('.side-panel-tabs');
     const brand = box('.sidebar-brand');
-    const strip = box('#study-tabs');
+    const strip = document.getElementById('study-tabs');
+    const top = strip && !strip.hidden ? strip.getBoundingClientRect() : header;
     return {
-        header: [header.top, header.bottom], tabs: [tabs.top, tabs.bottom],
+        header: [top.top, top.bottom], tabs: [tabs.top, tabs.bottom],
         brand: [brand.top, brand.bottom],
-        strip: [strip.top, strip.bottom],
+        titleBar: header.bottom - header.top, under: header.top - top.bottom,
         offCentre: (title.top + title.bottom) / 2 - (header.top + header.bottom) / 2,
     };
 }"""
@@ -77,7 +81,7 @@ def test_the_three_bars_are_one_height_on_every_page(tmp_path):
         assert bars["tabs"] == bars["brand"], (name, bars)
         assert bars["header"][0] == round(bars["strip"][1]), (name, bars)
         assert bars["header"][1] - bars["header"][0] == 52, (name, bars)
-        assert bars["tabs"][1] - bars["tabs"][0] == 52, (name, bars)
+        assert bars["titleBar"] == 52 and abs(bars["under"]) <= 1, (name, bars)
         assert abs(bars["offCentre"]) <= 1, (name, bars)
     # Folded by a button like the side panel's, a line icon, the name alone
     # above it.

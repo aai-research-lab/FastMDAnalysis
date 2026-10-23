@@ -93,10 +93,10 @@ def test_tags_and_a_note_kept_are_undone(browser, session) -> None:
     page.fill(f"{card} .study-tag-input", "slip")
     page.fill(f"{card} .study-note-input", "a note typed over the other")
     page.click(f"{card} .study-tag-editor button:has-text('Save')")
-    page.wait_for_selector("#dashboard-toast.show:has-text('Kept the tags')")
+    page.wait_for_selector("#dashboard-toast.show:has-text('Saved the tags')")
     page.wait_for_selector(f"{card} .study-tag:has-text('slip')")
     kept = tags_of(session.first)
-    _undo(page, "Kept the tags and note")
+    _undo(page, "Saved the tags and note")
     page.wait_for_selector("#dashboard-toast:has-text('back as they were')")
     shown = page.text_content(card)
     errors = page.errors
@@ -125,7 +125,7 @@ def test_tags_undone_after_the_list_was_read_again_show_on_the_card(browser, ses
     page.evaluate("() => window.FastMDXDashboard.navigate('studies')")
     page.evaluate(f"() => window.FastMDXStudies.load({str(session.workspace)!r})")
     page.wait_for_selector(f"{card} .study-tag:has-text('zeta')")
-    _undo(page, "Kept the tags and note")
+    _undo(page, "Saved the tags and note")
     page.wait_for_selector("#dashboard-toast:has-text('back as they were')")
     page.wait_for_function(f"() => !document.querySelector(`{card}`).textContent.includes('zeta')")
     page.context.close()
@@ -192,6 +192,26 @@ def test_undo_is_offered_while_it_shows_and_not_after(browser, session) -> None:
     page.context.close()
     assert held == [True, "Undo: Kept it."]
     assert left == 0
+
+
+def test_a_view_chosen_before_the_page_s_first_state_stays_chosen(browser, session) -> None:
+    """The page's first state is said as the study changed, though it is the
+    study the page opened: a view chosen before it came was put back to none,
+    and Forget, refusing it, could not be pressed."""
+    _save(session, "kept", {"camera": CAMERA, "frame": 1})
+    page = _page(browser, session, "#viewer")
+    page.wait_for_selector("#viewer-views option[value='kept']", state="attached")
+    hooks.tool(page, "side-saved")
+    page.select_option("#viewer-views", "kept")
+    page.evaluate("""() => window.dispatchEvent(new CustomEvent('dashboard:run-changed',
+        {detail: {previousRun: '', activeRun: '', first: true}}))""")
+    page.wait_for_timeout(500)
+    chosen = page.evaluate("""() => [document.getElementById('viewer-views').value,
+        document.getElementById('viewer-view-forget').disabled]""")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert chosen == ["kept", False]
 
 
 def test_a_view_is_not_undone_into_another_study(browser, session) -> None:

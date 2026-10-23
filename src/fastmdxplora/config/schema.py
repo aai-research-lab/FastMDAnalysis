@@ -73,6 +73,9 @@ ANALYSIS_NAMES = (
     # measured where there is one: what a membrane run is checked against
     # before anything about the protein in it is believed.
     "area_per_lipid", "bilayer_thickness", "lipid_order",
+    # Every frame's solute against its own periodic images, where there is
+    # a box: run first, and read by every other analysis of the frames.
+    "image_check",
 )
 
 
@@ -495,12 +498,14 @@ SETUP = PhaseSchema(
               "elsewhere. Needs `membrane_orientation_checked: true`. "
               "Unset, the centre is fitted, or taken from an OPM file.",
               example=0.0),
-        Field("solvent_padding_nm", float, 1.0,
+        Field("solvent_padding_nm", float, 2.0,
               "Least distance (nm) between the solute and its nearest periodic "
               "image, as OpenMM sizes a padded box: the box is the solute's "
               "bounding sphere plus this, so the water between the solute "
-              "and the box's wall is about half of it. Grown by setup where "
-              "the box would be too narrow for the cutoff.",
+              "and the box's wall is about half of it. The default, 2.0, is "
+              "about 1.0 nm of water between the solute and the box's wall, "
+              "as `gmx editconf -d 1.0` gives. Grown by setup where the box "
+              "would be too narrow for the cutoff.",
                     minimum=0.0),
         Field("box_shape", str, "dodecahedron",
               "Periodic box geometry: cube, dodecahedron, or octahedron. "
@@ -977,18 +982,28 @@ ANALYSIS = PhaseSchema(
               example="simulation/topology.pdb"),
         Field("include", list, None,
               "Subset of analyses to run. Default: every analysis the "
-              "system supports -- eleven always, the fraction of native "
+              "system supports -- eleven always, the check of the solute "
+              "against its own periodic images where there is a box, the "
+              "fraction of native "
               "contacts where the chain is long enough to have a fold, "
               "water sites where the "
               "trajectory has water, five more where there is a ligand, and "
               "the potential of mean force where an umbrella study produced "
               "one, the free energy surface where a metadynamics run "
-              "did, and the work done where a pull was steered. "
-              "Mutually exclusive with `exclude`.",
+              "did, and the work done where a pull was steered. A listed "
+              "plan is run as listed, except that where there is a box and a "
+              "solute the image check (`image_check`) joins it and runs first, "
+              "so every mean is read against how close the solute came to its "
+              "own images. Mutually exclusive with `exclude`.",
               choices=ANALYSIS_NAMES,
               example=["rmsd", "rmsf", "rg", "cluster"]),
         Field("exclude", list, None,
-              "Analyses to skip. Mutually exclusive with `include`.",
+              "Analyses to skip. Mutually exclusive with `include`. "
+              "`image_check` runs with any plan, a listed one too, where "
+              "there is a box and a solute. Excluding it leaves the solute "
+              "unchecked against its own periodic images: no mean is noted "
+              "where it saw its image, and none says whether it did, which the "
+              "log, the analysis manifest and the report then say.",
               choices=ANALYSIS_NAMES,
               example=["dimred"]),
         Field("select_atoms", str, None,
@@ -1334,7 +1349,8 @@ UNSET_MEANS: dict[str, str] = {
     "setup.hydrogen_mass_amu": "off",
     "setup.mutation_chain": "the first chain",
     "simulation.duration_ns": "2 ns",
-    "simulation.nvt_duration_ns": "500 ps",
+    # In the box's own unit: "500 ps" over a box in ns read as 500.
+    "simulation.nvt_duration_ns": "0.5 ns (500 ps)",
     "simulation.npt_duration_ns": "1 ns",
     "simulation.ensemble": "as the NPT stage implies",
     "simulation.random_seed": "a different seed each run",

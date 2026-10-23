@@ -778,7 +778,8 @@ def methods_paragraphs(
         parts.append("**Simulation protocol.** " + " ".join(protocol))
 
     # ---- analysis -----------------------------------------------------
-    analysis = _analysis_paragraph(means or {}, stopping)
+    analysis = _analysis_paragraph(means or {}, stopping,
+                                   axes=_campaign_axes(project_root, means or {}, stopping))
     if analysis:
         parts.append("**Analysis.** " + analysis)
 
@@ -899,8 +900,9 @@ def _discard_sentence(means: dict[str, dict[str, Any]]) -> str:
 
 def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list[str]:
     """Why the production is as long as it is, for a study run until it knew."""
+    from fastmdxplora.simulation.sampling_ask import length_said
     from fastmdxplora.simulation.stopping import (AGREE_WITHIN, JUDGED_ALONE, ONE_ERROR,
-                                                  StopTarget)
+                                                  StopTarget, round_decided, study_ended)
 
     rounds = [r for r in stopping.get("rounds") or [] if isinstance(r, dict)]
     try:
@@ -918,7 +920,7 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
         "extended by what its analyses said was still needed, until "
         + asked + (" was" if len(targets) == 1 else " were") + " determined"
         + (f" in {len(runs)} replicas that agree within their errors" if replicas else "")
-        + (f", with at most {ceiling:g} ns of production" + (" per run" if replicas else "")
+        + (f", with at most {length_said(ceiling)} of production" + (" per run" if replicas else "")
            if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) else "")
         + ".",
         "Each error was judged widened by Student's t at its own degrees of freedom, so "
@@ -934,24 +936,139 @@ def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list
     ]
     last = rounds[-1]
     produced = last.get("production_ns")
-    at = (f", at {produced:g} ns of production" + (" per run" if replicas else "")
-          if isinstance(produced, (int, float)) else "")
+    at = (f", at {length_said(produced)} of production" + (" per run" if replicas else "")
+          if isinstance(produced, (int, float)) and not isinstance(produced, bool) else "")
     count = f"{len(rounds)} round" + ("s" if len(rounds) != 1 else "")
     outcome = stopping.get("outcome")
+    # What stopped it, as the report's table and the Timeline say it.
+    decided = round_decided(last, last=True, record=stopping)
+    were = "the runs were" if replicas else "the run was"
+    more = last.get("more_ns")
+    ended = study_ended(stopping)
+    if ended:
+        # Resumed after its rounds and ended before its rule was applied
+        # again: the study's sentence, and the last round said as its own.
+        said.append(f"It ran {count}{at}; " + _last_round_said(decided, were, more, replicas)
+                    + ". Resumed, it was " + (
+                        "stopped when asked (Ctrl+C or a signal), before its rule was applied "
+                        "again." if ended == "asked" else
+                        "not judged again: " + _not_applied_why(stopping) + "."))
+        return said
     said.append({
         "met": f"It stopped after {count}{at}, with each determined as asked.",
         "ceiling": f"It stopped at the ceiling after {count}{at}, before each was "
                    "determined as asked.",
-        "stopped": f"It stopped after {count}{at}, when an extension did not complete.",
-    }.get(outcome, f"It was still running when this was written, after {count}{at}."))
+        "stopped": f"It stopped after {count}{at}" + {
+            "no mean": ", because " + decided["said"].removeprefix("stopped: ") + ".",
+            "asked": f", when it was asked to stop (Ctrl+C or a signal) while {were} "
+                     "extended.",
+            "error": ", when an error stopped the extension of "
+                     + ("the runs." if replicas else "the run."),
+        }.get(decided["stopped_by"], "; what stopped it is not recorded."),
+    }.get(outcome, (
+        f"Its record does not say it finished: after {count}{at}, the last round asked "
+        f"for {length_said(more)} more" + (" per run" if replicas else "") + "."
+        if decided["going"] and isinstance(more, (int, float)) else
+        f"Its record does not say it finished, after {count}{at}.")))
     return said
 
 
+def _last_round_said(decided: dict[str, Any], were: str, more: Any, replicas: bool) -> str:
+    """A study's last round as its methods say it, from `round_decided`."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    if decided["stopped_by"] == "no mean":
+        return "the last stopped because " + decided["said"].removeprefix("stopped: ")
+    if decided["stopped_by"] == "asked":
+        return f"the last was stopped when asked (Ctrl+C or a signal) while {were} extended"
+    if decided["stopped_by"] == "error":
+        return f"the last was stopped by an error while {were} extended"
+    if decided["stopped_by"] == "not recorded":
+        return "what stopped the last is not recorded"
+    if decided["said"].startswith("extending") and isinstance(more, (int, float)):
+        return (f"the last asked for {length_said(more)} more" + (" per run" if replicas else "")
+                + ", and the record does not say that finished")
+    if decided["said"].startswith("determined"):
+        return "the last found each determined as asked"
+    if decided["said"].startswith("stopped at the ceiling"):
+        return "the last reached the ceiling before each was determined as asked"
+    return "the last " + decided["said"]
+
+
+def _not_applied_why(stopping: dict[str, Any]) -> str:
+    """Why `batch.explorer` did not apply a study's rule, from its record."""
+    why = str(stopping.get("said") or "").removeprefix("Not applied: ").rstrip(".")
+    return why or "why is not recorded"
+
+
+def _campaign_axes(project_root: Path, means: dict[str, dict[str, Any]],
+                   stopping: dict[str, Any] | None) -> set[str] | None:
+    """The axes the campaign a run belongs to (`runs/<id>` under it) swept
+    its runs over, from its batch manifest, read through `record_access` so
+    a read held to the study (`server._confined`) admits it only where it
+    is; None where it was not read or the study is no campaign's run.
+
+    Read only where they are said: a mean whose start is shared with its
+    replicas (`stopping.share_the_start`). And only where the campaign's
+    record of its rule was read for this run (``stopping``, naming it),
+    which the report reads only where its ``may_read`` admits the campaign's
+    folder (`document._stopping_record_of`): nothing more of a campaign is
+    read than the rule that shared the start."""
+    import json
+
+    from fastmdxplora import record_access
+
+    root = Path(project_root).absolute()
+    if root.parent.name != "runs":
+        return None
+    if not any(isinstance(record, dict)
+               and isinstance(record.get("start_shared_with_replicas"), int)
+               for record in means.values()):
+        return None
+    named = stopping.get("runs") if isinstance(stopping, dict) else None
+    if not isinstance(named, list) or root.name not in named:
+        return None
+    try:
+        manifest = json.loads(record_access.read_text(root.parent.parent / "batch_manifest.json",
+                                                      encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    sweep = manifest.get("sweep") if isinstance(manifest, dict) else None
+    return {str(axis) for axis in sweep} if isinstance(sweep, dict) else None
+
+
+def _shared_start_said(shared: list[int], several: bool, axes: set[str] | None) -> str:
+    """How a replica's averaging began from the start its replicas share
+    (`stopping.share_the_start`), its replicas said as they differ
+    (`batch.aggregate.how_replicas_differ`): from one structure by seed,
+    where the relaxation they share shows through less noise on their
+    average; or from different models of an ensemble, which share no one
+    relaxation; neither where the campaign's sweep was not read."""
+    from fastmdxplora.batch.aggregate import SEED_AXES, how_replicas_differ
+
+    frames = " or ".join(f"{frame:,}" for frame in shared)
+    what = "each quantity was" if several else "it was"
+    by_seed = axes is not None and bool(axes) and axes <= SEED_AXES and "setup.model" not in axes
+    if by_seed:
+        return ("As one of a set of replicas started from one structure, "
+                f"{how_replicas_differ(axes, as_participle=True)}, {what} averaged from no "
+                f"earlier than frame {frames}, the start detected on the replicas' "
+                "frame-by-frame average, where the relaxation they share shows through less "
+                "noise than in one run.")
+    differ = f" {how_replicas_differ(axes)}" if axes and "setup.model" in axes else ""
+    return (f"As one of a set of replicas{differ}, {what} averaged from no earlier than frame "
+            f"{frames}, the start detected on the replicas' frame-by-frame average: each run "
+            "kept the later of that start and the one detected on its own.")
+
+
 def _analysis_paragraph(means: dict[str, dict[str, Any]],
-                        stopping: dict[str, Any] | None) -> str:
+                        stopping: dict[str, Any] | None, *,
+                        axes: set[str] | None = None) -> str:
     """How each mean and its error were determined, and, for a study run
     until it knew, why it ran as long as it did. Empty where nothing
-    recorded a mean and the study ran to a fixed length."""
+    recorded a mean and the study ran to a fixed length. ``axes`` are
+    those the run's campaign swept (`_campaign_axes`), which say how its
+    replicas differ."""
     means = {name: record for name, record in means.items()
              if isinstance(record, dict) and record.get("mean") is not None}
     said: list[str] = []
@@ -963,13 +1080,7 @@ def _analysis_paragraph(means: dict[str, dict[str, Any]],
         shared = sorted({record["start_shared_with_replicas"] for record in means.values()
                          if isinstance(record.get("start_shared_with_replicas"), int)})
         if shared:
-            said.append(
-                "As one of a set of replicas started from one structure, "
-                + ("each quantity was" if len(means) > 1 else "it was")
-                + " averaged from no earlier than frame "
-                + " or ".join(f"{frame:,}" for frame in shared)
-                + ", the start detected on the replicas' frame-by-frame average, where the "
-                "relaxation they share shows through less noise than in one run.")
+            said.append(_shared_start_said(shared, len(means) > 1, axes))
         withheld = sorted(name for name, record in means.items()
                           if record.get("not_a_measurement"))
         if withheld:

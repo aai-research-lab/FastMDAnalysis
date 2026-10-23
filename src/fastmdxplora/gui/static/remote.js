@@ -354,9 +354,9 @@
     note.appendChild(open);
   }
 
-  var EXPIRED = "Not sent: the plan is no longer kept. Plan the send again.";
+  var EXPIRED = "Not sent: the plan is no longer saved. Plan the send again.";
   // Said where Plan the send is held back, which "again" would not answer.
-  var EXPIRED_HELD = "Not sent: the plan is no longer kept.";
+  var EXPIRED_HELD = "Not sent: the plan is no longer saved.";
   var CHANGED = "The study changed after the plan was made. Plan the send again to see "
     + "what would go.";
 
@@ -495,7 +495,7 @@
     answers.appendChild(send);
     answers.appendChild(not);
     host.appendChild(answers);
-    var kept = el("div", "muted small", "This plan is kept for "
+    var kept = el("div", "muted small", "This plan is saved for "
       + Math.round((plan.kept_s || 600) / 60) + " minutes and sends once.");
     host.appendChild(kept);
     expiry = setTimeout(function () {
@@ -503,7 +503,7 @@
       var said = go.disabled ? EXPIRED_HELD : EXPIRED;
       send.disabled = true;
       host.dataset.expired = "true";
-      kept.textContent = "This plan is no longer kept.";
+      kept.textContent = "This plan is no longer saved.";
       not.textContent = "Close";
       // Said once: by the note where it is shown, else by the live region.
       note.dataset.ok = "";
@@ -839,22 +839,18 @@
   }
 
   function askToStop(job, said, start) {
-    said.innerHTML = "";
-    said.appendChild(el("span", null, "Stop " + job.name + " on " + job.machine
-      + "? What it wrote so far stays there and can be fetched."));
-    var answers = el("div", "remote-plan-answers");
-    var yes = button("danger-btn", "Yes, stop it");
-    var no = button("ghost-btn", "Not now");
-    answers.appendChild(yes);
-    answers.appendChild(no);
-    said.appendChild(answers);
     start.disabled = true;
-    no.focus();
-    no.addEventListener("click", function () {
-      doing[job.name] = {};
-      redraw(job, "stop");
-    });
-    yes.addEventListener("click", function () {
+    // One confirmation, as a run here is stopped (confirm.js).
+    window.FastMDXConfirm.ask(said, {
+      title: "Stop " + job.name + " on " + job.machine + "?",
+      detail: "What it wrote so far stays there and can be fetched.",
+      yes: "Yes, stop it",
+    }).then(function (yes) {
+      if (!yes) {
+        doing[job.name] = {};
+        redraw(job, "stop");
+        return;
+      }
       asking(job, "Asking " + job.machine + " to stop it…",
         ask("POST", "/api/remote/cancel", { job: job.name }), function (got) {
           if (!got.ok) return { said: forThePage(got.error || "It could not be stopped.") };

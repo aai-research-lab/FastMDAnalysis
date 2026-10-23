@@ -104,9 +104,27 @@ def test_the_analysis_of_a_study_of_runs_says_its_runs(finished_sweep):
             const state = window.FastMDXDashboard.state;
             return state.appState.active_run === root && state.results.output_dir === root;
         }""", arg=str(finished_sweep))
+        # The table is the runs' own script's, and can be in before the page
+        # has read the study's results and said its analyses.
+        page.wait_for_function("() => document.getElementById('analysis-meta').textContent")
         return page.text_content("#analysis-meta")
 
     assert _serve(finished_sweep, look) == "the analyses of 2 runs, compared below"
+
+
+def test_the_analysis_of_a_study_of_runs_says_no_count_before_its_results(finished_sweep):
+    """The page said "no analyses yet" above a study of runs until its
+    results were read: the template's own words, said before anything was
+    known."""
+    def look(page, url):
+        # Every request to the server held, never answered.
+        page.route("**/api/**", lambda route: None)
+        page.goto(url + "#analysis", wait_until="domcontentloaded")
+        page.wait_for_selector("#analysis-meta", state="attached")
+        page.wait_for_timeout(1500)
+        return page.text_content("#analysis-meta")
+
+    assert _serve(finished_sweep, look) == ""
 
 
 def test_the_runs_table_keeps_its_runs_in_view_and_short_runs_in_ps(finished_sweep):

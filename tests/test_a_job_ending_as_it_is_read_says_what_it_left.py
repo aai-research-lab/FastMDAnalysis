@@ -16,6 +16,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,18 @@ def _started(*command: str, env: dict | None = None) -> subprocess.Popen:
                             start_new_session=True)
 
 
+def _seen_in_proc(pid: int, part: str, carried: bytes, within_s: float = 10.0) -> None:
+    deadline = time.monotonic() + within_s
+    while True:
+        try:
+            if carried in Path(f"/proc/{pid}/{part}").read_bytes():
+                return
+        except OSError:
+            pass
+        assert time.monotonic() < deadline, f"process {pid} never carried {carried!r} in its {part}"
+        time.sleep(0.02)
+
+
 @pytest.fixture()
 def going(tmp_path):
     """The job's folder, its script still going (its command line names its
@@ -48,6 +61,11 @@ def going(tmp_path):
     send_id = secrets.token_hex(8)
     script = _started("sh", "-c", "sleep 60; :", "job.sh", send_id, "x")
     left = _started("sleep", "60", env={**os.environ, "FMDX_SEND_ID": send_id})
+    # Each read in /proc as the status script reads it before the job is
+    # looked at: on a busy runner a process just started was not yet there
+    # with its id, and what it left was counted as nothing (CI, 10-21).
+    _seen_in_proc(script.pid, "cmdline", f"job.sh\0{send_id}\0".encode())
+    _seen_in_proc(left.pid, "environ", f"FMDX_SEND_ID={send_id}\0".encode())
     yield folder, script, left, send_id
     for process in (script, left):
         try:

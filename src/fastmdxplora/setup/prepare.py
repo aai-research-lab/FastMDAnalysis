@@ -63,7 +63,7 @@ logger = get_logger("setup.prepare")
 # (The default force field now lives in setup/forcefields.py, the single
 # source of truth for the named force-field registry.)
 # ---------------------------------------------------------------------------
-DEFAULT_PADDING_NM = 1.0
+DEFAULT_PADDING_NM = 2.0
 DEFAULT_IONIC_STRENGTH_M = 0.15
 # DEFAULT_PH is deliberately absent. It existed here, unread by anything, and
 # stayed at 7.0 when the pH default became 7.4 -- an unused constant stating a
@@ -250,8 +250,8 @@ def _solvate_with_room_for_the_cutoff(
     below that a particle sees its own image and the physics is wrong, which
     is why OpenMM refuses. Padding is measured from the solute, and a
     dodecahedron's smallest dimension is shorter than a cube's for the same
-    padding, so a small solute at the default 1.0 nm padding and 1.0 nm
-    cutoff now lands under the limit where a cube did not.
+    padding, so a small solute at 1.0 nm of padding (the default before
+    2.0 nm) and a 1.0 nm cutoff lands under the limit where a cube did not.
 
     Growing the padding is the only remedy that keeps what was asked for:
     the alternative is shrinking the cutoff, which changes the physics rather
@@ -268,9 +268,9 @@ def _solvate_with_room_for_the_cutoff(
 
     Where the padding sizes the box (a solute smaller than the padding),
     the box grown to is the smallest the cutoff allows for any solute, and
-    it is grown to whatever the amount. The defaults, 1.0 nm of padding in
-    a dodecahedron with a 1.0 nm cutoff, need 1.56 nm for a peptide of a few
-    residues; refusing that stopped every such study at setup.
+    it is grown to whatever the amount. 1.0 nm of padding (the default before
+    2.0 nm) in a dodecahedron with a 1.0 nm cutoff needs 1.56 nm for a peptide
+    of a few residues; refusing that stopped every such study at setup.
     """
     kwargs = dict(add_solvent_kwargs)
     padding = float(padding_nm)
@@ -539,9 +539,10 @@ def prepare_system(
         Water model name (``"tip3p"``, ``"tip4pew"``, ``"spce"``, etc.)
         used by Modeller. When ``None`` (the default), Modeller picks the
         model that matches the supplied water-model XML.
-    solvent_padding_nm : float, default 1.0
-        Minimum distance in nm between any solute atom and the periodic
-        box wall.
+    solvent_padding_nm : float, default 2.0
+        Least distance in nm between the solute and its nearest periodic
+        image, as OpenMM's padding is: about 1.0 nm of water between the
+        solute and the box's wall by default.
     box_shape : {"cube", "dodecahedron", "octahedron"}, default "cube"
         Periodic box geometry. Not used with a membrane, whose box is
         rectangular and made of whole patches.
@@ -994,7 +995,7 @@ def prepare_system(
     # cutoff to be <= half the smallest box dimension, otherwise it raises a
     # cryptic NonbondedForce error at Context construction. Catch it here
     # with an actionable message. (This normally can't happen with the
-    # default 1.0 nm padding + 1.0 nm cutoff, but a user with a small
+    # default 2.0 nm padding + 1.0 nm cutoff, but a user with a small
     # padding or large cutoff could trip it.)
     if method_key in ("CutoffPeriodic", "PME", "Ewald"):
         box_vectors = modeller.topology.getPeriodicBoxVectors()
@@ -1766,11 +1767,11 @@ def _refuse_masses_not_positive(system: Any, topology: Any,
     is bonded to, so a hydrogen mass of 6 amu left a methyl carbon at
     -2.966 amu: setup said "ok" and the run then failed on a NaN called an
     instability. A virtual site has a mass of zero by design and is not
-    counted. ``unit`` is the one ``prepare_system`` imported; given none,
-    OpenMM's is imported here.
+    counted. ``unit`` is the OpenMM units module the system was built
+    with, read here only where it is not given.
     """
     if unit is None:
-        from openmm import unit
+        from openmm import unit  # noqa: PLC0415 -- optional backend
 
     virtual = {i for i in range(system.getNumParticles())
                if system.isVirtualSite(i)}

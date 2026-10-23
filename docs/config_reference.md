@@ -113,7 +113,7 @@ refused, and the barostat that is chosen for you.
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `water_model` | str | from the force field | e.g. `tip3p`, `tip4pew` |
-| `solvent_padding_nm` | float | `1.0` | Minimum distance from solute to box wall |
+| `solvent_padding_nm` | float | `2.0` | Least distance from the solute to its nearest periodic image, as OpenMM sizes the box: about 1.0 nm of water between the solute and the box's wall |
 | `box_shape` | str | `dodecahedron` | `cube`, `dodecahedron` or `octahedron` |
 | `neutralize` | bool | `true` | Add ions to neutralise the net solute charge |
 | `ion_positive` | str | `Na+` | Counter-ion cation |
@@ -357,14 +357,14 @@ Nothing leaves the machine: these are files in the run directory that the
 | `exclude` | list | — | Everything but these. Mutually exclusive with `include` |
 | `options` | mapping | — | Per-analysis settings, keyed by analysis name |
 
-The 30 names `include` and `exclude` accept:
+The 31 names `include` and `exclude` accept:
 
 ```
 rmsd  rmsf  rg  hbonds  ss  sasa  dihedrals  qvalue  cluster  dimred
 water_sites  ligand_rmsd  ligand_rmsf  pl_contacts  pl_hbonds  pl_interactions
 order_parameters  bfactor_comparison  thermodynamics  rdf  coordination_number
 end_to_end  moments_of_inertia  pair_distance  pmf  metad_surface  steered_work
-area_per_lipid  bilayer_thickness  lipid_order
+area_per_lipid  bilayer_thickness  lipid_order  image_check
 ```
 
 Several do not run by default and are gated on what the run contains — a

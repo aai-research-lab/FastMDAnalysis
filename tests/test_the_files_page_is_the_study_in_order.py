@@ -299,7 +299,7 @@ def test_the_page_is_found_filtered_sorted_and_folded_in_a_browser(study):
             # Folded: the record, what was set aside, the scratch.
             assert page.eval_on_selector('[data-phase="scratch"] .files-fold',
                                          "e => e.getAttribute('aria-expanded')") == "false"
-            page.fill("[data-find]", "rmsd")
+            page.fill(".files-toolbar [data-find]", "rmsd")
             page.wait_for_timeout(100)
             paths = page.eval_on_selector_all(
                 ".files-row", "els => els.filter(e => e.offsetParent !== null)"
@@ -307,7 +307,7 @@ def test_the_page_is_found_filtered_sorted_and_folded_in_a_browser(study):
             assert paths and all("rmsd" in p for p in paths)
             assert "previous/analysis/rmsd/rmsd.dat" in paths  # found where it is folded
             assert page.eval_on_selector(".files-keys", "e => e.hidden")
-            page.fill("[data-find]", "")
+            page.fill(".files-toolbar [data-find]", "")
             page.click('.files-filter[data-filter="figure"]')
             page.wait_for_timeout(100)
             kinds = page.eval_on_selector_all(
@@ -356,15 +356,11 @@ def test_a_run_is_chosen_in_a_browser(tmp_path: Path):
         with playwright.sync_playwright() as pw:
             browser = pw.chromium.launch()
             page = browser.new_page(viewport={"width": 1400, "height": 900})
-            # The page is drawn again once the study's first state arrives
-            # (its run, as far as the page knows, changed): a run chosen
-            # before then goes back to every run. So the checks wait for it.
-            page.add_init_script("""window.addEventListener('dashboard:run-changed', () => {
-                window.addEventListener('files:rendered', () => { window.fmxFilesDrawn = true; },
-                                        {once: true});
-            });""")
+            # The study's first state arriving is no change of its run: the
+            # page is not drawn again then, and a run chosen before it stays.
             page.goto(session.url + "#files", wait_until="domcontentloaded")
-            page.wait_for_function("() => window.fmxFilesDrawn === true", timeout=30000)
+            page.wait_for_function("() => !!document.querySelector('[data-run-pick]') && Object.keys("
+                                   "window.FastMDXDashboard.state.appState || {}).length > 0", timeout=30000)
             tiles = ("() => [...document.querySelectorAll('.files-tile')].filter(e => e.offsetParent"
                      " !== null).map(e => e.dataset.run + ':' + e.getAttribute('data-key')).join() === '{}'")
             # Every run: the first run's key files, each run's rows.

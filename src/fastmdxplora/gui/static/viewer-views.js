@@ -348,7 +348,15 @@
       load(select.value);
       loadScenes();
     });
-    window.addEventListener("dashboard:run-changed", function () {
+    window.addEventListener("dashboard:run-changed", function (event) {
+      // The page's first state is the study it opened, whose views these
+      // are: a view chosen before it arrived was put back to none, and
+      // Forget refused it.
+      if (event.detail && event.detail.first) {
+        load(select.value);
+        loadScenes();
+        return;
+      }
       views = [];
       list();
       load();

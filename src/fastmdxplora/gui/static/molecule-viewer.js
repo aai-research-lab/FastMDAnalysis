@@ -85,7 +85,7 @@
     // "dark" (black) or "white".
     // The page's scheme's (--viewer-ground), unless white or dark is chosen.
     ground: "scheme",
-    // What Preferences last said of the ground, spin and the ligand.
+    // What Settings last said of the ground, spin and the ligand.
     groundChosen: "",
     spinChosen: false,
     ligandChosen: false,
@@ -1335,7 +1335,9 @@
       ? STATE.playbackFrameIndices[displayed] : view.frame;
     const hints = {
       page: dashboard.activePage || null,
-      study: appState.active_run || null,
+      // No study open, once the page has read so, is named as such ("");
+      // the server refuses it when the GUI has one open (CI-774 review L18).
+      study: appState.active_run || (Object.keys(appState).length ? "" : null),
       frame: Number.isInteger(sourceFrame) ? sourceFrame : null,
       representation: view.representation || null,
       colour: view.colour || null,
@@ -3146,7 +3148,7 @@
   /* ------------------------------------------------------------------ */
   /* Settings, status, selections                                        */
   /* ------------------------------------------------------------------ */
-  /* The Preferences dialog's settings, as the Viewer starts and as they
+  /* The Viewer's settings in Settings, as the Viewer starts and as they
    * change. The ground and spin follow a preference only when it changes,
    * so the ground button and the spin button keep what they were last
    * set to otherwise. */
@@ -3732,14 +3734,30 @@
     if (ended) setText("overlay-age", "");
     if (Object.keys(info || {}).length) {
       setText("overlay-stage", info?.stage ?? "");
-      setText("overlay-frame", info?.frame != null
-        ? `frame ${info.frame}${info.total != null ? ` / ${info.total}` : ""}` : "");
-      setText("overlay-step", info?.step != null && Number.isFinite(Number(info.step))
-        ? `step ${Number(info.step).toLocaleString()}` : "");
+      // A live frame is named by the step it was written at, which is what
+      // the engine records; a frame of the trajectory by its place in it. Both
+      // read "frame" once, and the label flipped between the frames written
+      // and the step number as the two updates arrived.
+      if (info?.step != null) setText("overlay-frame", `step ${Number(info.step).toLocaleString()}`);
+      if (info?.frame != null) {
+        setText("overlay-frame", `frame ${info.frame}${info.total != null ? ` / ${info.total}` : ""}`);
+      } else if (info?.step == null) setText("overlay-frame", "");
+      // Main uses one label for the frame identity; clear the older separate
+      // step field when new frame data arrives so it cannot go stale.
+      setText("overlay-step", "");
       setText("overlay-age", info?.age != null && !ended ? `age ${info.age}` : "");
-      setText("overlay-simtime", info?.simtime != null && Number.isFinite(Number(info.simtime))
-        ? info.simtimeSaid || `${info.simtimeOf ? info.simtimeOf + " " : "sim time "}${Number(info.simtime).toFixed(3)} ns`
-        : "");
+      if (info?.simtimeSaid) setText("overlay-simtime", info.simtimeSaid);
+      else if (info?.simtime != null) {
+        // In ps under 1 ns, as every page says a length: the last frame of a
+        // run of 2 ps read "0.002 ns" under a ruler in ps.
+        const ns = Number(info.simtime);
+        const said = Math.abs(ns) < 1 ? `${+(ns * 1000).toFixed(1)} ps` : `${ns.toFixed(3)} ns`;
+        setText("overlay-simtime", `${info.simtimeOf ? info.simtimeOf + " " : ""}${said}`);
+      } else {
+        setText("overlay-simtime", "");
+      }
+    } else {
+      setText("overlay-simtime", "");
     }
     tidyOverlay();
   }

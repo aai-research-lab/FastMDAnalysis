@@ -723,7 +723,7 @@ def test_a_plan_kept_past_its_time_is_let_go(session) -> None:
         page.wait_for_selector(".remote-plan-title")
         named = page.input_value("#run-output")
         page.wait_for_function("() => document.querySelector('#run-remote-planned')"
-                               ".textContent.includes('no longer kept')")
+                               ".textContent.includes('no longer saved')")
         page.wait_for_timeout(1000)
         emptied = page.input_value("#run-output")
         said = page.text_content("#run-remote-note")
@@ -756,7 +756,7 @@ def test_a_plan_no_longer_kept_says_so_once_and_an_edit_after_says_nothing(sessi
         page.click("#run-remote-plan")
         page.wait_for_selector(".remote-plan-title")
         page.wait_for_function("() => document.querySelector('#run-remote-planned')"
-                               ".textContent.includes('no longer kept')")
+                               ".textContent.includes('no longer saved')")
         expired = page.text_content("#run-remote-note")
         closed = page.text_content("#run-remote-planned .ghost-btn")
         page.evaluate("""() => { const box = document.getElementById('run-output');
@@ -765,7 +765,7 @@ def test_a_plan_no_longer_kept_says_so_once_and_an_edit_after_says_nothing(sessi
         page.wait_for_timeout(700)
         after = page.text_content("#run-remote-note")
         browser.close()
-    assert expired == after == "Not sent: the plan is no longer kept. Plan the send again."
+    assert expired == after == "Not sent: the plan is no longer saved. Plan the send again."
     assert closed == "Close"
     assert errors == []
 
@@ -908,7 +908,7 @@ def test_the_results_name_written_in_the_form_is_the_bare_name(session) -> None:
 
 
 def test_a_plan_kept_past_its_time_and_closed_still_says_why(session) -> None:
-    """Round 3 of the last round: Close on a plan no longer kept said only
+    """Round 3 of the last round: Close on a plan no longer saved said only
     "Not sent.", and where Plan the send was held back by then the note
     asked to plan the send again beside a button that could not."""
     import json
@@ -929,7 +929,7 @@ def test_a_plan_kept_past_its_time_and_closed_still_says_why(session) -> None:
         page.click("#run-remote-plan")
         page.wait_for_selector(".remote-plan-title")
         page.wait_for_function("() => document.querySelector('#run-remote-planned')"
-                               ".textContent.includes('no longer kept')")
+                               ".textContent.includes('no longer saved')")
         page.click("#run-remote-planned .ghost-btn")
         closed = (page.is_hidden("#run-remote-planned"),
                   page.text_content("#run-remote-note"),
@@ -943,7 +943,7 @@ def test_a_plan_kept_past_its_time_and_closed_still_says_why(session) -> None:
           {configurable: true, get() { return true; }, set() {}})""")
         page.wait_for_selector("#run-remote-plan[disabled]")
         page.wait_for_function("() => document.querySelector('#run-remote-planned')"
-                               ".textContent.includes('no longer kept')")
+                               ".textContent.includes('no longer saved')")
         page.wait_for_timeout(100)
         held = (page.text_content("#run-remote-note"),
                 page.evaluate("() => document.activeElement.id"),
@@ -956,7 +956,7 @@ def test_a_plan_kept_past_its_time_and_closed_still_says_why(session) -> None:
         page.click("#run-remote-plan")
         page.wait_for_selector(".remote-plan-title")
         page.wait_for_function("() => document.querySelector('#run-remote-planned')"
-                               ".textContent.includes('no longer kept')")
+                               ".textContent.includes('no longer saved')")
         page.evaluate("""() => Object.defineProperty(
           document.getElementById('run-start-button'), 'disabled',
           {configurable: true, get() { return true; }, set() {}})""")
@@ -966,10 +966,10 @@ def test_a_plan_kept_past_its_time_and_closed_still_says_why(session) -> None:
         later = (page.text_content("#run-remote-note"),
                  page.evaluate("() => document.activeElement.id"))
         browser.close()
-    assert closed == (True, "Not sent: the plan is no longer kept. Plan the send again.",
+    assert closed == (True, "Not sent: the plan is no longer saved. Plan the send again.",
                       "run-remote-plan")
-    assert held == ("Not sent: the plan is no longer kept.", "run-remote-note", "status")
-    assert later == ("Not sent: the plan is no longer kept.", "run-remote-note")
+    assert held == ("Not sent: the plan is no longer saved.", "run-remote-note", "status")
+    assert later == ("Not sent: the plan is no longer saved.", "run-remote-note")
     assert errors == []
 
 

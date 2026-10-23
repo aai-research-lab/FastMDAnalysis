@@ -659,6 +659,41 @@ def test_a_tab_grown_before_the_open_one_keeps_it_in_view_unless_moved_away(brow
     assert abs(stayed - left) <= 1, (left, stayed)
 
 
+def test_a_strip_moved_by_the_wheel_stays_put_through_a_redraw_before_it_scrolls(browser, site):
+    """The strip followed the open tab until the scroll event a frame after
+    the wheel, so a redraw in between (a study's id read, a switch begun
+    elsewhere) scrolled the open tab back into view."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    key = "fmx.studyTabs:" + str(site["root"])
+    entries = {"tabs": [{"key": f"{n:016x}", "title": f"Study {n}", "page": "overview"} for n in range(10, 34)]
+               + [{"key": site["keys"][0], "title": "Alpha", "page": "overview"}]}
+    context.add_init_script("sessionStorage.setItem(" + json.dumps(key) + ", " + json.dumps(json.dumps(entries)) + ");")
+    page = _open(browser, site, context=context)
+    frames = "new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))"
+    try:
+        page.wait_for_function(IN_VIEW)
+        page.evaluate(frames)
+        moved = page.evaluate("""() => {
+            const list = document.getElementById('study-tabs-list');
+            const before = list.scrollLeft;
+            list.dispatchEvent(new WheelEvent('wheel', {deltaY: -4000, bubbles: true, cancelable: true}));
+            const wheeled = list.scrollLeft;
+            // Drawn again in the same task: a switch begun and ended elsewhere.
+            const dashboard = window.FastMDXDashboard;
+            const held = dashboard.beginStudySwitch();
+            if (!held) dashboard.endStudySwitch();
+            return {before, wheeled, held};
+        }""")
+        page.evaluate(frames)
+        left = page.evaluate("document.getElementById('study-tabs-list').scrollLeft")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert moved["held"] == ""
+    assert moved["before"] > 50 and moved["wheeled"] < 50, moved
+    assert left < 50, (moved, left)
+
+
 LAYOUT = """() => {
     const box = el => el && el.getClientRects().length ? el.getBoundingClientRect() : null;
     const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
@@ -747,12 +782,12 @@ def test_a_delayed_success_does_not_show_new_records_under_the_old_tab(browser, 
         page.route("**/api/explore/switch", switch)
         _link(page, site["keys"][0]).click()
         expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
-        # The handler appends once the server has answered, which on a busy
-        # runner comes after the strip says it is busy.
-        for _ in range(200):
+        # The strip is busy before the switch is asked: the Builder's draft
+        # is saved first, so the request comes after a reply of its own.
+        for _ in range(100):
             if held:
                 break
-            page.wait_for_timeout(100)
+            page.wait_for_timeout(50)
         assert held
         assert page.evaluate("getComputedStyle(document.querySelector('.page-shell')).visibility") == "hidden"
         assert page.evaluate("window.FastMDXDashboard.state.studyShown") == site["keys"][1]
@@ -1206,7 +1241,7 @@ def test_without_session_storage_the_strip_says_open_studies_are_not_kept(browse
         get() { throw new DOMException('denied', 'SecurityError'); }});""")
     page = _open(browser, site, context=context)
     try:
-        expect(page.locator("#study-tabs-unkept")).to_contain_text("Open studies are not kept in this window")
+        expect(page.locator("#study-tabs-unkept")).to_contain_text("Open studies are not saved in this window")
         assert page.errors == []
     finally:
         page.context.close()
@@ -1450,7 +1485,7 @@ def test_a_window_whose_study_changed_under_it_says_so_and_keeps_its_words_for_t
         second.wait_for_function("key => window.FastMDXDashboard.state.studyShown === key", arg=site["keys"][2])
         expect(second.locator("#dashboard-toast")).to_contain_text("was opened elsewhere")
         expect(second.locator("#agent-request")).to_have_value("")
-        expect(second.locator("#agent-unsent-note")).to_contain_text("is kept for it")
+        expect(second.locator("#agent-unsent-note")).to_contain_text("is saved for it")
         assert dict(_kept_words(second))[site["keys"][1]]["words"] == "A question about the second study."
         assert site["keys"][2] not in dict(_kept_words(second))
         # Back in the second study, the words are there again.

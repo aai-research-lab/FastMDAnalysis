@@ -77,7 +77,7 @@ def test_what_cannot_be_kept_is_said(workspace, monkeypatch):
 
     monkeypatch.setattr(study_tags.os, "replace", refused)
     assert set_tags(study, ["a"])["reason"] == (
-        "The study's tags could not be kept in its folder: Permission denied.")
+        "The study's tags could not be saved in its folder: Permission denied.")
     monkeypatch.undo()
     # A file written by hand that is not as kept is read as none.
     (study / "study_tags.json").write_text("[1, 2]", encoding="utf-8")
@@ -357,6 +357,9 @@ def test_a_list_read_before_tags_were_kept_does_not_undo_them(workspace):
             page.fill(f"{card} .study-tag-input", "kept")
             page.press(f"{card} .study-tag-input", "Enter")
             page.click(f"{card} .study-tag-editor button:has-text('Save')")
+            # Kept, not only put in the editor, whose own "kept" was found
+            # before the server had answered (aailab01, one core, 10-21).
+            page.wait_for_selector("#dashboard-toast.show:has-text('Saved the tags')")
             page.wait_for_selector(f"{card} .study-tag:has-text('kept')")
             page.evaluate("async () => { window.letGo(); await window.lateList; }")
             shown = page.eval_on_selector_all(f"{card} .study-tag", "t => t.map((x) => x.textContent)")
@@ -366,3 +369,108 @@ def test_a_list_read_before_tags_were_kept_does_not_undo_them(workspace):
     assert errors == []
     assert held == "function"
     assert shown == ["kept"]
+
+
+def test_tags_kept_while_a_list_is_answered_are_shown(workspace):
+    """A list read before the tags were saved, and answered while the
+    server's answer to the save was on its way, drew studies of its own;
+    the tags kept then went on the study it replaced, and the card said
+    none though they were kept."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "wild_type"), host="127.0.0.1",
+                                      port=0)
+    # A list read now, its answer held; then the save's answer held too.
+    hold = """async (where) => {
+        await window.FastMDXStudies.load(where);
+        const real = window.fetch;
+        const held = (answer, body) => new Promise((go) => answer(() => go(new Response(body,
+            {headers: {'content-type': 'application/json'}}))));
+        window.fetch = function (url, options) {
+            if (String(url).startsWith('/api/studies')) {
+                const read = real(url, options).then((r) => r.text());
+                window.listRead = read;
+                return read.then((body) => held((go) => { window.letList = go; }, body));
+            }
+            if (String(url).startsWith('/api/study-tags')) {
+                window.fetch = real;
+                const kept = real(url, options).then((r) => r.text());
+                window.saved = kept;
+                return kept.then((body) => held((go) => { window.letSave = go; }, body));
+            }
+            return real(url, options);
+        };
+        window.lateList = window.FastMDXStudies.load(where);
+        await window.listRead;
+    }"""
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate(hold, str(workspace))
+            card = '.study-card[data-path$="wild_type"]'
+            page.click(f"{card} .study-tag-edit")
+            page.fill(f"{card} .study-tag-input", "kept")
+            page.press(f"{card} .study-tag-input", "Enter")
+            page.click(f"{card} .study-tag-editor button:has-text('Save')")
+            page.wait_for_function("() => typeof window.letSave === 'function'")
+            # The list answers first, then the save.
+            page.evaluate("async () => { window.letList(); await window.lateList; }")
+            page.evaluate("() => window.letSave()")
+            page.wait_for_selector("#dashboard-toast.show:has-text('Saved the tags')")
+            shown = page.eval_on_selector_all(f"{card} .study-tag", "t => t.map((x) => x.textContent)")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert shown == ["kept"]
+
+
+def test_what_is_added_is_kept_when_the_cards_are_drawn_again(workspace):
+    """Opening All studies lists them again once the page has its route,
+    which can be after a card's Tags was opened: its editor was drawn again
+    from the tags kept, and a tag added and not yet saved was gone."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(workspace / "wild_type"), host="127.0.0.1",
+                                      port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.set_default_timeout(60000)
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#studies", wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            card = '.study-card[data-path$="wild_type"]'
+            page.click(f"{card} .study-tag-edit")
+            page.fill(f"{card} .study-tag-input", "ubiquitin")
+            page.press(f"{card} .study-tag-input", "Enter")
+            page.fill(f"{card} .study-tag-input", "refer")
+            page.fill(f"{card} .study-note-input", "the wild type")
+            # Listed again, and the cards drawn again, as the page's own
+            # listing did once it had its route.
+            page.evaluate(f"() => window.FastMDXStudies.load({str(workspace)!r})")
+            kept = page.evaluate(f"""() => [
+                [...document.querySelectorAll('{card} .study-tag')].map((t) => t.firstChild.textContent),
+                document.querySelector('{card} .study-tag-input').value,
+                document.querySelector('{card} .study-note-input').value]""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    assert kept == [["ubiquitin"], "refer", "the wild type"]

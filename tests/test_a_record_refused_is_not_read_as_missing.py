@@ -96,7 +96,9 @@ def test_a_join_record_not_read_gives_no_one_piece_means(tmp_path, refused, publ
         assert thermo["means"]["temperature"] is None
     # No mean over the 40 samples of the piece read.
     assert all(mean is None or mean["of"] != 40 for mean in thermo["means"].values())
-    assert thermo["not_read"] == sorted(refused)
+    # Each record refused that the means rest on is named (df981c83): the
+    # thermodynamics analysis's own as well as the join's.
+    assert sorted(thermo["not_read"]) == sorted(refused)
     assert set(refused) <= set(answer["unavailable"])
     assert answer["unavailable_why"]["joined/joined.json"] == "outside"
 

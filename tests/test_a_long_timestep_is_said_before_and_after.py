@@ -125,9 +125,10 @@ def test_a_config_file_checked_says_it_too():
     assert resolved["phases"] == ["setup", "simulation", "analysis", "report"]
     script = (Path(__file__).parents[1] / "src" / "fastmdxplora" / "gui" / "static"
               / "run-builder.js").read_text(encoding="utf-8")
-    # The status and its words both from checksPass(): "ok", or "costed"
-    # where what it costs here has an error, said apart from the checks.
-    assert 'setStatus(...checksPass());' in script and 'return ["ok", said];' in script
+    # The kind comes with what is said (f94e1bc8): "costed" where what the
+    # study costs here has an error, said apart from the checks passing.
+    assert 'setStatus(...checksPass());' in script
+    assert 'return ["ok", said];' in script
     assert '${knowing.length ? "Checks pass" : "Runs"}' in script
     assert 'knowing.length ? "advice"' in script
     assert "Worth knowing: ${knowing.join" in script

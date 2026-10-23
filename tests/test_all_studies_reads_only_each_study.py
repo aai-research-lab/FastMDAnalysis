@@ -335,7 +335,7 @@ def test_the_page_says_what_a_card_did_not_read(workspace):
     assert linked["length"] == "not read" and linked["means"] == "not read"
     assert linked["said"].startswith("Not read: ") and "manifest.json" in linked["said"]
     assert "a link to a file outside the study" in linked["why"]
-    assert linked["molecule"].startswith("Not shown: its structure was not read")
+    assert linked["molecule"].startswith("Not rendered: its structure was not read")
     assert "Rg" not in hidden["means"] and "not read" in hidden["means"]
     assert own["said"] == "" and "not read" not in own["means"]
     assert "Not read: " in card
