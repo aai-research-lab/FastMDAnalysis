@@ -153,14 +153,31 @@ def test_a_new_frame_moves_the_atoms_and_keeps_the_measurement(tmp_path) -> None
             # that changes the overlay between assertions.
             overlay = page.wait_for_function(f"""() => {{
                 const state = {live};
-                const step = document.getElementById('overlay-step')?.textContent || '';
+                const frame = document.getElementById('overlay-frame')?.textContent || '';
                 if (state.liveFrameIndex !== 7000
                     || Number(state.liveOverlay?.overlay?.step) !== 7000
-                    || !/^step 7,?000$/.test(step)) return false;
-                return {{step, mode: state.mode, liveOverlay: state.liveOverlay,
-                    frame: document.getElementById('overlay-frame')?.textContent || ''}};
+                    || !/^step 7,?000$/.test(frame)) return false;
+                return {{frame, age: document.getElementById('overlay-age')?.textContent || '',
+                    mode: state.mode, liveOverlay: state.liveOverlay}};
             }}""")
             overlay_state = overlay.json_value()
+            retained_overlay = page.evaluate("""() => {
+                const before = {
+                    frame: document.getElementById('overlay-frame')?.textContent || '',
+                    age: document.getElementById('overlay-age')?.textContent || '',
+                };
+                window.FastMDXDashboard.applyStatus({
+                    status: {status: 'running', stage: 'writing'},
+                    health: {}, times: {}, study: 'live-frame-regression'
+                });
+                return {
+                    before,
+                    after: {
+                        frame: document.getElementById('overlay-frame')?.textContent || '',
+                        age: document.getElementById('overlay-age')?.textContent || '',
+                    },
+                };
+            }""")
             moved = {
                 "loaded again": page.evaluate(f"() => {live}.model !== window.shown"),
                 "measured": page.evaluate(f"() => {live}.engine.measurementCount()"),
@@ -170,9 +187,9 @@ def test_a_new_frame_moves_the_atoms_and_keeps_the_measurement(tmp_path) -> None
                           for a in hooks.atoms(page, resi=resi, atom="CA")],
                 "dssp": page.evaluate(f"() => {live}.secondaryStructure"),
                 "frame": overlay_state["frame"],
-                "step": overlay_state["step"],
                 "mode": overlay_state["mode"],
                 "live overlay": overlay_state["liveOverlay"],
+                "retained overlay": retained_overlay,
             }
 
             # A frame of other atoms is loaded whole.
@@ -192,7 +209,7 @@ def test_a_new_frame_moves_the_atoms_and_keeps_the_measurement(tmp_path) -> None
     distance = float(np.linalg.norm(expected[0] - expected[1]))
     assert f"{distance:.2f} Å" in moved["said"]
     assert moved["dssp"]["of"] == "live" and moved["dssp"]["applied"] is True
-    assert moved["frame"] == ""
-    assert moved["step"] in ("step 7,000", "step 7000"), moved
+    assert moved["frame"] in ("step 7,000", "step 7000"), moved
+    assert moved["retained overlay"]["after"] == moved["retained overlay"]["before"]
     assert reloaded is True
     assert errors == []

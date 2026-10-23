@@ -1171,7 +1171,6 @@
     // frame says its own again, live updates paused or not.
     if (STATE.mode === "structure") {
       setText("overlay-frame", "");
-      setText("overlay-step", "");
       setText("overlay-stage", "");
       setText("overlay-age", "");
       setText("overlay-simtime", "");
@@ -3732,32 +3731,22 @@
     setText("overlay-tag", shown ? "LIVE"
       : (STATE.mode === "playback" ? "PLAYBACK" : (ended ? "LAST FRAME" : "STATIC")));
     if (ended) setText("overlay-age", "");
-    // Empty status updates during playback change the tag, not the frame's
-    // time; the frame remains the overlay's source until another is shown.
-    if (Object.keys(info || {}).length) {
-      setText("overlay-stage", info?.stage ?? "");
-      // A live frame is named by the step it was written at, which is what
-      // the engine records; a frame of the trajectory by its place in it. Both
-      // read "frame" once, and the label flipped between the frames written
-      // and the step number as the two updates arrived.
-      if (info?.step != null) setText("overlay-frame", `step ${Number(info.step).toLocaleString()}`);
-      if (info?.frame != null) {
-        setText("overlay-frame", `frame ${info.frame}${info.total != null ? ` / ${info.total}` : ""}`);
-      } else if (info?.step == null) setText("overlay-frame", "");
-      // Main uses one label for the frame identity; clear the older separate
-      // step field when new frame data arrives so it cannot go stale.
-      setText("overlay-step", "");
-      setText("overlay-age", info?.age != null && !ended ? `age ${info.age}` : "");
-      if (info?.simtimeSaid) setText("overlay-simtime", info.simtimeSaid);
-      else if (info?.simtime != null) {
-        // In ps under 1 ns, as every page says a length: the last frame of a
-        // run of 2 ps read "0.002 ns" under a ruler in ps.
-        const ns = Number(info.simtime);
-        const said = Math.abs(ns) < 1 ? `${+(ns * 1000).toFixed(1)} ps` : `${ns.toFixed(3)} ns`;
-        setText("overlay-simtime", `${info.simtimeOf ? info.simtimeOf + " " : ""}${said}`);
-      } else {
-        setText("overlay-simtime", "");
-      }
+    if (info?.stage != null) setText("overlay-stage", info.stage);
+    // One label names either the step at which a live frame was written or
+    // the frame's place in a trajectory. A status poll carries neither, so
+    // it leaves the frame last shown in place.
+    if (info?.step != null) setText("overlay-frame", `step ${Number(info.step).toLocaleString()}`);
+    if (info?.frame != null) {
+      setText("overlay-frame", `frame ${info.frame}${info.total != null ? ` / ${info.total}` : ""}`);
+    }
+    if (info?.age != null && !ended) setText("overlay-age", `age ${info.age}`);
+    if (info?.simtimeSaid) setText("overlay-simtime", info.simtimeSaid);
+    else if (info?.simtime != null) {
+      // In ps under 1 ns, as every page says a length: the last frame of a
+      // run of 2 ps read "0.002 ns" under a ruler in ps.
+      const ns = Number(info.simtime);
+      const said = Math.abs(ns) < 1 ? `${+(ns * 1000).toFixed(1)} ps` : `${ns.toFixed(3)} ns`;
+      setText("overlay-simtime", `${info.simtimeOf ? info.simtimeOf + " " : ""}${said}`);
     }
     tidyOverlay();
   }
