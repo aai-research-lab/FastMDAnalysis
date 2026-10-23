@@ -282,6 +282,8 @@ def test_a_refused_replace_is_retried_only_on_windows(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "replace", sometimes_refused)
     waits = []
     monkeypatch.setattr(trajectory_frames.time, "sleep", waits.append)
+    monkeypatch.setattr(trajectory_frames, "os", types.SimpleNamespace(
+        name="posix", getpid=trajectory_frames.os.getpid))
 
     refusals["left"] = 1
     with pytest.raises(PermissionError):
