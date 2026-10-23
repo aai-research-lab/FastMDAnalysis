@@ -250,8 +250,8 @@ def _solvate_with_room_for_the_cutoff(
     below that a particle sees its own image and the physics is wrong, which
     is why OpenMM refuses. Padding is measured from the solute, and a
     dodecahedron's smallest dimension is shorter than a cube's for the same
-    padding, so a small solute at the default 1.0 nm padding and 1.0 nm
-    cutoff now lands under the limit where a cube did not.
+    padding, so a small solute at 1.0 nm of padding (the default before
+    2.0 nm) and a 1.0 nm cutoff lands under the limit where a cube did not.
 
     Growing the padding is the only remedy that keeps what was asked for:
     the alternative is shrinking the cutoff, which changes the physics rather
@@ -268,9 +268,9 @@ def _solvate_with_room_for_the_cutoff(
 
     Where the padding sizes the box (a solute smaller than the padding),
     the box grown to is the smallest the cutoff allows for any solute, and
-    it is grown to whatever the amount. The defaults, 1.0 nm of padding in
-    a dodecahedron with a 1.0 nm cutoff, need 1.56 nm for a peptide of a few
-    residues; refusing that stopped every such study at setup.
+    it is grown to whatever the amount. 1.0 nm of padding (the default before
+    2.0 nm) in a dodecahedron with a 1.0 nm cutoff needs 1.56 nm for a peptide
+    of a few residues; refusing that stopped every such study at setup.
     """
     kwargs = dict(add_solvent_kwargs)
     padding = float(padding_nm)
@@ -995,7 +995,7 @@ def prepare_system(
     # cutoff to be <= half the smallest box dimension, otherwise it raises a
     # cryptic NonbondedForce error at Context construction. Catch it here
     # with an actionable message. (This normally can't happen with the
-    # default 1.0 nm padding + 1.0 nm cutoff, but a user with a small
+    # default 2.0 nm padding + 1.0 nm cutoff, but a user with a small
     # padding or large cutoff could trip it.)
     if method_key in ("CutoffPeriodic", "PME", "Ewald"):
         box_vectors = modeller.topology.getPeriodicBoxVectors()
