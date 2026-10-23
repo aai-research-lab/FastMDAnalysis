@@ -1187,11 +1187,17 @@ def make_handler(
                 # The workspace's defaults offered as the form's: a setting
                 # left at one runs with it. A defaults file that is wrong is
                 # said, and the form offers FastMDXplora's own meanwhile.
-                try:
-                    payload = schema_payload(your_defaults(app_runtime))
-                except ConfigError as exc:
+                # Bound beyond loopback the folder's file is neither shown
+                # nor said, as `/api/defaults-file` refuses it there: its
+                # values, its path and a refusal of it are the workspace's.
+                if not allow_control:
                     payload = schema_payload()
-                    payload["defaults_refused"] = str(exc)
+                else:
+                    try:
+                        payload = schema_payload(your_defaults(app_runtime))
+                    except ConfigError as exc:
+                        payload = schema_payload()
+                        payload["defaults_refused"] = str(exc)
                 # Where a results folder named rather than pathed will land.
                 # The page can then say it instead of leaving somebody to
                 # guess which directory "analysis_output" is relative to.

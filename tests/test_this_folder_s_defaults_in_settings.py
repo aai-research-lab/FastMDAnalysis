@@ -86,6 +86,54 @@ def test_a_service_s_guests_neither_read_nor_write_it(tmp_path):
     assert where.read_text(encoding="utf-8") == "setup:\n  ph: 7.0\n"
 
 
+def _schema(study, *, allow_control):
+    import threading
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.server import make_handler
+
+    runtime = DashboardRuntime(workspace_root=study.parent, exploration_root=study.parent)
+    # Bound to loopback either way: the flag is what the gate reads.
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(
+        study.parent, runtime=runtime, allow_control=allow_control))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{httpd.server_address[1]}/api/schema", timeout=30) as answer:
+            return json.loads(answer.read())
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_beyond_loopback_the_schema_neither_shows_nor_says_the_folder_s_file(tmp_path):
+    """Beyond loopback `/api/defaults-file` refuses the folder's file, yet
+    `/api/schema` gave every value it sets and, for a refused file, the
+    refusal with the file's path: New study said it to anyone on the
+    network. There the form offers FastMDXplora's own values, with nothing
+    said of the file."""
+    study = _study(tmp_path / "person" / "study")
+    where = study.parent / "fastmdx-defaults.yml"
+    where.write_text("setup:\n  ph: 6.5\n", encoding="utf-8")
+
+    def ph(schema):
+        return next(f for f in schema["phases"]["setup"]["fields"] if f["name"] == "ph")
+
+    here = _schema(study, allow_control=True)
+    public = _schema(study, allow_control=False)
+    assert ph(here)["default"] == 6.5 and ph(here)["default_from"] == "fastmdx-defaults.yml"
+    assert ph(public)["default"] == 7.4 and "default_from" not in ph(public)
+    assert "fastmdx-defaults.yml" not in json.dumps(public)
+    where.write_text("setup:\n  mutations: [L99A]\n  ph: 6.5\n", encoding="utf-8")
+    here = _schema(study, allow_control=True)
+    public = _schema(study, allow_control=False)
+    assert str(where) in here["defaults_refused"]
+    assert "defaults_refused" not in public and str(where) not in json.dumps(public)
+    assert ph(public)["default"] == 7.4
+
+
 # --------------------------------------------------------------------------
 # In a browser
 # --------------------------------------------------------------------------
