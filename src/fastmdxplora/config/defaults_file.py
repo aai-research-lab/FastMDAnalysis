@@ -19,8 +19,9 @@ The rules, each for a reason:
   structure, ligand, mutations, chains and model it simulates, and every
   setting that names one structure's parts (a ligand's name and charge,
   residues by their numbers, the chain mutated, the bilayer's place in its
-  frame, the atoms a bias acts on). In the file, every new study made in
-  the folder would take them.
+  frame and its orientation checked by hand, a bias along variables chosen
+  for one system, the atoms a restraint or an analysis names, one study's
+  title). In the file, every new study made in the folder would take them.
 - **A continuation is left alone.** A study that continues another
   (`simulation.resume_from`) keeps that study's settings, and one prepared
   from another (`simulation.setup_from`) keeps its setup.
@@ -55,8 +56,8 @@ _CONTINUES = "says how one study continues another, with `simulation.resume_from
 _SIMULATES = "says what one study simulates, so every new study made here would simulate it"
 _LIGAND_NAMED = ("names one study's ligand, so every new study made here would give its own "
                  "ligand that name")
-_BIASED = ("names one structure's atoms in its variables, so every new study made here would "
-           "be biased by them")
+_BIASED = ("biases one study's system along variables chosen for it, so every new study made "
+           "here would be biased along them")
 _ONE_STUDY_SAID = {
     "simulation.resume_from": ("names the study one study continues, so every new study "
                                "made here would continue it"),
@@ -88,15 +89,87 @@ _ONE_STUDY_SAID = {
                              "study made here would set the states of those numbers in its own"),
     "setup.membrane_center_z_nm": ("says where the bilayer's centre is in one structure's "
                                    "own frame, so every new study made here would put it there"),
+    "setup.membrane_orientation_checked": (
+        "says one structure was oriented by hand and turns off the membrane's stops, so "
+        "every new study made here would have its bilayer built at whatever angle its "
+        "own structure lies"),
     "simulation.dashboard_ligand_resname": ("names one study's ligand for the dashboard, so "
                                             "every new study made here would look for it"),
     "simulation.umbrella": _BIASED,
     "simulation.steered": _BIASED,
     "simulation.metadynamics": _BIASED,
-    "simulation.plumed": ("is one system's PLUMED input, whose variables name that system's "
-                          "atoms, so every new study made here would be biased by it"),
+    "simulation.plumed": ("is one system's PLUMED input, which biases it along variables "
+                          "chosen for it, so every new study made here would be biased by it"),
+    # A report's residues by number and its title are one study's too.
+    "report.region_highlights": ("names residues as one structure numbers them, so every "
+                                 "new study made here would highlight those numbers in its "
+                                 "own figures"),
+    "report.title": "is one study's title, so every new study made here would be titled so",
 }
 _ONE_STUDY_S = tuple(_ONE_STUDY_SAID)
+#: The analyses' options of one study, by `<analysis>.<option>`, or by the
+#: option alone where every analysis that takes it means the same by it:
+#: the atoms of one structure, its ligand, its residues by number and its
+#: own files. A selection of a kind every structure has (`protein`, `name
+#: CA`, `water and name O`) is a lab's, and stays.
+_LIGAND_OPTION = ("names one study's ligand, so every new study made here would look for "
+                  "that residue in its own")
+_ONE_STUDY_OPTIONS = {
+    "pair_distance.selection_a": ("names atoms of one structure, so every new study made "
+                                  "here would measure that distance in its own"),
+    "pair_distance.selection_b": ("names atoms of one structure, so every new study made "
+                                  "here would measure that distance in its own"),
+    "ligand_resname": _LIGAND_OPTION,
+    "pl_interactions.ligand_net_charge": ("says one ligand's formal charge, so every new "
+                                          "study made here would read its own ligand's "
+                                          "interactions with that charge"),
+    "pl_interactions.ligand_chemistry": ("names one ligand's chemistry file, so every new "
+                                         "study made here would read its own ligand's bonds "
+                                         "from it"),
+    "order_parameters.reference": ("names one protein's measured order parameters, by its "
+                                   "residue numbers, so every new study made here would be "
+                                   "compared with them"),
+    "order_parameters.reference_exclude": ("names residues as one structure numbers them, "
+                                           "so every new study made here would leave those "
+                                           "numbers out of its comparison"),
+    "bfactor_comparison.structure": ("names one structure's deposited file, so every new "
+                                     "study made here would compare its own fluctuations "
+                                     "with it"),
+    "thermodynamics.state_csv": ("names one study's own state record, so every new study "
+                                 "made here would read it under its own name"),
+}
+#: Restraints of these kinds name particular atoms; a position restraint
+#: on a selection (`protein and not element H`) is a lab's, and stays.
+_RESTRAINT_OF_ATOMS = ("distance", "angle", "torsion")
+_RESTRAINT_SAID = ("holds a restraint of kind {kind} on particular atoms of one structure, "
+                   "so every new study made here would hold those atoms in its own")
+
+
+def _one_study_s(block: str, key: str, value: Any) -> tuple[str, str] | None:
+    """The setting of one study ``block.key`` gives, as (dotted name, what it
+    says of that study), or None: the setting itself, an option of an
+    analysis in `analysis.options`, or a restraint that names atoms."""
+    name = f"{block}.{key}"
+    if name in _ONE_STUDY_SAID:
+        return name, _ONE_STUDY_SAID[name]
+    if name == "analysis.options" and isinstance(value, dict):
+        for analysis, given in value.items():
+            if not isinstance(given, dict):
+                continue
+            for option in given:
+                said = (_ONE_STUDY_OPTIONS.get(f"{analysis}.{option}")
+                        or _ONE_STUDY_OPTIONS.get(str(option)))
+                if said:
+                    return f"{name}.{analysis}.{option}", said
+    if name == "simulation.restrain":
+        blocks = [value] if isinstance(value, dict) else value
+        for entry in blocks if isinstance(blocks, list) else []:
+            kind = str(entry.get("kind", "position")).lower() if isinstance(entry, dict) else ""
+            if kind in _RESTRAINT_OF_ATOMS:
+                return name, _RESTRAINT_SAID.format(kind=kind)
+    return None
+
+
 #: The rule, as a refusal says it.
 _THE_RULE = ("A folder's defaults say how studies are run, never what is simulated or "
              "which study's files are read")
@@ -215,11 +288,12 @@ def read_defaults(path: str | Path) -> YourDefaults:
                 f"{where}: `{key}` is a mapping of settings.",
                 code="config.option.wrong_type", option=str(key), context=DEFAULTS_FILE,
                 expected_type="mapping", found_type=type(data[key]).__name__)
-        for setting in data[key]:
-            name = f"{key}.{setting}"
-            if name in _ONE_STUDY_SAID:
+        for setting, value in data[key].items():
+            one = _one_study_s(key, str(setting), value)
+            if one is not None:
+                name, said = one
                 raise ConfigError(
-                    f"{where} sets `{name}`, which {_ONE_STUDY_SAID[name]}. {_THE_RULE}: "
+                    f"{where} sets `{name}`, which {said}. {_THE_RULE}: "
                     "it belongs in that study's config.",
                     code="config.option.inapplicable", option=name, context=DEFAULTS_FILE)
     try:

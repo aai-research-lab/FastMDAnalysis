@@ -124,7 +124,7 @@ def test_this_folder_says_every_setting_with_fastmdxplora_s_own(tmp_path):
     # mappings is not drawn, and is changed in the file by hand.
     assert fields["simulation.restraint_release"]["items"] == "number"
     assert fields["setup.force_field"]["items"] == "text"
-    assert fields["report.region_highlights"]["control"] == ""
+    assert fields["analysis.options"]["control"] == ""
     # Who chose a phase's settings is the study's record, and a setting of
     # one study (what it continues or is prepared from, the files it
     # analyses, what it simulates) is never a folder's: not offered.
@@ -137,7 +137,8 @@ def test_this_folder_says_every_setting_with_fastmdxplora_s_own(tmp_path):
                         "setup.mutation_chain", "setup.residue_states",
                         "setup.membrane_center_z_nm", "simulation.dashboard_ligand_resname",
                         "simulation.umbrella", "simulation.steered", "simulation.metadynamics",
-                        "simulation.plumed"):
+                        "simulation.plumed", "setup.membrane_orientation_checked",
+                        "report.region_highlights", "report.title"):
         assert one_study_s not in fields, one_study_s
 
 
@@ -195,7 +196,7 @@ def test_a_setting_of_several_values_the_file_holds_is_shown(tmp_path):
     said = defaults_said(tmp_path)
     fields = {f["name"]: f for f in said["fields"]}
     assert set(said["values"]) <= set(fields)
-    for several in ("simulation.stop_when", "analysis.options", "report.region_highlights"):
+    for several in ("simulation.stop_when", "analysis.options"):
         assert fields[several]["control"] == "", several
     assert said["values"]["simulation.stop_when"]["max_duration_ns"] == 50
 

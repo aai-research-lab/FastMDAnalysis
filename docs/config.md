@@ -156,10 +156,28 @@ starting coordinates come from (`setup.ligand_pose`), and every setting
 that names one structure's parts: a ligand's charge and name
 (`setup.ligand_net_charge`, `ligand_name`, `ligand_resname`,
 `simulation.dashboard_ligand_resname`), residues by their numbers
-(`setup.residue_states`), the chain mutated (`setup.mutation_chain`), the
-bilayer's place in the structure's frame (`setup.membrane_center_z_nm`)
-and the atoms a bias acts on (`simulation.umbrella`, `steered`,
-`metadynamics`, `plumed`).
+(`setup.residue_states`, `report.region_highlights`), the chain mutated
+(`setup.mutation_chain`), the bilayer's place in the structure's frame
+(`setup.membrane_center_z_nm`), a structure oriented by hand
+(`setup.membrane_orientation_checked`, which turns off the membrane's
+stops for a tilted structure and one with no apolar belt), a restraint of
+kind distance, angle or torsion in `simulation.restrain`, which names
+particular atoms, and one study's title (`report.title`). So are the
+biasing blocks (`simulation.umbrella`, `steered`, `metadynamics`,
+`plumed`), which bias one study's system along variables chosen for it,
+and the analyses' options of one structure in `analysis.options`: the
+atoms a distance is measured between (`pair_distance.selection_a`,
+`pair_distance.selection_b`), the ligand of any analysis
+(`ligand_resname`), its charge and chemistry
+(`pl_interactions.ligand_net_charge`, `pl_interactions.ligand_chemistry`),
+one protein's measured order parameters and the residues left out of
+their comparison (`order_parameters.reference`,
+`order_parameters.reference_exclude`), one structure's deposited file
+(`bfactor_comparison.structure`) and one study's state record
+(`thermodynamics.state_csv`). Position restraints on a selection, and the
+selections every structure has (`protein`, `name CA`, `water and name O`,
+as `rdf`, `coordination_number` and the ligand analyses' `protein_selection`
+take them), are a lab's.
 
 **Which file.** The nearest `fastmdx-defaults.yml` in the study's folder or
 a folder above it, as git finds its repository, stopping at your home

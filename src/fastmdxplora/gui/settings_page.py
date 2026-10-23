@@ -59,7 +59,7 @@ def _where(root: Path) -> Path:
 def _items(field: dict[str, Any]) -> str:
     """What a list setting holds, as This folder writes it from words split
     at commas: "number", "text", or "" where its items are not words (a
-    list of mappings, as the RMSF figure's regions)."""
+    list of mappings, as restraints written as blocks)."""
     example = field.get("example")
     if isinstance(example, list) and example:
         if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in example):
