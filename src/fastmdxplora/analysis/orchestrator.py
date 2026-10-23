@@ -303,8 +303,12 @@ class AnalysisOrchestrator:
             Also stored on ``self.results``.
         """
         from fastmdxplora.analysis import residues
-        residues._INSERTION_CODES.clear()
-        residues._INSERTION_CODES.update(self._insertion_codes)
+        # An orchestrator made without its constructor read no topology of
+        # its own, so it has no codes to put back and leaves the table be.
+        codes = getattr(self, "_insertion_codes", None)
+        if codes is not None:
+            residues._INSERTION_CODES.clear()
+            residues._INSERTION_CODES.update(codes)
 
         plan = self._build_plan(include, exclude, options)
         # The image check first, so its finding is there for every analysis
