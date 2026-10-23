@@ -180,10 +180,45 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   taken by every new study made in the folder: `mutations: [L99A]` mutated
   every protein, and `ligand_net_charge: -1` gave every ligand that charge.
 
+- A defaults file is refused, each with words of its own, where it sets a
+  structure oriented by hand (`setup.membrane_orientation_checked`, which
+  turned off the membrane's stops, so every new membrane study had its
+  bilayer built across its own structure at whatever angle it lay),
+  residues to highlight by number (`report.region_highlights`), one
+  study's title (`report.title`), a restraint of kind distance, angle or
+  torsion in `simulation.restrain`, or an analysis's option of one
+  structure in `analysis.options` (`pair_distance.selection_a` and
+  `selection_b`, any analysis's `ligand_resname`,
+  `pl_interactions.ligand_net_charge` and `ligand_chemistry`,
+  `order_parameters.reference` and `reference_exclude`,
+  `bfactor_comparison.structure`, `thermodynamics.state_csv`): every new
+  study measured the distance between the lab's residues 10 and 50 in its
+  own protein. Position restraints on a selection and the selections
+  every structure has stay a lab's, and the biasing blocks' refusal says
+  they bias one study's system along variables chosen for it.
+
 - New study says a defaults file that is refused, and why, above the form,
   with the way to Settings' This folder: the form showed FastMDXplora's own
   values with nothing said, so a file refused for one setting dropped all
   its values silently, and the study was refused only once it started.
+
+- New study says when the defaults file changed since its form was drawn
+  (in This folder, put right or refused), with Read the defaults again,
+  which draws the form from the file as it is: the fields said "Your
+  default 6.5" while the run took the file's 6.8, beside a note that could
+  say the opposite.
+
+- Bound beyond loopback, `/api/schema` sends no folder defaults and no
+  refusal of them, as `/api/defaults-file` refuses the file there: anyone
+  on the network was given the file's values and, for a refused file, its
+  path, and New study said them.
+
+- A change saved in This folder is shown set while the file is read
+  again: a read answered after it, with the file as it was, drew the row
+  empty and unset although the file held the value.
+
+- Analysis at 390 pixels: a quantity the same in every frame wraps between
+  its name and its value, where it scrolled the page sideways.
 
 - In a window 720 pixels tall, the Agent beside the page shrinks its
   opening words and scrolls them: they pushed its box and the line under it
