@@ -603,7 +603,8 @@ form keeps the defaults it was drawn with: where the file has changed since
 (in This folder, put right or refused), New study says so above the form,
 and **Read the defaults again** draws the form from the file as it is. Bound
 beyond loopback, the folder's file is neither shown nor said, as This
-folder is not offered there: the form offers FastMDXplora's own values. A
+folder is not offered there: the form offers FastMDXplora's own values,
+and the config handed back is drawn from them. A
 full config gives your default only to the systems that take it, and each
 run records your reason only where it took your value.
 

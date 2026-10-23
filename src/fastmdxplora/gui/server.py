@@ -2163,14 +2163,19 @@ def make_handler(
                 # says the values the run takes, and a value set back to
                 # FastMDXplora's own over yours is kept in the file. A
                 # defaults file that is wrong is said by the schema's route,
-                # and the file is written without it meanwhile.
+                # and the file is written without it meanwhile. Bound beyond
+                # loopback the folder's file is neither shown nor said, as the
+                # schema's route offers FastMDXplora's own values there: the
+                # config is drawn from those, as the form's fields are.
                 from fastmdxplora.config.loader import ConfigError
                 from fastmdxplora.gui.agent_panel import your_defaults
 
-                try:
-                    yours = your_defaults(app_runtime)
-                except ConfigError:
-                    yours = None
+                yours = None
+                if allow_control:
+                    try:
+                        yours = your_defaults(app_runtime)
+                    except ConfigError:
+                        yours = None
                 self._send_json(
                     config_yaml(request, full=bool(request.get("full")), defaults=yours)
                 )

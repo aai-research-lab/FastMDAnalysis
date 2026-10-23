@@ -134,6 +134,62 @@ def test_beyond_loopback_the_schema_neither_shows_nor_says_the_folder_s_file(tmp
     assert ph(public)["default"] == 7.4
 
 
+def _config(base, body):
+    import urllib.request
+
+    request = urllib.request.Request(base + "/api/config", data=json.dumps(body).encode("utf-8"),
+                                     method="POST", headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=120) as answer:
+        return json.loads(answer.read())
+
+
+def test_beyond_loopback_the_config_handed_back_neither_shows_nor_says_the_folder_s_file(tmp_path):
+    """`/api/config` is the one POST answered beyond loopback, and it drew
+    the config from the folder's file the schema there leaves out: New
+    study's fields said "Default 7.4" while its preview and command said
+    `ph: 6.5`, named the file and quoted its reason."""
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from fastmdxplora.gui.server import make_handler, start_dashboard_session
+
+    study = _study(tmp_path / "person" / "study")
+    (study.parent / "fastmdx-defaults.yml").write_text(
+        "setup:\n  ph: 6.5\nreport:\n  author: Lab Person\n"
+        "decisions:\n  setup.ph:\n    why: our assay buffer\n", encoding="utf-8")
+    body = {"pdb_id": "1UBQ", "full": True}
+
+    def answered(allow_control):
+        runtime = DashboardRuntime(workspace_root=study.parent, exploration_root=study.parent)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(
+            study.parent, runtime=runtime, allow_control=allow_control))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            return _config(f"http://127.0.0.1:{httpd.server_address[1]}", body)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def ph(answer):
+        return yaml.safe_load(answer["yaml"])["setup"]["ph"]
+
+    here = answered(True)
+    public = answered(False)
+    # Bound to an address beyond loopback, as `fastmdx gui --host` does.
+    started = start_dashboard_session(output=str(study), host="192.0.2.2", port=0)
+    try:
+        bound = _config(started.url, body)
+    finally:
+        started.stop()
+    assert here["ok"] and ph(here) == 6.5 and "our assay buffer" in json.dumps(here)
+    for answer in (public, bound):
+        said = json.dumps(answer)
+        assert answer["ok"] and ph(answer) == 7.4, answer["yaml"]
+        assert "fastmdx-defaults" not in said and "our assay buffer" not in said
+        assert "Lab Person" not in said
+
+
 # --------------------------------------------------------------------------
 # In a browser
 # --------------------------------------------------------------------------
