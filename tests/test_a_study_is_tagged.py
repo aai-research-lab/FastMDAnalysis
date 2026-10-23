@@ -276,7 +276,7 @@ def test_a_list_read_before_tags_were_kept_does_not_undo_them(workspace):
             page.click(f"{card} .study-tag-editor button:has-text('Save')")
             # Kept, not only put in the editor, whose own "kept" was found
             # before the server had answered (aailab01, one core, 10-21).
-            page.wait_for_selector("#dashboard-toast.show:has-text('Kept the tags')")
+            page.wait_for_selector("#dashboard-toast.show:has-text('Saved the tags')")
             page.wait_for_selector(f"{card} .study-tag:has-text('kept')")
             page.evaluate("async () => { window.letGo(); await window.lateList; }")
             shown = page.eval_on_selector_all(f"{card} .study-tag", "t => t.map((x) => x.textContent)")
@@ -343,7 +343,7 @@ def test_tags_kept_while_a_list_is_answered_are_shown(workspace):
             # The list answers first, then the save.
             page.evaluate("async () => { window.letList(); await window.lateList; }")
             page.evaluate("() => window.letSave()")
-            page.wait_for_selector("#dashboard-toast.show:has-text('Kept the tags')")
+            page.wait_for_selector("#dashboard-toast.show:has-text('Saved the tags')")
             shown = page.eval_on_selector_all(f"{card} .study-tag", "t => t.map((x) => x.textContent)")
             browser.close()
     finally:
