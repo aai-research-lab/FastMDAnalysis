@@ -1448,8 +1448,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "Each attempt is checked before anything runs, "
             "so they cost seconds rather than GPU time. Three is measured "
             "rather than guessed: on the recorded evaluation set, attempts "
-            "were capped at two with the schema's help text and three "
-            "without it."
+            "needed at most two attempts with the schema's help text and "
+            "three without it."
         ),
     )
 
@@ -3785,8 +3785,8 @@ def _choose_model() -> int:
         return 1
 
     env_name = str(PROVIDERS[picked]["env"])
-    print(f"API key (leave blank to read {env_name} from the environment "
-          "instead):")
+    print(f"API key (leave blank to keep a saved key for this same provider "
+          f"and URL; otherwise {env_name} is read at call time):")
     key = input("> ").strip()
 
     where = save_choice(ModelChoice(picked, model, base_url), key=key)
@@ -3795,7 +3795,9 @@ def _choose_model() -> int:
         print("  ✓ Key stored in the owner-only model settings file. It is never "
               "written into a study.")
     else:
-        print(f"  ✓ No key stored; {env_name} will be read at call time.")
+        print(f"  ✓ No key entered; a matching saved key is kept if present, "
+              f"and {env_name} is used if none is saved. It takes precedence "
+              "when set.")
     return 0
 
 

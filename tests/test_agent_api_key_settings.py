@@ -44,6 +44,40 @@ def test_an_openai_choice_and_key_are_saved_and_reloaded(tmp_path, monkeypatch):
         assert path.stat().st_mode & 0o077 == 0
 
 
+def test_blank_save_keeps_a_key_for_the_same_provider_and_url(tmp_path, monkeypatch):
+    from fastmdxplora.agent.models import ModelChoice, _key_for, save_choice
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    path = tmp_path / "model.json"
+    save_choice(ModelChoice("openai", "gpt-5"), key="saved-test-key", path=path)
+    save_choice(ModelChoice("openai", "gpt-5.1"), path=path)
+
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["model"] == "gpt-5.1"
+    assert record["api_key"] == "saved-test-key"
+    assert _key_for(ModelChoice("openai", "gpt-5.1"), path) == "saved-test-key"
+
+
+def test_blank_save_drops_a_key_for_another_provider_or_url(tmp_path, monkeypatch):
+    from fastmdxplora.agent.models import ModelChoice, save_choice
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FASTMDX_MODEL_API_KEY", raising=False)
+    path = tmp_path / "model.json"
+    save_choice(ModelChoice("openai", "gpt-5"), key="saved-test-key", path=path)
+    save_choice(ModelChoice("compatible", "model-x", "https://one.example/v1"),
+                path=path)
+    assert "api_key" not in json.loads(path.read_text(encoding="utf-8"))
+
+    save_choice(ModelChoice("compatible", "model-x", "https://one.example/v1"),
+                key="compatible-test-key", path=path)
+    save_choice(ModelChoice("compatible", "model-x", "https://two.example/v1"),
+                path=path)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["base_url"] == "https://two.example/v1"
+    assert "api_key" not in record
+
+
 def test_the_environment_key_wins_over_the_saved_key(tmp_path, monkeypatch):
     from fastmdxplora.agent.models import ModelChoice, _key_for, save_choice
 
@@ -122,6 +156,35 @@ def test_openai_models_are_listed_from_v1_models(tmp_path, monkeypatch):
     assert timeout == 10.0
 
 
+def test_model_discovery_does_not_repeat_a_failed_request_and_uses_written_models(
+        tmp_path, monkeypatch):
+    from fastmdxplora.agent.models import (
+        PROVIDERS,
+        ModelChoice,
+        list_model_options,
+        save_choice,
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    settings = tmp_path / "settings"
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", str(settings))
+    path = settings / "model.json"
+    choice = ModelChoice("openai", "gpt-5")
+    save_choice(choice, key="discovery-test-key", path=path)
+    calls = []
+
+    def failed_request(request, *, timeout):
+        calls.append((request, timeout))
+        raise OSError("offline")
+
+    monkeypatch.setattr("urllib.request.urlopen", failed_request)
+    found = list_model_options(choice)
+
+    fallback = tuple(PROVIDERS["openai"]["models"])
+    assert calls and len(calls) == 1
+    assert found == [{"id": model, "label": model} for model in fallback]
+
+
 def test_the_agent_model_command_saves_an_openai_choice(tmp_path, monkeypatch, capsys):
     from fastmdxplora.agent.models import ModelChoice, _key_for, load_choice
     from fastmdxplora.cli.main import main
@@ -129,15 +192,46 @@ def test_the_agent_model_command_saves_an_openai_choice(tmp_path, monkeypatch, c
     monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", str(tmp_path / "settings"))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr("fastmdxplora.agent.models.list_models", lambda *_a, **_kw: ("gpt-5",))
-    answers = iter(("1", "gpt-5", "cli-test-key"))
+    answers = iter(("1", "gpt-5", "cli-test-key", "1", "gpt-5.1", ""))
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
 
     assert main(["agent", "model"]) == 0
+    assert main(["agent", "model"]) == 0
     output = capsys.readouterr().out
     choice = load_choice()
-    assert choice == ModelChoice("openai", "gpt-5")
+    assert choice == ModelChoice("openai", "gpt-5.1")
     assert _key_for(choice) == "cli-test-key"
     assert "cli-test-key" not in output
+    assert "No key entered" in output
+    assert "a matching saved key is kept if present" in output
+    assert "OPENAI_API_KEY is used if none is saved" in output
+    assert "It takes precedence when set" in output
+
+
+def test_the_model_endpoint_keeps_a_key_when_only_the_model_changes(tmp_path, monkeypatch):
+    from fastmdxplora.agent import models
+    from fastmdxplora.gui.agent_panel import model_endpoint
+
+    settings = tmp_path / "settings"
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", str(settings))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FASTMDX_MODEL_API_KEY", raising=False)
+    monkeypatch.setattr(models, "list_model_options",
+                        lambda _choice: [{"id": "gpt-5", "label": "gpt-5"}])
+
+    first = model_endpoint({
+        "provider": "openai", "model": "gpt-5", "api_key": "endpoint-test-key",
+    })
+    second = model_endpoint({
+        "provider": "openai", "model": "gpt-5.1", "api_key": "",
+    })
+    stored = json.loads((settings / "model.json").read_text(encoding="utf-8"))
+
+    assert first["ok"] is True and first["key_set"] is True
+    assert second["ok"] is True and second["key_set"] is True
+    assert stored["model"] == "gpt-5.1"
+    assert stored["api_key"] == "endpoint-test-key"
+    assert "endpoint-test-key" not in json.dumps(first | second)
 
 
 def test_stale_model_json_is_ignored_then_replaced_without_legacy_fields(

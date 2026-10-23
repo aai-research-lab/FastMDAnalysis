@@ -182,21 +182,33 @@ def load_choice(path: Path | None = None) -> ModelChoice | None:
 
 def save_choice(choice: ModelChoice, *, key: str = "",
                 path: Path | None = None) -> Path:
-    """Store the choice, and the key if one was given.
+    """Store the choice and keep a key only within its provider and URL.
 
     The key goes in the same file because there is nowhere better that
     works on every platform without a dependency, and the file is owner-
     only. It is never copied anywhere else: :func:`as_record` does not
     carry it, and nothing writes this file into a study.
 
-    Giving no key is the ordinary case on a shared machine -- the choice is
-    stored, and the key comes from the environment at call time.
+    Giving no key keeps an existing saved key only when the provider and
+    base URL match this choice. Otherwise the new record has no key, and one
+    may come from the environment at call time. The key is never returned.
     """
     target = path or model_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     record: dict[str, str] = dict(choice.as_record())
     if key:
         record["api_key"] = key
+    else:
+        try:
+            previous = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            previous = {}
+        if isinstance(previous, dict):
+            previous_key = previous.get("api_key")
+            if (previous.get("provider") == choice.provider
+                    and previous.get("base_url", "") == choice.base_url
+                    and isinstance(previous_key, str) and previous_key):
+                record["api_key"] = previous_key
     target.write_text(json.dumps(record, indent=2), encoding="utf-8")
     try:
         target.chmod(0o600)

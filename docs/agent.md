@@ -109,8 +109,14 @@ the provider, model, optional base URL and API key outside the study. The key
 file is owner-only. An environment key takes precedence over a stored key, and
 a stored key is used only when the saved provider and base URL match the
 selected provider and server. The key is never returned to the page or written
-to a Config, Manifest, log or error message. Saving a new choice rewrites the
-file with its current fields; unrecognized legacy fields are dropped.
+to a Config, Manifest, log or error message. Leaving the key blank when saving
+keeps a key already saved for the same provider and URL; choosing another
+provider or URL drops it. This applies to Agent Settings and
+`fastmdx agent model`. To stop using a saved key, delete `api_key` from
+`model.json`, or set the provider's environment variable, which always takes
+precedence over the saved key. A key kept only in the removed sign-in vault is
+not migrated; set `OPENAI_API_KEY` or save the key again here. Unrecognized
+legacy fields are dropped.
 
 ### Where the key lives
 
