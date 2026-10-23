@@ -414,6 +414,37 @@ def test_a_read_asked_while_a_change_is_in_flight_does_not_undo_it(browser, sess
     assert yaml.safe_load(where.read_text(encoding="utf-8")) == {"setup": {"ph": 6.5}}
 
 
+def test_a_value_set_with_enter_is_sent_once_and_undone(browser, session):
+    """Enter sent the value, and the row drawn again from the answer took
+    the box away, which fired its change and sent the value again: Undo
+    then put back the value just set, so it undid nothing."""
+    started, where = session
+    ph = '.settings-field[data-name="setup.ph"]'
+    page = _open(browser, started.url)
+    page.click("#settings-scope-folder")
+    page.wait_for_selector(f"{ph} .settings-control")
+    posts = []
+    page.on("request", lambda r: posts.append(json.loads(r.post_data))
+            if r.method == "POST" and "/api/defaults-file" in r.url else None)
+    page.fill(f"{ph} .settings-control", "6.5")
+    page.press(f"{ph} .settings-control", "Enter")
+    page.wait_for_selector(f"{ph}.is-set:not([aria-busy]) .settings-undo")
+    page.wait_for_timeout(500)
+    sent = list(posts)
+    if sent != [{"set": {"setup.ph": 6.5}}]:
+        page.context.close()
+    assert sent == [{"set": {"setup.ph": 6.5}}], sent
+    page.click(f"{ph} .settings-undo")
+    page.wait_for_selector(f"{ph}:not(.is-set):not([aria-busy])")
+    page.wait_for_timeout(500)
+    text = where.read_text(encoding="utf-8")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+    assert posts[1:] == [{"unset": ["setup.ph"]}], posts
+    assert not text.strip() or yaml.safe_load(text) in (None, {}), text
+
+
 def test_a_file_with_comments_is_shown_and_not_written(browser, session):
     started, where = session
     where.write_text("simulation:\n  temperature_K: 305  # the lab's\n", encoding="utf-8")

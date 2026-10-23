@@ -382,15 +382,21 @@
         back.addEventListener("click", function () { change(field, { unset: [field.name] }); });
         side.appendChild(back);
       }
+      // Against the file as last said, not as this row was drawn: Enter
+      // sent it, and the row drawn again from the answer took the box away,
+      // which fired its change and sent it again, so Undo put back the
+      // value just set.
       var commit = function () {
+        var now = folder.said.values;
+        var held = Object.prototype.hasOwnProperty.call(now, field.name) ? now[field.name] : undefined;
         var wanted = taken(field, input);
         if (wanted instanceof Error) { refused(field.name, wanted.message); return; }
         if (wanted === undefined) {
-          if (value === undefined) return;
+          if (held === undefined) return;
           change(field, { unset: [field.name] });
           return;
         }
-        if (JSON.stringify(wanted) === JSON.stringify(value)) return;
+        if (JSON.stringify(wanted) === JSON.stringify(held)) return;
         var body = { set: {} };
         body.set[field.name] = wanted;
         change(field, body);
