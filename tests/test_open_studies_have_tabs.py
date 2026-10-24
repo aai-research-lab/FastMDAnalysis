@@ -694,6 +694,54 @@ def test_a_strip_moved_by_the_wheel_stays_put_through_a_redraw_before_it_scrolls
     assert left < 50, (moved, left)
 
 
+def test_an_external_switch_keeps_a_wheel_away_and_saves_the_page(browser, site):
+    """A delayed switch for the open study keeps the strip away and saves
+    its page while an older app-state response briefly has no run."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    key = "fmx.studyTabs:" + str(site["root"])
+    entries = {"tabs": [{"key": f"{n:016x}", "title": f"Study {n}", "page": "overview"} for n in range(10, 34)]
+               + [{"key": site["keys"][0], "title": "Alpha", "page": "overview"}]}
+    context.add_init_script("sessionStorage.setItem(" + json.dumps(key) + ", " + json.dumps(json.dumps(entries)) + ");")
+    page = _open(browser, site, context=context)
+    frames = "new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))"
+    try:
+        page.wait_for_function(IN_VIEW)
+        page.evaluate("window.FastMDXDashboard.navigate('analysis/rmsd')")
+        page.wait_for_function("location.hash === '#analysis/rmsd'")
+        page.evaluate(frames)
+        moved = page.evaluate("""storageKey => {
+            const dashboard = window.FastMDXDashboard;
+            const list = document.getElementById('study-tabs-list');
+            const before = list.scrollLeft;
+            list.dispatchEvent(new WheelEvent('wheel', {deltaY: -4000, bubbles: true, cancelable: true}));
+            const wheeled = list.scrollLeft;
+            const shown = dashboard.state.studyShown;
+            // Leave a stale saved route to prove the external switch saves
+            // the page being left before its next document loads.
+            const stored = JSON.parse(sessionStorage.getItem(storageKey));
+            stored.tabs.find(tab => tab.key === shown).page = 'overview';
+            sessionStorage.setItem(storageKey, JSON.stringify(stored));
+            // An older app-state read can arrive after the status which
+            // named the open study but before its external switch starts.
+            dashboard.applyAppState({});
+            const beforeSwitch = dashboard.state.studyShown;
+            const held = dashboard.beginStudySwitch();
+            const saved = JSON.parse(sessionStorage.getItem(storageKey)).tabs.find(tab => tab.key === shown);
+            return {before, wheeled, shown, beforeSwitch, held, page: saved.page};
+        }""", key)
+        page.evaluate(frames)
+        left = page.evaluate("document.getElementById('study-tabs-list').scrollLeft")
+        assert page.errors == []
+    finally:
+        page.context.close()
+    assert moved["before"] > 50 and moved["wheeled"] < 50, moved
+    assert moved["shown"] == site["keys"][0], moved
+    assert moved["beforeSwitch"] == moved["shown"], moved
+    assert moved["held"] == "", moved
+    assert moved["page"] == "analysis/rmsd", moved
+    assert left < 50, (moved, left)
+
+
 LAYOUT = """() => {
     const box = el => el && el.getClientRects().length ? el.getBoundingClientRect() : null;
     const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';

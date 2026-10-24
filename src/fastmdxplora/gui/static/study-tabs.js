@@ -304,12 +304,10 @@
       var restored = Array.from(list.querySelectorAll(selector)).find(function (el) { return el.dataset.studyKey === focusKey; });
       if (restored) restored.focus({preventScroll: true});
     }
-    // The open study's tab is kept in view as it changes or first shows,
-    // and as the names before it change (a study's id read late, a tab
-    // found gone): the strip's own box keeps its size then, so the
-    // observer on it does not see that.
-    if (active !== shownActive) { shownActive = active; following = true; showCurrent(); }
-    else if (following && !list.contains(document.activeElement)) showCurrent();
+    // Following keeps the open tab in view when it or earlier names change
+    // width. A delayed app-state read can clear its mark without changing
+    // the open key; only a change from a previously addressed key resets it.
+    if (following && !list.contains(document.activeElement)) showCurrent();
     if (tabsSized) {
       tabsSized.disconnect();
       Array.prototype.forEach.call(list.children, function (item) { tabsSized.observe(item); });
@@ -420,6 +418,9 @@
       if (!app.active_run && !pending) { active = ""; render(); }
     });
     api.on("study-addressed", function (study) {
+      var key = validKey(study.key) ? study.key : "";
+      if (shownActive !== null && key !== shownActive) following = true;
+      shownActive = key;
       if (!study.key && !pending) { active = ""; render(); }
       else remember(study.key, study.title, false, study.folder, study.gone);
     });
