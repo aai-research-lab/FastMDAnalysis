@@ -304,12 +304,10 @@
       var restored = Array.from(list.querySelectorAll(selector)).find(function (el) { return el.dataset.studyKey === focusKey; });
       if (restored) restored.focus({preventScroll: true});
     }
-    // The open study's tab is kept in view as it changes or first shows,
-    // and as the names before it change (a study's id read late, a tab
-    // found gone): the strip's own box keeps its size then, so the
-    // observer on it does not see that.
-    if (active !== shownActive) { shownActive = active; following = true; showCurrent(); }
-    else if (following && !list.contains(document.activeElement)) showCurrent();
+    // Following keeps the open tab in view when it or earlier names change
+    // width. A delayed app-state read can clear its mark without changing
+    // the open key; only a change from a previously addressed key resets it.
+    if (following && !list.contains(document.activeElement)) showCurrent();
     if (tabsSized) {
       tabsSized.disconnect();
       Array.prototype.forEach.call(list.children, function (item) { tabsSized.observe(item); });
@@ -420,18 +418,22 @@
       if (!app.active_run && !pending) { active = ""; render(); }
     });
     api.on("study-addressed", function (study) {
+      var key = validKey(study.key) ? study.key : "";
+      if (shownActive !== null && key !== shownActive) following = true;
+      shownActive = key;
       if (!study.key && !pending) { active = ""; render(); }
       else remember(study.key, study.title, false, study.folder, study.gone);
     });
     api.on("results-updated", function () { rememberShown(false); });
     api.on("study-opening", function (study) {
+      rememberShown(false);
       if (validKey(study.key)) closed = closed.filter(function (key) { return key !== study.key; });
       save();
     });
     // A switch asked another way is in flight: the strip is busy and
     // asks nothing more of the server until it is answered.
     api.on("study-switching", function (on) {
-      if (on && !pending) { pending = elsewhere = true; render(); }
+      if (on && !pending) { rememberShown(false); pending = elsewhere = true; render(); }
       else if (!on && elsewhere) { pending = elsewhere = false; render(); }
     });
     // A switch held on another way to a study: said here as well.
