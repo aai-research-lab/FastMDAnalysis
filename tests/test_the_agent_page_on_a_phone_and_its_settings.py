@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 GUI = Path(__file__).resolve().parents[1] / "src" / "fastmdxplora" / "gui"
 
 
@@ -57,6 +59,8 @@ def _page(pw, url, width, hash_="#agent"):
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(url + hash_, wait_until="domcontentloaded")
     page.wait_for_selector("#agent-request", state="visible")
+    if hash_ == "#agent":
+        _ready(page)
     return browser, page, errors
 
 

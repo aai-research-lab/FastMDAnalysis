@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 pytest.importorskip("playwright.sync_api")
 pytest.importorskip("mdtraj")
 
@@ -64,6 +66,7 @@ def test_a_question_typed_and_sent_is_answered_from_the_study(study, monkeypatch
         with sync_playwright() as pw:
             browser, page = _browser(pw)
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             # A file attached through the picker, opened on the study's folder.
             page.click("#agent-attach")
             page.wait_for_selector("#fastmdx-picker:not([hidden]) .fastmdx-picker-row")
@@ -129,6 +132,7 @@ def test_a_reply_by_tool_calls_shows_what_each_turn_was_sent(study, monkeypatch)
         with sync_playwright() as pw:
             browser, page = _browser(pw)
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             page.fill("#agent-request", "What does this study hold?")
             page.keyboard.press("Enter")
             page.wait_for_selector("#agent-thread .agent-answer")

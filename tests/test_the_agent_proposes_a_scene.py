@@ -19,6 +19,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora.agent.propose import _scene_in, prompt_for, propose_config
 
 
@@ -132,6 +134,7 @@ def test_the_person_writes_it_and_sees_it(study, monkeypatch):
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             page.fill("#agent-request", "Which residues move most?")
             page.keyboard.press("Enter")
             page.wait_for_selector("#agent-thread .agent-scene")
@@ -146,6 +149,7 @@ def test_the_person_writes_it_and_sees_it(study, monkeypatch):
             colour = page.evaluate("() => window.FastMDXMoleculeViewer.STATE.colorMode")
             # The thread kept says it was written.
             page.goto(session.url + "#agent")
+            _ready(page)
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector("#agent-thread .agent-scene")
             kept = page.text_content("#agent-thread .agent-scene-status")

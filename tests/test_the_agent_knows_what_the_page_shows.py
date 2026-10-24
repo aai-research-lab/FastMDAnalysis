@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora.agent.context import MOST_MENTIONS, mentions_in, named_in
 from fastmdxplora.agent.tools import Toolbox, current_view_tool
 from fastmdxplora.mcp.workspace import Workspace
@@ -288,6 +290,7 @@ def test_names_chips_and_a_plan_s_ticks_in_a_browser(tmp_path, monkeypatch):
         with sync_playwright() as pw:
             browser, page = _browser(pw)
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             page.fill("#agent-request", "Did @rmsd settle? Write to a@b.org about @study.")
             page.wait_for_selector("#agent-mentions:not([hidden]) .agent-chip")
             chips = page.locator("#agent-mentions .agent-chip").all_text_contents()

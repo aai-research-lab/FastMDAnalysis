@@ -18,6 +18,8 @@ import urllib.request
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora.gui.plan import changes_between, plan_of, sourced
 
 STUDY = {"systems": [{"id": "trpcage_1L2Y", "system": "1L2Y"}],
@@ -271,6 +273,7 @@ def _page(pw, url):
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(url + "#agent", wait_until="domcontentloaded")
+    _ready(page)
     page.wait_for_selector("#agent-thread .agent-study:not([hidden])")
     return browser, page, errors
 

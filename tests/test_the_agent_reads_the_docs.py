@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora import software_docs
 from fastmdxplora.agent.tools import LOOK_WORDS, MOST_SAID, Toolbox, look_said
 from fastmdxplora.software_docs import DocsNotFound, read_docs
@@ -947,6 +949,7 @@ def test_useful_and_wrong_are_line_icons_named_and_filled_when_pressed(session) 
             page.set_default_timeout(30000)
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             page.wait_for_selector("#agent-request", state="visible")
             page.route("**/api/agent/propose*", lambda route: route.fulfill(
                 status=200, content_type="application/json", body=json.dumps(reply)))

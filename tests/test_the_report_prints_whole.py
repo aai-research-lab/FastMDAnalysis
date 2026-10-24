@@ -115,7 +115,8 @@ def test_printed_it_is_the_document_alone_in_black_on_white(browser, sessions) -
             return {
                 sidebar: shown('.sidebar'), log: shown('#side-panel'),
                 notices: shown('#report-notices'), buttons: shown('#report-downloads'),
-                document: shown('#report-document'),
+                document: shown('#report-document'), loading: shown('.loading-screen'),
+                filter: getComputedStyle(document.querySelector('.app-shell')).filter,
                 ink: getComputedStyle(doc.querySelector('h2')).color,
                 ground: getComputedStyle(document.body).backgroundColor,
                 // Declared on :root from the accents; a page printed as it
@@ -124,7 +125,7 @@ def test_printed_it_is_the_document_alone_in_black_on_white(browser, sessions) -
             };
         }""")
         assert shown == {"sidebar": False, "log": False, "notices": False,
-                         "buttons": False, "document": True,
+                         "buttons": False, "document": True, "loading": False, "filter": "none",
                          "ink": "rgb(0, 0, 0)", "ground": "rgb(255, 255, 255)",
                          "done": "#17703f"}
     finally:
@@ -159,6 +160,9 @@ def test_printed_to_a_pdf_it_is_the_report_to_its_last_line_and_nothing_over_it(
         pytest.skip("pdftotext reads the PDF's text")
     page = _report(browser, sessions["without"])
     try:
+        # The report can arrive before the telemetry checklist finishes.
+        # Print during that state as well, not only after its overlay fades.
+        page.evaluate("document.body.classList.add('state-loading')")
         page.emulate_media(media="print")
         page.pdf(path=str(tmp_path / "report.pdf"))
     finally:

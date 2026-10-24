@@ -18,6 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora.agent.models import PROVIDERS, ModelChoice, completion_for
 from fastmdxplora.refusals import StudyError
 
@@ -225,6 +227,7 @@ def test_the_page_shows_it_and_stops_it(tmp_path, monkeypatch) -> None:
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             page.fill("#agent-request", "Tell me a long story.")
             page.keyboard.press("Enter")
             # Written into the thread as it arrives, without its marker.

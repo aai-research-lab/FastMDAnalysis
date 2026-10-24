@@ -16,6 +16,8 @@ import urllib.request
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 pytest.importorskip("playwright.sync_api")
 
 CHOICES = ["2VB1 hen egg-white, X-ray 0.65 Å, 2007", "2LZM T4 phage, X-ray 1.7 Å, 1987",
@@ -61,6 +63,7 @@ def _page(pw, url):
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(url + "#agent", wait_until="domcontentloaded")
+    _ready(page)
     return browser, page, errors
 
 

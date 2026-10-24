@@ -120,11 +120,12 @@ def batch_manifest(batch_dir: str | Path) -> dict[str, Any]:
     study where the read is (the Compare page), as pathlib elsewhere.
     Raises OSError or ValueError where it cannot be read."""
     from fastmdxplora import record_access
+    from fastmdxplora.refusals import StudyError
 
     manifest = json.loads(record_access.read_text(Path(batch_dir) / "batch_manifest.json",
                                                   encoding="utf-8"))
     if not isinstance(manifest, dict):
-        raise ValueError("a batch manifest is an object")
+        raise StudyError("a batch manifest is an object", code="batch.manifest.invalid")
     return manifest
 
 

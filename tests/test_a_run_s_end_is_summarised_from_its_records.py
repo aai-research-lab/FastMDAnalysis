@@ -19,6 +19,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora.gui import records_answer
 from fastmdxplora.gui.agent_panel import run_summary_endpoint
 from tests.test_the_agent_answers_from_the_records import SUPPORTED, _study
@@ -351,6 +353,7 @@ def _page(pw, url):
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(url + "#agent", wait_until="domcontentloaded")
+    _ready(page)
     return browser, page, errors
 
 

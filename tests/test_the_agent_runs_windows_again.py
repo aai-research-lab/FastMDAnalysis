@@ -19,6 +19,8 @@ from unittest import mock
 
 import pytest
 
+from tests.test_a_conversation_follows_a_run_that_wrote_nothing import _ready
+
 from fastmdxplora.agent.propose import _windows_in
 from fastmdxplora.batch import explorer as explorer_module
 from fastmdxplora.batch.explorer import BatchExplorer
@@ -261,6 +263,7 @@ def test_the_agent_asks_then_runs_them(study, monkeypatch) -> None:
                 route.fulfill(json={"ok": True})
             page.route("**/api/fix", answer)
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
+            _ready(page)
             page.fill("#agent-request", "rerun window 2 at 6000")
             page.keyboard.press("Enter")
             page.wait_for_selector("#agent-thread .agent-confirm")

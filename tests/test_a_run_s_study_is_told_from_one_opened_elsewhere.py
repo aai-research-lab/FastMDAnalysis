@@ -28,7 +28,20 @@ from tests.test_a_conversation_follows_a_run_that_wrote_nothing import (  # noqa
     _page_on,
     _say,
 )
-from tests.test_open_studies_have_tabs import _builder, _open, browser, site  # noqa: F401
+from tests.test_open_studies_have_tabs import _builder, _open, site  # noqa: F401
+
+
+@pytest.fixture
+def browser():
+    # A module-wide Sync API session would still be running when a later
+    # test calls _page_on, which starts its own Playwright session.
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        launched = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        yield launched
+        launched.close()
+
 
 #: Each thing the page's notice says, in order, as it is shown.
 _HEARD = """() => {
