@@ -614,7 +614,6 @@
         // study switch already in flight is still observed before the run's
         // later status replaces it.
         if (number < state.statusAsked) return;
-        state.statusAsked = number;
       } else if (number < state.pollApplied) return;
       if (result.status === "rejected") {
         state.apiErrors[name] = String(result.reason || "request failed");
@@ -626,6 +625,7 @@
       const payload = result.value;
       if (name === "app") safeApply(name, () => applyAppState(payload));
       if (name === "status") {
+        state.statusAsked = number;
         safeApply(name, () => applyStatus(payload));
       }
       // A record of the study not read (a link out of it) is said so,
