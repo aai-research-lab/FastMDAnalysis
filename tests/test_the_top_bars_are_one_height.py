@@ -86,7 +86,8 @@ def test_the_three_bars_are_one_height_on_every_page(tmp_path):
             assert bars["header"] == bars["tabs"] == bars["brand"], (name, bars)
         else:
             assert bars["strip"] == bars["tabs"] == bars["brand"], (name, bars)
-            assert bars["header"][0] == round(bars["strip"][1]), (name, bars)
+            assert bars["strip"][1] - bars["strip"][0] == 52, (name, bars)
+            assert abs(bars["header"][0] - bars["strip"][1]) <= 1, (name, bars)
         assert bars["header"][1] - bars["header"][0] == 52, (name, bars)
         assert bars["titleBar"] == 52 and abs(bars["under"]) <= 1, (name, bars)
         assert abs(bars["offCentre"]) <= 1, (name, bars)
