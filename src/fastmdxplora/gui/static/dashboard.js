@@ -607,6 +607,15 @@
 
     function applyResponse(result, index) {
       const name = names[index];
+      if (state.addressAsking) return;
+      if (name === "status") {
+        // A newer app-state response may arrive before this poll's status.
+        // Keep status responses ordered against other status reads, so a
+        // study switch already in flight is still observed before the run's
+        // later status replaces it.
+        if (number < state.statusAsked) return;
+        state.statusAsked = number;
+      } else if (number < state.pollApplied) return;
       if (result.status === "rejected") {
         state.apiErrors[name] = String(result.reason || "request failed");
         console.warn(`dashboard ${name} request failed`, result.reason);
@@ -617,7 +626,6 @@
       const payload = result.value;
       if (name === "app") safeApply(name, () => applyAppState(payload));
       if (name === "status") {
-        state.statusAsked = number;
         safeApply(name, () => applyStatus(payload));
       }
       // A record of the study not read (a link out of it) is said so,
@@ -645,7 +653,6 @@
     applyResponse(first, 0);
     await Promise.all(responses.slice(1).map(async (response, index) => {
       const result = await response;
-      if (state.addressAsking || number < state.pollApplied) return;
       applyResponse(result, index + 1);
     }));
 
@@ -1340,11 +1347,15 @@
     } catch (error) {
       return;
     }
-    if (state.addressAsking || number < state.pollApplied) return;
-    state.pollApplied = number;
-    safeApply("app", () => applyAppState(app));
-    state.statusAsked = number;
-    safeApply("status", () => applyStatus(payload));
+    if (state.addressAsking) return;
+    if (number >= state.pollApplied) {
+      state.pollApplied = number;
+      safeApply("app", () => applyAppState(app));
+    }
+    if (number >= state.statusAsked) {
+      state.statusAsked = number;
+      safeApply("status", () => applyStatus(payload));
+    }
   }
 
   /* The studies the runs this page started went to, by key, for the page's
